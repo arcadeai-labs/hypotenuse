@@ -269,6 +269,28 @@ cd cli && bun run build                       # compiled binary at dist/hypotenu
 curl localhost:8080/api/actions/permissions   # every action's RBAC level
 ```
 
+## Working on this repository as an agent
+
+Lessons from building it, kept here so the next session starts with them.
+
+- **One phase, one PR.** Branch `phase-NN-<slug>` from `main`, build the phase, tick its Definition of done, write its
+  **Learnings from the build**, and update this file and the live docs in the same PR. Each phase ends reviewable.
+- **A mechanism described in two docs drifts.** Every review finding on the planning PR was one doc saying something
+  another had already changed: the MCP token path in `ARCHITECTURE.md` against the MCP plan, or a lock rule in
+  `CONFIG.md` against the daemon plan. When you change how something works, grep `docs/` for every place that
+  describes it (`rg -n "<name>" docs AGENTS.md`) and fix them all in the same commit.
+- **Enumerate every state.** A rule written as "if A and B, then X; if neither, then Y" leaves the two mixed cases
+  undefined, and a reviewer will find them. Write state rules as a table with one row per combination.
+- **Edit docs by exact anchor, never by first substring.** A script that finds `## Learnings from the build` by
+  `str.index` matches the first mention, which may be inside a table, and silently truncates the doc. Anchor on
+  `"\n## Heading\n"`, assert it occurs exactly once, and run `bun test __tests__/docs` in `backend/` after any
+  scripted doc edit.
+- **Sandboxed sessions:** GitHub's tarball API and settings APIs may be refused (finear is fetched with `git` for
+  this reason; branch protection needs an admin); GitHub GraphQL may be unavailable (resolve review threads through
+  the REST routes the error message names); `bun install` inside `docker build` may fail on an intercepting proxy
+  (CI's Docker jobs are then the proof). Say so in the phase's learnings rather than working around a refusal.
+- **Signatures and footers** follow the repository owner's global rules for commits and PR text.
+
 ## Where the detail lives
 
 | Topic | Doc |
