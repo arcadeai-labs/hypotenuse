@@ -20,7 +20,8 @@ is [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md). The reasoning behind each d
 builds it, in [`docs/plans/`](./docs/plans/README.md). Every doc there ends in a **Learnings from the build** section,
 and that is where to read before changing something load-bearing, and where to write when you learn something new.
 
-> **Status:** planned, not built. Every phase in [`docs/plans/`](./docs/plans/README.md) is a plan; no code exists yet.
+> **Status:** being built, one phase at a time — see [`docs/plans/README.md`](./docs/plans/README.md) for which phases
+> have shipped.
 > The plumbing for users, projects, RBAC, audit, the frontend shell, and the operator CLI is ported from
 > [ToolExec](https://github.com/arcadeai-labs/toolexec); distribution and self-upgrade are ported from
 > [mcpx](https://github.com/arcadeai-labs/mcpx).
@@ -118,7 +119,13 @@ cd backend && cp .env.example .env
 cd ../frontend && cp .env.example .env
 ```
 
-One `.env` covers development and test: `loadFromEnvIfSet` checks `${VAR}_${NODE_ENV}` before `${VAR}`.
+One `.env` covers development and test: `loadFromEnvIfSet` checks `${VAR}_${NODE_ENV}` before `${VAR}`. If `$USER` is
+unset (some containers), node-postgres cannot pick a role from `postgres://localhost/…` — put the user in the URL in
+your local `.env`.
+
+**finear** is fetched, not installed: `bun run --cwd backend finear:fetch` clones it at the commit pinned in
+`backend/scripts/fetch-finear.ts` into `backend/.finear/` (gitignored), and `bun run test` in `backend/` does that
+first. Bump the pin deliberately, in its own commit.
 `bun run workspace:setup` gives a worktree its own test database, Redis index, and ports when several checkouts run
 at once.
 
@@ -252,7 +259,8 @@ bun run ngrok                                 # public URL for real Linear webho
 bun run lint                                  # tsc + biome, every workspace
 bun run test                                  # every workspace (not `bun test` at the root)
 
-cd backend && bun test                        # real server + finear
+cd backend && bun run test                    # fetches finear, then real server + finear
+cd backend && bun test path/to/file.test.ts   # one file (after a first `bun run finear:fetch`)
 cd cli && bun test                            # CLI + daemon unit tests
 bun run --cwd cli hypotenuse --help
 bun run --cwd cli hypotenuse config validate -c ./examples/config.toml
