@@ -1,9 +1,10 @@
 import { expect, test } from "@playwright/test";
+import { signUp } from "./session.ts";
 
 test("the sidebar collapses to icons with [ and with its toggle, and stays collapsed", async ({
   page,
 }) => {
-  await page.goto("/home");
+  await signUp(page, "Shell Shay");
   const sidebar = page.getByTestId("sidebar");
   await expect(sidebar).toBeVisible();
   await expect(sidebar).not.toHaveAttribute("data-collapsed", "true");
@@ -23,7 +24,7 @@ test("the sidebar collapses to icons with [ and with its toggle, and stays colla
 
 test("below 768px the sidebar is a sheet", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto("/home");
+  await signUp(page, "Shell Shay");
   await expect(page.getByTestId("sidebar")).toBeHidden();
   await page.getByTestId("sidebar-open").click();
   await expect(page.getByTestId("sidebar")).toBeVisible();

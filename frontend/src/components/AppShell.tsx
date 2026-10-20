@@ -12,10 +12,13 @@ import {
   type Command,
   type CommandContext,
 } from "../commands/registry";
+import { useAuth } from "../context/AuthContext";
 import { useTheme } from "../context/ThemeContext";
+import { useProjectStanding } from "../hooks/useProjectStanding";
 import { Mark, Sheet } from "../ui";
 import { CommandPalette } from "../ui/CommandPalette";
 import { ShortcutSheet } from "../ui/ShortcutSheet";
+import { can } from "../utils/permissions";
 import { Sidebar } from "./shell/Sidebar";
 
 /** localStorage key for the collapsed sidebar. */
@@ -55,7 +58,8 @@ function useNarrow(): boolean {
 
 /**
  * The signed-in frame: sidebar, main column, command palette, shortcut sheet,
- * and the one global key listener. Below 768px the sidebar lives in a sheet
+ * and the one global key listener. It renders inside `ProtectedRoute`, so a
+ * session always exists here. Below 768px the sidebar lives in a sheet
  * behind a top bar's menu button. It is mounted in exactly one place at a time,
  * so its test ids never resolve twice.
  * @returns The shell around the routed page.
@@ -63,6 +67,13 @@ function useNarrow(): boolean {
 export function AppShell() {
   const navigate = useNavigate();
   const { setPreference } = useTheme();
+  const { permissions } = useAuth();
+  const standing = useProjectStanding();
+  const may = useCallback(
+    (actionName: string) =>
+      standing !== null && can(permissions, actionName, standing),
+    [permissions, standing],
+  );
   const [collapsed, setCollapsed] = useState(readCollapsed);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
@@ -91,8 +102,9 @@ export function AppShell() {
       showShortcuts: () => setShortcutsOpen(true),
       focusSearch: () =>
         document.querySelector<HTMLElement>("[data-search]")?.focus(),
+      may,
     }),
-    [navigate, setPreference, toggleSidebar],
+    [navigate, setPreference, toggleSidebar, may],
   );
   const commands = useMemo(() => availableCommands(COMMANDS, ctx), [ctx]);
   const run = useCallback((command: Command) => command.run(ctx), [ctx]);

@@ -1,6 +1,9 @@
 import { ChevronUp, Monitor, Moon, Sun } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { useAuth } from "../../context/AuthContext";
 import { type ThemePreference, useTheme } from "../../context/ThemeContext";
+import { initials } from "../../ui";
 
 const THEME_OPTIONS: Array<{
   value: ThemePreference;
@@ -13,14 +16,16 @@ const THEME_OPTIONS: Array<{
 ];
 
 /**
- * The account menu at the foot of the sidebar: the theme control and sign-out.
- * Sign-out is disabled, not absent, until there is a session to end, so one
- * selector resolves in both states.
- * @param props - `collapsed` draws only the trigger icon.
+ * The account menu at the foot of the sidebar: who is signed in, the account
+ * page, the theme control, and sign-out. Sign-out is disabled, not absent,
+ * while there is no session to end, so one selector resolves in both states.
+ * @param props - `collapsed` draws only the trigger's avatar.
  * @returns The menu.
  */
 export function AccountMenu({ collapsed = false }: { collapsed?: boolean }) {
   const { preference, setPreference } = useTheme();
+  const { user, signOut } = useAuth();
+  const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
 
@@ -48,6 +53,17 @@ export function AccountMenu({ collapsed = false }: { collapsed?: boolean }) {
     };
   }, [open]);
 
+  /**
+   * End the session and land on the sign-in form. That is also where
+   * `ProtectedRoute` sends the page the moment the session is gone, so naming
+   * it here keeps the two from racing to different destinations.
+   */
+  async function onSignOut() {
+    setOpen(false);
+    await signOut();
+    navigate("/sign-in", { replace: true });
+  }
+
   return (
     <div className="shell-account" ref={root}>
       <button
@@ -57,18 +73,28 @@ export function AccountMenu({ collapsed = false }: { collapsed?: boolean }) {
         aria-haspopup="true"
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
-        title="Account"
+        title={user?.name ?? "Account"}
       >
         <span className="shell-account-avatar" aria-hidden="true">
-          ?
+          {user ? initials(user.name) : "?"}
         </span>
         {!collapsed && (
-          <span className="shell-account-name">Not signed in</span>
+          <span className="shell-account-name" data-testid="account-name">
+            {user?.name ?? "Not signed in"}
+          </span>
         )}
         {!collapsed && <ChevronUp size={14} aria-hidden="true" />}
       </button>
       {open && (
         <div className="shell-account-menu">
+          {user && (
+            <div className="shell-account-section">
+              <span className="shell-account-heading">Signed in as</span>
+              <span className="shell-account-email" data-testid="account-email">
+                {user.email}
+              </span>
+            </div>
+          )}
           <div
             className="shell-account-section"
             role="radiogroup"
@@ -92,11 +118,20 @@ export function AccountMenu({ collapsed = false }: { collapsed?: boolean }) {
               ))}
             </div>
           </div>
+          <Link
+            to="/account"
+            className="shell-account-item"
+            data-testid="account-link"
+            onClick={() => setOpen(false)}
+          >
+            Account
+          </Link>
           <button
             type="button"
             className="shell-account-item"
             data-testid="sign-out"
-            disabled
+            disabled={!user}
+            onClick={onSignOut}
           >
             Sign out
           </button>

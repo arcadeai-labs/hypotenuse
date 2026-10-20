@@ -9,7 +9,6 @@ const DESCRIPTIONS: Record<string, string> = {
     "The machines connected to this project, their presence, and their free slots.",
   Routing:
     "Which runners take which work: projects, teams, and labels mapped to runners and roles.",
-  Settings: "Project members, the Linear connection, and runner tokens.",
 };
 
 /**

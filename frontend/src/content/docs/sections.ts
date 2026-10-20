@@ -1,4 +1,9 @@
+import accounts from "./accounts.md?raw";
+import audit from "./audit.md?raw";
+import gettingStarted from "./getting-started.md?raw";
 import index from "./index.md?raw";
+import members from "./members.md?raw";
+import projects from "./projects.md?raw";
 import why from "./why.md?raw";
 
 /** One page of the public docs. */
@@ -13,6 +18,15 @@ export interface DocsSection {
 export const DOCS_SECTIONS: DocsSection[] = [
   { slug: "", title: "Introduction", markdown: index },
   { slug: "why", title: "Why Hypotenuse", markdown: why },
+  {
+    slug: "getting-started",
+    title: "Getting started",
+    markdown: gettingStarted,
+  },
+  { slug: "accounts", title: "Accounts", markdown: accounts },
+  { slug: "projects", title: "Projects", markdown: projects },
+  { slug: "members", title: "Members and tags", markdown: members },
+  { slug: "audit", title: "Audit log", markdown: audit },
 ];
 
 /**

@@ -1,6 +1,5 @@
 import {
   BookOpen,
-  ChevronsUpDown,
   Cpu,
   House,
   type LucideIcon,
@@ -11,7 +10,9 @@ import {
 } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import { Mark } from "../../ui";
+import NotificationBell from "../NotificationBell";
 import { AccountMenu } from "./AccountMenu";
+import { ProjectSwitcher } from "./ProjectSwitcher";
 
 /** One sidebar destination. */
 interface NavItem {
@@ -40,8 +41,8 @@ export interface SidebarProps {
 }
 
 /**
- * The sidebar: mark, project switcher, destinations with counts, docs, and the
- * account menu. Collapsed, it draws icons only and keeps every control mounted.
+ * The sidebar: mark, project switcher, destinations with counts, the
+ * notification bell, docs, and the account menu. Collapsed, it draws icons only and keeps every control mounted.
  * @param props - See {@link SidebarProps}.
  * @returns The sidebar.
  */
@@ -92,17 +93,10 @@ export function Sidebar({
           <PanelLeft size={16} aria-hidden="true" />
         </button>
       </div>
-      <button
-        type="button"
-        className="shell-project"
-        data-testid="project-switcher"
-        disabled
-      >
-        <span className="shell-project-name">No project</span>
-        <ChevronsUpDown size={14} aria-hidden="true" />
-      </button>
+      <ProjectSwitcher onNavigate={onNavigate} />
       <div className="shell-nav">{NAV_ITEMS.map(link)}</div>
       <div className="shell-nav shell-nav-foot">
+        <NotificationBell collapsed={collapsed} />
         {link({
           id: "settings",
           to: "/settings",
