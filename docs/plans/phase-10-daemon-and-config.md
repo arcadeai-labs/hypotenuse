@@ -232,10 +232,22 @@ can put work through.
 hypotenuse daemon start              # background: re-spawns itself detached, waits for "ready", exits 0
 hypotenuse daemon start --foreground # what launchd/systemd run; logs to stderr and the log file
 hypotenuse daemon stop               # control socket "drain" with --timeout, then SIGTERM, then SIGKILL
+hypotenuse daemon stop --force       # no socket needed: signal the pidfile's process, then clear the lock
 hypotenuse daemon restart            # stop (drain) + start
 hypotenuse daemon status             # control socket "status"; exit 3 if not running
 hypotenuse daemon logs [-f] [-n 200] [--session <id>]
 ```
+
+**`stop` never leaves a lock it cannot explain.** Plain `stop` asks the recorded control socket to drain. If that
+socket is silent but the pidfile's process is a live `hypotenuse daemon` (the *hung* row of the lock table), it
+does not report "not running": it exits 1 with "daemon pid N is not responding; run `hypotenuse daemon stop
+--force`". **`stop --force`** needs no socket: it re-checks that the pidfile's process is a `hypotenuse daemon`
+(never signalling a reused pid), sends `SIGTERM` to its process group, waits `sessions.stop_grace`, sends `SIGKILL`
+if it is still alive, then removes the pidfile and the recorded socket. Running agents die with the process group;
+their work items' leases expire on the server and are re-offered, and each interrupted session gets the server's
+"runner went away" thought. A pidfile whose process is already gone is simply removed. `daemon-lock.test.ts`
+drives a daemon whose control socket is wedged: `start` refuses as *hung*, `stop` refuses with the `--force` hint,
+`stop --force` clears it, and `start` then succeeds.
 
 **Background start** spawns `process.execPath` with the same argv plus `--foreground --detached-child`. It sets
 `detached: true` and redirects stdio to the log file. Then it waits up to 15 s for the child to write `ready`
@@ -550,7 +562,7 @@ exit 3.
 
 ### 9. Daemon commands — `cli/src/commands/daemon.ts`
 
-`start` (background and foreground, pidfile, ready pipe), `stop`, `restart`, `status`, `logs` (tail with
+`start` (background and foreground, pidfile, ready pipe), `stop` and `stop --force`, `restart`, `status`, `logs` (tail with
 `-f`, filter by session), and `reload`.
 
 ### 10. Service commands — `cli/src/commands/service.ts`, `cli/src/daemon/units/{launchd.plist,systemd.service}`
