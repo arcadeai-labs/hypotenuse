@@ -92,19 +92,62 @@ export function createSequenceMatcher(
   };
 }
 
+/** How each named key is drawn. Anything not listed is drawn uppercased. */
+const KEY_GLYPHS: Record<string, string> = {
+  shift: "⇧",
+  alt: "⌥",
+  enter: "↵",
+  esc: "Esc",
+  escape: "Esc",
+  up: "↑",
+  down: "↓",
+  left: "←",
+  right: "→",
+};
+
 /**
- * Render a shortcut string for display, using ⌘ on Apple platforms and Ctrl elsewhere.
+ * Whether this browser is on an Apple platform, where `mod` is ⌘ rather than Ctrl.
+ * @returns True on macOS and iOS.
+ */
+export function isApplePlatform(): boolean {
+  if (typeof navigator === "undefined") return true;
+  return /Mac|iPhone|iPad|iPod/.test(navigator.platform || navigator.userAgent);
+}
+
+/**
+ * How one key reads as a hint. The one implementation every key cap uses.
+ * @param key - A key name from a keymap (`mod`, `enter`, `g`, `?`).
+ * @param apple - Whether to render `mod` as ⌘ (else Ctrl).
+ * @returns The glyph or text to show.
+ */
+export function keyLabel(
+  key: string,
+  apple: boolean = isApplePlatform(),
+): string {
+  const name = key.toLowerCase();
+  if (name === "mod" || name === "meta" || name === "cmd")
+    return apple ? "⌘" : "Ctrl";
+  if (name === "ctrl") return "Ctrl";
+  return KEY_GLYPHS[name] ?? key.toUpperCase();
+}
+
+/**
+ * Render a shortcut string for display, one string per key.
  * @param shortcut - e.g. `"mod+k"` or `"g s"`.
  * @param apple - Whether to render `mod` as ⌘.
  * @returns One string per key, for `Kbd` to wrap.
  */
-export function displayKeys(shortcut: string, apple: boolean): string[] {
-  return shortcut.split(" ").flatMap((chord) =>
-    chord.split("+").map((part) => {
-      if (part === "mod") return apple ? "⌘" : "Ctrl";
-      if (part === "esc") return "Esc";
-      if (part === "enter") return "↵";
-      return part.length === 1 ? part.toUpperCase() : part;
-    }),
-  );
+export function displayKeys(
+  shortcut: string,
+  apple: boolean = isApplePlatform(),
+): string[] {
+  return shortcut
+    .trim()
+    .split(/\s+/)
+    .flatMap((chord) =>
+      chord
+        .split("+")
+        .filter(Boolean)
+        .map((part) => keyLabel(part, apple)),
+    );
 }
