@@ -15,7 +15,7 @@ and MCP servers is in [phase 11](./plans/phase-11-acp-agent-host.md),
 | What | Default | Override |
 |---|---|---|
 | Config file | `~/.config/hypotenuse/config.toml` | `-c / --config <path>`, then `HYPOTENUSE_CONFIG` |
-| Credentials (server URL, runner id and token, operator login) | `~/.config/hypotenuse/credentials.json` (`0600`) | follows `$XDG_CONFIG_HOME` |
+| Credentials, keyed by server URL: the operator's CLI sign-in (`hypotenuse login`), the selected project (`project use`), and the runner id and token | `~/.config/hypotenuse/credentials.json` (directory `0700`, file `0600`, written atomically) | follows `$XDG_CONFIG_HOME` |
 | State database | `~/.local/state/hypotenuse/state.db` | `--state-dir`; follows `$XDG_STATE_HOME`; a `-c` config puts state in `<config dir>/.hypotenuse-state/` |
 | Control socket | `~/.local/state/hypotenuse/daemon.sock` (`0600`) | with the state directory |
 | Daemon log | `~/.local/state/hypotenuse/daemon.log` | `[log] file` |
@@ -274,9 +274,11 @@ that have it, matched by normalized `remote`.
 | Variable | Effect |
 |---|---|
 | `HYPOTENUSE_CONFIG` | config file path (after `-c`) |
-| `HYPOTENUSE_URL` | server URL (after `--url`) |
+| `HYPOTENUSE_URL` | server URL (after `--url`; before the server `hypotenuse login` last used, then `[server] url`) |
+| `HYPOTENUSE_PROJECT` | the project operator commands act on (after `--project`; before `hypotenuse project use`) |
+| `BROWSER` | the command `hypotenuse login` opens the approval page with; `none` opens nothing (the URL is printed either way) |
 | `HYPOTENUSE_LOG_LEVEL` | log level (after `-v`) |
-| `HYPOTENUSE_NO_UPDATE_CHECK` | `1` disables the once-a-day update notice |
+| `HYPOTENUSE_NO_UPDATE_CHECK` | `1` disables the once-a-day update notice (never shown for `daemon`, `mcp`, `upgrade`, `check-update`, under `--json`, or when stderr is not a terminal) |
 | `HYPOTENUSE_SERVICE` | set by `hypotenuse service install`'s unit; makes the daemon exit (and let the service manager restart it) instead of re-execing after an upgrade |
 | `XDG_CONFIG_HOME`, `XDG_STATE_HOME` | move the config and state directories |
 | `NO_COLOR`, `FORCE_COLOR` | CLI output color |

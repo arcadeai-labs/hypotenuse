@@ -45,6 +45,10 @@ describe("cli import boundary", () => {
           offenders.push(`${file}: ${spec}`);
         if (spec.startsWith("@backend/") && !typeOnly)
           offenders.push(`${file}: ${spec}`);
+        // The npm package declares no workspace packages, so a bare
+        // `@hypotenuse/protocol` would not resolve once installed. Import it by
+        // relative path and the bundle inlines it.
+        if (spec.startsWith("@hypotenuse/")) offenders.push(`${file}: ${spec}`);
       }
     }
     expect(offenders).toEqual([]);

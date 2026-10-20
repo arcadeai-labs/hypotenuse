@@ -340,6 +340,7 @@ describe("secret redaction", () => {
       "state",
       "runnerToken",
       "tokenHash",
+      "deviceCode",
     ]) {
       expect(SENSITIVE_KEYS as readonly string[], key).toContain(key);
     }

@@ -47,6 +47,13 @@ const EXPECTED_INDEXES: Record<string, { table: string; def: RegExp }> = {
     table: "notifications",
     def: /\(status,\s*next_attempt_at\)/i,
   },
+  // Every CLI request resolves its bearer token by hash; the Account page
+  // lists a person's sign-ins.
+  cli_tokens_token_hash_idx: {
+    table: "cli_tokens",
+    def: /UNIQUE.*\(token_hash\)/i,
+  },
+  cli_tokens_user_idx: { table: "cli_tokens", def: /\(user_id\)/i },
   notifications_unread_idx: {
     table: "notifications",
     def: /\(user_id,\s*channel,\s*read_at\)/i,

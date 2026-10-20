@@ -52,7 +52,9 @@ and that is where to read before changing something load-bearing, and where to w
    adding its key to `SENSITIVE_KEYS` in the same commit. The unaudited writers are a closed list, argued in
    [`phase-04-users-tenancy-and-audit.md`](./docs/plans/phase-04-users-tenancy-and-audit.md): reads, sweeps,
    `session:create` / `session:destroy`, `webhooks:linear` and `linear:process-event` (machine ingress, recorded in
-   `linear_events`), the outbox and clocks, and the daemon half (`daemon:*`, recorded in `agent_activities` and
+   `linear_events`), `cli-auth:device` / `cli-auth:exchange` and a CLI token's sliding-expiry touch (the CLI's
+   sign-in ingress — the person's `cli-auth:approve` / `cli-auth:activate` is the audited decision), the outbox and
+   clocks, and the daemon half (`daemon:*`, recorded in `agent_activities` and
    `work_items`). The audited thing is always **the decision a person made** — connecting Linear, registering or
    revoking a runner, editing a routing rule, cancelling a session.
 7. **Linear credentials never leave the server.** No action returns a Linear access token, refresh token, client
@@ -68,7 +70,8 @@ and that is where to read before changing something load-bearing, and where to w
 9. **Human MCP ≈ HTTP.** Almost every action with a `web.route` is published as an MCP tool for human OAuth clients.
    `applyMcpToolPolicy` / `shouldPublishAsMcpTool` in `backend/ops/McpToolPolicyOps.ts` is the source of truth;
    `rbac.test.ts` asserts every action's live flag equals that function. **Never MCP:** login/signup,
-   `webhooks:linear`, `linear:callback` (a browser hop), `daemon:*`, unauthenticated introspection (`status`,
+   `webhooks:linear`, `linear:callback` and `cli-auth:approve` / `cli-auth:activate` (browser hops),
+   `cli-auth:device` / `cli-auth:exchange` (the CLI's sign-in ingress, which returns a token), `daemon:*`, unauthenticated introspection (`status`,
    `swagger`, `actions:permissions`), clocks (`task.frequency > 0`), and anything with no `web.route`.
 10. **Every Linear interaction is in the coverage matrix.** A new webhook, mutation, query, signal, or activity
     shape gets a row in [`docs/LINEAR_COVERAGE.md`](./docs/LINEAR_COVERAGE.md) in the same commit, naming the
@@ -218,7 +221,9 @@ is the only place UI gating decides. Removing a membership revokes that person's
 
 Three principals reach the API: a **browser session** (cookie), a **CLI token** (`hyp_cli_…`, issued after the
 person approves the CLI in the dashboard; acts as that person, never on `daemon:*`), and a **runner token**
-(`hyp_rt_…`; `daemon:*` only). `backend/middleware/session.ts` resolves exactly one per request.
+(`hyp_rt_…`; `daemon:*` only). `backend/middleware/session.ts` resolves exactly one per request, in a `beforeAct`
+hook: a cookie session wins; a live `hyp_cli_` bearer sets the person's `userId` in memory only, never in a Redis
+session; a presented token that does not authenticate gets one 401 whatever the reason.
 
 ## Architecture rules while writing code
 
@@ -243,7 +248,9 @@ The map is [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md). What follows is the
 - **Backend:** `cd backend && bun test`. `buildTestUniverse()` seeds the ToolExec cast (Peach admin, Mario, Luigi,
   Toad, and Bowser the outsider) over real HTTP. `useFinear()` boots finear in process with an OAuth app whose
   webhook points at the test server, installs it with `actor=app`, and exposes finear's control routes.
-- **CLI / daemon:** `cd cli && bun test` for unit tests; end-to-end suites in `backend/__tests__/e2e/` spawn the real
+- **CLI / daemon:** `cd cli && bun test` for unit tests; `backend/__tests__/cli/` spawns the real CLI against the
+  booted server, approving its sign-in over HTTP as a test user; `cli/test/e2e/test-upgrade.sh` installs the branch
+  by npm, bun, and binary (it installs globally — CI or a throwaway machine only); end-to-end suites in `backend/__tests__/e2e/` spawn the real
   `hypotenuse daemon` against the booted backend, finear, a temporary git origin, and the fake ACP agent.
 - **Control time by writing columns or advancing finear's clock, never by waiting.**
 - **Assert the property, not the symptom** — byte-identical refusal bodies, whole-set comparisons of allowlists,
@@ -269,6 +276,8 @@ cd cli && bun test                            # CLI + daemon unit tests
 bun run --cwd cli hypotenuse --help
 bun run --cwd cli hypotenuse config validate -c ./examples/config.toml
 cd cli && bun run build                       # compiled binary at dist/hypotenuse
+cd cli && bun run bundle                      # the npm bundle at dist/hypotenuse.js (prepack runs it)
+bash cli/test/e2e/test-upgrade.sh             # npm + bun + binary installs, globally — CI or a throwaway box
 
 curl localhost:8080/api/actions/permissions   # every action's RBAC level
 ```

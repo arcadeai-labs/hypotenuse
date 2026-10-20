@@ -20,6 +20,12 @@ password needs at least eight characters.
 Your email must not belong to another account. Invitations are matched to accounts by email, so an invite sent to
 your old address will not reach you after you change it.
 
+## Signing in the CLI
+
+The `hypotenuse` CLI signs in through this site rather than asking for your password: `hypotenuse login` opens a
+page here where you click **Approve**. **Account → CLI sign-ins** lists every CLI signed in as you, and **Revoke**
+signs one out. See [the CLI](/docs/cli).
+
 ## Notifications
 
 Hypotenuse tells you when something needs you. Each notification appears:

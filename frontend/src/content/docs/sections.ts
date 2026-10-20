@@ -1,5 +1,6 @@
 import accounts from "./accounts.md?raw";
 import audit from "./audit.md?raw";
+import cli from "./cli.md?raw";
 import gettingStarted from "./getting-started.md?raw";
 import index from "./index.md?raw";
 import members from "./members.md?raw";
@@ -27,6 +28,7 @@ export const DOCS_SECTIONS: DocsSection[] = [
   { slug: "projects", title: "Projects", markdown: projects },
   { slug: "members", title: "Members and tags", markdown: members },
   { slug: "audit", title: "Audit log", markdown: audit },
+  { slug: "cli", title: "The CLI", markdown: cli },
 ];
 
 /**

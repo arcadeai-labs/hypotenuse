@@ -52,13 +52,13 @@ All shared values live on the **`hypotenuse-shared`** env group, which both back
 | `LINEAR_CLIENT_SECRET` | group, dashboard | from the Linear OAuth app |
 | `LINEAR_WEBHOOK_SECRET` | group, dashboard | the app's webhook signing secret |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM` | group, dashboard | optional; without `SMTP_HOST`, mail is logged, not sent |
-| `FRONTEND_URL` | group | `https://www.hypotenuse.cloud` — the worker writes it into e-mail and Linear `externalUrls` |
+| `FRONTEND_URL` | group | `https://www.hypotenuse.cloud` — the worker writes it into e-mail and Linear `externalUrls`; the api answers it as `/api/status` `dashboardUrl`, which `hypotenuse login` opens, and as the device flow's `/cli/activate` URL |
 | `NODE_ENV`, `LOG_LEVEL`, `LOG_FORMAT` | group | `production`, `info`, `json` |
 | `SENTRY_DSN`, `SENTRY_ENVIRONMENT`, `SENTRY_TRACES_SAMPLE_RATE=0`, `SENTRY_ENABLE_METRICS=false`, `SENTRY_ENABLE_LOGS=false` | group | errors only |
 | `APPLICATION_URL` | api + worker | `https://api.hypotenuse.cloud` |
 | `WEB_SERVER_ALLOWED_ORIGINS` | api | `https://www.hypotenuse.cloud` |
 | `SESSION_COOKIE_SECURE` / `SESSION_COOKIE_SAME_SITE` | api | `true` / `None` |
-| `MCP_OAUTH_TRUST_PROXY` | api | `true` — otherwise the OAuth issuer is Render's internal origin and `hypotenuse login` fails |
+| `MCP_OAUTH_TRUST_PROXY` | api | `true` — otherwise the OAuth issuer is Render's internal origin and human MCP clients cannot sign in |
 | `DATABASE_AUTO_MIGRATE` | api `false`, worker `true` | |
 | `TASKS_ENABLED` / `TASK_PROCESSORS` | api `false`/`0`, worker `true`/`1` | |
 | `PROCESS_NAME`, `OTEL_SERVICE_NAME` | per service | `hypotenuse-api` / `hypotenuse-worker` |
@@ -158,13 +158,15 @@ To list Hypotenuse publicly later, submit it to Linear's integration directory a
    declares all three; add the DNS records the Render dashboard names for each and wait for their certificates.
 4. **Create the Linear OAuth app** (above) and add its three secrets to `hypotenuse-shared`.
 5. **npm trusted publisher** (one-time, for the CLI): on npmjs.com, add a trusted publisher for
-   `@arcadeai/hypotenuse` pointing at `arcadeai-labs/hypotenuse` and `.github/workflows/auto-release.yml`.
+   `@arcadeai/hypotenuse` pointing at `arcadeai-labs/hypotenuse` and `.github/workflows/auto-release.yml`. Until it
+   exists, a merged version bump stops at `publish-npm` and leaves a draft GitHub release, which the next run of the
+   same version resumes. `--provenance` requires the repository to be public; if it is ever private, drop the flag.
 6. Confirm the worker's logs show migrations applied **before** the api reports healthy.
 
 ## Verify
 
 ```bash
-curl -s https://api.hypotenuse.cloud/api/status | jq '{healthy, checks, linear}'
+curl -s https://api.hypotenuse.cloud/api/status | jq '{healthy, checks, linear, dashboardUrl}'
 curl -s https://api.hypotenuse.cloud/.well-known/oauth-authorization-server | jq -r .issuer    # https://api.hypotenuse.cloud
 # an unsigned webhook must be refused, and refused identically to a bad signature
 curl -s -o /dev/null -w '%{http_code}\n' -X POST https://api.hypotenuse.cloud/api/webhooks/linear -d '{}'

@@ -29,7 +29,8 @@
       "!**/types/",
       "!**/.cache/**",
       "!**/bun.lockb",
-      "!**/templates/**"
+      "!**/templates/**",
+      "!**/dist"
     ]
   }
 }

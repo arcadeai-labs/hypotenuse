@@ -13,7 +13,12 @@
  * - **unauthenticated introspection** — `status`, `swagger`,
  *   `actions:permissions` describe the server, not a person's work;
  * - **browser hops** — `linear:callback` is the second leg of an OAuth redirect
- *   and means nothing outside a browser;
+ *   and means nothing outside a browser; `cli-auth:approve` and
+ *   `cli-auth:activate` are a person approving a CLI on a dashboard page, and a
+ *   model approving one would sign itself in;
+ * - **unauthenticated CLI sign-in ingress** — `cli-auth:device` and
+ *   `cli-auth:exchange` are the CLI's half of signing in, and the exchange
+ *   returns a CLI token, which a model must never hold;
  * - **credential minting** — `runner:register` returns a runner token, which a
  *   model must never hold;
  * - **machine families, by prefix** — `webhooks:*` (signed ingress from Linear)
@@ -58,6 +63,10 @@ export const NEVER_MCP_ACTION_NAMES: ReadonlySet<string> = new Set([
   "actions:permissions",
   "linear:callback",
   "runner:register",
+  "cli-auth:approve",
+  "cli-auth:activate",
+  "cli-auth:device",
+  "cli-auth:exchange",
 ]);
 
 /**
