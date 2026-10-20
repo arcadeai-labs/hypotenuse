@@ -5,7 +5,7 @@
 > status check. `AGENTS.md` encodes the non-negotiable rules, and a fake Linear (finear) boots in-process
 > inside the backend test harness before any Linear code is written.
 
-> **Status: planned, not built.** The repository is empty. This phase is the scaffold every later phase
+> **Status: built.** The repository was empty. This phase is the scaffold every later phase
 > builds on, and it halts for review before [phase 2](./phase-02-deployment.md).
 
 Hypotenuse is built on the same stack and the same conventions as
@@ -400,19 +400,66 @@ docker build -f frontend/Dockerfile --build-arg VITE_API_URL=http://localhost:80
 
 ## Definition of done
 
-- [ ] Root workspace with `backend/`, `frontend/`, `cli/`, `protocol/`; `bun dev` runs backend and frontend
-- [ ] `backend/bunfig.toml` and a trimmed `backend/__tests__/setup.ts` exist; status test passes twice
-- [ ] `backend/.env.example` covers dev and `_TEST` variants and declares the empty `LINEAR_*` keys
-- [ ] finear is a pinned git dev dependency; `useFinear()` exists; the smoke test passes in CI
-- [ ] `protocol/` exports `PROTOCOL_VERSION`; `cli/` prints its version from source and from a compiled binary
-- [ ] The dependency-direction, native-addon, docs-links, and no-phase-names tests pass
-- [ ] Both Dockerfiles build from the repo root
-- [ ] CI runs eight jobs plus "CI Complete", which asserts every result is `success`
-- [ ] Branch protection on `main` requires exactly "CI Complete"
-- [ ] `AGENTS.md` and `README.md` commands are true
+- [x] Root workspace with `backend/`, `frontend/`, `cli/`, `protocol/`; `bun dev` runs backend and frontend
+- [x] `backend/bunfig.toml` and a trimmed `backend/__tests__/setup.ts` exist; status test passes twice
+- [x] `backend/.env.example` covers dev and `_TEST` variants and declares the empty `LINEAR_*` keys
+- [x] finear is pinned to a commit (fetched by git, not installed — see learnings); `useFinear()` exists; the smoke test passes
+- [x] `protocol/` exports `PROTOCOL_VERSION`; `cli/` prints its version from source and from a compiled binary
+- [x] The dependency-direction, native-addon, docs-links, and no-phase-names tests pass
+- [x] Both Dockerfiles build from the repo root (in CI; see learnings)
+- [x] CI runs eight jobs plus "CI Complete", which asserts every result is `success`
+- [ ] Branch protection on `main` requires exactly "CI Complete" — needs a repo admin (see learnings)
+- [x] `AGENTS.md` and `README.md` commands are true
 
 **Stop here for review before [phase 2](./phase-02-deployment.md).**
 
 ## Learnings from the build
 
-_Nothing yet — this phase has not been built._
+### finear is fetched with git, not installed as a dependency
+
+The plan made finear a `github:` dev dependency. Bun resolves every GitHub-hosted dependency — `github:` and
+`git+https://github.com/…` alike — through GitHub's **tarball API** (`api.github.com/repos/…/tarball/<sha>`), and
+sandboxed agent environments (including the one this phase was built in) refuse that endpoint while allowing an
+ordinary `git fetch`. A dependency that cannot install takes the whole `bun install` down with it, not just the
+one package.
+
+So `backend/scripts/fetch-finear.ts` fetches exactly one commit with `git` into `backend/.finear/` (gitignored), and
+`bun run test` in `backend/` runs it first. The pin is the `FINEAR_COMMIT` constant in that script. finear's two
+runtime dependencies, `@linear/sdk` and `graphql`, are backend devDependencies **at the versions finear pins**
+(`97.1.0`, `16.11.0`), so finear's sources resolve them from our install. Bumping finear means bumping those two
+in the same commit if finear's `package.json` moved them.
+
+`__tests__/linear/finear.ts` declares the slice of finear's API it uses instead of importing finear's types:
+`tsc` follows a type import into the imported file and type-checks it under *our* `tsconfig`, and finear's
+sources do not pass `noImplicitReturns` and Bun's newer `fetch` typings. Excluding `.finear` in `tsconfig.json`
+does not help — `exclude` only stops files from being roots, not from being reached by an import.
+
+### What finear did that is worth knowing
+
+- A personal API key goes in `Authorization` raw, with no `Bearer` — as Linear's own API expects.
+- An unknown key answers HTTP 200 with a GraphQL `errors` array, not a 401. Assert on the body.
+- In-process boot plus `viewer` takes well under a second; there is no reason to share one finear across files.
+
+### Smaller things
+
+- **`keryx new` scaffolds users, sessions, and `me`** (with a migration) by default. They were deleted here; the
+  users phase brings ToolExec's versions. The scaffold's `config/` is *newer* than ToolExec's (it adds MCP
+  anonymous-session settings), so it was kept rather than overwritten with ToolExec's.
+- **node-postgres needs a user.** With `postgres://localhost/…` it takes the role from `$USER`; in a container where
+  `$USER` is unset it fails with "no PostgreSQL user name specified". `.env.example` stays user-less (right on a
+  laptop), and `AGENTS.md` says to put the user in a local `.env` when needed.
+- **A test-only override needs a `_TEST` key in `.env.example`.** `loadFromEnvIfSet` reads `X_TEST`, then `X`, and only
+  then the config's own default — so a bare `TASK_PROCESSORS=1` in the example file beat the config's
+  `NODE_ENV=test ? 0 : 1` and started a Resque worker under `bun test` in CI. `TASK_PROCESSORS_TEST=0` is set, and
+  `__tests__/config/tasks.test.ts` asserts it.
+- **Ported scripts get the same review as new code.** Both workspace-script bugs Bugbot found (Redis not returning
+  to the shared index on `--shared`; a URL with a query string compounding its suffix) were in ToolExec's
+  `setup-workspace.ts` as copied. `__tests__/scripts/workspace.test.ts` now covers both.
+- **The plan-count guard** in `links.test.ts` was ToolExec's `> 20`; Hypotenuse has 17 phases, so it is `> 15`.
+- **Playwright and the UI kit are not here.** The plan listed `playwright.config.ts` among the copied frontend
+  configs, but with no browser-visible feature there is nothing for it to run; it arrives with the first e2e spec.
+- **Docker images could not be built in the agent sandbox** (its TLS-intercepting proxy breaks `bun install` inside
+  a container with `SELF_SIGNED_CERT_IN_CHAIN`). CI's two Docker jobs are the proof that both images build.
+- **Branch protection is a repository setting this phase cannot apply from an agent session** (writes to settings
+  APIs are refused). A repo admin applies it: require "CI Complete" — and, since Bugbot reviews every PR, "Cursor
+  Bugbot" — on `main`, with no direct pushes.

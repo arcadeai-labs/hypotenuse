@@ -1,0 +1,165 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# "CI Complete" (the `complete` job) is the single required status check on
+# `main`. Adding a job means adding it to `complete.needs` — never touching
+# branch protection.
+
+jobs:
+  protocol:
+    name: Protocol Lint & Test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: protocol
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+        working-directory: .
+      - run: bun run lint
+      - run: bun run test
+
+  backend-lint:
+    name: Backend Lint
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+        working-directory: .
+      - run: bun run lint
+
+  backend-test:
+    name: Backend Test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      redis:
+        image: redis
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: hypotenuse_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+        working-directory: .
+      - run: cp .env.example .env
+      # `bun run test` fetches finear at its pinned commit, then runs `bun test`.
+      - run: bun run test
+        env:
+          DATABASE_URL_TEST: postgres://postgres:postgres@localhost:5432/hypotenuse_test
+          DATABASE_AUTO_MIGRATE_TEST: "true"
+          REDIS_URL_TEST: redis://localhost:6379/1
+
+  backend-docker:
+    name: Backend Docker Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: docker build -f backend/Dockerfile .
+
+  cli:
+    name: CLI Lint, Test & Build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: cli
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+        working-directory: .
+      - run: bun run lint
+      - run: bun run test
+      # One target here; the full six-platform matrix belongs to the release.
+      - run: bun run build
+      - run: ./dist/hypotenuse --version
+
+  frontend-lint:
+    name: Frontend Lint
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+        working-directory: .
+      - run: bun run lint
+
+  frontend-test:
+    name: Frontend Test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+        working-directory: .
+      - run: bun run test
+      # A missing prop the unit suite never instantiates still fails here.
+      - run: bun run build
+
+  frontend-docker:
+    name: Frontend Docker Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: docker build -f frontend/Dockerfile --build-arg VITE_API_URL=https://api.example.com .
+
+  complete:
+    name: CI Complete
+    runs-on: ubuntu-latest
+    if: always()
+    needs:
+      [
+        protocol,
+        backend-lint,
+        backend-test,
+        backend-docker,
+        cli,
+        frontend-lint,
+        frontend-test,
+        frontend-docker,
+      ]
+    steps:
+      # Assert every result IS `success`, rather than listing failures: a
+      # denylist fails open the day the platform invents a new outcome.
+      - name: Every job succeeded
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          echo "$NEEDS" | jq -e 'to_entries | all(.value.result == "success")' > /dev/null \
+            || { echo "$NEEDS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'; exit 1; }
+          echo "All CI jobs succeeded"

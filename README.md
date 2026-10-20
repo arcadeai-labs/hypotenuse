@@ -116,5 +116,21 @@ hypotenuse doctor                        # checks git, agents, logins, server, c
 
 ## Develop
 
-See [`AGENTS.md`](./AGENTS.md) for the rules and the local setup, and [`docs/plans/`](./docs/plans/README.md) for the
+Prerequisites: [Bun](https://bun.sh) 1.4+, Postgres (16+; CI runs 18), and Redis, all running locally. No Docker
+Compose: Docker only builds deployment images.
+
+```bash
+bun install
+createdb hypotenuse && createdb hypotenuse_test
+cp backend/.env.example backend/.env && cp frontend/.env.example frontend/.env
+
+bun run lint                 # tsc + biome, every workspace
+bun run test                 # every workspace; the backend fetches finear (the fake Linear) first
+bun dev                      # backend on :8080, frontend on :3000 — open http://localhost:3000/status
+```
+
+If `$USER` is unset in your shell, node-postgres cannot pick a role from `postgres://localhost/…`; put the user in
+the URL (`postgres://you@localhost:5432/hypotenuse`) in `backend/.env`.
+
+See [`AGENTS.md`](./AGENTS.md) for the rules and conventions, and [`docs/plans/`](./docs/plans/README.md) for the
 build order.

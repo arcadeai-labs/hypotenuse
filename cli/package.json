@@ -1,0 +1,31 @@
+{
+  "name": "@arcadeai/hypotenuse",
+  "version": "0.0.1",
+  "description": "Hypotenuse — run coding agents on your machine for Linear agent sessions",
+  "type": "module",
+  "license": "MIT",
+  "bin": {
+    "hypotenuse": "./src/cli.ts"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/arcadeai-labs/hypotenuse.git"
+  },
+  "scripts": {
+    "hypotenuse": "bun run src/cli.ts",
+    "dev": "bun run src/cli.ts",
+    "test": "bun test",
+    "lint": "tsc && biome check .",
+    "format": "tsc && biome check --write .",
+    "build": "bun build --compile --minify --sourcemap ./src/cli.ts --outfile dist/hypotenuse"
+  },
+  "dependencies": {
+    "@hypotenuse/protocol": "workspace:*",
+    "commander": "^14.0.3"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.4.8",
+    "@types/bun": "latest",
+    "typescript": "^7.0.2"
+  }
+}

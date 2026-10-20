@@ -20,7 +20,8 @@ is [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md). The reasoning behind each d
 builds it, in [`docs/plans/`](./docs/plans/README.md). Every doc there ends in a **Learnings from the build** section,
 and that is where to read before changing something load-bearing, and where to write when you learn something new.
 
-> **Status:** planned, not built. Every phase in [`docs/plans/`](./docs/plans/README.md) is a plan; no code exists yet.
+> **Status:** being built, one phase at a time — see [`docs/plans/README.md`](./docs/plans/README.md) for which phases
+> have shipped.
 > The plumbing for users, projects, RBAC, audit, the frontend shell, and the operator CLI is ported from
 > [ToolExec](https://github.com/arcadeai-labs/toolexec); distribution and self-upgrade are ported from
 > [mcpx](https://github.com/arcadeai-labs/mcpx).
@@ -118,7 +119,13 @@ cd backend && cp .env.example .env
 cd ../frontend && cp .env.example .env
 ```
 
-One `.env` covers development and test: `loadFromEnvIfSet` checks `${VAR}_${NODE_ENV}` before `${VAR}`.
+One `.env` covers development and test: `loadFromEnvIfSet` checks `${VAR}_${NODE_ENV}` before `${VAR}`. If `$USER` is
+unset (some containers), node-postgres cannot pick a role from `postgres://localhost/…` — put the user in the URL in
+your local `.env`.
+
+**finear** is fetched, not installed: `bun run --cwd backend finear:fetch` clones it at the commit pinned in
+`backend/scripts/fetch-finear.ts` into `backend/.finear/` (gitignored), and `bun run test` in `backend/` does that
+first. Bump the pin deliberately, in its own commit.
 `bun run workspace:setup` gives a worktree its own test database, Redis index, and ports when several checkouts run
 at once.
 
@@ -252,7 +259,8 @@ bun run ngrok                                 # public URL for real Linear webho
 bun run lint                                  # tsc + biome, every workspace
 bun run test                                  # every workspace (not `bun test` at the root)
 
-cd backend && bun test                        # real server + finear
+cd backend && bun run test                    # fetches finear, then real server + finear
+cd backend && bun test path/to/file.test.ts   # one file (after a first `bun run finear:fetch`)
 cd cli && bun test                            # CLI + daemon unit tests
 bun run --cwd cli hypotenuse --help
 bun run --cwd cli hypotenuse config validate -c ./examples/config.toml
@@ -260,6 +268,28 @@ cd cli && bun run build                       # compiled binary at dist/hypotenu
 
 curl localhost:8080/api/actions/permissions   # every action's RBAC level
 ```
+
+## Working on this repository as an agent
+
+Lessons from building it, kept here so the next session starts with them.
+
+- **One phase, one PR.** Branch `phase-NN-<slug>` from `main`, build the phase, tick its Definition of done, write its
+  **Learnings from the build**, and update this file and the live docs in the same PR. Each phase ends reviewable.
+- **A mechanism described in two docs drifts.** Every review finding on the planning PR was one doc saying something
+  another had already changed: the MCP token path in `ARCHITECTURE.md` against the MCP plan, or a lock rule in
+  `CONFIG.md` against the daemon plan. When you change how something works, grep `docs/` for every place that
+  describes it (`rg -n "<name>" docs AGENTS.md`) and fix them all in the same commit.
+- **Enumerate every state.** A rule written as "if A and B, then X; if neither, then Y" leaves the two mixed cases
+  undefined, and a reviewer will find them. Write state rules as a table with one row per combination.
+- **Edit docs by exact anchor, never by first substring.** A script that finds `## Learnings from the build` by
+  `str.index` matches the first mention, which may be inside a table, and silently truncates the doc. Anchor on
+  `"\n## Heading\n"`, assert it occurs exactly once, and run `bun test __tests__/docs` in `backend/` after any
+  scripted doc edit.
+- **Sandboxed sessions:** GitHub's tarball API and settings APIs may be refused (finear is fetched with `git` for
+  this reason; branch protection needs an admin); GitHub GraphQL may be unavailable (resolve review threads through
+  the REST routes the error message names); `bun install` inside `docker build` may fail on an intercepting proxy
+  (CI's Docker jobs are then the proof). Say so in the phase's learnings rather than working around a refusal.
+- **Signatures and footers** follow the repository owner's global rules for commits and PR text.
 
 ## Where the detail lives
 

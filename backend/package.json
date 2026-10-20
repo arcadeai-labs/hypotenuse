@@ -1,0 +1,37 @@
+{
+  "name": "hypotenuse-backend",
+  "version": "0.0.1",
+  "description": "Hypotenuse hosted service \u2014 Linear ingress, routing, and the runner API, powered by Keryx",
+  "module": "index.ts",
+  "type": "module",
+  "private": true,
+  "license": "MIT",
+  "bin": {
+    "keryx": "keryx.ts"
+  },
+  "scripts": {
+    "start": "bun keryx.ts start",
+    "dev": "bun --watch keryx.ts start",
+    "migrations": "bun run migrations.ts",
+    "workspace:setup": "bun run scripts/setup-workspace.ts",
+    "test": "bun run finear:fetch && bun test",
+    "lint": "tsc && biome check .",
+    "format": "tsc && biome check --write .",
+    "finear:fetch": "bun run scripts/fetch-finear.ts"
+  },
+  "dependencies": {
+    "keryx": "^0.48.0",
+    "zod": "^4.3.6",
+    "drizzle-orm": "^0.45.2",
+    "drizzle-zod": "^0.8.3",
+    "@hypotenuse/protocol": "workspace:*"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.4.8",
+    "@types/bun": "latest",
+    "typescript": "^7.0.2",
+    "drizzle-kit": "^0.31.10",
+    "@linear/sdk": "97.1.0",
+    "graphql": "16.11.0"
+  }
+}
