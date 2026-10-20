@@ -462,7 +462,9 @@ All eleven Definition of done items. The backend gained `cli_tokens`, `CliTokenO
 gained `/cli/authorize`, `/cli/activate`, and Account → CLI sign-ins; `cli/` is mcpx's skeleton with the operator
 commands, upgradr, the bundle, and the agent skill; the repository gained `auto-release.yml`, `install.sh`,
 `install.ps1`, and `cli/test/e2e/test-upgrade.sh`, which runs in the gate as **CLI Upgrade**. The first release
-waits on the npm trusted publisher in [`DEPLOY.md`](../DEPLOY.md#first-deploy).
+is published by hand, because npm accepts a trusted publisher only for a package that already exists; the
+sequence — merge, publish from the merge commit, add the publisher, re-run the failed jobs — is in
+[`DEPLOY.md`](../DEPLOY.md#first-deploy).
 
 ### Where the build departs from the plan
 

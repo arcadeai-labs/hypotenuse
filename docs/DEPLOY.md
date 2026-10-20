@@ -157,10 +157,19 @@ To list Hypotenuse publicly later, submit it to Linear's integration directory a
    `www.hypotenuse.cloud` the frontend, and the apex is attached only to redirect to `www`. `render.yaml` already
    declares all three; add the DNS records the Render dashboard names for each and wait for their certificates.
 4. **Create the Linear OAuth app** (above) and add its three secrets to `hypotenuse-shared`.
-5. **npm trusted publisher** (one-time, for the CLI): on npmjs.com, add a trusted publisher for
-   `@arcadeai/hypotenuse` pointing at `arcadeai-labs/hypotenuse` and `.github/workflows/auto-release.yml`. Until it
-   exists, a merged version bump stops at `publish-npm` and leaves a draft GitHub release, which the next run of the
-   same version resumes. `--provenance` requires the repository to be public; if it is ever private, drop the flag.
+5. **The CLI's first npm release is by hand**, because npm accepts a trusted publisher only for a package that
+   already exists. Merging the version bump runs `auto-release.yml`: CI passes, the draft `v<version>` release is
+   created with its six binaries, and `publish-npm` fails. Then:
+   1. publish from the merge commit — `git checkout main && git pull && cd cli && npm publish --access public`
+      (`prepack` builds `dist/hypotenuse.js`, so Bun must be on `PATH`; `--provenance` works only inside Actions);
+   2. on npmjs.com, add a trusted publisher for `@arcadeai/hypotenuse` pointing at `arcadeai-labs/hypotenuse` and
+      `.github/workflows/auto-release.yml`;
+   3. **re-run the failed jobs of that same workflow run.** `publish-npm` finds the version on npm and skips, and
+      `finalize` un-drafts the release. A run from a later commit instead refuses, because npm's copy was built from
+      the draft's commit — bump the version, or un-draft by hand.
+
+   Every later version bump publishes npm and the binaries by itself, with provenance. `--provenance` requires
+   the repository to be public; if it is ever private, drop the flag.
 6. Confirm the worker's logs show migrations applied **before** the api reports healthy.
 
 ## Verify
