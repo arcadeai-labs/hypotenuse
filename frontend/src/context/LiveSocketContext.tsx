@@ -22,15 +22,14 @@ export type LiveChannelHandler = (payload: unknown) => void;
 
 /**
  * Ref-counted channel membership that defers the last unsubscribe until after
- * the current turn. This is what keeps Keryx's open frame-ordering defect
- * (one connection's frames are handled concurrently, so a subscribe and an
- * unsubscribe can be applied out of order) from mattering in practice.
+ * the current turn.
  *
  * React StrictMode (and any remount in the same turn) runs subscribe, cleanup,
- * subscribe. Sending `unsubscribe` in that cleanup is what produced a
- * subscribe → unsubscribe → subscribe burst Keryx can apply out of order, after
- * which the acknowledgements still say `subscribed` and no broadcast ever
- * arrives. Keeping an empty handler set until the next microtask lets the
+ * subscribe. Sending `unsubscribe` in that cleanup would put a
+ * subscribe → unsubscribe → subscribe burst on the socket for a channel the
+ * page never meant to leave. Keryx applies those in send order (since 0.48.1;
+ * before it, the burst could leave the socket deaf), but the round trips are
+ * still waste. Keeping an empty handler set until the next microtask lets the
  * remount reuse the existing subscription. A real unmount still leaves once
  * the turn ends with nobody holding the channel.
  * @param send - Deliver a subscribe or unsubscribe when the server must change.

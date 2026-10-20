@@ -214,6 +214,36 @@ describe("project:<id>:notifications", () => {
     }
   }, 20_000);
 
+  test("a subscribe and an unsubscribe sent in one tick apply in send order", async () => {
+    // keryx#550, fixed in 0.48.1: frames from one connection used to run
+    // concurrently, and this channel's membership query let the unsubscribe
+    // land first — leaving the socket subscribed after it asked to leave.
+    const { socket, messages } = await openSocket(universe.peach.sessionId);
+    const channel = `project:${universe.projectId}:notifications`;
+    try {
+      socket.send(JSON.stringify({ messageType: "subscribe", channel }));
+      socket.send(JSON.stringify({ messageType: "unsubscribe", channel }));
+
+      const acks = () =>
+        messages.flatMap((raw) => {
+          const m = raw as { subscribed?: unknown; unsubscribed?: unknown };
+          if (m.subscribed) return ["subscribed"];
+          if (m.unsubscribed) return ["unsubscribed"];
+          return [];
+        });
+      const deadline = Date.now() + 5_000;
+      while (acks().length < 2 && Date.now() < deadline) await Bun.sleep(20);
+      expect(acks()).toEqual(["subscribed", "unsubscribed"]);
+
+      await queueFor(universe.peach);
+      await runAction("notifications:dispatch");
+      await Bun.sleep(1_000);
+      expect(delivered(messages)).toEqual([]);
+    } finally {
+      socket.close();
+    }
+  }, 20_000);
+
   test("a member of one project cannot subscribe to another's", async () => {
     // Peach administers the shared project and Bowser administers his own, so
     // this is two legitimate users each reaching for the other's channel.
