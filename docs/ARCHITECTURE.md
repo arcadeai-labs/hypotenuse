@@ -60,7 +60,7 @@ Companion references:
    │   │ codex-acp, gemini --acp│                  └───────────────────────────┘  │
    │   │      │ stdio MCP       │                                                 │
    │   │      ▼                 │                                                 │
-   │   │ hypotenuse mcp         │── HTTPS (runner token) → daemon:linear-* actions │
+   │   │ hypotenuse mcp         │── control socket ─► daemon ─► daemon:linear-*   │
    │   └────────────────────────┘                                                 │
    └──────────────────────────────────────────────────────────────────────────────┘
 
@@ -219,7 +219,7 @@ For each claimed work item it:
 1. creates (or, for a sticky follow-up, reuses) a git worktree on branch `hypotenuse/<issue-identifier>-<slug>`
    from the repository's `base_branch`, and runs the repository's `setup` commands;
 2. spawns the role's ACP agent with `cwd` set to the worktree and `mcpServers` containing
-   `hypotenuse mcp --session <agentSessionId>`;
+   `hypotenuse mcp --session <agentSessionId> --nonce <per-turn nonce>`;
 3. `initialize`s, authenticates if the agent asks, then `session/new` (or `session/load` / `session/resume` for a
    follow-up);
 4. sends one `session/prompt` built from the role prompt, Linear's `promptContext`, guidance (team before
@@ -246,8 +246,11 @@ For each claimed work item it:
 
 ## The Hypotenuse MCP server
 
-`hypotenuse mcp --session <id>` is a stdio MCP server the daemon hands to the coding agent. Its tools proxy to
-`daemon:linear-*` actions with the runner token, and the server re-derives every permission from the session
+`hypotenuse mcp --session <id> --nonce <n>` is a stdio MCP server the daemon hands to the coding agent. It holds
+**no token**: it calls the daemon over the `0600` control socket (`mcp.hello`, `mcp.call`) with the session id and a
+per-turn nonce, and the daemon forwards each call to `daemon:linear-*` with the runner token it keeps to itself.
+The agent's process tree therefore never sees the runner token in argv or env. The server re-derives every
+permission from the session
 row: which installation, which issue, which role. The two tool sets:
 
 | Worker | Manager (adds) |
