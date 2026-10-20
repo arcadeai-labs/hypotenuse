@@ -88,7 +88,8 @@ runner token lives — not on the workspace.
 | Linear access + refresh token (`actor=app`) | `linear_installations`, AES-256-GCM via `ops/CryptoOps.ts` | Linear OAuth callback | the workspace's teams the admin granted | `linear:disconnect`, `OAuthApp revoked` webhook |
 | Linear webhook signing secret | env `LINEAR_WEBHOOK_SECRET` | Linear app settings | verifies every inbound delivery | rotate in Linear + env |
 | Linear OAuth client secret | env `LINEAR_CLIENT_SECRET` | Linear app settings | token exchange and refresh | rotate in Linear + env |
-| Human session | Redis (`__session` cookie) | `session:create`, or Keryx OAuth for the CLI and MCP clients | the person's memberships | `session:destroy`, TTL |
+| Human session | Redis (`__session` cookie) | `session:create`; Keryx OAuth for human MCP clients | the person's memberships | `session:destroy`, TTL |
+| CLI token (`hyp_cli_…`) | CLI: `credentials.json` (0600); server: sha256 in `cli_tokens` | `cli-auth:exchange`, after the person approves in the dashboard | the person's memberships; never `daemon:*` | `cli-token:revoke`, `hypotenuse logout`, 90-day sliding expiry |
 | Runner token | daemon: `~/.config/hypotenuse/credentials.json` (0600); server: sha256 in `runners.tokenHash` | `runner:register` — plaintext shown once | one runner, one project, the owner's standing at call time | `runner:revoke`, membership removal |
 | Daemon WebSocket session | Redis | `daemon:connect` (runner token → cookie) | subscribe to `runner:<id>` only | runner revoke drops it |
 | Coding-agent model credentials | the person's machine (Claude login, `OPENAI_API_KEY`, …) | the person | the agent | the person |

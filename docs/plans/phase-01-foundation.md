@@ -111,8 +111,8 @@ bunx keryx@latest new backend -y      # with database and Redis; no example acti
 ```
 
 Pin `keryx` to the version the scaffold installs, which must be **≥ 0.48** (the version the research for
-these plans read; ToolExec's floor of 0.42.4 is the loopback OAuth redirect fix the CLI login in
-[phase 5](./phase-05-cli-and-distribution.md) depends on). Then close the gaps, copying from ToolExec:
+these plans read; ToolExec's floor of 0.42.4 is the loopback OAuth redirect fix that human MCP clients
+depend on). Then close the gaps, copying from ToolExec:
 
 | File | Source | Why |
 |---|---|---|

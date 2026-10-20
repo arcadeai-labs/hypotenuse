@@ -214,7 +214,7 @@ runner against staging:
 }
 ```
 
-- **`session`** belongs to the operator CLI (Keryx OAuth via loopback PKCE, see
+- **`session`** belongs to the operator CLI (a `hyp_cli_` token from the dashboard sign-in, see
   [phase 5](./phase-05-cli-and-distribution.md)).
 - **`runner`** is written once by `hypotenuse runner register`, which shows the plaintext token only in this
   file.

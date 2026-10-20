@@ -32,7 +32,8 @@ fixing the one mcpx gotcha recorded below.
 
 **In:** the `cli/` package shape; commander program with mcpx's output conventions (early-env, TTY mode,
 stderr logger, `--json` on stdout) and signal-safe shutdown; HTTP client and credentials file; browser sign-in
-through Keryx OAuth 2.1 + PKCE on a loopback port, with token refresh; operator commands `login`, `logout`,
+through a dashboard approval page (loopback + PKCE, or a device code), onto a CLI token Hypotenuse issues
+and checks itself; operator commands `login`, `logout`,
 `whoami`, `project`, `member`, `invite`, `tag`, `audit`; `upgrade` and `check-update` via upgradr with the
 background update notice; `bun build --compile` for six targets; `install.sh` and `install.ps1`;
 `.github/workflows/auto-release.yml` (npm trusted publishing + GitHub Release assets);
@@ -133,40 +134,84 @@ Base URL precedence, highest wins: `--url`, `HYPOTENUSE_URL`, `credentials.json`
 `[server] url`, then the compiled-in default `https://api.<domain>` (set when the staging domain is chosen in
 [phase 2](./phase-02-deployment.md)). Callers pass the origin; the client appends `/api`.
 
-### 4. Signing in — Keryx OAuth 2.1, PKCE, loopback redirect
+### 4. Signing in: through the dashboard, onto a CLI token we own
 
-ToolExec's CLI takes `--email --password` and stores the session cookie. That is the wrong default for a tool
-whose users sign up through a browser and may never have typed a password into a terminal. Keryx already ships
-an OAuth 2.1 authorization server (for MCP clients) with dynamic client registration and RFC 8252 loopback
-redirects — ToolExec proved it with `redirect-loopback.test.ts` and `getMcpAccessToken()`. `hypotenuse login`
-is an ordinary public OAuth client of it:
+The person signs in **on the web**, in the dashboard they already use, with whatever sign-in the web supports today
+or later. The CLI never sees a password, and the server hands it a token that Hypotenuse issues, stores, and checks
+itself.
+
+Two alternatives were rejected:
+
+- **ToolExec's `--email --password`**, which stores a session cookie. It is the wrong default for people who signed
+  up in a browser. Keryx sessions also share one global `SESSION_TTL` (24 h by default), and a CLI wants months.
+- **Keryx's own OAuth 2.1 server**, built for MCP clients. Its access tokens are verified on `/mcp` only. Making
+  ordinary HTTP actions accept them would mean reading Keryx's token store from our middleware — a framework
+  internal, and under rule 4 a capability we would have to wait on upstream. Keryx's OAuth server stays for human MCP
+  clients, and the CLI does not use it.
+
+The flow is the RFC 8252 loopback pattern with PKCE, with our own dashboard page as the authorization page:
 
 ```
 hypotenuse login
-  1. GET  {base}/.well-known/oauth-authorization-server         → endpoints
-  2. POST {base}/oauth/register  {redirect_uris:["http://127.0.0.1/callback"], client_name:"hypotenuse CLI"}
-     (once; clientId cached in credentials.json)
-  3. Bun.serve on 127.0.0.1:<ephemeral>; open browser to /oauth/authorize?…&code_challenge=S256(…)&state=…
-     (prints the URL too, for ssh sessions; --no-browser prints only)
-  4. the person signs in or signs up on the themed Keryx page and approves
-  5. callback → POST /oauth/token (code + code_verifier) → access + refresh token
-  6. GET /api/me → "Signed in as peach@example.com"
+  1. CLI: code_verifier + state; Bun.serve on 127.0.0.1:<ephemeral>
+  2. open {app}/cli/authorize?port=<p>&state=<s>&code_challenge=<S256(verifier)>&device=<hostname>
+     (the URL is printed too, for when no browser opens)
+  3. the dashboard route is behind ProtectedRoute: sign in or sign up as usual, then
+     "Sign in the hypotenuse CLI on <device>?"  [Approve] [Cancel]
+  4. Approve → PUT /api/cli-auth/approve { codeChallenge, device }        (session; audited)
+     → one-time code: Redis, 60 s TTL, bound to userId + codeChallenge
+     → the page redirects to http://127.0.0.1:<p>/callback?code=…&state=…
+  5. CLI checks state → POST /api/cli-auth/exchange { code, codeVerifier }   (unauthenticated; rate-limited)
+     → { token: "hyp_cli_…", cliToken: { id, device, expiresAt } }  → credentials.json (0600)
+  6. GET /api/me with Authorization: Bearer hyp_cli_… → "Signed in as peach@example.com"
 ```
 
-The loopback redirect is registered portless and accepted on any port (RFC 8252 §7.3; Keryx ≥ 0.42.4).
+**SSH and headless machines**, `login --no-browser`, use a device code instead of a loopback port. The CLI calls
+`PUT /api/cli-auth/device` and gets `{ userCode: "WDJB-MJHT", deviceCode, verificationUrl }`. It prints the URL and
+the code. The person opens `{app}/cli/activate` on any device, signs in, types the code, and approves
+(`POST /api/cli-auth/activate`, session; audited). The CLI polls `cli-auth:exchange` with `{ deviceCode }` every
+2 s for up to 10 minutes and receives the same token. Each code is single-use, and a code that is approved or
+expires is gone.
 
-**Bearer tokens on HTTP actions.** Keryx verifies OAuth access tokens on `/mcp`; ToolExec's ordinary HTTP
-actions only read the session cookie. `backend/middleware/session.ts` is extended so that when a request has
-no session `userId` but carries `Authorization: Bearer <token>` (read through `ops/RawRequestOps.ts`
-`bearerToken`), the token is verified against Keryx's OAuth token store and the resolved `userId` is used for
-that request only — no session is created. This is the same mechanism ToolExec's run tokens rely on
-(`registerRunToken` writes `oauth:token:<token>` so Keryx's own verifier accepts it). If Keryx exposes no
-supported way to verify a token outside `/mcp`, that is a missing framework capability: file it at
-`actionhero/keryx` and stop (rule 4), rather than reading its Redis keys directly.
+**The token.** `backend/schema/cli_tokens.ts`:
 
-`backend/__tests__/cli/login.test.ts` drives steps 1–6 with a scripted browser (`fetch` against the authorize
-form, as `getMcpAccessToken()` does) and asserts that a refreshed token keeps working and a revoked one does
-not. `login --email --password` is kept as a hidden, non-interactive path for CI and the e2e suite only.
+| Column | Notes |
+|---|---|
+| `id`, `userId` | `userId` cascades on user delete |
+| `device` | the hostname the CLI reported, editable in the dashboard |
+| `tokenHash`, `lastFour` | sha256 of `hyp_cli_<32 random bytes, base62>`; the plaintext exists only in the exchange response |
+| `createdAt`, `lastUsedAt`, `expiresAt`, `revokedAt` | `timestamptz`; 90-day expiry, **sliding** (extended on use at most once a day) |
+
+**The middleware.** `backend/middleware/session.ts` resolves **one principal** per request. A session cookie with a
+`userId` comes first. Otherwise it reads `Authorization: Bearer hyp_cli_…` (through ToolExec's
+`ops/RawRequestOps.ts` `bearerToken`), looks the hash up in `cli_tokens` (not revoked, not expired), and sets the
+resolved `userId` where RBAC reads it. No Redis session is created, and no Keryx internals are touched. This is
+ToolExec's `RunTokenMiddleware` pattern pointed at people. A CLI token acts as its person on every human action
+and is refused on `daemon:*`. A runner token (`hyp_rt_…`) is refused on every human action (rule 8). Unknown,
+revoked, and expired tokens get one byte-identical 401.
+
+**Managing sign-ins.** `cli-token:list` (the caller's own) and `cli-token:revoke` (own; audited) back a "CLI
+sign-ins" section on the Account page: device, created, last used, and a Revoke button. `hypotenuse logout` revokes
+the current token server-side (`DELETE /api/cli-token`), then deletes it from `credentials.json`. Removing a user
+deletes their tokens; removing a membership needs nothing, because every request re-checks membership.
+
+`cli-auth:exchange` and `cli-auth:device` are unauthenticated machine ingress: never MCP, unaudited (the audited
+decision is the person's approve or activate), and rate-limited per IP and per code. `cli-auth:approve` and
+`cli-auth:activate` are browser hops, never MCP.
+
+`backend/__tests__/cli/login.test.ts` covers the following, driving the approve page's action over HTTP with a
+signed-in test user:
+
+- The code is single-use, expires after 60 s (asserted by writing the Redis TTL, not by waiting), and is bound to
+  its challenge: a wrong verifier gets the same 400 as an unknown code.
+- The token works on human actions as that person and respects membership: Bowser's token gets 403 on Peach's
+  project.
+- Revoked and expired tokens get a byte-identical 401.
+- A CLI token is refused on `daemon:heartbeat`, and a runner token is refused on `project:list`.
+- The device flow completes, and an unapproved device code times out.
+- `logout` revokes.
+
+There is no password path for CI. The e2e suite signs in the same way, approving with a test user's session.
 
 ### 5. Self-upgrade — `upgradr`
 
@@ -299,7 +344,7 @@ For each: `hypotenuse --version` equals `cli/package.json`; `hypotenuse --json c
 
 | Command | Wraps |
 |---|---|
-| `hypotenuse login [--url] [--no-browser]` / `logout` / `whoami` | OAuth flow above; `oauth/revoke` + local delete; `me:view` |
+| `hypotenuse login [--url] [--no-browser]` / `logout` / `whoami` | the sign-in flow above (`cli-auth:*`); `cli-token:revoke` + local delete; `me:view` |
 | `hypotenuse project list|view|create|edit|delete|use <id|slug>` | `project:*`; `use` writes `project` to credentials.json |
 | `hypotenuse member list|add|remove` | `membership:*` |
 | `hypotenuse invite list|pending|create|accept|reject` | `invite:*` |
@@ -317,11 +362,12 @@ Every list prints a table in human mode and the action's named object under `--j
 
 Port mcpx's skeleton and ToolExec's HTTP client as tabulated above. Remove the phase-1 placeholder.
 
-### 2. Bearer verification on HTTP actions — `backend/middleware/session.ts`, `backend/ops/RawRequestOps.ts`
+### 2. CLI tokens and sign-in actions — `backend/schema/cli_tokens.ts`, `backend/ops/CliTokenOps.ts`, `backend/actions/cli-auth/*.ts`, `backend/actions/cli-token/*.ts`, `backend/middleware/session.ts`, `frontend/src/pages/cli/{CliAuthorizePage,CliActivatePage}.tsx`, Account → CLI sign-ins
 
-Extend the session middleware as in Design §4; add `backend/__tests__/middleware/bearer-session.test.ts`
-(valid token → the action runs as that user with no session cookie; expired, revoked, or malformed → 401 with
-the same body; a bearer token never creates a Redis session).
+As in Design §4: `cli-auth:approve`, `cli-auth:exchange`, `cli-auth:device`, `cli-auth:activate`, `cli-token:list`,
+`cli-token:revoke`, the middleware's principal resolution, and the two dashboard pages. Add `hyp_cli_` and the
+exchange's `code` / `codeVerifier` / `deviceCode` keys to `SENSITIVE_KEYS`. Tests: `backend/__tests__/cli/login.test.ts`
+and `backend/__tests__/middleware/principal.test.ts`.
 
 ### 3. `login` / `logout` / `whoami` — `cli/src/commands/auth.ts`, `cli/src/api/oauth.ts`
 
@@ -362,8 +408,8 @@ bun run --cwd cli dev login --url http://localhost:8080      # opens a browser; 
 bun run --cwd cli dev whoami && bun run --cwd cli dev --json project list | jq
 ```
 
-- A browser sign-in completes with no password typed into the terminal, and `whoami` works for longer than
-  the access token's lifetime (refresh).
+- A browser sign-in completes with no password typed into the terminal. `--no-browser` completes from a second
+  device. The token appears under Account → CLI sign-ins, and revoking it there makes `whoami` fail.
 - The three install paths in `test-upgrade.sh` all report the right install method.
 - A dry run of the release workflow on a fork (or `act`) shows `ci` before `create-release` and a draft
   release until both publish jobs pass.
@@ -373,8 +419,9 @@ bun run --cwd cli dev whoami && bun run --cwd cli dev --json project list | jq
 ## Definition of done
 
 - [ ] `cli/` follows mcpx's structure: early-env, TTY mode, stderr logger, stdout data, signal-safe shutdown
-- [ ] `login` uses Keryx OAuth 2.1 + PKCE on a loopback port; tokens refresh; `logout` revokes
-- [ ] Session middleware accepts a verified bearer token on HTTP actions (or an upstream Keryx issue is filed and this phase is paused)
+- [ ] `login` signs in through the dashboard (loopback + PKCE, and a device code with `--no-browser`); `logout` revokes
+- [ ] `cli_tokens` with sliding expiry; the session middleware resolves a CLI token to its person; CLI and runner tokens are each refused where they don't belong
+- [ ] Account page lists and revokes CLI sign-ins
 - [ ] Operator commands for project, member, invite, tag, and audit, each with `--json`
 - [ ] `upgrade` / `check-update` via upgradr; background notice suppressed for daemon and MCP commands; Windows prints the reinstall line
 - [ ] The npm package is a bundled `dist/hypotenuse.js`; runtime assets are embedded, never read beside `Bun.main`

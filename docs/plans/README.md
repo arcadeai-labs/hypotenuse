@@ -89,8 +89,9 @@ and not the plan above it, is the live account (rule 14 in [`AGENTS.md`](../../A
 - **Linear credentials are server-only.** Runners and coding agents reach Linear through `daemon:linear-*` actions,
   scoped per session. Handing a runner the Linear MCP server and a token was rejected: it would put workspace-wide
   write access on every laptop.
-- **Runner authentication.** `hypotenuse login` uses Keryx's OAuth 2.1 with a loopback redirect and PKCE.
-  `runner register` then mints a runner token, shown once and stored as a sha256. HTTP requests carry it as a bearer
+- **CLI and runner authentication.** `hypotenuse login` signs in **on the web**. The dashboard approves the CLI
+  (loopback + PKCE, or a device code over SSH), and the server issues a `hyp_cli_` token it stores and checks itself.
+  Keryx's OAuth server is kept for human MCP clients only. `runner register` then mints a runner token, shown once and stored as a sha256. HTTP requests carry it as a bearer
   token. The WebSocket uses a session cookie obtained from `daemon:connect`.
 - **Postgres is truth; the socket is a ping.** The daemon's 15-second heartbeat also returns offers and cancels.
 - **Routing preference.** A follow-up goes to the runner that holds the session, then to the issuer's runners, then

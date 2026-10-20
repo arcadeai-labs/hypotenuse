@@ -209,6 +209,10 @@ Members register their own runners, see sessions, and cancel work; admins connec
 members, and revoke anyone's runner. `actions:permissions` reports every action's level, and the frontend's `can()`
 is the only place UI gating decides. Removing a membership revokes that person's runners in the same transaction.
 
+Three principals reach the API: a **browser session** (cookie), a **CLI token** (`hyp_cli_…`, issued after the
+person approves the CLI in the dashboard; acts as that person, never on `daemon:*`), and a **runner token**
+(`hyp_rt_…`; `daemon:*` only). `backend/middleware/session.ts` resolves exactly one per request.
+
 ## Architecture rules while writing code
 
 The map is [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md). What follows is the part that is a **rule**:
