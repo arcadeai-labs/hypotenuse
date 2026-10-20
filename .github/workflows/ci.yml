@@ -130,6 +130,30 @@ jobs:
       - run: bun run test
       # A missing prop the unit suite never instantiates still fails here.
       - run: bun run build
+      # Fonts are self-hosted; a CDN reference in the built bundle is a regression.
+      - name: No font CDN in the bundle
+        run: "! grep -rlE 'fonts\\.(googleapis|gstatic)\\.com' dist"
+
+  e2e:
+    name: E2E Test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+        working-directory: .
+      - run: cp .env.example .env
+      - run: bunx playwright install --with-deps chromium
+      - run: bun run test:e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: frontend/playwright-report
+          retention-days: 7
 
   frontend-docker:
     name: Frontend Docker Build
@@ -152,6 +176,7 @@ jobs:
         frontend-lint,
         frontend-test,
         frontend-docker,
+        e2e,
       ]
     steps:
       # Assert every result IS `success`, rather than listing failures: a

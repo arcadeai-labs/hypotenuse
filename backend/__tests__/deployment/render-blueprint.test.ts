@@ -278,4 +278,10 @@ describe("render.yaml", () => {
   test("the api trusts the proxy so the OAuth issuer is the public origin", () => {
     expect(valueOf("hypotenuse-api", "MCP_OAUTH_TRUST_PROXY")).toBe("true");
   });
+
+  test("the api points WEB_SERVER_THEME at a file that exists", () => {
+    const themePath = valueOf("hypotenuse-api", "WEB_SERVER_THEME");
+    expect(themePath).toBeDefined();
+    expect(readRepoFile(join("backend", themePath!))).toContain("--keryx-color-primary");
+  });
 });

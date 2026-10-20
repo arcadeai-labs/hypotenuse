@@ -1,0 +1,11 @@
+// Self-hosted faces only — no request ever leaves for a font CDN. The files
+// themselves are imported from `main.tsx` (Vite rebases their `url()`s there);
+// each @font-face carries a `unicode-range`, so a browser downloads only the
+// subsets a page actually draws, and `font-display: swap` is the packages' own.
+// Inter's `opsz` file carries both axes, which is what lets a page title switch
+// to the Display cut through `font-optical-sizing` alone.
+
+:root {
+  --font-sans: "Inter Variable", Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
