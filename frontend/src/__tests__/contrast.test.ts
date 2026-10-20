@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { CONTRAST_PAIRS, contrastRatio, generateAll } from "../../../design/tokens";
+import {
+  CONTRAST_PAIRS,
+  contrastRatio,
+  generateAll,
+} from "../../../design/tokens";
 
 // WCAG 2.1 contrast for every foreground/background pair the components draw,
 // in both themes: 4.5:1 for text, 3:1 for glyphs and focus rings. The pairs are
@@ -13,7 +17,9 @@ describe("contrast", () => {
     test(`every declared pair clears its minimum in ${mode}`, () => {
       const failures = CONTRAST_PAIRS.flatMap(({ fg, bg, min }) => {
         const ratio = contrastRatio(themes[mode][fg]!, themes[mode][bg]!);
-        return ratio >= min ? [] : [`${fg} on ${bg}: ${ratio.toFixed(2)} < ${min}`];
+        return ratio >= min
+          ? []
+          : [`${fg} on ${bg}: ${ratio.toFixed(2)} < ${min}`];
       });
       expect(failures).toEqual([]);
     });

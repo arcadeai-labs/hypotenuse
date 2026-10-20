@@ -22,8 +22,13 @@ export const SEQUENCE_TIMEOUT_MS = 1000;
  * @param event - The keyboard event (only `key` and the modifier flags are read).
  * @returns e.g. `"g"`, `"?"`, `"mod+k"`.
  */
-export function keyName(event: Pick<KeyboardEvent, "key" | "metaKey" | "ctrlKey" | "altKey">): string | null {
-  if (["Shift", "Meta", "Control", "Alt", "Dead", "Process"].includes(event.key)) return null;
+export function keyName(
+  event: Pick<KeyboardEvent, "key" | "metaKey" | "ctrlKey" | "altKey">,
+): string | null {
+  if (
+    ["Shift", "Meta", "Control", "Alt", "Dead", "Process"].includes(event.key)
+  )
+    return null;
   const key = event.key.toLowerCase();
   if (event.metaKey || event.ctrlKey) return `mod+${key}`;
   if (event.altKey) return null;
@@ -49,7 +54,10 @@ export function isTypingTarget(target: EventTarget | null): boolean {
  * @param now - Clock, injectable for tests.
  * @returns `press(key)`.
  */
-export function createSequenceMatcher(commands: Command[], now: () => number = Date.now) {
+export function createSequenceMatcher(
+  commands: Command[],
+  now: () => number = Date.now,
+) {
   const bound = commands.filter((c) => c.shortcut);
   let buffer: string[] = [];
   let last = 0;
@@ -76,7 +84,8 @@ export function createSequenceMatcher(commands: Command[], now: () => number = D
         // A key that broke a sequence may start a new one on its own.
         const single = bound.find((c) => c.shortcut === key);
         if (single) return single;
-        if (bound.some((c) => c.shortcut?.startsWith(`${key} `))) buffer = [key];
+        if (bound.some((c) => c.shortcut?.startsWith(`${key} `)))
+          buffer = [key];
       }
       return null;
     },

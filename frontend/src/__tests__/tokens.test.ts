@@ -1,7 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { generateAll, lchToSrgb8, OUTPUTS, toHex } from "../../../design/tokens";
+import {
+  generateAll,
+  lchToSrgb8,
+  OUTPUTS,
+  toHex,
+} from "../../../design/tokens";
 
 // The theme is written once, as inputs, and generated into every file that
 // needs it. A hand edit to a generated file — the easiest way to "just tweak a
@@ -13,7 +18,10 @@ describe("design tokens", () => {
   test("every generated file equals a fresh generation", () => {
     const themes = generateAll();
     for (const { path, render } of OUTPUTS) {
-      expect({ path, body: readFileSync(join(ROOT, path), "utf8") }).toEqual({ path, body: render(themes) });
+      expect({ path, body: readFileSync(join(ROOT, path), "utf8") }).toEqual({
+        path,
+        body: render(themes),
+      });
     }
   });
 
@@ -26,7 +34,8 @@ describe("design tokens", () => {
       [[87.82, 113.33, 134.38], "#00ff00"],
       [[29.57, 131.2, 301.36], "#0000ff"],
     ];
-    for (const [[l, c, h], hex] of cases) expect(toHex(lchToSrgb8({ l, c, h }))).toBe(hex);
+    for (const [[l, c, h], hex] of cases)
+      expect(toHex(lchToSrgb8({ l, c, h }))).toBe(hex);
   });
 
   test("generation is deterministic and both themes declare the same token set", () => {

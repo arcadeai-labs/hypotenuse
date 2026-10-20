@@ -31,7 +31,13 @@ export interface Command {
 
 /** The commands that exist before anything is signed in or loaded. */
 export const COMMANDS: Command[] = [
-  { id: "go-home", title: "Go to Home", group: "Navigation", shortcut: "g h", run: (c) => c.navigate("/home") },
+  {
+    id: "go-home",
+    title: "Go to Home",
+    group: "Navigation",
+    shortcut: "g h",
+    run: (c) => c.navigate("/home"),
+  },
   {
     id: "go-sessions",
     title: "Go to Sessions",
@@ -39,11 +45,39 @@ export const COMMANDS: Command[] = [
     shortcut: "g s",
     run: (c) => c.navigate("/sessions"),
   },
-  { id: "go-runners", title: "Go to Runners", group: "Navigation", shortcut: "g r", run: (c) => c.navigate("/runners") },
-  { id: "go-routing", title: "Go to Routing", group: "Navigation", shortcut: "g o", run: (c) => c.navigate("/routing") },
-  { id: "go-settings", title: "Go to Settings", group: "Navigation", run: (c) => c.navigate("/settings") },
-  { id: "go-docs", title: "Open docs", group: "Navigation", keywords: ["help"], run: (c) => c.navigate("/docs") },
-  { id: "go-style-guide", title: "Open style guide", group: "Navigation", run: (c) => c.navigate("/style-guide") },
+  {
+    id: "go-runners",
+    title: "Go to Runners",
+    group: "Navigation",
+    shortcut: "g r",
+    run: (c) => c.navigate("/runners"),
+  },
+  {
+    id: "go-routing",
+    title: "Go to Routing",
+    group: "Navigation",
+    shortcut: "g o",
+    run: (c) => c.navigate("/routing"),
+  },
+  {
+    id: "go-settings",
+    title: "Go to Settings",
+    group: "Navigation",
+    run: (c) => c.navigate("/settings"),
+  },
+  {
+    id: "go-docs",
+    title: "Open docs",
+    group: "Navigation",
+    keywords: ["help"],
+    run: (c) => c.navigate("/docs"),
+  },
+  {
+    id: "go-style-guide",
+    title: "Open style guide",
+    group: "Navigation",
+    run: (c) => c.navigate("/style-guide"),
+  },
   {
     id: "theme-light",
     title: "Theme: Light",
@@ -51,7 +85,13 @@ export const COMMANDS: Command[] = [
     keywords: ["appearance"],
     run: (c) => c.setTheme("light"),
   },
-  { id: "theme-dark", title: "Theme: Dark", group: "Theme", keywords: ["appearance"], run: (c) => c.setTheme("dark") },
+  {
+    id: "theme-dark",
+    title: "Theme: Dark",
+    group: "Theme",
+    keywords: ["appearance"],
+    run: (c) => c.setTheme("dark"),
+  },
   {
     id: "theme-system",
     title: "Theme: System",
@@ -59,8 +99,20 @@ export const COMMANDS: Command[] = [
     keywords: ["appearance", "auto"],
     run: (c) => c.setTheme("system"),
   },
-  { id: "toggle-sidebar", title: "Toggle sidebar", group: "View", shortcut: "[", run: (c) => c.toggleSidebar() },
-  { id: "search", title: "Search", group: "View", shortcut: "/", run: (c) => c.focusSearch() },
+  {
+    id: "toggle-sidebar",
+    title: "Toggle sidebar",
+    group: "View",
+    shortcut: "[",
+    run: (c) => c.toggleSidebar(),
+  },
+  {
+    id: "search",
+    title: "Search",
+    group: "View",
+    shortcut: "/",
+    run: (c) => c.focusSearch(),
+  },
   {
     id: "shortcuts",
     title: "Keyboard shortcuts",
@@ -77,6 +129,9 @@ export const COMMANDS: Command[] = [
  * @param ctx - The current context.
  * @returns Commands whose `when` passes (or that have none).
  */
-export function availableCommands(commands: Command[], ctx: CommandContext): Command[] {
+export function availableCommands(
+  commands: Command[],
+  ctx: CommandContext,
+): Command[] {
   return commands.filter((command) => !command.when || command.when(ctx));
 }

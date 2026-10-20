@@ -1,4 +1,12 @@
-import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import {
+  createContext,
+  type ReactNode,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 
 /** What a person chose. `system` follows the OS and keeps following it live. */
 export type ThemePreference = "system" | "light" | "dark";
@@ -38,7 +46,10 @@ export function readStoredPreference(): ThemePreference {
  * @param systemDark - Whether the OS currently prefers dark.
  * @returns The theme to paint.
  */
-export function resolveTheme(preference: ThemePreference, systemDark: boolean): ResolvedTheme {
+export function resolveTheme(
+  preference: ThemePreference,
+  systemDark: boolean,
+): ResolvedTheme {
   if (preference === "system") return systemDark ? "dark" : "light";
   return preference;
 }
@@ -50,12 +61,16 @@ export function resolveTheme(preference: ThemePreference, systemDark: boolean): 
  * @returns The provider.
  */
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [preference, setPreferenceState] = useState<ThemePreference>(readStoredPreference);
-  const [systemDark, setSystemDark] = useState(() => window.matchMedia(DARK_QUERY).matches);
+  const [preference, setPreferenceState] =
+    useState<ThemePreference>(readStoredPreference);
+  const [systemDark, setSystemDark] = useState(
+    () => window.matchMedia(DARK_QUERY).matches,
+  );
 
   useEffect(() => {
     const query = window.matchMedia(DARK_QUERY);
-    const onChange = (event: MediaQueryListEvent) => setSystemDark(event.matches);
+    const onChange = (event: MediaQueryListEvent) =>
+      setSystemDark(event.matches);
     query.addEventListener("change", onChange);
     return () => query.removeEventListener("change", onChange);
   }, []);
@@ -76,8 +91,13 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     setPreferenceState(next);
   }, []);
 
-  const value = useMemo(() => ({ preference, resolved, setPreference }), [preference, resolved, setPreference]);
-  return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
+  const value = useMemo(
+    () => ({ preference, resolved, setPreference }),
+    [preference, resolved, setPreference],
+  );
+  return (
+    <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>
+  );
 }
 
 /**

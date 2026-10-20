@@ -11,21 +11,26 @@ describe("type scale", () => {
     const offenders = sourceFiles([".scss", ".css"]).flatMap(({ path, body }) =>
       stripComments(body)
         .split("\n")
-        .filter((line) => /(?<![-\w])font-size\s*:\s*[0-9.]+(?:rem|px|em|pt)\b/.test(line))
+        .filter((line) =>
+          /(?<![-\w])font-size\s*:\s*[0-9.]+(?:rem|px|em|pt)\b/.test(line),
+        )
         .map((line) => `${path}: ${line.trim()}`),
     );
     expect(offenders).toEqual([]);
   });
 
   test("the base size is declared exactly once", () => {
-    const declarations = sourceFiles([".scss", ".css"]).flatMap(({ path, body }) =>
-      (stripComments(body).match(/--font-size\s*:/g) ?? []).map(() => path),
+    const declarations = sourceFiles([".scss", ".css"]).flatMap(
+      ({ path, body }) =>
+        (stripComments(body).match(/--font-size\s*:/g) ?? []).map(() => path),
     );
     expect(declarations).toEqual(["styles/_type.scss"]);
   });
 
   test("inline styles in components set no font size", () => {
-    const offenders = sourceFiles([".tsx"]).filter(({ body }) => /fontSize\s*:/.test(body));
+    const offenders = sourceFiles([".tsx"]).filter(({ body }) =>
+      /fontSize\s*:/.test(body),
+    );
     expect(offenders.map((f) => f.path)).toEqual([]);
   });
 });

@@ -22,13 +22,19 @@ interface Illustration {
 }
 
 /** Every illustration the docs embed. Add a row, rerun, commit the PNGs. */
-export const ILLUSTRATIONS: Illustration[] = [
+const ILLUSTRATIONS: Illustration[] = [
   { name: "home", path: "/", width: 1280, height: 800 },
-  { name: "style-guide", path: "/style-guide", selector: "[data-testid=style-guide-{theme}]", width: 1440, height: 900 },
+  {
+    name: "style-guide",
+    path: "/style-guide",
+    selector: "[data-testid=style-guide-{theme}]",
+    width: 1440,
+    height: 900,
+  },
 ];
 
 const BASE = process.env.FRONTEND_URL ?? "http://localhost:3000";
-const OUT = join(import.meta.dir, "..", "public", "docs", "illustrations");
+const OUT = join(import.meta.dirname, "..", "public", "docs", "illustrations");
 
 /**
  * Capture each illustration in both themes.
@@ -37,20 +43,34 @@ const OUT = join(import.meta.dir, "..", "public", "docs", "illustrations");
 async function main(): Promise<void> {
   mkdirSync(OUT, { recursive: true });
   const browser = await chromium.launch(
-    process.env.PLAYWRIGHT_CHROMIUM_PATH ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_PATH } : {},
+    process.env.PLAYWRIGHT_CHROMIUM_PATH
+      ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_PATH }
+      : {},
   );
   try {
     for (const theme of ["light", "dark"] as const) {
-      const context = await browser.newContext({ colorScheme: theme, deviceScaleFactor: 2 });
+      const context = await browser.newContext({
+        colorScheme: theme,
+        deviceScaleFactor: 2,
+      });
       // The stored preference is what the boot script reads before first paint.
-      await context.addInitScript((value) => localStorage.setItem("hypotenuse.theme", value), theme);
+      await context.addInitScript(
+        (value) => localStorage.setItem("hypotenuse.theme", value),
+        theme,
+      );
       const page = await context.newPage();
       for (const shot of ILLUSTRATIONS) {
-        await page.setViewportSize({ width: shot.width ?? 1280, height: shot.height ?? 800 });
+        await page.setViewportSize({
+          width: shot.width ?? 1280,
+          height: shot.height ?? 800,
+        });
         await page.goto(`${BASE}${shot.path}`, { waitUntil: "networkidle" });
         await page.evaluate(() => document.fonts.ready);
         const file = join(OUT, `${shot.name}-${theme}.png`);
-        if (shot.selector) await page.locator(shot.selector.replace("{theme}", theme)).screenshot({ path: file });
+        if (shot.selector)
+          await page
+            .locator(shot.selector.replace("{theme}", theme))
+            .screenshot({ path: file });
         else await page.screenshot({ path: file });
         console.log(`wrote ${file}`);
       }
@@ -61,4 +81,4 @@ async function main(): Promise<void> {
   }
 }
 
-if (import.meta.main) await main();
+await main();

@@ -1,8 +1,16 @@
 import { describe, expect, test } from "bun:test";
-import { createSequenceMatcher, displayKeys, keyName, SEQUENCE_TIMEOUT_MS } from "../commands/keymap";
+import {
+  createSequenceMatcher,
+  displayKeys,
+  keyName,
+  SEQUENCE_TIMEOUT_MS,
+} from "../commands/keymap";
 import { COMMANDS } from "../commands/registry";
 
-const key = (k: string, mods: Partial<{ metaKey: boolean; ctrlKey: boolean; altKey: boolean }> = {}) =>
+const key = (
+  k: string,
+  mods: Partial<{ metaKey: boolean; ctrlKey: boolean; altKey: boolean }> = {},
+) =>
   keyName({ key: k, metaKey: false, ctrlKey: false, altKey: false, ...mods });
 
 describe("keymap", () => {
