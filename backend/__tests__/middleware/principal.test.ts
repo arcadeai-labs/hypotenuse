@@ -45,9 +45,17 @@ describe("one principal per request", () => {
     for (const action of reads) {
       const query = `?projectId=${universe.projectId}`;
       const target = `${url}/api${action.web!.route}${query}`;
+      // A browser hop answers a redirect to the dashboard; its status is the
+      // answer, and the dashboard is not running here.
       const [asSession, asCli] = await Promise.all([
-        fetch(target, { headers: cookieHeader(universe.peach.sessionId) }),
-        fetch(target, { headers: bearerHeaders(peachCli.token) }),
+        fetch(target, {
+          headers: cookieHeader(universe.peach.sessionId),
+          redirect: "manual",
+        }),
+        fetch(target, {
+          headers: bearerHeaders(peachCli.token),
+          redirect: "manual",
+        }),
       ]);
       if (asSession.status !== asCli.status) {
         differences.push(

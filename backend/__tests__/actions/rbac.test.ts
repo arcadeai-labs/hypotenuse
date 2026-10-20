@@ -47,6 +47,8 @@ const EXPECTED_LEVELS: Record<string, RbacLevel> = {
   "project:settings-view": "member",
   "membership:list": "member",
   "tag:list": "member",
+  "linear:installation": "member",
+  "linear:catalog": "member",
 
   // Admin-gated: managing people, tags, invites, the project itself, and
   // reading the audit log, which names who did what.
@@ -62,6 +64,9 @@ const EXPECTED_LEVELS: Record<string, RbacLevel> = {
   "invite:create": "admin",
   "invite:list": "admin",
   "audit:list": "admin",
+  // Connecting and disconnecting Linear attach or detach a whole workspace.
+  "linear:connect": "admin",
+  "linear:disconnect": "admin",
 
   // Not project-scoped: session-scoped, public, or a clock. `none` is correct
   // rather than an omission.
@@ -91,6 +96,11 @@ const EXPECTED_LEVELS: Record<string, RbacLevel> = {
   "notifications:sweep": "none",
   "invites:sweep": "none",
   "audit:sweep": "none",
+  // The browser hop is bound to the session that started it, not to a
+  // projectId param; it re-checks admin itself before writing.
+  "linear:callback": "none",
+  "linear:refresh-tokens": "none",
+  "linear:manifest-url": "none",
 };
 
 /** Every clock: task-only, never an HTTP route. */
@@ -99,6 +109,7 @@ const CLOCKS = [
   "notifications:sweep",
   "invites:sweep",
   "audit:sweep",
+  "linear:refresh-tokens",
 ];
 
 let universe: TestUniverse;
@@ -238,6 +249,10 @@ describe("MCP publish policy", () => {
         "invite:list",
         "invite:list-pending",
         "invite:reject",
+        "linear:catalog",
+        "linear:connect",
+        "linear:disconnect",
+        "linear:installation",
         "me:view",
         "membership:create",
         "membership:delete",
@@ -263,8 +278,8 @@ describe("MCP publish policy", () => {
   });
 
   test("the never-list is exactly the declared set", () => {
-    // Declared before most of its members exist, so the change that adds
-    // `linear:callback` or `runner:register` cannot forget it.
+    // Declared before some of its members exist, so the change that adds
+    // `runner:register` cannot forget it.
     expect([...NEVER_MCP_ACTION_NAMES].sort()).toEqual(
       [
         "actions:permissions",

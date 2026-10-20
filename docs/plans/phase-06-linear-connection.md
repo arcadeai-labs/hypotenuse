@@ -411,17 +411,17 @@ hypotenuse linear status --json | jq '.installation | {status, organizationName,
 
 ## Definition of done
 
-- [ ] `linear_installations` with the partial unique index on live `organizationId` and unique `projectId`
-- [ ] Install flow with single-use, session-bound `state` and PKCE; `prompt=consent`; six scopes
-- [ ] Second project connecting the same workspace refused with a non-leaking message
-- [ ] Tokens encrypted; token columns and OAuth params in `SENSITIVE_KEYS`; serializer omits them
-- [ ] `linear:refresh-tokens` with row lock, rotation, and replay inside the 30-minute grace; inline 401 refresh
-- [ ] `LinearOps` is the only `fetch` to Linear; records rate-limit headers; `RATELIMITED` → typed error
-- [ ] Every operation document executes against finear in a test
-- [ ] `linear:catalog` cached and member-gated
-- [ ] Disconnect revokes both tokens and frees the workspace
-- [ ] `useFinear()` harness with scripted consent, used by every Linear suite
-- [ ] Settings → Linear section, `hypotenuse linear` commands, user docs, DEPLOY.md section, manifest URL helper
+- [x] `linear_installations` with the partial unique index on live `organizationId` and unique `projectId`
+- [x] Install flow with single-use, session-bound `state` and PKCE; `prompt=consent`; six scopes
+- [x] Second project connecting the same workspace refused with a non-leaking message
+- [x] Tokens encrypted; token columns and OAuth params in `SENSITIVE_KEYS`; serializer omits them
+- [x] `linear:refresh-tokens` with row lock, rotation, and replay inside the 30-minute grace; inline 401 refresh
+- [x] `LinearOps` is the only `fetch` to Linear; records rate-limit headers; `RATELIMITED` → typed error
+- [x] Every operation document executes against finear in a test
+- [x] `linear:catalog` cached and member-gated
+- [x] Disconnect revokes both tokens and frees the workspace
+- [x] `useFinear()` harness with scripted consent, used by every Linear suite
+- [x] Settings → Linear section, `hypotenuse linear` commands, user docs, DEPLOY.md section, manifest URL helper
 
 ## Commands
 
@@ -438,4 +438,80 @@ cd backend && bun keryx.ts linear:refresh-tokens
 
 ## Learnings from the build
 
-_Nothing yet — this phase has not been built._
+### What is built
+
+All eleven Definition of done items. The backend gained `linear_installations` (one migration), `LinearOps` (the
+GraphQL client, its typed errors, and the serializer), `LinearOAuthOps` (state, exchange, refresh, revoke),
+`LinearCatalogOps`, `LinearManifestOps`, the operation documents in `ops/linear/operations.ts`, seven `linear:*`
+actions, the `linearApp` initializer, and the first notification template (`linear-refresh-failed`). The dashboard
+gained Settings → Linear and the *Connecting Linear* docs page; the CLI gained `hypotenuse linear
+status|connect|disconnect` at 0.2.0. Nothing has been connected to a real Linear workspace yet: the staging check
+under Verification is still to do.
+
+### Where the build departs from the plan
+
+- **The suites live in `backend/__tests__/linear/`**, named as [`LINEAR_COVERAGE.md`](../LINEAR_COVERAGE.md)
+  already named them — `oauth`, `token-refresh`, `catalog`, `linear-ops`, `rate-limit`, `manifest`, plus
+  `finear.test.ts` for the harness — rather than step 9's `__tests__/actions/linear-*.test.ts`. The matrix is the
+  document that is tested, so it won.
+- **`OAuthApp` is not in the manifest.** Linear's published schema (vendored at
+  `backend/__tests__/fixtures/oauth-app-manifest.schema.json`, validated with ajv) has no such resource type;
+  revocation is a toggle on the app's settings page, which [`DEPLOY.md`](../DEPLOY.md) already said. The schema's
+  `display` takes only `iconUrl`, and there is no icon to point at, so the manifest has no `display`.
+- **The in-flight refresh record holds only its start time**, not the encrypted refresh token. A failed or lost
+  refresh commits nothing, so the row itself still holds the token Linear just spent, and the next attempt
+  presents it again; the Redis key only marks that a replay is under way (and words `refreshError` if Linear then
+  refuses). One fewer secret at rest.
+- **Only `invalid_grant` marks an installation `error`.** Any other token-endpoint refusal (`invalid_client` after a
+  client-secret rotation, say) sets `refreshError` and leaves it `active`, so fixing the deployment's configuration
+  recovers every workspace without anyone reconnecting.
+- **Two more columns:** `appUserName` (what the dashboard calls the app — Linear may have suffixed it) and
+  `appUserCapabilities` (`app`, `isAssignable`, `isMentionable`, `supportsAgentSessions`, read with the app's own
+  token at install, LC-DEL-06). Both token columns are `jsonb` holding `CryptoOps`' `{ ciphertext, iv, authTag }`.
+- **Two more callback refusals:** `forbidden` (the starter lost the admin tag while on Linear's screen — the callback
+  re-checks inside the write transaction) and `workspace_changed` (a connected project re-consenting into another
+  workspace). The success redirect carries `projectId`, so the dashboard opens the project that was connected.
+- **A refused install does not revoke the tokens it was just given, and a reconnect does not revoke the previous
+  grant.** Revoking any token of an `actor=app` install uninstalls the app from the workspace — finear does exactly
+  this — so either would cut off the project that is using it.
+- **A disconnect that cannot reach Linear forgets nothing** and answers 500 saying so; forgetting tokens Linear
+  still honours would leave the app installed with nobody able to revoke it.
+- **Production refuses to boot without the three Linear secrets, in server mode only**, so `bun keryx.ts
+  linear:manifest-url` runs before the app exists. Elsewhere a missing app logs once and `linear:installation`
+  answers `configured: false`.
+- **`backend/.env.example` carries `LINEAR_*_TEST` client values**, which the harness registers with finear; under
+  `bun test` the deployment is therefore "configured", and `status.test.ts` says so.
+- **The harness puts a proxy in front of finear** instead of reading a finear request log, which does not exist.
+  It records every request, stamps Linear's `X-RateLimit-*` headers, answers one request with the documented
+  `RATELIMITED` body, or lets finear act on a request and then loses the response (502) — the last is how the
+  lost-refresh test works. `useFinear()` also points `APPLICATION_URL` at the port the file's server bound, because
+  the OAuth client's redirect URI must match exactly.
+- **`linearRequest` retries an idempotent operation once** after `LinearUnavailableError`, and never sleeps.
+  `RATELIMITED` is never retried; a request answers its own caller 429.
+- **`backend/__tests__/docs/linear-coverage.test.ts` exists now** — [`AGENTS.md`](../../AGENTS.md) rule 10 already
+  said it did. It checks every row has seven cells, a unique ID, and a known status, and that every row that is not
+  `planned` names an existing test that mentions the ID. Writing it found two rows whose code spans held unescaped
+  `|`, which GitHub's table parser splits into extra cells.
+- **Rule 13's decisions:** `linear:catalog` gets no command until `routing add` uses it; `linear:callback` is a
+  browser hop; `linear:refresh-tokens` is a clock; `linear:manifest-url` is a server-side operator action with no
+  `web` route. `linear connect` polls `linear:installation` until it is `active` with a new `updatedAt`.
+- **The finear gaps are recorded, not filed.** This session's GitHub access reached only this repository, so the
+  two new rows in [Known finear gaps](../LINEAR_COVERAGE.md#known-finear-gaps) (no rate-limit headers or
+  `RATELIMITED`; no non-admin fixture human, which leaves LC-OAUTH-03 `planned`) say "to file", like the others.
+
+### Traps found while building
+
+- **Revoking either token of an `actor=app` install revokes both**, and the second revoke answers 400; an unknown
+  token answers 401. `revokeToken` treats both as success.
+- **finear's token endpoint answers `scope` space-separated**, while the authorize URL takes commas. `parseScopes`
+  accepts both, and arrays.
+- **Two clocks.** Our expiry is a column (`accessTokenExpiresAt`), so tests write it; Linear's 30-minute replay
+  grace and 24-hour token are finear's virtual clock, so tests advance that. The invalid-grant test needs both.
+- **A test that walks every GET route must not follow redirects**: `linear:callback` answers 302 to a dashboard that
+  is not running under `bun test`. `principal.test.ts` now passes `redirect: "manual"`.
+- **`AuditedAction.run`'s return type is the JSON result**, so the callback's override, which answers a `Response`,
+  carries a `@ts-expect-error`. The audited write still happens through `super.run`, with the prepared install
+  handed over in a `WeakMap` keyed by connection — the action instance is shared by every request.
+- **Several checkouts' suites share one test database.** Two `bun test` runs at once clear each other's tables.
+  `DATABASE_URL_TEST=… REDIS_URL_TEST=… bun test` in the shell beats `.env`, which is how parallel work in one
+  worktree kept its runs apart.

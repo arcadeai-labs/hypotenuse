@@ -264,7 +264,7 @@ row: which installation, which issue, which role. The two tool sets:
 |---|---|
 | `users`, `projects`, `project_memberships`, `tags`, `user_tags`, `project_invites`, `audit_logs`, `notifications`, `project_settings` | ported from ToolExec: tenancy, RBAC, audit, notifications, and one settings row per project whose columns arrive with the features that read them (routing timeouts, thresholds) |
 | `cli_tokens` | one per signed-in `hypotenuse` CLI: owner, device name, token sha256 and last four, last use, sliding expiry, revocation. The sign-in hand-offs themselves (one-time and device codes) live in Redis, by hash |
-| `linear_installations` | one per project: org id, app user id, encrypted tokens, expiry, scopes, team access, status |
+| `linear_installations` | one per project: workspace id, name, and URL key; the app user's id, name, and capabilities; sealed tokens, expiry, refresh error; scopes, team access, status; the last-seen rate-limit headers. Live workspace ids are unique; a disconnected row is kept `revoked` with its tokens nulled. The install's `state` and PKCE verifier live in Redis for ten minutes |
 | `linear_events` | every verified webhook delivery, deduplicated on `deliveryId`, with its processing outcome |
 | `linear_identities` | Linear user ⇄ Hypotenuse user links, per installation |
 | `agent_sessions` | the mirror of each Linear agent session: issue, role, repository, sticky runner, parent (manager) session, plan, external URLs, status |
@@ -298,7 +298,7 @@ costs latency, never correctness.
 | `work:route` | enqueued + 5 s | offers queued work; expires work with no eligible runner after `routing.queueTimeout` |
 | `work:reap` | 15 s | returns work with expired leases to `queued`; marks runners offline after `runners.offlineAfter` |
 | `sessions:keepalive` | 60 s | a server-side keepalive `thought` for sessions whose runner is waiting on a person or reconnecting |
-| `linear:refresh-tokens` | 5 min | refreshes access tokens within 30 minutes of expiry (refresh tokens rotate) |
+| `linear:refresh-tokens` | 5 min | refreshes access tokens within 30 minutes of expiry under a row lock (refresh tokens rotate; a lost response is replayed inside Linear's 30-minute grace; `invalid_grant` marks the installation `error` and notifies its admins). A 401 anywhere refreshes inline through the same function |
 | `notifications:dispatch` | 30 s | delivers queued notifications: a ping on the project channel, and the e-mail (logged when `SMTP_HOST` is empty) |
 | `linear-events:sweep`, `audit:sweep`, `notifications:sweep`, `invites:sweep` | daily | retention |
 

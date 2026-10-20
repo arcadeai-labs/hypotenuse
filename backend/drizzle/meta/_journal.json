@@ -13,6 +13,13 @@
       "when": 1792530760032,
       "tag": "0001_omniscient_iron_lad",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1792533818066,
+      "tag": "0002_familiar_harpoon",
+      "breakpoints": true
     }
   ]
 }

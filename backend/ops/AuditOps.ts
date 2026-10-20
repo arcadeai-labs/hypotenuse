@@ -29,16 +29,20 @@ export const SENSITIVE_KEYS = [
   "token",
   "apiKey",
   "connectionString",
-  // Linear OAuth tokens
+  // Linear OAuth tokens: as params, as their sealed columns, and as Linear's
+  // own token-endpoint field names
   "accessToken",
   "refreshToken",
-  "accessTokenEnc",
-  "refreshTokenEnc",
+  "accessTokenEncrypted",
+  "refreshTokenEncrypted",
+  "access_token",
+  "refresh_token",
   // OAuth hops
   "clientSecret",
   "webhookSecret",
   "code",
   "codeVerifier",
+  "code_verifier",
   "state",
   // CLI sign-in: the device flow's secret (the loopback `code` and
   // `codeVerifier` are above)

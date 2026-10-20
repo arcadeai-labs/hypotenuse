@@ -13,7 +13,14 @@ test.describe("project settings", () => {
     await signUp(page, "Navvy Nadia");
     await openSettings(page);
 
-    for (const slug of ["general", "mcp", "members", "tags", "danger"]) {
+    for (const slug of [
+      "general",
+      "linear",
+      "mcp",
+      "members",
+      "tags",
+      "danger",
+    ]) {
       await expect(page.getByTestId(`section-${slug}`)).toBeVisible();
     }
 
@@ -62,6 +69,25 @@ test.describe("project settings", () => {
     await expect(
       page.getByRole("button", { name: "Delete the admin tag" }),
     ).toHaveCount(0);
+  });
+
+  test("an unconnected project offers Connect Linear, and a callback refusal is explained once", async ({
+    page,
+  }) => {
+    await signUp(page, "Linear Lina");
+    await openSettings(page);
+    await openSection(page, "linear");
+    await expect(page.getByTestId("linear-disconnected")).toBeVisible(LANDED);
+    await expect(page.getByTestId("linear-connect")).toBeEnabled();
+
+    // What Linear's redirect back looks like when the workspace is taken.
+    await page.goto("/settings/linear?error=workspace_taken");
+    await expect(page.getByTestId("linear-error")).toContainText(
+      "already connected to another Hypotenuse project",
+      LANDED,
+    );
+    // Stripped, so a reload does not repeat it.
+    await expect(page).toHaveURL(/\/settings\/linear$/);
   });
 
   test("the MCP endpoint is the server's own URL", async ({ page }) => {

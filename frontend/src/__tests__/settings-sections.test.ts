@@ -4,6 +4,10 @@ import {
   DEFAULT_SETTINGS_SECTION,
   SETTINGS_SECTIONS,
 } from "../components/settings/sections";
+import {
+  CALLBACK_ERROR_MESSAGES,
+  callbackErrorMessage,
+} from "../components/settings/sections/LinearSection";
 
 // `sections.ts` is deliberately pure — no JSX, no router — so what goes quietly
 // wrong in it can be asserted without a render harness. There is no
@@ -105,5 +109,28 @@ describe("deciding whether a section may fetch", () => {
     for (const section of SETTINGS_SECTIONS) {
       expect(canReadSection(section, PERMISSIONS, ADMIN)).toBe(true);
     }
+  });
+});
+
+describe("the Linear section's callback messages", () => {
+  test("every refusal code the callback redirects with has its own sentence", () => {
+    // The table is typed by the backend's code union, so `tsc` refuses a code
+    // without a sentence; this pins that each sentence is real and distinct.
+    const sentences = Object.values(CALLBACK_ERROR_MESSAGES);
+    expect(sentences.length).toBe(7);
+    expect(new Set(sentences).size).toBe(sentences.length);
+    for (const [code, sentence] of Object.entries(CALLBACK_ERROR_MESSAGES)) {
+      expect(callbackErrorMessage(code)).toBe(sentence);
+    }
+  });
+
+  test("a code this build does not know still says something", () => {
+    expect(callbackErrorMessage("something_new")).toContain("Try again");
+  });
+
+  test("the section is readable by every member: its gate is per control", () => {
+    expect(SETTINGS_SECTIONS.find((s) => s.slug === "linear")?.readAction).toBe(
+      null,
+    );
   });
 });

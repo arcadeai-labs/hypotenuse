@@ -24,8 +24,10 @@ export interface SettingsSection {
    * Asking an `AdminMiddleware`-gated endpoint as a plain member produces a 403
    * with nothing the reader can do about it. A section that declares a read
    * action it does not hold renders its own "admins only" notice and **issues no
-   * request**. Every section here today is readable by any member; the sections
-   * that later add Linear, runners, and routing set this.
+   * request**. Every section here today is readable by any member — Linear
+   * included, since `linear:installation` is member-level and only its Connect
+   * and Disconnect controls are admin-gated; the sections that later add
+   * runners and routing set this where their reads are admin-only.
    */
   readAction: string | null;
 }
@@ -37,6 +39,7 @@ export interface SettingsSection {
  */
 export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
   { slug: "general", label: "General", group: "Project", readAction: null },
+  { slug: "linear", label: "Linear", group: "Project", readAction: null },
   { slug: "mcp", label: "MCP endpoint", group: "Project", readAction: null },
   { slug: "members", label: "Members", group: "People", readAction: null },
   { slug: "tags", label: "Tags", group: "People", readAction: null },

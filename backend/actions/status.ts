@@ -31,7 +31,9 @@ export class Status implements Action {
         // bare clock query would report healthy against an empty schema —
         // exactly the race e2e global-setup and load balancers must not trust.
         // Move this to the newest migration's column when one is added.
-        await api.db.db.execute(sql`SELECT last_four FROM cli_tokens LIMIT 0`);
+        await api.db.db.execute(
+          sql`SELECT app_user_capabilities FROM linear_installations LIMIT 0`,
+        );
         databaseHealthy = true;
       } catch {}
     }
