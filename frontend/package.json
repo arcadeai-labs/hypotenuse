@@ -34,7 +34,7 @@
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
     "@vitejs/plugin-react": "^6.0.5",
-    "keryx": "^0.48.0",
+    "keryx": "^0.48.1",
     "sass": "^1.105.2",
     "tailwindcss": "^4.3.3",
     "typescript": "^7.0.2",

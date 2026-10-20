@@ -15,7 +15,7 @@
         "@hypotenuse/protocol": "workspace:*",
         "drizzle-orm": "^0.45.2",
         "drizzle-zod": "^0.8.3",
-        "keryx": "^0.48.0",
+        "keryx": "^0.48.1",
         "nodemailer": "^9.0.3",
         "zod": "^4.3.6",
       },
@@ -67,7 +67,7 @@
         "@types/react": "^19.2.18",
         "@types/react-dom": "^19.2.4",
         "@vitejs/plugin-react": "^6.0.5",
-        "keryx": "^0.48.0",
+        "keryx": "^0.48.1",
         "sass": "^1.105.2",
         "tailwindcss": "^4.3.3",
         "typescript": "^7.0.2",
@@ -619,7 +619,7 @@
 
     "json-schema-typed": ["json-schema-typed@8.0.2", "", {}, "sha512-fQhoXdcvc3V28x7C7BMs4P5+kNlgUURe2jmUT1T//oBRMDrqy1QPelJimwZGo7Hg9VPV3EQV5Bnq4hbFy2vetA=="],
 
-    "keryx": ["keryx@0.48.0", "", { "dependencies": { "@modelcontextprotocol/sdk": "^1.29.0", "@opentelemetry/api": "^1.9.1", "@opentelemetry/sdk-metrics": "^2.7.0", "@types/ioredis-mock": "^8.2.8", "@types/mustache": "^4.2.6", "@types/pg": "^8.20.0", "commander": "^14.0.3", "ioredis": "^5.10.1", "ioredis-mock": "^8.13.1", "mustache": "^4.2.0", "node-resque": "^9.5.2", "pg": "^8.20.0", "ts-morph": "^28.0.0", "typescript": "^7.0.2" }, "peerDependencies": { "drizzle-orm": "^0.45.2", "drizzle-zod": "^0.8.3", "zod": "^4.3.6" }, "bin": { "keryx": "keryx.ts" } }, "sha512-YOQBGp4eBuST1Yhi9S63xTv9Tx/0bnRtzbjh4JfZpXs/e6iEQ2C8i8W/06JAn5a6yKMahtrN7QH3eU/kC9XVww=="],
+    "keryx": ["keryx@0.48.1", "", { "dependencies": { "@modelcontextprotocol/sdk": "^1.29.0", "@opentelemetry/api": "^1.9.1", "@opentelemetry/sdk-metrics": "^2.7.0", "@types/ioredis-mock": "^8.2.8", "@types/mustache": "^4.2.6", "@types/pg": "^8.20.0", "commander": "^14.0.3", "ioredis": "^5.10.1", "ioredis-mock": "^8.13.1", "mustache": "^4.2.0", "node-resque": "^9.5.2", "pg": "^8.20.0", "ts-morph": "^28.0.0", "typescript": "^7.0.2" }, "peerDependencies": { "drizzle-orm": "^0.45.2", "drizzle-zod": "^0.8.3", "zod": "^4.3.6" }, "bin": { "keryx": "keryx.ts" } }, "sha512-/40vDkuiaxvck/pdRHjlJ4FhYNSh1iadvea9KlBGbSi5uhCL/EWXW3lMLooJEFdGwPvz1nB7aY1x22+LCApdpg=="],
 
     "lightningcss": ["lightningcss@1.33.0", "", { "dependencies": { "detect-libc": "^2.0.3" }, "optionalDependencies": { "lightningcss-android-arm64": "1.33.0", "lightningcss-darwin-arm64": "1.33.0", "lightningcss-darwin-x64": "1.33.0", "lightningcss-freebsd-x64": "1.33.0", "lightningcss-linux-arm-gnueabihf": "1.33.0", "lightningcss-linux-arm64-gnu": "1.33.0", "lightningcss-linux-arm64-musl": "1.33.0", "lightningcss-linux-x64-gnu": "1.33.0", "lightningcss-linux-x64-musl": "1.33.0", "lightningcss-win32-arm64-msvc": "1.33.0", "lightningcss-win32-x64-msvc": "1.33.0" } }, "sha512-WkUDrojuJs0xkgGf2udWxa3yGBRxPtxUkB79i6aCZLRgc7PM8fZe9TosfPDcvEpQZbuFASnHYmRLBLUbmLOIIA=="],
 
