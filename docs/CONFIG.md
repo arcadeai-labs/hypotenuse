@@ -28,7 +28,8 @@ and MCP servers is in [phase 11](./plans/phase-11-acp-agent-host.md),
 started with a different config or state directory still finds it. On the server, every heartbeat carries a
 `machineId`, a stable hash of the OS machine id (`/etc/machine-id`, macOS `IOPlatformUUID`, Windows
 `MachineGuid`). `daemon:heartbeat` and `daemon:connect` both refuse a runner whose `machineId` belongs to
-another online runner, naming it, and a unique index on online runners' `machineId` makes the check atomic. This catches a second OS user on a shared box, and two projects on one laptop.
+another live runner (`online` or `draining`), naming it, and a unique index on live runners' `machineId` makes the
+check atomic. This catches a second OS user on a shared box, and two projects on one laptop.
 
 `hypotenuse config path` prints the resolved paths. `hypotenuse config init` writes a starter file,
 `hypotenuse config validate` checks one, and `hypotenuse config schema` prints the JSON Schema. The first line
