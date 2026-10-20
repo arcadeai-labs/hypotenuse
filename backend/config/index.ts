@@ -1,13 +1,16 @@
 import { configActions } from "./actions";
+import { configAudit } from "./audit";
 import { configChannels } from "./channels";
 import { configDatabase } from "./database";
 import { configLinear } from "./linear";
 import { configLogger } from "./logger";
+import { configNotifications } from "./notifications";
 import { configObservability } from "./observability";
 import { configPlugins } from "./plugins";
 import { configProcess } from "./process";
 import { configRateLimit } from "./rateLimit";
 import { configRedis } from "./redis";
+import { configSecrets } from "./secrets";
 import { configServerCli } from "./server/cli";
 import { configServerMcp } from "./server/mcp";
 import { configServerWeb } from "./server/web";
@@ -28,6 +31,9 @@ export default {
   server: { cli: configServerCli, web: configServerWeb, mcp: configServerMcp },
   tasks: configTasks,
   linear: configLinear,
+  audit: configAudit,
+  secrets: configSecrets,
+  notifications: configNotifications,
 };
 
 /**

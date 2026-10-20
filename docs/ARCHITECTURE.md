@@ -261,7 +261,7 @@ row: which installation, which issue, which role. The two tool sets:
 
 | Table | Holds |
 |---|---|
-| `users`, `projects`, `project_memberships`, `tags`, `user_tags`, `project_invites`, `audit_logs`, `notifications`, `project_settings` | ported from ToolExec: tenancy, RBAC, audit, notifications, per-project settings (routing timeouts, thresholds) |
+| `users`, `projects`, `project_memberships`, `tags`, `user_tags`, `project_invites`, `audit_logs`, `notifications`, `project_settings` | ported from ToolExec: tenancy, RBAC, audit, notifications, and one settings row per project whose columns arrive with the features that read them (routing timeouts, thresholds) |
 | `linear_installations` | one per project: org id, app user id, encrypted tokens, expiry, scopes, team access, status |
 | `linear_events` | every verified webhook delivery, deduplicated on `deliveryId`, with its processing outcome |
 | `linear_identities` | Linear user ⇄ Hypotenuse user links, per installation |
@@ -282,7 +282,7 @@ truth and a reconnect hydrates.
 | `runner:<runnerId>` | the daemon holding that runner's session cookie | `{ event: "work" }`, `{ event: "cancel" }`, `{ event: "revoked" }` |
 | `project:<projectId>:sessions` | project members | `{ event: "sessions" }`, `{ event: "session", id }` |
 | `project:<projectId>:runners` | project members | `{ event: "runners" }` |
-| `project:<projectId>:notifications` | project members | ported from ToolExec |
+| `project:<projectId>:notifications` | project members | `{ event: "notifications" }` |
 
 The daemon's heartbeat (`daemon:heartbeat`, every 15 s) also returns pending offers and cancels, so a lost socket
 costs latency, never correctness.
@@ -297,6 +297,7 @@ costs latency, never correctness.
 | `work:reap` | 15 s | returns work with expired leases to `queued`; marks runners offline after `runners.offlineAfter` |
 | `sessions:keepalive` | 60 s | a server-side keepalive `thought` for sessions whose runner is waiting on a person or reconnecting |
 | `linear:refresh-tokens` | 5 min | refreshes access tokens within 30 minutes of expiry (refresh tokens rotate) |
+| `notifications:dispatch` | 30 s | delivers queued notifications: a ping on the project channel, and the e-mail (logged when `SMTP_HOST` is empty) |
 | `linear-events:sweep`, `audit:sweep`, `notifications:sweep`, `invites:sweep` | daily | retention |
 
 ## Where the detail lives

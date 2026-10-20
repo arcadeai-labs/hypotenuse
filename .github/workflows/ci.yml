@@ -140,14 +140,47 @@ jobs:
     defaults:
       run:
         working-directory: frontend
+    services:
+      redis:
+        image: redis
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: hypotenuse_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
     steps:
       - uses: actions/checkout@v5
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
         working-directory: .
+      # Playwright boots the real backend and the Vite dev server, so both need
+      # their env files — for the values the e2e stack does not override, above
+      # all SECRETS_ENCRYPTION_KEY.
+      - run: cp .env.example .env
+        working-directory: backend
       - run: cp .env.example .env
       - run: bunx playwright install --with-deps chromium
+      # The e2e backend runs as NODE_ENV=test, so it reads the same `_TEST`
+      # values the Backend Test job does.
       - run: bun run test:e2e
+        env:
+          DATABASE_URL_TEST: postgres://postgres:postgres@localhost:5432/hypotenuse_test
+          REDIS_URL_TEST: redis://localhost:6379/1
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
