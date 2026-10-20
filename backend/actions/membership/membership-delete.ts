@@ -7,7 +7,11 @@ import {
   type TxHandle,
 } from "../../classes/AuditedAction";
 import { AdminMiddleware } from "../../middleware/rbac";
-import { getAdminUserIds, serializeMembership } from "../../ops/MembershipOps";
+import {
+  getAdminUserIds,
+  lockProjectAdmins,
+  serializeMembership,
+} from "../../ops/MembershipOps";
 import { serializeTag } from "../../ops/TagOps";
 import { getUserById } from "../../ops/UserOps";
 import { projectMemberships } from "../../schema/project_memberships";
@@ -55,6 +59,7 @@ export class MembershipDelete extends AuditedAction {
     params: ActionParams<MembershipDelete>,
     connection: AuditedConnection,
   ) {
+    await lockProjectAdmins(tx, params.projectId);
     const admins = await getAdminUserIds(tx, params.projectId);
     if (admins.length === 1 && admins.includes(params.userId)) {
       throw new TypedError({

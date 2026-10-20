@@ -367,6 +367,62 @@ describe("invite:reject", () => {
     );
   });
 
+  test("an accepted invite cannot be rewritten to rejected", async () => {
+    // Otherwise the membership stays while the invite list and the audit
+    // trail say it was declined.
+    const guest = await createUserAndLogin(
+      url,
+      "Pauline",
+      "pauline@new.donk",
+      TEST_PASSWORD,
+    );
+    await invite(guest.email);
+    const [pending] = await pendingFor(guest);
+
+    const accept = await fetch(`${url}/api/invite/accept`, {
+      method: "POST",
+      headers: authHeaders(guest.sessionId),
+      body: JSON.stringify({ inviteId: pending.id }),
+    });
+    expect(accept.status).toBe(200);
+
+    const reject = await fetch(`${url}/api/invite/reject`, {
+      method: "POST",
+      headers: authHeaders(guest.sessionId),
+      body: JSON.stringify({ inviteId: pending.id }),
+    });
+    expect(reject.status).toBe(406);
+
+    const [row] = await api.db.db
+      .select()
+      .from(projectInvites)
+      .where(eq(projectInvites.id, pending.id));
+    expect(row.status).toBe(INVITE_STATUS.accepted);
+  });
+
+  test("an expired invite cannot be rejected either", async () => {
+    const res = await invite("cranky@kong.island");
+    const { invite: created } =
+      (await res.json()) as ActionResponse<InviteCreate>;
+    await api.db.db
+      .update(projectInvites)
+      .set({ expiresAt: new Date(Date.now() - 1000) })
+      .where(eq(projectInvites.id, created.id));
+
+    const cranky = await createUserAndLogin(
+      url,
+      "Cranky",
+      "cranky@kong.island",
+      TEST_PASSWORD,
+    );
+    const attempt = await fetch(`${url}/api/invite/reject`, {
+      method: "POST",
+      headers: authHeaders(cranky.sessionId),
+      body: JSON.stringify({ inviteId: created.id }),
+    });
+    expect(attempt.status).toBe(406);
+  });
+
   test("cannot reject someone else's invite", async () => {
     const res = await invite("waluigi@warioware.com");
     const { invite: created } =

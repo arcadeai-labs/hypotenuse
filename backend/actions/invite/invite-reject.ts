@@ -13,7 +13,7 @@ import {
   type TxHandle,
 } from "../../classes/AuditedAction";
 import { SessionMiddleware } from "../../middleware/session";
-import { INVITE_STATUS, serializeInvite } from "../../ops/InviteOps";
+import { INVITE_STATUS, isExpired, serializeInvite } from "../../ops/InviteOps";
 import { getUserById } from "../../ops/UserOps";
 import { projectInvites } from "../../schema/project_invites";
 
@@ -46,7 +46,9 @@ export class InviteReject extends AuditedAction {
    * @param connection - The invitee's connection (session required).
    * @returns The rejected invite.
    * @throws {TypedError} `CONNECTION_ACTION_NOT_FOUND` if no invite with that id is
-   *   addressed to the caller.
+   *   addressed to the caller; `CONNECTION_ACTION_PARAM_VALIDATION` if it is no
+   *   longer pending or has expired — rewriting an accepted invite to `rejected`
+   *   would leave the membership in place while the record says it was declined.
    */
   async runWithAudit(
     tx: TxHandle,
@@ -65,6 +67,14 @@ export class InviteReject extends AuditedAction {
       throw new TypedError({
         message: "Invite not found",
         type: ErrorType.CONNECTION_ACTION_NOT_FOUND,
+      });
+    }
+
+    if (invite.status !== INVITE_STATUS.pending || isExpired(invite)) {
+      throw new TypedError({
+        message: "This invite is no longer valid",
+        type: ErrorType.CONNECTION_ACTION_PARAM_VALIDATION,
+        key: "inviteId",
       });
     }
 

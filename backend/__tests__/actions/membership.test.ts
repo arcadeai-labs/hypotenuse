@@ -1,13 +1,16 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { type ActionResponse, api } from "keryx";
 import type { MembershipList } from "../../actions/membership/membership-list";
+import type { ProjectCreate } from "../../actions/project/project-create";
 import type { TagList } from "../../actions/tag/tag-list";
+import { getAdminUserIds } from "../../ops/MembershipOps";
 import { ADMIN_TAG } from "../../ops/TagOps";
 import {
   authHeaders,
   buildTestUniverse,
   cookieHeader,
   HOOK_TIMEOUT,
+  inviteAndAccept,
   type TestUniverse,
 } from "../setup";
 
@@ -311,5 +314,87 @@ describe("user-tag:remove and the last admin", () => {
     const firstBody = (await first.json()) as { userTag: { id: number } };
     const secondBody = (await second.json()) as { userTag: { id: number } };
     expect(secondBody.userTag.id).toBe(firstBody.userTag.id);
+  });
+});
+
+describe("the last-admin guard under concurrency", () => {
+  /**
+   * A fresh project Peach administers with Mario as a second admin, so the
+   * shared universe is untouched.
+   * @returns The project id and its admin tag id.
+   */
+  async function twoAdminProject(
+    name: string,
+  ): Promise<{ projectId: number; adminTag: number }> {
+    const created = await fetch(`${url}/api/project`, {
+      method: "PUT",
+      headers: authHeaders(universe.peach.sessionId),
+      body: JSON.stringify({ name }),
+    });
+    const { project } = (await created.json()) as ActionResponse<ProjectCreate>;
+    await inviteAndAccept(url, universe.peach, project.id, universe.mario, []);
+
+    const tagsRes = await fetch(
+      `${url}/api/tags?projectId=${project.id}&limit=100`,
+      { headers: cookieHeader(universe.peach.sessionId) },
+    );
+    const tagsBody = (await tagsRes.json()) as ActionResponse<TagList>;
+    const adminTag = tagsBody.tags.find((t) => t.name === ADMIN_TAG)!.id;
+
+    const grant = await fetch(`${url}/api/user-tag`, {
+      method: "PUT",
+      headers: authHeaders(universe.peach.sessionId),
+      body: JSON.stringify({
+        projectId: project.id,
+        userId: universe.mario.userId,
+        tagId: adminTag,
+      }),
+    });
+    expect(grant.status).toBe(200);
+    return { projectId: project.id, adminTag };
+  }
+
+  test("two admins removing each other at once leave one admin", async () => {
+    const { projectId } = await twoAdminProject("Mutual Removal");
+
+    const [peachRemovesMario, marioRemovesPeach] = await Promise.all([
+      fetch(`${url}/api/membership`, {
+        method: "DELETE",
+        headers: authHeaders(universe.peach.sessionId),
+        body: JSON.stringify({ projectId, userId: universe.mario.userId }),
+      }),
+      fetch(`${url}/api/membership`, {
+        method: "DELETE",
+        headers: authHeaders(universe.mario.sessionId),
+        body: JSON.stringify({ projectId, userId: universe.peach.userId }),
+      }),
+    ]);
+
+    // The project row lock serializes the two guards: exactly one wins.
+    expect([peachRemovesMario.status, marioRemovesPeach.status].sort()).toEqual(
+      [200, 406],
+    );
+    expect(await getAdminUserIds(api.db.db, projectId)).toHaveLength(1);
+  });
+
+  test("two admins revoking each other's admin tag at once leave one admin", async () => {
+    const { projectId, adminTag } = await twoAdminProject("Mutual Revoke");
+
+    const revoke = (actor: string, userId: number) =>
+      fetch(`${url}/api/user-tag`, {
+        method: "DELETE",
+        headers: authHeaders(actor),
+        body: JSON.stringify({ projectId, userId, tagId: adminTag }),
+      });
+    const results = await Promise.all([
+      revoke(universe.peach.sessionId, universe.mario.userId),
+      revoke(universe.mario.sessionId, universe.peach.userId),
+    ]);
+
+    // The loser is either refused by the guard (406) or, having lost its own
+    // admin tag first, by the admin middleware (403). Either way one admin
+    // remains.
+    expect(results.filter((r) => r.status === 200)).toHaveLength(1);
+    expect(await getAdminUserIds(api.db.db, projectId)).toHaveLength(1);
   });
 });

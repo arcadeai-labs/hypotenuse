@@ -7,7 +7,7 @@ import {
   type TxHandle,
 } from "../../classes/AuditedAction";
 import { AdminMiddleware } from "../../middleware/rbac";
-import { getAdminUserIds } from "../../ops/MembershipOps";
+import { getAdminUserIds, lockProjectAdmins } from "../../ops/MembershipOps";
 import { ADMIN_TAG, serializeTag } from "../../ops/TagOps";
 import { tags } from "../../schema/tags";
 import { userTags } from "../../schema/user_tags";
@@ -71,6 +71,7 @@ export class UserTagRemove extends AuditedAction {
     }
 
     if (tag.name.trim().toLowerCase() === ADMIN_TAG) {
+      await lockProjectAdmins(tx, params.projectId);
       const admins = await getAdminUserIds(tx, params.projectId);
       if (admins.length === 1 && admins.includes(params.userId)) {
         throw new TypedError({

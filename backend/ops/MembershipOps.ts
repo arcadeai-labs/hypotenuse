@@ -1,6 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { api } from "keryx";
 import type { ProjectMembership } from "../schema/project_memberships";
+import { projects } from "../schema/projects";
 import { type Tag, tags } from "../schema/tags";
 import { userTags } from "../schema/user_tags";
 import type { TxHandle } from "./ProjectOps";
@@ -66,10 +67,33 @@ export function isAdmin(tagList: Tag[]): boolean {
 }
 
 /**
+ * Serialize every change that could remove a project's last admin.
+ *
+ * Reading the admin set inside the transaction is not enough on its own: under
+ * Postgres `READ COMMITTED`, two admins removing each other at once each read
+ * two admins, each pass the guard, and both commit — leaving a project nobody
+ * can administer. Taking `FOR UPDATE` on the project row first makes the second
+ * transaction wait until the first commits, so it reads the admin set the first
+ * one left behind. Call it before {@link getAdminUserIds} in any guard.
+ * @param tx - The open transaction the guard and its write share.
+ * @param projectId - The project whose admin set is about to change.
+ */
+export async function lockProjectAdmins(
+  tx: TxHandle,
+  projectId: number,
+): Promise<void> {
+  await tx
+    .select({ id: projects.id })
+    .from(projects)
+    .where(eq(projects.id, projectId))
+    .for("update");
+}
+
+/**
  * List the ids of every user holding the reserved `admin` tag in a project. This
  * backs the last-admin guard, so it accepts a transaction handle: the guard must
- * read the admin set inside the same transaction as the delete it protects,
- * otherwise two concurrent removals could each see two admins.
+ * read the admin set inside the same transaction as the delete it protects, after
+ * {@link lockProjectAdmins}.
  * @param db - A Drizzle transaction handle, or the shared `api.db.db`.
  * @param projectId - The project whose admins to list.
  * @returns The user ids holding the `admin` tag (empty if the project has none).

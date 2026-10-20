@@ -333,6 +333,11 @@ out of scope here and arrive with the CLI itself (rule 13's decision, recorded).
   yet, and waits for the real clock and socket to deliver it.
 - **`bun test` and Playwright share the test database**, and every backend file opens with `clearDatabase()`. Run
   one at a time per checkout, or give one of them its own database.
+- **Two bugs came over with the port, and review caught both.** `invite:reject` never checked that the invite
+  was still pending, so an accepted invite could be rewritten to `rejected` with the membership left in place. And
+  the last-admin guard read the admin set in the transaction without locking it, so under `READ COMMITTED` two
+  admins removing each other at once both passed it. `lockProjectAdmins` now takes `FOR UPDATE` on the project row
+  before every last-admin read; the concurrency tests in `membership.test.ts` fail every time without it.
 - **Whole-set assertions catch what spot checks miss.** `rbac.test.ts` compares every action's level and the full
   published-tool set against literal maps, so a new action changes those maps in the same commit and its level and
   MCP exposure are a decision a reviewer sees.
