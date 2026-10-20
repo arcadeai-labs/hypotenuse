@@ -2,19 +2,32 @@ import { Link } from "react-router-dom";
 import { CopyButton } from "../../components/CopyButton";
 
 /** The agents named on the home page, as text — never as logos. */
-const AGENTS = ["Claude Code", "Codex", "Gemini CLI", "GitHub Copilot", "goose", "OpenCode", "Cursor"];
+const AGENTS = [
+  "Claude Code",
+  "Codex",
+  "Gemini CLI",
+  "GitHub Copilot",
+  "goose",
+  "OpenCode",
+  "Cursor",
+];
 
 /** Install commands, as the README documents them. */
 const INSTALLS = [
   {
     label: "macOS / Linux",
-    command: "curl -fsSL https://raw.githubusercontent.com/arcadeai-labs/hypotenuse/main/install.sh | bash",
+    command:
+      "curl -fsSL https://raw.githubusercontent.com/arcadeai-labs/hypotenuse/main/install.sh | bash",
   },
   {
     label: "Windows (PowerShell)",
-    command: "irm https://raw.githubusercontent.com/arcadeai-labs/hypotenuse/main/install.ps1 | iex",
+    command:
+      "irm https://raw.githubusercontent.com/arcadeai-labs/hypotenuse/main/install.ps1 | iex",
   },
-  { label: "npm (requires Bun)", command: "bun install -g @arcadeai/hypotenuse" },
+  {
+    label: "npm (requires Bun)",
+    command: "bun install -g @arcadeai/hypotenuse",
+  },
 ];
 
 const STEPS = [
@@ -40,21 +53,32 @@ const STEPS = [
  */
 function TriangleDiagram() {
   return (
-    <svg className="home-diagram" viewBox="0 0 400 280" role="img" aria-labelledby="home-diagram-title">
+    <svg
+      className="home-diagram"
+      viewBox="0 0 400 280"
+      role="img"
+      aria-labelledby="home-diagram-title"
+    >
       <title id="home-diagram-title">
-        Linear at the top right, your machine at the bottom left, Hypotenuse the line between them
+        Linear at the top right, your machine at the bottom left, Hypotenuse the
+        line between them
       </title>
       <path className="home-diagram-legs" d="M340 40 L340 240 L60 240" />
       <path className="home-diagram-hypotenuse" d="M340 40 L60 240" />
       <circle className="home-diagram-node" cx="340" cy="40" r="8" />
       <circle className="home-diagram-node" cx="60" cy="240" r="8" />
-      <text className="home-diagram-label" x="328" y="44" textAnchor="end">
+      <text className="home-diagram-label" x="326" y="24" textAnchor="end">
         Linear
       </text>
-      <text className="home-diagram-label" x="72" y="230">
+      <text className="home-diagram-label" x="48" y="268">
         Your machine
       </text>
-      <text className="home-diagram-label home-diagram-label-accent" x="210" y="130" textAnchor="middle">
+      <text
+        className="home-diagram-label home-diagram-label-accent"
+        x="186"
+        y="124"
+        textAnchor="middle"
+      >
         Hypotenuse
       </text>
     </svg>
@@ -70,10 +94,13 @@ export function HomePage() {
     <div className="home" data-testid="home-page">
       <section className="home-hero">
         <div className="home-hero-copy">
-          <h1 className="text-display">Your agents, your machines, inside Linear</h1>
+          <h1 className="text-display">
+            Your agents, your machines, inside Linear
+          </h1>
           <p className="home-lede">
-            Delegate a Linear issue to <code>@hypotenuse</code>. A coding agent on your own machine does the work in a
-            fresh git worktree, streams its progress into the agent session, and opens a pull request.
+            Delegate a Linear issue to <code>@hypotenuse</code>. A coding agent
+            on your own machine does the work in a fresh git worktree, streams
+            its progress into the agent session, and opens a pull request.
           </p>
           <div className="home-actions">
             <Link className="ui-button ui-variant-primary" to="/docs">
@@ -100,8 +127,9 @@ export function HomePage() {
       <section className="home-section">
         <h2>A manager and its workers</h2>
         <p>
-          A <strong>manager</strong> agent can own a whole project: it writes the PRD, files the tickets, hands them to{" "}
-          <strong>worker</strong> agents, and reviews what comes back.
+          A <strong>manager</strong> agent can own a whole project: it writes
+          the PRD, files the tickets, hands them to <strong>worker</strong>{" "}
+          agents, and reviews what comes back.
         </p>
       </section>
 
@@ -109,7 +137,11 @@ export function HomePage() {
         <h2>Any agent that speaks ACP</h2>
         <p className="home-agents" data-testid="home-agents">
           {AGENTS.join(" · ")}, and anything else that speaks the{" "}
-          <a href="https://agentclientprotocol.com" target="_blank" rel="noreferrer noopener">
+          <a
+            href="https://agentclientprotocol.com"
+            target="_blank"
+            rel="noreferrer noopener"
+          >
             Agent Client Protocol
           </a>
           .
@@ -124,7 +156,10 @@ export function HomePage() {
               <span className="text-meta">{install.label}</span>
               <div className="home-install-command">
                 <code>{install.command}</code>
-                <CopyButton text={install.command} label={`Copy ${install.label} install command`} />
+                <CopyButton
+                  text={install.command}
+                  label={`Copy ${install.label} install command`}
+                />
               </div>
             </div>
           ))}
@@ -136,8 +171,12 @@ export function HomePage() {
         <ul className="home-security">
           <li>Your model logins and git keys stay on your machine.</li>
           <li>Linear's tokens stay on the hosted service.</li>
-          <li>Runners and agents reach Linear only through narrowly scoped tools.</li>
-          <li>Every agent works in its own git worktree, never in your checkout.</li>
+          <li>
+            Runners and agents reach Linear only through narrowly scoped tools.
+          </li>
+          <li>
+            Every agent works in its own git worktree, never in your checkout.
+          </li>
         </ul>
       </section>
     </div>

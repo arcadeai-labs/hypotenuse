@@ -36,7 +36,11 @@ export function CopyButton({
         setCopied(true);
       }}
     >
-      {copied ? <Check size={14} aria-hidden /> : <Copy size={14} aria-hidden />}
+      {copied ? (
+        <Check size={14} aria-hidden />
+      ) : (
+        <Copy size={14} aria-hidden />
+      )}
     </button>
   );
 }

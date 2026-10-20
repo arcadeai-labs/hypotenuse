@@ -2,7 +2,9 @@ import { expect, test } from "@playwright/test";
 
 const mod = process.platform === "darwin" ? "Meta" : "Control";
 
-test("⌘K opens the palette, filters, and runs a navigation command", async ({ page }) => {
+test("⌘K opens the palette, filters, and runs a navigation command", async ({
+  page,
+}) => {
   await page.goto("/home");
   await page.keyboard.press(`${mod}+k`);
   await expect(page.getByTestId("command-palette")).toBeVisible();
@@ -23,7 +25,9 @@ test("? shows the shortcut sheet and Escape closes it", async ({ page }) => {
   await page.goto("/home");
   await page.keyboard.press("?");
   await expect(page.getByTestId("shortcut-sheet")).toBeVisible();
-  await expect(page.getByTestId("shortcut-sheet")).toContainText("Go to Sessions");
+  await expect(page.getByTestId("shortcut-sheet")).toContainText(
+    "Go to Sessions",
+  );
   await page.keyboard.press("Escape");
   await expect(page.getByTestId("shortcut-sheet")).toBeHidden();
 });

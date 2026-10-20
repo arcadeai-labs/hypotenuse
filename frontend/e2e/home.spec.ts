@@ -1,7 +1,9 @@
 import { expect, test } from "@playwright/test";
 
 for (const scheme of ["light", "dark"] as const) {
-  test(`the public home and docs render signed out in ${scheme}`, async ({ page }) => {
+  test(`the public home and docs render signed out in ${scheme}`, async ({
+    page,
+  }) => {
     await page.emulateMedia({ colorScheme: scheme });
     await page.goto("/");
     await expect(page.locator("html")).toHaveAttribute("data-theme", scheme);

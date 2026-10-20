@@ -1,6 +1,10 @@
 import { NavLink, Outlet, useParams } from "react-router-dom";
-import { DOCS_SECTIONS, findSection, headingsOf } from "../../content/docs/sections";
 import { slugify } from "../../components/MarkdownBlock";
+import {
+  DOCS_SECTIONS,
+  findSection,
+  headingsOf,
+} from "../../content/docs/sections";
 
 /**
  * The docs frame: section nav on the left, a 72ch article, and an "on this
@@ -14,7 +18,11 @@ export function DocsLayout() {
   const headings = section ? headingsOf(section.markdown) : [];
   return (
     <div className="docs-layout" data-testid="docs-layout">
-      <nav className="docs-nav" aria-label="Docs sections" data-testid="docs-nav">
+      <nav
+        className="docs-nav"
+        aria-label="Docs sections"
+        data-testid="docs-nav"
+      >
         {DOCS_SECTIONS.map((s) => (
           <NavLink
             key={s.slug}

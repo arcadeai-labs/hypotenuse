@@ -29,10 +29,16 @@ export function App() {
       </Route>
       <Route element={<AppShell />}>
         <Route path="/home" element={<PlaceholderPage title="Home" />} />
-        <Route path="/sessions" element={<PlaceholderPage title="Sessions" />} />
+        <Route
+          path="/sessions"
+          element={<PlaceholderPage title="Sessions" />}
+        />
         <Route path="/runners" element={<PlaceholderPage title="Runners" />} />
         <Route path="/routing" element={<PlaceholderPage title="Routing" />} />
-        <Route path="/settings" element={<PlaceholderPage title="Settings" />} />
+        <Route
+          path="/settings"
+          element={<PlaceholderPage title="Settings" />}
+        />
         <Route path="/status" element={<StatusPage />} />
       </Route>
       <Route path="/style-guide" element={<StyleGuidePage />} />

@@ -1,6 +1,8 @@
 import { expect, test } from "@playwright/test";
 
-test("the sidebar collapses to icons with [ and with its toggle, and stays collapsed", async ({ page }) => {
+test("the sidebar collapses to icons with [ and with its toggle, and stays collapsed", async ({
+  page,
+}) => {
   await page.goto("/home");
   const sidebar = page.getByTestId("sidebar");
   await expect(sidebar).toBeVisible();
@@ -8,9 +10,15 @@ test("the sidebar collapses to icons with [ and with its toggle, and stays colla
   await page.keyboard.press("[");
   await expect(sidebar).toHaveAttribute("data-collapsed", "true");
   await page.reload();
-  await expect(page.getByTestId("sidebar")).toHaveAttribute("data-collapsed", "true");
+  await expect(page.getByTestId("sidebar")).toHaveAttribute(
+    "data-collapsed",
+    "true",
+  );
   await page.getByTestId("sidebar-toggle").click();
-  await expect(page.getByTestId("sidebar")).not.toHaveAttribute("data-collapsed", "true");
+  await expect(page.getByTestId("sidebar")).not.toHaveAttribute(
+    "data-collapsed",
+    "true",
+  );
 });
 
 test("below 768px the sidebar is a sheet", async ({ page }) => {
@@ -24,8 +32,30 @@ test("below 768px the sidebar is a sheet", async ({ page }) => {
   await expect(page.getByTestId("sidebar")).toBeHidden();
 });
 
-test("the style guide's detail layout stacks its properties panel on a narrow screen", async ({ page }) => {
+test("the detail layout puts properties beside the main column, and under it below 768px", async ({
+  page,
+}) => {
+  const boxes = async () => {
+    const layout = page
+      .getByTestId("style-guide-light")
+      .getByTestId("detail-layout");
+    const main = await layout.locator(".shell-detail-main").boundingBox();
+    const props = await layout
+      .locator(".shell-detail-properties")
+      .boundingBox();
+    if (!main || !props)
+      throw new Error("detail layout did not render both columns");
+    return { main, props };
+  };
+  await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/style-guide");
-  const panel = page.getByTestId("style-guide-light").locator(".properties-panel").first();
-  await expect(panel).toBeVisible();
+  const wide = await boxes();
+  expect(wide.props.x).toBeGreaterThanOrEqual(
+    wide.main.x + wide.main.width - 1,
+  );
+  await page.setViewportSize({ width: 390, height: 844 });
+  const narrow = await boxes();
+  expect(narrow.props.y).toBeGreaterThanOrEqual(
+    narrow.main.y + narrow.main.height - 1,
+  );
 });

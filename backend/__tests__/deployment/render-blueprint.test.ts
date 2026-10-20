@@ -282,6 +282,8 @@ describe("render.yaml", () => {
   test("the api points WEB_SERVER_THEME at a file that exists", () => {
     const themePath = valueOf("hypotenuse-api", "WEB_SERVER_THEME");
     expect(themePath).toBeDefined();
-    expect(readRepoFile(join("backend", themePath!))).toContain("--keryx-color-primary");
+    expect(readRepoFile(join("backend", themePath!))).toContain(
+      "--keryx-color-primary",
+    );
   });
 });

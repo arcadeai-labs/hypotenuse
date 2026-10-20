@@ -14,7 +14,8 @@ export function DocsPage() {
       <div className="docs-not-found" data-testid="docs-not-found">
         <h1>Page not found</h1>
         <p>
-          There is no docs page at this address. Start from the <Link to="/docs">introduction</Link>.
+          There is no docs page at this address. Start from the{" "}
+          <Link to="/docs">introduction</Link>.
         </p>
       </div>
     );

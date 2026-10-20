@@ -18,7 +18,11 @@ export function AuthCard({
   title: string;
   footer: ReactNode;
 }) {
-  const [fields, setFields] = useState<AuthFields>({ email: "", password: "", name: "" });
+  const [fields, setFields] = useState<AuthFields>({
+    email: "",
+    password: "",
+    name: "",
+  });
   const [submitted, setSubmitted] = useState(false);
   const errors = validateAuthFields(fields, mode === "sign-up");
   const show = (key: keyof AuthFields) => (submitted ? errors[key] : undefined);
@@ -28,7 +32,12 @@ export function AuthCard({
     setSubmitted(true);
   };
 
-  const field = (key: keyof AuthFields, label: string, type: string, autoComplete: string) => (
+  const field = (
+    key: keyof AuthFields,
+    label: string,
+    type: string,
+    autoComplete: string,
+  ) => (
     <Form.Group controlId={`${mode}-${key}`}>
       <Form.Label>{label}</Form.Label>
       <Form.Control
@@ -38,7 +47,9 @@ export function AuthCard({
         value={fields[key] ?? ""}
         isInvalid={Boolean(show(key))}
         aria-describedby={show(key) ? `${mode}-${key}-error` : undefined}
-        onChange={(event) => setFields({ ...fields, [key]: event.target.value })}
+        onChange={(event) =>
+          setFields({ ...fields, [key]: event.target.value })
+        }
       />
       {show(key) && (
         <Form.Text id={`${mode}-${key}-error`} className="auth-error">
@@ -57,10 +68,16 @@ export function AuthCard({
         <Form noValidate onSubmit={onSubmit} data-testid={`${mode}-form`}>
           {mode === "sign-up" && field("name", "Name", "text", "name")}
           {field("email", "Email", "email", "email")}
-          {field("password", "Password", "password", mode === "sign-up" ? "new-password" : "current-password")}
+          {field(
+            "password",
+            "Password",
+            "password",
+            mode === "sign-up" ? "new-password" : "current-password",
+          )}
           {submitted && valid && (
             <Alert variant="info" data-testid={`${mode}-unavailable`}>
-              Accounts are not open yet. This form will sign you in once they are.
+              Accounts are not open yet. This form will sign you in once they
+              are.
             </Alert>
           )}
           <Button type="submit" variant="primary" className="auth-submit">

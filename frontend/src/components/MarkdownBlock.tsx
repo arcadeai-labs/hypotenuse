@@ -27,7 +27,8 @@ export function slugify(text: string): string {
 function textOf(node: ReactNode): string {
   if (typeof node === "string" || typeof node === "number") return String(node);
   if (Array.isArray(node)) return node.map(textOf).join("");
-  if (isValidElement<{ children?: ReactNode }>(node)) return textOf(node.props.children);
+  if (isValidElement<{ children?: ReactNode }>(node))
+    return textOf(node.props.children);
   return "";
 }
 
@@ -48,8 +49,12 @@ export function MarkdownBlock({
   className?: string;
 }) {
   const components: Components = {
-    h2: ({ children: content }) => <h2 id={slugify(textOf(content))}>{content}</h2>,
-    h3: ({ children: content }) => <h3 id={slugify(textOf(content))}>{content}</h3>,
+    h2: ({ children: content }) => (
+      <h2 id={slugify(textOf(content))}>{content}</h2>
+    ),
+    h3: ({ children: content }) => (
+      <h3 id={slugify(textOf(content))}>{content}</h3>
+    ),
     a: ({ href, children: content }: ComponentPropsWithoutRef<"a">) => {
       if (internalLinks && href?.startsWith("/") && !href.startsWith("//")) {
         return <Link to={href}>{content}</Link>;
@@ -63,7 +68,10 @@ export function MarkdownBlock({
     pre: ({ children: content }) => (
       <div className="markdown-code">
         <pre>{content}</pre>
-        <CopyButton text={textOf(content).replace(/\n$/, "")} label="Copy code" />
+        <CopyButton
+          text={textOf(content).replace(/\n$/, "")}
+          label="Copy code"
+        />
       </div>
     ),
   };

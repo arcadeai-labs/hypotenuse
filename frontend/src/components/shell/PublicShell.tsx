@@ -21,7 +21,8 @@ const PREFERENCE_LABEL: Record<ThemePreference, string> = {
  */
 export function ThemeToggle() {
   const { preference, setPreference } = useTheme();
-  const Icon = preference === "system" ? Monitor : preference === "light" ? Sun : Moon;
+  const Icon =
+    preference === "system" ? Monitor : preference === "light" ? Sun : Moon;
   return (
     <button
       type="button"
@@ -70,7 +71,11 @@ export function PublicShell() {
         <nav aria-label="Footer">
           <Link to="/docs">Docs</Link>
           <Link to="/docs/why">Why Hypotenuse</Link>
-          <a href="https://github.com/arcadeai-labs/hypotenuse" target="_blank" rel="noreferrer noopener">
+          <a
+            href="https://github.com/arcadeai-labs/hypotenuse"
+            target="_blank"
+            rel="noreferrer noopener"
+          >
             GitHub
           </a>
         </nav>

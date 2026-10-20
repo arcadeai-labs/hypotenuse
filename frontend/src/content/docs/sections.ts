@@ -34,7 +34,8 @@ export function headingsOf(markdown: string): string[] {
   let fenced = false;
   for (const line of markdown.split("\n")) {
     if (line.startsWith("```")) fenced = !fenced;
-    else if (!fenced && line.startsWith("## ")) headings.push(line.slice(3).trim());
+    else if (!fenced && line.startsWith("## "))
+      headings.push(line.slice(3).trim());
   }
   return headings;
 }
