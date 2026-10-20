@@ -23,6 +23,8 @@ RUN bun install --frozen-lockfile
 # resolves action response types through the `@backend/*` path alias.
 COPY protocol/ protocol/
 COPY backend/ backend/
+# The design tokens: the e2e specs and generated styles read design/tokens.json.
+COPY design/ design/
 COPY frontend/ frontend/
 
 RUN bun run --cwd frontend build

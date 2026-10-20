@@ -164,6 +164,7 @@ services:
     buildFilter:
       paths:
         - frontend/**
+        - design/**
         # `tsc -b` resolves action response types through `@backend/*`, so a
         # backend or protocol change can break — or fix — the frontend build.
         - backend/**

@@ -10,14 +10,18 @@ import { banner } from "./output/theme";
  * @returns The configured commander program, not yet parsed.
  */
 export function buildProgram(): Command {
-  return new Command()
-    .name("hypotenuse")
-    .description(pkg.description)
-    .version(pkg.version, "-V, --version", "print the version")
-    .option("--no-color", "disable colored output")
-    .action(() => {
-      console.log(banner(pkg.version));
-    });
+  return (
+    new Command()
+      .name("hypotenuse")
+      .description(pkg.description)
+      .version(pkg.version, "-V, --version", "print the version")
+      .option("--no-color", "disable colored output")
+      // Read by `output/early-env` before parsing; declared here so commander accepts it.
+      .option("--force-color", "color output even when it is piped")
+      .action(() => {
+        console.log(banner(pkg.version));
+      })
+  );
 }
 
 if (import.meta.main) {
