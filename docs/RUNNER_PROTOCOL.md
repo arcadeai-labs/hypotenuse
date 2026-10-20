@@ -52,6 +52,8 @@ check the envelope, not only the status.
 
 `POST /api/daemon/connect` with `{ "machineId": "sha256:…" }`. Answers 409 `machine_in_use` with
 `{ runnerId, runnerName }` when a different runner with that `machineId` is online: one daemon per machine.
+`daemon:heartbeat` gives the same 409, with nothing written, so the rule holds whichever call a daemon makes
+first.
 
 ```json
 { "runnerId": 5, "channel": "runner:5", "heartbeatIntervalMs": 15000, "leaseMs": 60000, "serverTime": 1792478400000 }

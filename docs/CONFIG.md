@@ -22,13 +22,13 @@ and MCP servers is in [phase 11](./plans/phase-11-acp-agent-host.md),
 | Per-session agent logs | `~/.local/state/hypotenuse/sessions/<agentSessionId>.log` | with the state directory |
 | Worktrees | `~/.hypotenuse/worktrees/<repository>/<ISSUE-ID>` | `[sessions] worktree_root` |
 | Update-check cache | `~/.config/hypotenuse/update.json` | — |
-| Machine lock | `~/.local/state/hypotenuse/daemon.pid` — always this path, whatever `--state-dir` or `-c` say | — |
+| Machine lock | `~/.local/state/hypotenuse/daemon.pid` — always this path, whatever `--state-dir` or `-c` say; it records the running daemon's control-socket path, and liveness is checked against that recorded path | — |
 
 **One daemon per machine** is enforced twice. Locally, the lock above lives at a fixed path, so a second daemon
 started with a different config or state directory still finds it. On the server, every heartbeat carries a
 `machineId`, a stable hash of the OS machine id (`/etc/machine-id`, macOS `IOPlatformUUID`, Windows
-`MachineGuid`). `daemon:connect` refuses a runner whose `machineId` belongs to another runner that is online,
-naming that runner. This catches a second OS user on a shared box, and two projects on one laptop.
+`MachineGuid`). `daemon:heartbeat` and `daemon:connect` both refuse a runner whose `machineId` belongs to
+another online runner, naming it, and a unique index on online runners' `machineId` makes the check atomic. This catches a second OS user on a shared box, and two projects on one laptop.
 
 `hypotenuse config path` prints the resolved paths. `hypotenuse config init` writes a starter file,
 `hypotenuse config validate` checks one, and `hypotenuse config schema` prints the JSON Schema. The first line

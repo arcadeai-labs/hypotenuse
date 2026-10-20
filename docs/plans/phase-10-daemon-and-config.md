@@ -246,17 +246,24 @@ the daemon being started.
 **The pidfile is the machine lock**, so it always lives at `~/.local/state/hypotenuse/daemon.pid`, ignoring
 `--state-dir` and `-c`. A second daemon with a different config still finds it. On start:
 
-- If the pidfile names a live process **and** the control socket answers `status`, the daemon is already
-  running: exit 1 with its pid.
-- If the pidfile is stale (no process, or the socket is dead), remove it and the socket, and continue.
+- The pidfile is JSON, `{ pid, socketPath, startedAt }`, written with `O_EXCL`. **`socketPath` is the running
+  daemon's own control socket**, wherever its state directory put it. Liveness always uses that recorded path,
+  never the starting daemon's own path.
+- If the recorded pid is a live process **and** the recorded `socketPath` answers `status`, the daemon is already
+  running: exit 1 with its pid and config path.
+- Only if both checks fail is the lock stale: remove the pidfile and the recorded socket, then retake the lock with
+  `O_EXCL`. Two starts racing on a stale lock cannot both win.
 
 Both checks are needed: a pid can be reused by an unrelated process after a reboot, and a socket file can
-outlive its process.
+outlive its process. Checking the *recorded* socket is what lets a second start with a different `-c` or
+`--state-dir` see the first daemon. `pidfile.test.ts` covers exactly that case.
 
 The lock only sees the current OS user. The server closes the rest of the gap: the daemon computes `machineId`
 (sha256 of `/etc/machine-id`, macOS `IOPlatformUUID`, or Windows `MachineGuid`), and `daemon:connect` refuses it
 with a 409 naming the other runner if a different online runner already has that id. That covers a second user on a
 shared build box and two projects on one laptop. The daemon prints the refusal and exits 1 (`machine_in_use`).
+The **first heartbeat** enforces the same rule, so a daemon that heartbeats before it connects cannot slip
+through (see [phase 8](./phase-08-runners.md)).
 
 **Startup order** (in `cli/src/daemon/supervisor.ts` `startDaemon()`):
 
