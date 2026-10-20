@@ -81,6 +81,12 @@ const EXPECTED_LEVELS: Record<string, RbacLevel> = {
   "notification:list": "none",
   "notification:unread-count": "none",
   "notification:mark-read": "none",
+  "cli-auth:approve": "none",
+  "cli-auth:activate": "none",
+  "cli-auth:device": "none",
+  "cli-auth:exchange": "none",
+  "cli-token:list": "none",
+  "cli-token:revoke": "none",
   "notifications:dispatch": "none",
   "notifications:sweep": "none",
   "invites:sweep": "none",
@@ -225,6 +231,8 @@ describe("MCP publish policy", () => {
     expect(published).toEqual(
       [
         "audit:list",
+        "cli-token:list",
+        "cli-token:revoke",
         "invite:accept",
         "invite:create",
         "invite:list",
@@ -260,6 +268,10 @@ describe("MCP publish policy", () => {
     expect([...NEVER_MCP_ACTION_NAMES].sort()).toEqual(
       [
         "actions:permissions",
+        "cli-auth:activate",
+        "cli-auth:approve",
+        "cli-auth:device",
+        "cli-auth:exchange",
         "linear:callback",
         "runner:register",
         "session:create",

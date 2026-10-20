@@ -1,10 +1,11 @@
 import type { UserCreate } from "@backend/actions/user";
 import type { ActionResponse } from "keryx";
 import { type FormEvent, type ReactNode, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { Alert, Button, Form, Mark } from "../ui";
 import { apiFetch } from "../utils/client";
+import { DEFAULT_LANDING, safeNext } from "../utils/returnTo";
 import { type AuthFields, validateAuthFields } from "./authForm";
 
 /**
@@ -31,6 +32,8 @@ export function AuthCard({
 }) {
   const { refresh } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const next = safeNext(searchParams.get("next"));
   const [fields, setFields] = useState<AuthFields>({
     email: "",
     password: "",
@@ -44,7 +47,8 @@ export function AuthCard({
 
   /**
    * Validate, then create the account (sign-up only), open a session,
-   * re-hydrate, and land on the project home.
+   * re-hydrate, and land where `?next=` says (a same-origin path only), else
+   * on the project home.
    * @param event - The form's submit event.
    */
   const onSubmit = async (event: FormEvent) => {
@@ -71,7 +75,7 @@ export function AuthCard({
         body: JSON.stringify({ email, password: fields.password }),
       });
       await refresh();
-      navigate("/home");
+      navigate(next ?? DEFAULT_LANDING);
     } catch (err) {
       setServerError(
         err instanceof Error ? err.message : "Something went wrong.",

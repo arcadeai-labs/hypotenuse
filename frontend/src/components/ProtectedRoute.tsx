@@ -1,9 +1,16 @@
 import { Navigate, Outlet, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import { signInFor } from "../utils/returnTo";
 import LoadingLabel from "./LoadingLabel";
 
 /** Signed-in pages that work without any project. */
-const PROJECTLESS_PATHS = new Set(["/projects/new", "/invites", "/account"]);
+const PROJECTLESS_PATHS = new Set([
+  "/projects/new",
+  "/invites",
+  "/account",
+  "/cli/authorize",
+  "/cli/activate",
+]);
 
 /**
  * Route guard for authenticated pages. While the first hydration is in flight it
@@ -14,7 +21,11 @@ const PROJECTLESS_PATHS = new Set(["/projects/new", "/invites", "/account"]);
  * the new-project page itself, or it would bounce to itself forever; and the
  * invitations and account pages, because an invite is addressed to an e-mail,
  * not a tenant — someone removed from their last project must still be able to
- * accept the invite that gives them one.
+ * accept the invite that gives them one. The CLI approval pages are exempt
+ * for the same reason: signing a terminal in is about the person, not a project.
+ *
+ * A signed-out visitor is sent to `/sign-in?next=<this page>`, so the page they
+ * were opening — above all the CLI's approval link — is where they land after.
  * @returns A loading label, a redirect, or the nested route.
  */
 export default function ProtectedRoute() {
@@ -26,7 +37,9 @@ export default function ProtectedRoute() {
   }
 
   if (!user) {
-    return <Navigate to="/sign-in" replace />;
+    return (
+      <Navigate to={signInFor(location.pathname + location.search)} replace />
+    );
   }
 
   if (projects.length === 0 && !PROJECTLESS_PATHS.has(location.pathname)) {

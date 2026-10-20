@@ -1,15 +1,31 @@
 {
   "name": "@arcadeai/hypotenuse",
-  "version": "0.0.1",
-  "description": "Hypotenuse — run coding agents on your machine for Linear agent sessions",
+  "version": "0.1.0",
+  "description": "Hypotenuse \u2014 run coding agents on your machine for Linear agent sessions",
   "type": "module",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "bin": {
-    "hypotenuse": "./src/cli.ts"
+    "hypotenuse": "./dist/hypotenuse.js"
   },
+  "files": [
+    "dist/hypotenuse.js",
+    "skills",
+    "README.md",
+    "LICENSE"
+  ],
   "repository": {
     "type": "git",
     "url": "https://github.com/arcadeai-labs/hypotenuse.git"
+  },
+  "homepage": "https://github.com/arcadeai-labs/hypotenuse#readme",
+  "bugs": {
+    "url": "https://github.com/arcadeai-labs/hypotenuse/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "bun": ">=1.2"
   },
   "scripts": {
     "hypotenuse": "bun run src/cli.ts",
@@ -17,11 +33,15 @@
     "test": "bun test",
     "lint": "tsc && biome check .",
     "format": "tsc && biome check --write .",
-    "build": "bun build --compile --minify --sourcemap ./src/cli.ts --outfile dist/hypotenuse"
+    "bundle": "bun build ./src/cli.ts --target bun --packages external --outfile dist/hypotenuse.js",
+    "build": "bun build --compile --minify --sourcemap ./src/cli.ts --outfile dist/hypotenuse",
+    "prepack": "bun run bundle"
   },
   "dependencies": {
-    "@hypotenuse/protocol": "workspace:*",
-    "commander": "^14.0.3"
+    "commander": "^14.0.3",
+    "nanospinner": "^1.2.2",
+    "upgradr": "^0.4.0",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.8",

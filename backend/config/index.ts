@@ -1,6 +1,7 @@
 import { configActions } from "./actions";
 import { configAudit } from "./audit";
 import { configChannels } from "./channels";
+import { configCliAuth } from "./cliAuth";
 import { configDatabase } from "./database";
 import { configLinear } from "./linear";
 import { configLogger } from "./logger";
@@ -34,6 +35,7 @@ export default {
   audit: configAudit,
   secrets: configSecrets,
   notifications: configNotifications,
+  cliAuth: configCliAuth,
 };
 
 /**

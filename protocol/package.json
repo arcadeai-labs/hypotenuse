@@ -3,6 +3,7 @@
   "version": "0.0.1",
   "description": "The server ⇄ daemon wire contract, as Zod schemas",
   "private": true,
+  "license": "Apache-2.0",
   "type": "module",
   "exports": {
     ".": "./src/index.ts"

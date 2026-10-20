@@ -325,7 +325,7 @@ out of scope here and arrive with the CLI itself (rule 13's decision, recorded).
   loads it, and removes it, so the `EVAL` path is proven before the application ships a script of its own.
 - **`/api/status` must touch the newest migration's column**, not `SELECT NOW()`: Keryx binds before
   `DATABASE_AUTO_MIGRATE` finishes, and `e2e/global-setup.ts` waits on `healthy`. It reads
-  `notifications.link_path`; move it whenever a newer migration lands.
+  `cli_tokens.last_four` today; move it whenever a newer migration lands.
 - **Backend suites sign up dozens of users from one address**, so `RATE_LIMIT_ENABLED_TEST=false` in
   `.env.example`. The e2e backend turns the limiter back on, because the browser path is the only place it runs.
 - **The e2e backend works its own queues** (`TASK_PROCESSORS_TEST=1`, a one-second dispatch tick) — the opposite of

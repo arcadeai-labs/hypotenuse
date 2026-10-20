@@ -14,7 +14,7 @@ import {
 } from "../schema/project_memberships";
 import { type Project, projects } from "../schema/projects";
 import type { Tag } from "../schema/tags";
-import type { SessionImpl } from "./session";
+import type { PrincipalMeta, SessionImpl } from "./session";
 
 /**
  * Well-known symbol tagging RBAC middleware with a machine-readable requirement
@@ -56,7 +56,7 @@ export type RbacRequirement = { type: RbacLevel };
  * adding them later would have meant touching every generic
  * parameter in every action signature.
  */
-export interface RbacConnectionMeta {
+export interface RbacConnectionMeta extends PrincipalMeta {
   project?: Project;
   membership?: ProjectMembership;
   callerTags?: Tag[];

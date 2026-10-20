@@ -134,3 +134,7 @@ the URL (`postgres://you@localhost:5432/hypotenuse`) in `backend/.env`.
 
 See [`AGENTS.md`](./AGENTS.md) for the rules and conventions, and [`docs/plans/`](./docs/plans/README.md) for the
 build order.
+
+## License
+
+[Apache License 2.0](./LICENSE).

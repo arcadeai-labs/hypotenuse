@@ -207,7 +207,8 @@ with the same machine id. `hypotenuse daemon start` (or a launchd / systemd user
 `hypotenuse service install`). It holds no state the server cannot rebuild except the worktrees themselves:
 
 - `~/.config/hypotenuse/config.toml` — the config file ([`CONFIG.md`](./CONFIG.md)).
-- `~/.config/hypotenuse/credentials.json` — server URL, runner id, runner token (0600).
+- `~/.config/hypotenuse/credentials.json` — keyed by server: the operator's CLI sign-in and the runner's id and
+  token, kept apart so `logout` never de-registers a machine (0600).
 - `~/.local/state/hypotenuse/state.db` — `bun:sqlite`: local sessions, their worktrees, ACP session ids (for
   `session/load` after a restart), and process ids.
 - `~/.local/state/hypotenuse/daemon.sock` — the control socket the CLI's `agents`, `worktrees`, and `daemon`
@@ -262,6 +263,7 @@ row: which installation, which issue, which role. The two tool sets:
 | Table | Holds |
 |---|---|
 | `users`, `projects`, `project_memberships`, `tags`, `user_tags`, `project_invites`, `audit_logs`, `notifications`, `project_settings` | ported from ToolExec: tenancy, RBAC, audit, notifications, and one settings row per project whose columns arrive with the features that read them (routing timeouts, thresholds) |
+| `cli_tokens` | one per signed-in `hypotenuse` CLI: owner, device name, token sha256 and last four, last use, sliding expiry, revocation. The sign-in hand-offs themselves (one-time and device codes) live in Redis, by hash |
 | `linear_installations` | one per project: org id, app user id, encrypted tokens, expiry, scopes, team access, status |
 | `linear_events` | every verified webhook delivery, deduplicated on `deliveryId`, with its processing outcome |
 | `linear_identities` | Linear user ⇄ Hypotenuse user links, per installation |

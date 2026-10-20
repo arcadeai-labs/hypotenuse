@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
-import { Action, api, HTTP_METHOD } from "keryx";
+import { Action, api, config, HTTP_METHOD } from "keryx";
 import { z } from "zod";
+import type {} from "../config/cliAuth";
 import {
   linearCallbackUrl,
   linearConfigured,
@@ -11,7 +12,7 @@ import packageJSON from "../package.json";
 export class Status implements Action {
   name = "status";
   description =
-    "Returns server health and runtime information including the server name, process ID, package version, uptime in milliseconds, memory consumption in MB, and dependency health checks for the database and Redis, and the Linear webhook and OAuth callback URLs this deployment expects (with whether Linear credentials are configured). A check is `null` when that dependency is disabled (e.g. no `DATABASE_URL`), and disabled checks do not affect `healthy`. Does not require authentication.";
+    "Returns server health and runtime information including the server name, process ID, package version, uptime in milliseconds, memory consumption in MB, and dependency health checks for the database and Redis, the dashboard URL, and the Linear webhook and OAuth callback URLs this deployment expects (with whether Linear credentials are configured). A check is `null` when that dependency is disabled (e.g. no `DATABASE_URL`), and disabled checks do not affect `healthy`. Does not require authentication.";
   inputs = z.object({});
   web = { route: "/status", method: HTTP_METHOD.GET };
   tracing = false;
@@ -30,9 +31,7 @@ export class Status implements Action {
         // bare clock query would report healthy against an empty schema —
         // exactly the race e2e global-setup and load balancers must not trust.
         // Move this to the newest migration's column when one is added.
-        await api.db.db.execute(
-          sql`SELECT link_path FROM notifications LIMIT 0`,
-        );
+        await api.db.db.execute(sql`SELECT last_four FROM cli_tokens LIMIT 0`);
         databaseHealthy = true;
       } catch {}
     }
@@ -58,6 +57,10 @@ export class Status implements Action {
         database: databaseHealthy,
         redis: redisHealthy,
       },
+      // Where the dashboard lives. The CLI reads it to open the page that
+      // approves `hypotenuse login`: the API and the dashboard are different
+      // origins in a deployment, and only the server knows both.
+      dashboardUrl: config.cliAuth.appUrl,
       // What an operator pastes into the Linear OAuth app's settings, derived
       // from APPLICATION_URL so nobody has to guess. Not part of `healthy`.
       linear: {

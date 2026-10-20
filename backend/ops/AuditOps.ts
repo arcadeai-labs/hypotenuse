@@ -40,6 +40,9 @@ export const SENSITIVE_KEYS = [
   "code",
   "codeVerifier",
   "state",
+  // CLI sign-in: the device flow's secret (the loopback `code` and
+  // `codeVerifier` are above)
+  "deviceCode",
   // runner credentials
   "runnerToken",
   "tokenHash",

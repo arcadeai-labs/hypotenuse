@@ -418,17 +418,17 @@ bun run --cwd cli dev whoami && bun run --cwd cli dev --json project list | jq
 
 ## Definition of done
 
-- [ ] `cli/` follows mcpx's structure: early-env, TTY mode, stderr logger, stdout data, signal-safe shutdown
-- [ ] `login` signs in through the dashboard (loopback + PKCE, and a device code with `--no-browser`); `logout` revokes
-- [ ] `cli_tokens` with sliding expiry; the session middleware resolves a CLI token to its person; CLI and runner tokens are each refused where they don't belong
-- [ ] Account page lists and revokes CLI sign-ins
-- [ ] Operator commands for project, member, invite, tag, and audit, each with `--json`
-- [ ] `upgrade` / `check-update` via upgradr; background notice suppressed for daemon and MCP commands; Windows prints the reinstall line
-- [ ] The npm package is a bundled `dist/hypotenuse.js`; runtime assets are embedded, never read beside `Bun.main`
-- [ ] `auto-release.yml` runs CI before creating a draft release; npm (OIDC) and six binaries publish from one version; `finalize` un-drafts
-- [ ] `install.sh` and `install.ps1`; `test-upgrade.sh` passes in CI for npm, bun, and binary installs
-- [ ] `release-workflow.test.ts` and the CLI spawn tests pass
-- [ ] `/docs/cli` user docs
+- [x] `cli/` follows mcpx's structure: early-env, TTY mode, stderr logger, stdout data, signal-safe shutdown
+- [x] `login` signs in through the dashboard (loopback + PKCE, and a device code with `--no-browser`); `logout` revokes
+- [x] `cli_tokens` with sliding expiry; the session middleware resolves a CLI token to its person; CLI and runner tokens are each refused where they don't belong
+- [x] Account page lists and revokes CLI sign-ins
+- [x] Operator commands for project, member, invite, tag, and audit, each with `--json`
+- [x] `upgrade` / `check-update` via upgradr; background notice suppressed for daemon and MCP commands; Windows prints the reinstall line
+- [x] The npm package is a bundled `dist/hypotenuse.js`; runtime assets are embedded, never read beside `Bun.main`
+- [x] `auto-release.yml` runs CI before creating a draft release; npm (OIDC) and six binaries publish from one version; `finalize` un-drafts
+- [x] `install.sh` and `install.ps1`; `test-upgrade.sh` passes in CI for npm, bun, and binary installs
+- [x] `release-workflow.test.ts` and the CLI spawn tests pass
+- [x] `/docs/cli` user docs
 
 ## Settled non-goals (do not reopen without a new plan)
 
@@ -455,4 +455,90 @@ HYPOTENUSE_NO_UPDATE_CHECK=1 hypotenuse project list
 
 ## Learnings from the build
 
-_Nothing yet — this phase has not been built._
+### What is built
+
+All eleven Definition of done items. The backend gained `cli_tokens`, `CliTokenOps`, six actions
+(`cli-auth:approve|activate|device|exchange`, `cli-token:list|revoke`), and the principal resolver; the dashboard
+gained `/cli/authorize`, `/cli/activate`, and Account → CLI sign-ins; `cli/` is mcpx's skeleton with the operator
+commands, upgradr, the bundle, and the agent skill; the repository gained `auto-release.yml`, `install.sh`,
+`install.ps1`, and `cli/test/e2e/test-upgrade.sh`, which runs in the gate as **CLI Upgrade**. The first release
+is published by hand, because npm accepts a trusted publisher only for a package that already exists; the
+sequence — merge, publish from the merge commit, add the publisher, re-run the failed jobs — is in
+[`DEPLOY.md`](../DEPLOY.md#first-deploy).
+
+### Where the build departs from the plan
+
+- **`credentials.json` is keyed by server** — phase 10's shape, which [`CONFIG.md`](../CONFIG.md) already
+  described — not §3's flat `{ baseUrl, project, oauth, runner }`. Each server holds `login` (the CLI token, its id,
+  device, and email), `project` (from `project use`), and `runner`; `current` names the server the last `login` used,
+  which is the third rung of the base-URL ladder. Writing the flat file now would have meant migrating it in the
+  daemon phase.
+- **There is no refresh.** The CLI token is ours, not OAuth: it slides forward a day at a time on use, and a 401
+  tells the person to run `hypotenuse login`. The client's "refresh on 401" from ToolExec has nothing to refresh.
+- **`@hypotenuse/protocol` is not in `cli/package.json`.** `npm pack` copies `package.json` verbatim, and a
+  `workspace:` spec — even under `devDependencies` — would ship in the tarball. Nothing in the CLI imports the
+  protocol yet; the first module that does imports it by relative path, which the bundle inlines.
+  `imports.test.ts` refuses a bare `@hypotenuse/…` import, and `package.test.ts` refuses `workspace:` in the file.
+- **The device flow polls every 5 seconds**, RFC 8628's default, not every 2: the unauthenticated rate limit is
+  20 requests a minute per IP, and the server announces the interval so it can change in one place. A device code
+  still waiting answers `200 { status: "pending" }` rather than RFC 8628's `400 authorization_pending`, because
+  every real failure of `cli-auth:exchange` is one indistinguishable 406 and "nobody has clicked yet" is not one.
+- **`/api/status` answers `dashboardUrl`** (`FRONTEND_URL`). The CLI knows the API's origin; in a deployment the
+  dashboard is a different one, and only the server knows both.
+- **The loopback listener redirects the browser back to `/cli/authorize?status=done`** (or `cancelled`, or
+  `error` for a state mismatch), so the page a person ends on is painted by the design system rather than by a
+  string in the CLI.
+- **Sign-in learned `?next=`.** `ProtectedRoute` sends a signed-out visitor to `/sign-in?next=<page>`, the
+  sign-in and sign-up links carry it across, and only a same-origin path is honored (`utils/returnTo.ts`). Without
+  it the CLI's approval link was lost to the first sign-in.
+- **Approving a CLI needs a browser session.** `BrowserSessionMiddleware` refuses `cli-auth:approve` and
+  `cli-auth:activate` to a CLI token with a 403, so one sign-in can never mint another without a person on a
+  dashboard page.
+- **CLI sign-in audit rows belong to the person, not a project.** `cli-auth:approve|activate` and
+  `cli-token:revoke` write rows with no `projectId`, so no project's `audit:list` shows them. A personal audit view
+  would be its own feature.
+- **Rule 13's decisions for the routed actions with no command:** `cli-token:list` (a terminal listing its sibling
+  sign-ins is the Account page's job), `notification:*` (the bell is a dashboard surface), `user:edit` and
+  `project:settings-view` (account and settings pages; `project view` shows standing and tags), and the four
+  `cli-auth:*` hops, which `login` drives rather than wraps.
+- **`cli-token:edit` is not built.** §4 calls the device name editable; the steps name six actions, and a rename
+  is the first thing to add if people ask.
+- **"`hyp_cli_` in `SENSITIVE_KEYS`"** was a category error: the list holds param keys, not value prefixes, and the
+  token is never a param — it exists only in the exchange's response, which is not audited. `deviceCode` was added;
+  `code`, `codeVerifier`, and `token` were already there.
+- **The license is Apache-2.0**, chosen by the owner while this phase was in review: `LICENSE` at the root, and
+  `cli/LICENSE` — a copy, because npm packs only files inside the package directory — which `package.test.ts`
+  asserts is byte-identical and shipped.
+- **Nothing needs embedding yet**, so there is no `cli/assets/`. `skills/hypotenuse.md` ships in the npm package;
+  `skill-sync.test.ts` keeps it in step with `--help`. The palette test the plan names is the existing
+  `__tests__/output/theme.test.ts`.
+- **A resumed draft is moved to the commit being released.** `create-release` retargets an existing draft to
+  `GITHUB_SHA`, so the tag, notes, and source archive describe the code the binaries are built from; if npm
+  already holds the version (built from the draft's commit), the run fails and asks for a version bump, since no
+  rebuild can match it.
+- **`upgrade` says when the check itself failed.** upgradr reports `hasUpdate: false` alongside an `error`, and
+  mcpx printed "already up to date" for it. Until the first npm publish every check fails that way (a 404), so
+  `upgrade` and `check-update` say "Could not check for updates" and exit 0. The background notice is also skipped
+  under `--json`.
+
+### Traps found while building
+
+- **Keryx instantiates every export under `actions/`.** A Zod input or a guard function exported from an action
+  file fails boot with `undefined is not an object`. Shared pieces live in `ops/` or `middleware/`.
+- **Keryx creates an anonymous Redis session for every cookie-less request**, before any hook runs, and answers
+  with its cookie. The principal hook writes the token's `userId` into that session object in memory only;
+  `login.test.ts` asserts the stored session never gains one and that its cookie is signed out.
+- **A `Content-Type: application/json` request whose body is empty or malformed escapes Keryx's web server**:
+  Bun's own 500 page (HTML with source in development), no JSON envelope or CORS headers, and a leaked
+  `Connection` per request; under `bun test` it fails the file. Filed as
+  [actionhero/keryx#552](https://github.com/actionhero/keryx/issues/552). Nothing here works around it — the
+  CLI's client sends the header only with a body, which is right regardless.
+- **Refusal bodies carry a timestamp, and a stack outside production.** "Byte-identical" comparisons drop both.
+- **The frontend type-checks backend files**, so the ops file that reads `config.cliAuth` imports the augmentation
+  type-only (`import type {} from "../config/cliAuth"`), as `LinearOps` does for `config.linear`.
+- **`npm pack --dry-run --json` prints `prepack`'s output before the JSON**; `package.test.ts` parses from the
+  first line that opens the array.
+- **In a fake server under `bun test`, a cloned request's body read after the handler returns can hang.** Record
+  the body inside the handler.
+- **`test-upgrade.sh` installs globally.** It gives itself a temporary `XDG_CONFIG_HOME` so the update cache it
+  clears is never a person's, but the installs are real: CI or a throwaway machine only.
