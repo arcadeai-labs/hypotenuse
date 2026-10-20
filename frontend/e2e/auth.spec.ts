@@ -113,6 +113,50 @@ test.describe("tenancy", () => {
     await adminContext.close();
   });
 
+  test("someone with no project left can still accept an invite", async ({
+    browser,
+  }) => {
+    const adminEmail = uniqueEmail("admin");
+    const loneEmail = uniqueEmail("lone");
+
+    // The invitee deletes the only project they had…
+    const loneContext = await browser.newContext();
+    const lone = await loneContext.newPage();
+    await signUp(lone, "Lone Lou", loneEmail);
+    await openSettings(lone);
+    await openSection(lone, "danger");
+    await lone.getByTestId("delete-project-name").fill("Lone Lou's Project");
+    await lone.getByTestId("delete-project-confirm").click();
+    await expect(lone).toHaveURL(/\/projects\/new$/, LANDED);
+
+    // …and is invited somewhere else.
+    const adminContext = await browser.newContext();
+    const admin = await adminContext.newPage();
+    await signUp(admin, "Admin Abe", adminEmail);
+    await fromProjectMenu(admin, "invites-link");
+    await admin.getByTestId("invite-email").fill(loneEmail);
+    await admin.getByTestId("invite-submit").click();
+    await expect(admin.getByTestId("invites-notice")).toBeVisible(LANDED);
+
+    // The welcome page points at invitations, and the gate lets them through:
+    // an invite is addressed to an e-mail, not a project.
+    await lone.reload();
+    await lone.getByTestId("new-project-invites-link").click();
+    await expect(lone).toHaveURL(/\/invites$/, LANDED);
+    const pending = lone.getByTestId("pending-invites");
+    await expect(pending).toContainText("Admin Abe's Project", LANDED);
+    await pending.getByRole("button", { name: "Accept" }).click();
+
+    // Accepting gave them a project, and with it the rest of the app.
+    await expect(lone.getByTestId("project-switcher-toggle")).toContainText(
+      "Admin Abe's Project",
+      LANDED,
+    );
+
+    await adminContext.close();
+    await loneContext.close();
+  });
+
   test("signing out closes the app and signing in reopens it", async ({
     page,
   }) => {

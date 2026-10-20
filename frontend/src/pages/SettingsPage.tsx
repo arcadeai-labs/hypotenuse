@@ -1,6 +1,6 @@
 import type { ProjectView } from "@backend/actions/project/project-view";
 import type { ActionResponse } from "keryx";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Outlet } from "react-router-dom";
 import LoadingLabel from "../components/LoadingLabel";
 import DiscardChangesModal from "../components/sections/DiscardChangesModal";
@@ -57,6 +57,11 @@ export default function SettingsPage() {
     confirmNav,
   } = useDirtyGuard("/settings");
 
+  // The project the page is showing *now*, so a `project:view` that answers
+  // after a switch cannot write the previous project into this one's sections.
+  const currentProjectId = useRef(activeProjectId);
+  currentProjectId.current = activeProjectId;
+
   /** Re-read `project:view` alone: the project, the caller's standing, the MCP URL. */
   const reloadProject = useCallback(async () => {
     if (!activeProjectId) return;
@@ -64,6 +69,7 @@ export default function SettingsPage() {
       const view = await apiFetch<ActionResponse<ProjectView>>(
         `/project?projectId=${activeProjectId}`,
       );
+      if (view.project.id !== currentProjectId.current) return;
       setProject(view.project);
       setMcp(view.mcp);
       setStanding(view.standing);
@@ -87,9 +93,13 @@ export default function SettingsPage() {
     [permissions, standing],
   );
 
+  // Withheld unless the loaded project *is* the active one: after a switch the
+  // previous project's row is still in state until `project:view` answers, and
+  // pairing it with the new id would let General save one project's name onto
+  // another.
   const outletContext: SettingsContext | null = useMemo(
     () =>
-      activeProjectId && project && standing
+      activeProjectId && project?.id === activeProjectId && standing
         ? {
             projectId: activeProjectId,
             project,

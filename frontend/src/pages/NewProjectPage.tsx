@@ -1,7 +1,7 @@
 import type { ProjectCreate } from "@backend/actions/project/project-create";
 import type { ActionResponse } from "keryx";
 import { type FormEvent, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { PageHeader } from "../components/shell/PageHeader";
 import { useAuth } from "../context/AuthContext";
 import { Alert, Button, Card, Form } from "../ui";
@@ -59,7 +59,12 @@ export default function NewProjectPage() {
       {isFirstProject && (
         <p className="text-muted">
           A project is your team in Hypotenuse: the people you invite, the
-          Linear workspace you connect, and the runners that take its work.
+          Linear workspace you connect, and the runners that take its work. If a
+          teammate invited you, accept it under{" "}
+          <Link to="/invites" data-testid="new-project-invites-link">
+            Invitations
+          </Link>{" "}
+          instead.
         </p>
       )}
 

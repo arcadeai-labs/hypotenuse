@@ -146,9 +146,14 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
   );
 
   const seen = useRef<Set<number> | null>(null);
+  // Every refresh takes a ticket; only the newest may write. Switching project
+  // while a read is in flight would otherwise let the slower, older response
+  // land last and put another project's rows and count in the bell.
+  const latestRefresh = useRef(0);
   const refreshRef = useRef<() => Promise<AppNotification[]>>(async () => []);
 
   const refresh = useCallback(async (): Promise<AppNotification[]> => {
+    const ticket = ++latestRefresh.current;
     if (!user) {
       setUnreadCount(0);
       setNotifications([]);
@@ -170,6 +175,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
           `/notifications/unread-count?${scope}`,
         ),
       ]);
+      if (ticket !== latestRefresh.current) return [];
       setNotifications(list.notifications);
       setUnreadCount(count.count);
       // Returned as well as stored, so the socket handler can raise toasts from
