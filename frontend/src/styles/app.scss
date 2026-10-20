@@ -1,0 +1,11 @@
+// The one stylesheet `main.tsx` imports. Order is the cascade: tokens, then the
+// document, then components.
+@use "tokens.generated";
+@use "fonts";
+@use "type";
+@use "space";
+@use "motion";
+@use "base";
+@use "ui";
+@use "shell";
+@use "public";

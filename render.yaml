@@ -69,6 +69,9 @@ services:
       # The frontend's public origin, and only it — a mismatch fails CORS.
       - key: WEB_SERVER_ALLOWED_ORIGINS
         value: "https://www.hypotenuse.cloud"
+      # The OAuth authorize page's theme, generated from design/tokens.ts.
+      - key: WEB_SERVER_THEME
+        value: "theme/hypotenuse-theme.ts"
       # Our own public origin: the OAuth/MCP issuer, the base of the Linear
       # webhook and callback URLs, and of every dashboard link written into Linear.
       - key: APPLICATION_URL
@@ -161,6 +164,7 @@ services:
     buildFilter:
       paths:
         - frontend/**
+        - design/**
         # `tsc -b` resolves action response types through `@backend/*`, so a
         # backend or protocol change can break — or fix — the frontend build.
         - backend/**

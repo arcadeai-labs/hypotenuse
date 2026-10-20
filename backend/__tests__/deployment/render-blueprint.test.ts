@@ -260,6 +260,21 @@ describe("render.yaml", () => {
     );
   });
 
+  test("every directory a Dockerfile copies is in its service's buildFilter", () => {
+    // A directory the image is built from but the filter omits is a change
+    // that ships nowhere: the image keeps its stale copy until something else
+    // triggers a rebuild.
+    for (const s of blueprint.services) {
+      if (!("dockerfilePath" in s) || !("buildFilter" in s)) continue;
+      const dockerfile = readRepoFile(s.dockerfilePath.replace(/^\.\//, ""));
+      const copied = [
+        ...dockerfile.matchAll(/^COPY\s+(?!--from)([\w-]+)\/\s/gm),
+      ].map(([, dir]) => `${dir}/**`);
+      expect(copied.length).toBeGreaterThan(0);
+      for (const path of copied) expect(s.buildFilter.paths).toContain(path);
+    }
+  });
+
   test("nothing on Render rebuilds for a CLI-only change", () => {
     for (const s of blueprint.services) {
       if (!("buildFilter" in s)) continue;
@@ -277,5 +292,13 @@ describe("render.yaml", () => {
 
   test("the api trusts the proxy so the OAuth issuer is the public origin", () => {
     expect(valueOf("hypotenuse-api", "MCP_OAUTH_TRUST_PROXY")).toBe("true");
+  });
+
+  test("the api points WEB_SERVER_THEME at a file that exists", () => {
+    const themePath = valueOf("hypotenuse-api", "WEB_SERVER_THEME");
+    expect(themePath).toBeDefined();
+    expect(readRepoFile(join("backend", themePath!))).toContain(
+      "--keryx-color-primary",
+    );
   });
 });

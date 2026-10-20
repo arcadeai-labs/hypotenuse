@@ -241,7 +241,8 @@ The terminal gets the same palette and the same glyphs, degraded properly:
 - Tables are borderless, with dim column headers and right-aligned numbers. Long values (paths, branch names) are
   truncated in the middle, not the end.
 - One spinner style (nanospinner) for anything longer than 300ms, always on stderr.
-- `hypotenuse` with no arguments, and `--version`, print a one-line banner (`◢ hypotenuse 1.4.0`), not ASCII art.
+- `hypotenuse` with no arguments prints a one-line banner (`◢ hypotenuse 1.4.0`), not ASCII art. `--version`
+  prints the bare version, because scripts and the self-upgrader parse it.
 
 ```
 $ hypotenuse daemon status

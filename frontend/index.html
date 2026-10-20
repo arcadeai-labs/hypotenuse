@@ -3,7 +3,29 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" media="(prefers-color-scheme: light)" />
+    <link rel="icon" type="image/svg+xml" href="/favicon-dark.svg" media="(prefers-color-scheme: dark)" />
     <title>Hypotenuse</title>
+    <!--
+      Pre-paint theme. Runs before the stylesheet applies, so a stored Dark on a
+      light OS never flashes white. ThemeContext owns the same key and logic
+      afterwards; keep the two in step (THEME_STORAGE_KEY).
+    -->
+    <script>
+      (function () {
+        var root = document.documentElement;
+        var query = window.matchMedia("(prefers-color-scheme: dark)");
+        var stored = null;
+        try {
+          stored = localStorage.getItem("hypotenuse.theme");
+        } catch (e) {}
+        function apply() {
+          var pref = stored === "light" || stored === "dark" ? stored : "system";
+          root.dataset.theme = pref === "system" ? (query.matches ? "dark" : "light") : pref;
+        }
+        apply();
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

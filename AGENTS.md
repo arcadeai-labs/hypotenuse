@@ -259,6 +259,10 @@ bun run ngrok                                 # public URL for real Linear webho
 bun run lint                                  # tsc + biome, every workspace
 bun run test                                  # every workspace (not `bun test` at the root)
 
+cd frontend && bun run theme:build            # regenerate tokens, mark, favicons, OAuth theme from design/tokens.ts
+cd frontend && bun run test:e2e               # Playwright; PLAYWRIGHT_CHROMIUM_PATH for a preinstalled browser
+cd frontend && bun run docs:illustrations     # light + dark screenshots (frontend running)
+open http://localhost:3000/style-guide        # every primitive and fixture surface, both themes side by side
 cd backend && bun run test                    # fetches finear, then real server + finear
 cd backend && bun test path/to/file.test.ts   # one file (after a first `bun run finear:fetch`)
 cd cli && bun test                            # CLI + daemon unit tests
@@ -292,6 +296,13 @@ Lessons from building it, kept here so the next session starts with them.
 - **Run every check locally before pushing — Bugbot reviews every push.** Each push to a PR starts a new review,
   and a finding means another round. Lint, the touched suites, and `bun test __tests__/docs` first; one validated push
   beats three speculative ones.
+- **Green is not the same as right for anything a person looks at.** A self-referencing CSS variable sent every page
+  to the browser's serif with lint, unit tests, build, and e2e all passing. Before opening a frontend PR, run
+  `bun run docs:illustrations` (or open `/style-guide`) and look at both themes; then turn what you caught into a
+  test.
+- **Parallel sub-agents get disjoint files.** When a phase splits across forks in one worktree, name each fork's
+  files explicitly, keep shared entry points (`App.tsx`, `package.json`, `app.scss`) with the parent, and let only
+  the parent commit. Each fork checks its own files; the parent runs the whole suite once they land.
 - **Signatures and footers** follow the repository owner's global rules for commits and PR text.
 
 ## Where the detail lives

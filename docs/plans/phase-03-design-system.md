@@ -275,21 +275,78 @@ Manually:
 
 ## Definition of done
 
-- [ ] `design/tokens.ts` generates both themes deterministically; the three generated outputs are committed and
+- [x] `design/tokens.ts` generates both themes deterministically; the three generated outputs are committed and
       checked in CI
-- [ ] Semantic tokens only in components; raw-color and font-size scans pass
-- [ ] Contrast passes for every declared pair in both themes
-- [ ] System / Light / Dark selection with a pre-paint boot script; no flash in e2e
-- [ ] Inter and JetBrains Mono self-hosted; no third-party font requests
-- [ ] Status, presence, role, and agent glyphs; the `◢` mark and favicons in both themes
-- [ ] ToolExec's `ui/*` API preserved (parity test) and restyled; new primitives in place
-- [ ] App shell with sidebar, list and detail layouts, properties panel, command palette, keyboard map, and mobile sheet
-- [ ] Public home, `/docs` frame with theme-aware images, and sign-in/sign-up shells
-- [ ] Keryx OAuth page in both themes from generated CSS
-- [ ] `/style-guide` shows every component and fixture surface in both themes at once
-- [ ] `cli/src/output/theme.ts` shares the tokens and glyphs, with correct color-depth and locale fallbacks
-- [ ] Screenshot pipeline captures light and dark
+- [x] Semantic tokens only in components; raw-color and font-size scans pass
+- [x] Contrast passes for every declared pair in both themes
+- [x] System / Light / Dark selection with a pre-paint boot script; no flash in e2e
+- [x] Inter and JetBrains Mono self-hosted; no third-party font requests
+- [x] Status, presence, role, and agent glyphs; the `◢` mark and favicons in both themes
+- [x] ToolExec's `ui/*` API preserved (parity test) and restyled; new primitives in place
+- [x] App shell with sidebar, list and detail layouts, properties panel, command palette, keyboard map, and mobile sheet
+- [x] Public home, `/docs` frame with theme-aware images, and sign-in/sign-up shells
+- [x] Keryx OAuth page in both themes from generated CSS
+- [x] `/style-guide` shows every component and fixture surface in both themes at once
+- [x] `cli/src/output/theme.ts` shares the tokens and glyphs, with correct color-depth and locale fallbacks
+- [x] Screenshot pipeline captures light and dark
 
 ## Learnings from the build
 
-_Nothing yet — this phase has not been built._
+### What is built
+
+All thirteen Definition of done items. The tokens, the UI kit, the shell, the public frame, the style guide, the CLI
+palette, and the screenshot pipeline are in; the four e2e specs (`theme`, `shell`, `keyboard`, `home`) run in a new
+**E2E Test** job inside the CI gate. They drive the frontend alone (`playwright.config.ts` boots only Vite); specs
+that need the backend add it as a second `webServer` when they arrive.
+
+### The generator, as built
+
+- **Text and state colors are solved against every ground they sit on, and the worst one decides.** Solving only
+  against `--bg-app` failed twice on the first run: in light the app ground is *darker* than the panel, so the accent
+  cleared the panel and missed the ground; in dark the panel is *lighter*, so tertiary text missed the panel.
+  `solveForContrast` takes the list of grounds.
+- **A designed lightness wins whenever it already clears.** A pure "lowest L that passes" search made dark mode's
+  accent and status colors as dim as legality allowed (`#009896` for an input of L 70). The solver takes a `prefer`
+  lightness — the accent's input L, 55/70 for glyphs — and searches only when it fails. `accent-hover` is solved
+  further from the ground than the accent, so it can never lose contrast.
+- **There is no `frontend/scripts/build-theme.ts`.** `theme:build` and `theme:check` run `design/tokens.ts`
+  directly; a wrapper would have been a second place the output list lived.
+- **The generator also writes the mark**: `design/mark.svg`, `frontend/public/favicon{,-dark}.svg`, and
+  `backend/templates/lion.svg`. Keryx resolves the OAuth page's artwork partial by the fixed name `lion.svg`, so
+  that file is our mark under the framework's name; it paints from `currentColor` and `--keryx-color-primary` so it
+  follows that page's `prefers-color-scheme`. There is no `apple-touch-icon.png` — it needs a rasterizer, and an SVG
+  favicon pair covered the Definition of done.
+- `backend/__tests__/oauth/authorize-theme.test.ts` fetches the real authorize page and asserts both themes'
+  generated values appear **after** Keryx's default block, and that our mark replaced the lion.
+
+### Traps found while building
+
+- **Tailwind's `@theme` shares names with our tokens.** `--font-sans: var(--font-sans)` inside `@theme inline` is a
+  self-reference, which computes to nothing: every page rendered in the browser's serif with lint, tests, and build
+  all green. `custom-properties.test.ts` now fails on any custom property defined as itself.
+- **Status tokens are glyph colors, not text colors.** They are solved to about 3:1 against a panel. The UI kit's
+  `success`/`info`/`warning`/`danger` tones map onto them, so toned controls set primary text on a tint of the tone
+  rather than tone-colored text.
+- **The sidebar is mounted in exactly one place**, chosen by a width check: the sticky column when wide, the `Sheet`
+  when narrow. A CSS-hidden second copy duplicates every `nav-*` test id, and Playwright's strict mode fails the
+  moment the sheet opens.
+- **The keymap reads its context through a ref.** Rebuilding the sequence matcher on every render dropped a
+  half-typed `g` whenever something re-rendered between `g` and `s`. `⌘K` is the one key honored while typing.
+- **`ThemedImage` is an `<img>` chosen from the resolved theme, not a `<picture>`.** A `<picture>` media query
+  follows the OS, which disagrees with the app whenever someone picked a theme.
+- **A flag on the command line beats an inherited `FORCE_COLOR`.** mcpx let `FORCE_COLOR=1` from the environment
+  override `--no-color`; the CLI's `early-env` and `detectColorDepth` both put the typed flag first.
+- **`--version` prints the bare version.** `DESIGN.md` said it printed the banner; scripts and the self-upgrader
+  parse it, so the banner is for `hypotenuse` with no arguments, and `DESIGN.md` now says so.
+
+### What the UI-kit port left for later
+
+`SkeletonRows`, `SkeletonBlocks`, `LoadingLabel`, `SectionCard`, and `SectionNav` live in ToolExec's
+`components/`, not `ui/`, so they arrive with the pages that need them. The "kept exactly" row above still binds
+them: `SkeletonRows` emits `<tr>`, `SkeletonBlocks` emits divs. `ui-api-parity.test.ts` holds the frozen list of
+ToolExec's `ui/` exports.
+
+### Running the browser locally
+
+`PLAYWRIGHT_CHROMIUM_PATH` points Playwright (and `docs:illustrations`) at a preinstalled Chromium when the
+installed `@playwright/test` would otherwise download its own; CI installs the matching one.

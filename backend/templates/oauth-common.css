@@ -156,9 +156,9 @@ p {
 }
 .lion {
   margin-top: 24px;
-  opacity: 0.85;
+  color: var(--keryx-color-text);
 }
 .lion svg {
-  width: 56px;
-  height: 53px;
+  width: 32px;
+  height: 32px;
 }
