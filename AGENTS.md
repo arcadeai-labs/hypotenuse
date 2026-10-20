@@ -38,9 +38,12 @@ and that is where to read before changing something load-bearing, and where to w
    envelope alongside the named collection.
 4. **Keryx bugs go upstream.** If you hit a bug in **Keryx itself**, do **not** work around it. File an issue at
    [`actionhero/keryx`](https://github.com/actionhero/keryx/issues) with a minimal repro, then stop and surface it.
-   The one filed so far — Keryx handled a WebSocket connection's frames concurrently, so subscribe and unsubscribe
+   Filed so far: Keryx handled a WebSocket connection's frames concurrently, so subscribe and unsubscribe
    could apply out of order — is [actionhero/keryx#550](https://github.com/actionhero/keryx/issues/550), fixed in
-   Keryx 0.48.1, which is our floor; `project-notifications.test.ts` holds the regression test.
+   Keryx 0.48.1, which is our floor; `project-notifications.test.ts` holds the regression test; and
+   [actionhero/keryx#552](https://github.com/actionhero/keryx/issues/552), open — a malformed or empty JSON body
+   escapes the web server as Bun's own 500 and leaks a `Connection` (the CLI sends a JSON content type only with a
+   body).
 5. **finear gaps go upstream too.** finear is our Linear. When it lacks a behavior real Linear has (a mention in a
    comment starting a session, a structured `promptContext`, guidance, `client_credentials`), file it at
    [`pmdroid/finear`](https://github.com/pmdroid/finear/issues) and drive the behavior through finear's

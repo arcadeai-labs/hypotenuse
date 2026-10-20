@@ -522,9 +522,11 @@ waits on the npm trusted publisher in [`DEPLOY.md`](../DEPLOY.md#first-deploy).
 - **Keryx creates an anonymous Redis session for every cookie-less request**, before any hook runs, and answers
   with its cookie. The principal hook writes the token's `userId` into that session object in memory only;
   `login.test.ts` asserts the stored session never gains one and that its cookie is signed out.
-- **A `Content-Type: application/json` request with an empty body is a 500** (Keryx's body parser throws
-  `JSON Parse error: Unexpected EOF` as `CONNECTION_ACTION_RUN`). The CLI's client sends the header only with a
-  body, which is right regardless; whether the server should answer a 4xx is a question for Keryx, not filed yet.
+- **A `Content-Type: application/json` request whose body is empty or malformed escapes Keryx's web server**:
+  Bun's own 500 page (HTML with source in development), no JSON envelope or CORS headers, and a leaked
+  `Connection` per request; under `bun test` it fails the file. Filed as
+  [actionhero/keryx#552](https://github.com/actionhero/keryx/issues/552). Nothing here works around it — the
+  CLI's client sends the header only with a body, which is right regardless.
 - **Refusal bodies carry a timestamp, and a stack outside production.** "Byte-identical" comparisons drop both.
 - **The frontend type-checks backend files**, so the ops file that reads `config.cliAuth` imports the augmentation
   type-only (`import type {} from "../config/cliAuth"`), as `LinearOps` does for `config.linear`.
