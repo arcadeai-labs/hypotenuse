@@ -510,6 +510,10 @@ waits on the npm trusted publisher in [`DEPLOY.md`](../DEPLOY.md#first-deploy).
 - **Nothing needs embedding yet**, so there is no `cli/assets/`. `skills/hypotenuse.md` ships in the npm package;
   `skill-sync.test.ts` keeps it in step with `--help`. The palette test the plan names is the existing
   `__tests__/output/theme.test.ts`.
+- **A resumed draft is moved to the commit being released.** `create-release` retargets an existing draft to
+  `GITHUB_SHA`, so the tag, notes, and source archive describe the code the binaries are built from; if npm
+  already holds the version (built from the draft's commit), the run fails and asks for a version bump, since no
+  rebuild can match it.
 - **`upgrade` says when the check itself failed.** upgradr reports `hasUpdate: false` alongside an `error`, and
   mcpx printed "already up to date" for it. Until the first npm publish every check fails that way (a 404), so
   `upgrade` and `check-update` say "Could not check for updates" and exit 0. The background notice is also skipped

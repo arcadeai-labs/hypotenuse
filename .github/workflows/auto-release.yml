@@ -78,13 +78,26 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v5
+      # A resumed draft is pointed at this commit, so its notes, source archive,
+      # and tag describe the code the artifacts are built from. Once npm holds
+      # this version, though, it was built from the draft's commit, and nothing
+      # rebuilt here could match it: that needs a new version, not a resume.
       - name: Create the draft (or reuse an unfinished one)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ needs.check-version.outputs.tag }}
+          VERSION: ${{ needs.check-version.outputs.version }}
         run: |
           if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "Resuming the draft release $TAG"
+            TARGET=$(gh release view "$TAG" --json targetCommitish --jq .targetCommitish)
+            if [ "$TARGET" != "$GITHUB_SHA" ]; then
+              if npm view "@arcadeai/hypotenuse@$VERSION" version >/dev/null 2>&1; then
+                echo "::error::@arcadeai/hypotenuse@$VERSION is already on npm from $TARGET; bump the version to release $GITHUB_SHA"
+                exit 1
+              fi
+              gh release edit "$TAG" --target "$GITHUB_SHA"
+            fi
+            echo "Resuming the draft release $TAG at $GITHUB_SHA"
           else
             gh release create "$TAG" --draft --title "$TAG" --generate-notes --target "$GITHUB_SHA"
           fi

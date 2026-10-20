@@ -140,6 +140,17 @@ describe("auto-release.yml", () => {
     expect(script).toContain('gh release view "$TAG"');
   });
 
+  test("a resumed draft is moved to this commit, unless npm already holds the version", () => {
+    const script = scriptOf("create-release");
+    expect(script).toContain('gh release edit "$TAG" --target "$GITHUB_SHA"');
+    // The refusal comes before the retarget: npm's copy cannot be rebuilt.
+    const refuse = script.indexOf('npm view "@arcadeai/hypotenuse@$VERSION"');
+    const retarget = script.indexOf("gh release edit");
+    expect(refuse).toBeGreaterThan(-1);
+    expect(refuse).toBeLessThan(retarget);
+    expect(script.slice(refuse, retarget)).toContain("exit 1");
+  });
+
   test("both publish jobs run against the draft, after it exists", () => {
     for (const name of ["publish-npm", "build-binaries"]) {
       expect(ancestorsOf(name).has("create-release"), name).toBe(true);
