@@ -3,6 +3,7 @@
   "version": "0.0.1",
   "description": "Hypotenuse — coding agents on your machines, answering Linear agent sessions",
   "private": true,
+  "license": "Apache-2.0",
   "type": "module",
   "workspaces": ["backend", "frontend", "cli", "protocol"],
   "trustedDependencies": ["esbuild"],

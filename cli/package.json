@@ -3,14 +3,15 @@
   "version": "0.1.0",
   "description": "Hypotenuse \u2014 run coding agents on your machine for Linear agent sessions",
   "type": "module",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "bin": {
     "hypotenuse": "./dist/hypotenuse.js"
   },
   "files": [
     "dist/hypotenuse.js",
     "skills",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "repository": {
     "type": "git",

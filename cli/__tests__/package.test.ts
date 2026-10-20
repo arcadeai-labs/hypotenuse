@@ -33,11 +33,19 @@ describe("the npm package", () => {
     expect(paths).toContain("dist/hypotenuse.js");
     expect(paths).toContain("skills/hypotenuse.md");
     expect(paths).toContain("README.md");
+    expect(paths).toContain("LICENSE");
     expect(paths).toContain("package.json");
     expect(paths.filter((p) => p.startsWith("src/"))).toEqual([]);
     expect(paths.filter((p) => p.includes("__tests__"))).toEqual([]);
     // The compiled binary is a release asset, never part of the npm package.
     expect(paths).not.toContain("dist/hypotenuse");
+  });
+
+  test("ships the repository's license, unchanged", () => {
+    const root = readFileSync(join(CLI_DIR, "..", "LICENSE"), "utf8");
+    expect(readFileSync(join(CLI_DIR, "LICENSE"), "utf8")).toBe(root);
+    expect(root).toContain("Apache License");
+    expect((pkg as { license?: string }).license).toBe("Apache-2.0");
   });
 
   test("bin points at the bundle, and package.json names no workspace package", () => {

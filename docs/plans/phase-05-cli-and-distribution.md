@@ -504,8 +504,9 @@ waits on the npm trusted publisher in [`DEPLOY.md`](../DEPLOY.md#first-deploy).
 - **"`hyp_cli_` in `SENSITIVE_KEYS`"** was a category error: the list holds param keys, not value prefixes, and the
   token is never a param — it exists only in the exchange's response, which is not audited. `deviceCode` was added;
   `code`, `codeVerifier`, and `token` were already there.
-- **No `LICENSE` ships.** `cli/package.json` says MIT, as the other workspaces do, but the repository has no
-  license file; adding one is the owner's decision, so `files` does not name it.
+- **The license is Apache-2.0**, chosen by the owner while this phase was in review: `LICENSE` at the root, and
+  `cli/LICENSE` — a copy, because npm packs only files inside the package directory — which `package.test.ts`
+  asserts is byte-identical and shipped.
 - **Nothing needs embedding yet**, so there is no `cli/assets/`. `skills/hypotenuse.md` ships in the npm package;
   `skill-sync.test.ts` keeps it in step with `--help`. The palette test the plan names is the existing
   `__tests__/output/theme.test.ts`.
