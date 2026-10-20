@@ -202,7 +202,7 @@ activity that implies it.
 
 ## The daemon
 
-**One process per machine**, enforced by a fixed-path lock and by the server refusing a second online runner
+**One process per machine**, enforced by a fixed-path lock and by the server refusing a second live (online or draining) runner
 with the same machine id. `hypotenuse daemon start` (or a launchd / systemd user service installed by
 `hypotenuse service install`). It holds no state the server cannot rebuild except the worktrees themselves:
 

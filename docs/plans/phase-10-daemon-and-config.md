@@ -249,10 +249,18 @@ the daemon being started.
 - The pidfile is JSON, `{ pid, socketPath, startedAt }`, written with `O_EXCL`. **`socketPath` is the running
   daemon's own control socket**, wherever its state directory put it. Liveness always uses that recorded path,
   never the starting daemon's own path.
-- If the recorded pid is a live process **and** the recorded `socketPath` answers `status`, the daemon is already
-  running: exit 1 with its pid and config path.
-- Only if both checks fail is the lock stale: remove the pidfile and the recorded socket, then retake the lock with
-  `O_EXCL`. Two starts racing on a stale lock cannot both win.
+Every combination of the two checks has exactly one outcome:
+
+| Recorded pid | Recorded socket | Outcome |
+|---|---|---|
+| not running | — | **stale**: remove the pidfile and the recorded socket, retake the lock with `O_EXCL` |
+| running, and its command line is not a `hypotenuse daemon` | — | **stale** (the pid was reused after a crash or reboot) |
+| running `hypotenuse daemon` | answers `status` | **running**: exit 1 with its pid and config path |
+| running `hypotenuse daemon` | silent, pidfile younger than 30 s | **starting**: exit 1, "another daemon is starting (pid N)" — the window between `O_EXCL` and binding the socket |
+| running `hypotenuse daemon` | silent, pidfile 30 s or older | **hung**: exit 1, "daemon pid N is not responding; `hypotenuse daemon stop --force`" — never reclaimed, because reclaiming would make two daemons |
+
+Retaking a stale lock is itself `O_EXCL`, so two starts racing on one stale lock cannot both win. The command-line
+check reads `/proc/<pid>/cmdline` on Linux and `ps -o args= -p <pid>` on macOS.
 
 Both checks are needed: a pid can be reused by an unrelated process after a reboot, and a socket file can
 outlive its process. Checking the *recorded* socket is what lets a second start with a different `-c` or
