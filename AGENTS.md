@@ -300,6 +300,12 @@ Lessons from building it, kept here so the next session starts with them.
   to the browser's serif with lint, unit tests, build, and e2e all passing. Before opening a frontend PR, run
   `bun run docs:illustrations` (or open `/style-guide`) and look at both themes; then turn what you caught into a
   test.
+- **A flag read before the parser is still a flag the parser must accept.** The CLI's `early-env` honored
+  `--force-color`, but commander had never been told about it and rejected the command. Anything read from `argv`
+  outside commander is declared on the program too, and a test spawns the real CLI with it.
+- **A directory a build reads ships in its image and triggers its rebuild.** The frontend image never copied
+  `design/` once the e2e specs imported it. `render-blueprint.test.ts` now asserts every directory a Dockerfile
+  copies is in that service's `buildFilter`; a new top-level directory a build needs goes in both.
 - **Parallel sub-agents get disjoint files.** When a phase splits across forks in one worktree, name each fork's
   files explicitly, keep shared entry points (`App.tsx`, `package.json`, `app.scss`) with the parent, and let only
   the parent commit. Each fork checks its own files; the parent runs the whole suite once they land.
