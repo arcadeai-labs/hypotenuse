@@ -153,8 +153,9 @@ To list Hypotenuse publicly later, submit it to Linear's integration directory a
 1. **Merge to `main`** once **CI Complete** is green.
 2. **Create the Blueprint**: Render dashboard → *New* → *Blueprint* → this repository. Apply all five resources
    and the `hypotenuse-shared` group.
-3. **Choose the domain.** Attach `api.<domain>` and `www.<domain>` (and the apex, for redirect only). Write the
-   concrete hostnames into `render.yaml` and `render-blueprint.test.ts` in one PR.
+3. **Choose the domain.** Attach `api.<domain>` and `www.<domain>` (and the apex, for redirect only). The committed
+   `render.yaml` uses the placeholder `hypotenuse.dev`; replace every occurrence with the real domain in one PR
+   (`render-blueprint.test.ts` derives its expectations from the file, so it needs no edit).
 4. **Create the Linear OAuth app** (above) and add its three secrets to `hypotenuse-shared`.
 5. **npm trusted publisher** (one-time, for the CLI): on npmjs.com, add a trusted publisher for
    `@arcadeai/hypotenuse` pointing at `arcadeai-labs/hypotenuse` and `.github/workflows/auto-release.yml`.

@@ -1,0 +1,233 @@
+# Hypotenuse — Render blueprint. One file, one STAGING environment.
+#
+#   hypotenuse-api        type: web       backend/Dockerfile    HTTP + MCP + Linear webhooks + runner sockets.
+#                         api.hypotenuse.dev                    No tasks, no migrations.
+#   hypotenuse-worker     type: worker    backend/Dockerfile    Tasks + migrations. No HTTP.
+#   hypotenuse-frontend   type: web       frontend/Dockerfile   nginx serving the Vite build.
+#                         www.hypotenuse.dev, and the apex redirecting to it
+#   hypotenuse-redis      type: keyvalue                        Sessions, queues, pub/sub, Linear token bucket.
+#   hypotenuse-db         postgres 18                           Everything else.
+#
+# Web and worker run the SAME image and differ only by environment. The worker
+# owns migrations (`DATABASE_AUTO_MIGRATE=true`) so the web service can never race
+# a schema change.
+#
+# The domain is a placeholder until the first deploy picks the real one; change it
+# here, in render-blueprint.test.ts, and in docs/DEPLOY.md in the same commit.
+# Linear's app settings hold the webhook and callback URLs derived from the API
+# origin, so moving it also means editing the Linear app (docs/DEPLOY.md).
+
+services:
+  # ---------------------------------------------------------------------------
+  # Backend — HTTP, MCP, Linear webhook ingress, runner WebSockets
+  # ---------------------------------------------------------------------------
+  - type: web
+    name: hypotenuse-api
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    # backend/Dockerfile COPYs the root `bun.lock`, so the build context is the
+    # repo root, not backend/.
+    dockerContext: .
+    # 1 CPU / 2 GB, as a spec-based id. Never a marketing name: Render's
+    # validator accepts `starter plus` and then silently creates nothing.
+    plan: 1c-2g
+    region: oregon
+    branch: main
+    autoDeploy: true
+    healthCheckPath: /api/status
+    domains:
+      - api.hypotenuse.dev
+    buildFilter:
+      paths:
+        - backend/**
+        - protocol/**
+        - bun.lock
+        - package.json
+    envVars:
+      # Everything that must be byte-identical across web and worker, including
+      # SECRETS_ENCRYPTION_KEY and the dashboard-only LINEAR_* and SMTP_* keys.
+      - fromGroup: hypotenuse-shared
+      - key: DATABASE_URL
+        fromDatabase:
+          name: hypotenuse-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          name: hypotenuse-redis
+          type: keyvalue
+          property: connectionString
+      - key: PROCESS_NAME
+        value: "hypotenuse-api"
+      - key: OTEL_SERVICE_NAME
+        value: "hypotenuse-api"
+      - key: WEB_SERVER_HOST
+        value: "0.0.0.0"
+      - key: WEB_SERVER_PORT
+        value: "10000"
+      - key: WEB_SERVER_API_ROUTE
+        value: "/api"
+      # The frontend's public origin, and only it — a mismatch fails CORS.
+      - key: WEB_SERVER_ALLOWED_ORIGINS
+        value: "https://www.hypotenuse.dev"
+      # Our own public origin: the OAuth/MCP issuer, the base of the Linear
+      # webhook and callback URLs, and of every dashboard link written into Linear.
+      - key: APPLICATION_URL
+        value: "https://api.hypotenuse.dev"
+      # Cross-origin frontend: SameSite=None, which browsers only honour with Secure.
+      - key: SESSION_COOKIE_SECURE
+        value: "true"
+      - key: SESSION_COOKIE_SAME_SITE
+        value: "None"
+      - key: MCP_SERVER_ENABLED
+        value: "true"
+      # Behind Render's proxy, without this the OAuth issuer resolves to the
+      # internal origin.
+      - key: MCP_OAUTH_TRUST_PROXY
+        value: "true"
+      # The worker migrates and runs tasks. The web service must do neither: a web
+      # process running tasks competes with webhook ingress for its event loop,
+      # and Linear gives a webhook 5 seconds.
+      - key: DATABASE_AUTO_MIGRATE
+        value: "false"
+      - key: TASKS_ENABLED
+        value: "false"
+      - key: TASK_PROCESSORS
+        value: "0"
+
+  # ---------------------------------------------------------------------------
+  # Backend — tasks + migrations (same image as hypotenuse-api)
+  # ---------------------------------------------------------------------------
+  - type: worker
+    name: hypotenuse-worker
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: .
+    plan: 1c-2g
+    region: oregon
+    branch: main
+    autoDeploy: true
+    buildFilter:
+      paths:
+        - backend/**
+        - protocol/**
+        - bun.lock
+        - package.json
+    envVars:
+      - fromGroup: hypotenuse-shared
+      - key: DATABASE_URL
+        fromDatabase:
+          name: hypotenuse-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          name: hypotenuse-redis
+          type: keyvalue
+          property: connectionString
+      - key: PROCESS_NAME
+        value: "hypotenuse-worker"
+      - key: OTEL_SERVICE_NAME
+        value: "hypotenuse-worker"
+      - key: WEB_SERVER_ENABLED
+        value: "false"
+      # The worker writes the API's origin into Linear (externalUrls, links), and
+      # the framework default is localhost.
+      - key: APPLICATION_URL
+        value: "https://api.hypotenuse.dev"
+      # This service, and only this service, owns the schema.
+      - key: DATABASE_AUTO_MIGRATE
+        value: "true"
+      - key: TASKS_ENABLED
+        value: "true"
+      - key: TASK_PROCESSORS
+        value: "1"
+
+  # ---------------------------------------------------------------------------
+  # Frontend — static bundle behind nginx
+  # ---------------------------------------------------------------------------
+  - type: web
+    name: hypotenuse-frontend
+    runtime: docker
+    dockerfilePath: ./frontend/Dockerfile
+    dockerContext: .
+    plan: starter
+    region: oregon
+    branch: main
+    autoDeploy: true
+    healthCheckPath: /
+    # The apex is attached only so Render redirects it to www; no env var names it.
+    domains:
+      - www.hypotenuse.dev
+      - hypotenuse.dev
+    buildFilter:
+      paths:
+        - frontend/**
+        # `tsc -b` resolves action response types through `@backend/*`, so a
+        # backend or protocol change can break — or fix — the frontend build.
+        - backend/**
+        - protocol/**
+        - bun.lock
+        - package.json
+    envVars:
+      # Inlined at BUILD time; Render passes service env vars as build args.
+      - key: VITE_API_URL
+        value: "https://api.hypotenuse.dev"
+
+  # ---------------------------------------------------------------------------
+  # Redis
+  # ---------------------------------------------------------------------------
+  - type: keyvalue
+    name: hypotenuse-redis
+    plan: starter
+    region: oregon
+    ipAllowList: []
+    # Queues, sessions, pub/sub, and the Linear token bucket live here. An
+    # evicted queue key is a lost webhook; an evicted bucket key is a burst into
+    # Linear's rate limit. Refuse writes instead.
+    maxmemoryPolicy: noeviction
+
+# -----------------------------------------------------------------------------
+# Env vars that must be identical on web and worker
+# -----------------------------------------------------------------------------
+envVarGroups:
+  - name: hypotenuse-shared
+    envVars:
+      - key: NODE_ENV
+        value: "production"
+      - key: LOG_LEVEL
+        value: "info"
+      - key: LOG_FORMAT
+        value: "json"
+      - key: LOG_INCLUDE_TIMESTAMPS
+        value: "true"
+      # Render's log viewer shows ANSI escapes literally.
+      - key: LOG_COLORIZE
+        value: "false"
+
+      # AES-256-GCM key for every Linear token this deployment holds. Declared
+      # once, here: `generateValue: true` on two services mints two different
+      # keys, and the worker could not decrypt what the API's OAuth callback wrote.
+      - key: SECRETS_ENCRYPTION_KEY
+        generateValue: true
+
+      # The frontend's public origin — the base of every link in an email and
+      # every dashboard link. The worker sends mail, so it lives in the group.
+      - key: FRONTEND_URL
+        value: "https://www.hypotenuse.dev"
+
+      # Set ONCE on this group in the Render dashboard, never in this file —
+      # Render ignores `sync: false` inside an envVarGroup, and ignores it on a
+      # service during Blueprint updates. Keys a sync does not mention are
+      # preserved, and both backend services pull this group:
+      #
+      #   LINEAR_CLIENT_ID, LINEAR_CLIENT_SECRET, LINEAR_WEBHOOK_SECRET
+      #   SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD, SMTP_FROM
+      #
+      # LINEAR_API_URL / LINEAR_OAUTH_URL are not set in production; they default
+      # to Linear and exist so tests can point at finear.
+
+databases:
+  - name: hypotenuse-db
+    plan: basic-256mb
+    region: oregon
+    postgresMajorVersion: "18"
+    ipAllowList: []

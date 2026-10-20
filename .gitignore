@@ -40,4 +40,4 @@ dump.rdb
 *.sqlite
 
 # finear, fetched at a pinned commit by backend/scripts/fetch-finear.ts
-backend/.finear/
+backend/.finear
