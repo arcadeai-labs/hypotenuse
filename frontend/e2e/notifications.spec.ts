@@ -105,12 +105,43 @@ test.describe("notifications", () => {
   test("desktop permission is only ever asked for from a click", async ({
     page,
   }) => {
+    // Headless Chromium's starting permission differs between builds ("denied"
+    // in CI, "default" locally), so the browser's own answer proves nothing.
+    // A stand-in that starts at "default" and counts every ask does: the
+    // property is that loading the app never calls `requestPermission`.
+    await page.addInitScript(() => {
+      const calls = { count: 0 };
+      (
+        window as unknown as { __permissionAsks: typeof calls }
+      ).__permissionAsks = calls;
+      class StandInNotification {
+        static permission: NotificationPermission = "default";
+        static async requestPermission(): Promise<NotificationPermission> {
+          calls.count++;
+          return StandInNotification.permission;
+        }
+      }
+      Object.defineProperty(window, "Notification", {
+        value: StandInNotification,
+        configurable: true,
+      });
+    });
+    const asks = () =>
+      page.evaluate(
+        () =>
+          (window as unknown as { __permissionAsks: { count: number } })
+            .__permissionAsks.count,
+      );
+
     await signUp(page, "Permission Pat");
-    // Nothing on load asked: the browser still says "default".
-    expect(await page.evaluate(() => window.Notification.permission)).toBe(
-      "default",
-    );
+    expect(await asks()).toBe(0);
+
     await page.getByTestId("notification-bell-toggle").click();
     await expect(page.getByTestId("notification-enable-desktop")).toBeVisible();
+    // Opening the bell is not consent either.
+    expect(await asks()).toBe(0);
+
+    await page.getByTestId("notification-enable-desktop").click();
+    await expect.poll(asks).toBe(1);
   });
 });

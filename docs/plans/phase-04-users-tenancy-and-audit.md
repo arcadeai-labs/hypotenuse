@@ -331,6 +331,13 @@ out of scope here and arrive with the CLI itself (rule 13's decision, recorded).
 - **The e2e backend works its own queues** (`TASK_PROCESSORS_TEST=1`, a one-second dispatch tick) — the opposite of
   `bun test`, which drives jobs in-process. The notifications spec inserts a pending row, since no feature raises one
   yet, and waits for the real clock and socket to deliver it.
+- **Headless Chromium's starting notification permission differs by build** — `"denied"` on CI's, `"default"` on
+  a preinstalled one — so the permission spec installs a stand-in `Notification` and counts `requestPermission`
+  calls instead of reading the browser's answer.
+- **A stopped backend leaves node-resque's scheduler leader lock in Redis** until it expires (about a minute), and a
+  backend booted before then never becomes leader, so no clock ticks. Locally that shows up as the live
+  notification spec timing out when Playwright follows a backend suite or another e2e run too closely; CI's Redis
+  is fresh. Wait for `resque:resque_scheduler_leader_lock` to expire, or give the e2e stack its own Redis index.
 - **`bun test` and Playwright share the test database**, and every backend file opens with `clearDatabase()`. Run
   one at a time per checkout, or give one of them its own database.
 - **Two bugs came over with the port, and review caught both.** `invite:reject` never checked that the invite
