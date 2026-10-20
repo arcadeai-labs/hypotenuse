@@ -67,6 +67,15 @@ export function PublicShell() {
       <footer className="public-footer">
         <span>
           <Mark size={12} label={null} /> Hypotenuse
+          <span aria-hidden="true">·</span>
+          <a
+            href="https://github.com/arcadeai-labs/hypotenuse"
+            target="_blank"
+            rel="noreferrer noopener"
+            data-testid="public-footer-attribution"
+          >
+            an arcade-labs project
+          </a>
         </span>
         <nav aria-label="Footer">
           <Link to="/docs">Docs</Link>

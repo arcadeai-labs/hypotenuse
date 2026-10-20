@@ -14,6 +14,18 @@ for (const scheme of ["light", "dark"] as const) {
   });
 }
 
+test("the footer credits arcade-labs with a link to the repository", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const attribution = page.getByTestId("public-footer-attribution");
+  await expect(attribution).toHaveText("an arcade-labs project");
+  await expect(attribution).toHaveAttribute(
+    "href",
+    "https://github.com/arcadeai-labs/hypotenuse",
+  );
+});
+
 test("a copy button copies its command", async ({ page, context }) => {
   await context.grantPermissions(["clipboard-read", "clipboard-write"]);
   await page.goto("/");
