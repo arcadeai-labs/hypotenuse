@@ -448,6 +448,13 @@ does not help — `exclude` only stops files from being roots, not from being re
 - **node-postgres needs a user.** With `postgres://localhost/…` it takes the role from `$USER`; in a container where
   `$USER` is unset it fails with "no PostgreSQL user name specified". `.env.example` stays user-less (right on a
   laptop), and `AGENTS.md` says to put the user in a local `.env` when needed.
+- **A test-only override needs a `_TEST` key in `.env.example`.** `loadFromEnvIfSet` reads `X_TEST`, then `X`, and only
+  then the config's own default — so a bare `TASK_PROCESSORS=1` in the example file beat the config's
+  `NODE_ENV=test ? 0 : 1` and started a Resque worker under `bun test` in CI. `TASK_PROCESSORS_TEST=0` is set, and
+  `__tests__/config/tasks.test.ts` asserts it.
+- **Ported scripts get the same review as new code.** Both workspace-script bugs Bugbot found (Redis not returning
+  to the shared index on `--shared`; a URL with a query string compounding its suffix) were in ToolExec's
+  `setup-workspace.ts` as copied. `__tests__/scripts/workspace.test.ts` now covers both.
 - **The plan-count guard** in `links.test.ts` was ToolExec's `> 20`; Hypotenuse has 17 phases, so it is `> 15`.
 - **Playwright and the UI kit are not here.** The plan listed `playwright.config.ts` among the copied frontend
   configs, but with no browser-visible feature there is nothing for it to run; it arrives with the first e2e spec.

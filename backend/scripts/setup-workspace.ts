@@ -34,6 +34,7 @@ import { dirname, join, resolve } from "node:path";
 import {
   scopedDatabaseUrl,
   scopedRedisUrl,
+  unscopedDatabaseUrl,
   unscopedRedisUrl,
   workspacePorts,
   workspaceSlug,
@@ -177,9 +178,7 @@ if (shared) {
 
 // Re-running must be a no-op and re-naming must not compound, so the *previous*
 // suffix comes off before this one goes on.
-const unscopedTestUrl = pinned
-  ? testUrlBase.replace(new RegExp(`_${pinned}$`), "")
-  : testUrlBase;
+const unscopedTestUrl = unscopedDatabaseUrl(testUrlBase, pinned);
 
 const testUrl = scopedDatabaseUrl(unscopedTestUrl, slug);
 // Redis too: a hashed index says nothing about its slug, so a previous pin is

@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import {
   SHARED_REDIS_TEST_DATABASE,
+  scopedDatabaseUrl,
   scopedRedisUrl,
+  unscopedDatabaseUrl,
   unscopedRedisUrl,
 } from "../../scripts/workspace";
 
@@ -28,5 +30,33 @@ describe("workspace Redis scoping", () => {
   test("an unpinned URL is left alone", () => {
     const custom = "redis://cache.internal:6380/7";
     expect(unscopedRedisUrl(custom, false)).toBe(custom);
+  });
+});
+
+describe("workspace database scoping", () => {
+  const base = "postgres://localhost:5432/hypotenuse_test";
+
+  test("a query string does not hide the previous suffix", () => {
+    const withQuery = `${base}?sslmode=require`;
+    const scoped = scopedDatabaseUrl(withQuery, "foo");
+    const rescoped = scopedDatabaseUrl(
+      unscopedDatabaseUrl(scoped, "foo"),
+      "bar",
+    );
+    expect(rescoped).toBe(scopedDatabaseUrl(withQuery, "bar"));
+    expect(rescoped).not.toContain("foo");
+    expect(rescoped).toContain("sslmode=require");
+  });
+
+  test("re-running with the same pin is a no-op", () => {
+    const scoped = scopedDatabaseUrl(base, "foo");
+    expect(scopedDatabaseUrl(unscopedDatabaseUrl(scoped, "foo"), "foo")).toBe(
+      scoped,
+    );
+  });
+
+  test("an unpinned URL is left alone", () => {
+    expect(unscopedDatabaseUrl(base, undefined)).toBe(base);
+    expect(unscopedDatabaseUrl(base, "")).toBe(base);
   });
 });

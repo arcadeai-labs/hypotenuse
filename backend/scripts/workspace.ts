@@ -143,6 +143,27 @@ export function scopedDatabaseUrl(
 }
 
 /**
+ * Undo {@link scopedDatabaseUrl}: strip a previous workspace's suffix from the
+ * database name. Works on the parsed pathname, so a query string (`?sslmode=…`)
+ * after the name does not hide the suffix and let the next run compound it.
+ * @param connectionString - The configured URL, possibly already scoped.
+ * @param previousSlug - The slug a previous run pinned; `""` or undefined leaves the URL alone.
+ * @returns The URL with that suffix removed from the database name.
+ */
+export function unscopedDatabaseUrl(
+  connectionString: string,
+  previousSlug: string | undefined,
+): string {
+  if (!previousSlug) return connectionString;
+  const url = new URL(connectionString);
+  const name = url.pathname.replace(/^\//, "");
+  const suffix = `_${previousSlug}`;
+  if (!name.endsWith(suffix)) return connectionString;
+  url.pathname = `/${name.slice(0, -suffix.length)}`;
+  return url.toString();
+}
+
+/**
  * Give a workspace its own Redis database.
  *
  * A suffix is not an option here the way it is for Postgres: keryx hardcodes the
