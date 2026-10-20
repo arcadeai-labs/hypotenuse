@@ -63,7 +63,7 @@ A minimal config:
 
 ```toml
 [server]
-url = "https://api.hypotenuse.dev"
+url = "https://api.hypotenuse.cloud"
 project = "acme"
 
 [runner]

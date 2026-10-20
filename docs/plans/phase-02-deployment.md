@@ -227,12 +227,14 @@ the Render Blueprint, attaching DNS, and adding the dashboard-only secrets need 
 session does not have. `docs/DEPLOY.md` is the checklist for whoever does it first, and the unticked Definition of done
 item above is that step.
 
-### The domain is a placeholder
+### The domain
 
-`render.yaml` names `hypotenuse.dev`, the domain the rest of the docs already use in examples. The blueprint test
-does **not** hard-code it: it derives the expected hosts from `APPLICATION_URL` and `WEB_SERVER_ALLOWED_ORIGINS` and
-checks each is attached as a `domains:` entry on the service that answers it. Choosing the real domain is therefore a
-find-and-replace in `render.yaml` alone.
+The project owns `hypotenuse.cloud`: `www.hypotenuse.cloud` is the frontend, `api.hypotenuse.cloud` the backend, and
+the apex is attached only so Render redirects it to `www`. The blueprint test does **not** hard-code the domain: it
+derives the expected hosts from `APPLICATION_URL` and `WEB_SERVER_ALLOWED_ORIGINS` and checks each is attached as a
+`domains:` entry on the service that answers it, so a future domain change is an edit to `render.yaml` alone. The
+example URLs across the docs (`api.hypotenuse.cloud` in configs, `www.hypotenuse.cloud` for dashboard links and the
+config JSON Schema) use the same two hosts.
 
 ### Decisions that differ from the plan's table
 

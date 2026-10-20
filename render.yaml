@@ -1,10 +1,10 @@
 # Hypotenuse — Render blueprint. One file, one STAGING environment.
 #
 #   hypotenuse-api        type: web       backend/Dockerfile    HTTP + MCP + Linear webhooks + runner sockets.
-#                         api.hypotenuse.dev                    No tasks, no migrations.
+#                         api.hypotenuse.cloud                    No tasks, no migrations.
 #   hypotenuse-worker     type: worker    backend/Dockerfile    Tasks + migrations. No HTTP.
 #   hypotenuse-frontend   type: web       frontend/Dockerfile   nginx serving the Vite build.
-#                         www.hypotenuse.dev, and the apex redirecting to it
+#                         www.hypotenuse.cloud, and the apex redirecting to it
 #   hypotenuse-redis      type: keyvalue                        Sessions, queues, pub/sub, Linear token bucket.
 #   hypotenuse-db         postgres 18                           Everything else.
 #
@@ -12,9 +12,9 @@
 # owns migrations (`DATABASE_AUTO_MIGRATE=true`) so the web service can never race
 # a schema change.
 #
-# The domain is a placeholder until the first deploy picks the real one; change it
-# here, in render-blueprint.test.ts, and in docs/DEPLOY.md in the same commit.
-# Linear's app settings hold the webhook and callback URLs derived from the API
+# The project owns hypotenuse.cloud: www.* is the frontend, api.* is the backend, and
+# the apex only redirects to www. render-blueprint.test.ts derives its expectations
+# from this file. Linear's app settings hold the webhook and callback URLs derived from the API
 # origin, so moving it also means editing the Linear app (docs/DEPLOY.md).
 
 services:
@@ -36,7 +36,7 @@ services:
     autoDeploy: true
     healthCheckPath: /api/status
     domains:
-      - api.hypotenuse.dev
+      - api.hypotenuse.cloud
     buildFilter:
       paths:
         - backend/**
@@ -68,11 +68,11 @@ services:
         value: "/api"
       # The frontend's public origin, and only it — a mismatch fails CORS.
       - key: WEB_SERVER_ALLOWED_ORIGINS
-        value: "https://www.hypotenuse.dev"
+        value: "https://www.hypotenuse.cloud"
       # Our own public origin: the OAuth/MCP issuer, the base of the Linear
       # webhook and callback URLs, and of every dashboard link written into Linear.
       - key: APPLICATION_URL
-        value: "https://api.hypotenuse.dev"
+        value: "https://api.hypotenuse.cloud"
       # Cross-origin frontend: SameSite=None, which browsers only honour with Secure.
       - key: SESSION_COOKIE_SECURE
         value: "true"
@@ -132,7 +132,7 @@ services:
       # The worker writes the API's origin into Linear (externalUrls, links), and
       # the framework default is localhost.
       - key: APPLICATION_URL
-        value: "https://api.hypotenuse.dev"
+        value: "https://api.hypotenuse.cloud"
       # This service, and only this service, owns the schema.
       - key: DATABASE_AUTO_MIGRATE
         value: "true"
@@ -156,8 +156,8 @@ services:
     healthCheckPath: /
     # The apex is attached only so Render redirects it to www; no env var names it.
     domains:
-      - www.hypotenuse.dev
-      - hypotenuse.dev
+      - www.hypotenuse.cloud
+      - hypotenuse.cloud
     buildFilter:
       paths:
         - frontend/**
@@ -170,7 +170,7 @@ services:
     envVars:
       # Inlined at BUILD time; Render passes service env vars as build args.
       - key: VITE_API_URL
-        value: "https://api.hypotenuse.dev"
+        value: "https://api.hypotenuse.cloud"
 
   # ---------------------------------------------------------------------------
   # Redis
@@ -212,7 +212,7 @@ envVarGroups:
       # The frontend's public origin — the base of every link in an email and
       # every dashboard link. The worker sends mail, so it lives in the group.
       - key: FRONTEND_URL
-        value: "https://www.hypotenuse.dev"
+        value: "https://www.hypotenuse.cloud"
 
       # Set ONCE on this group in the Render dashboard, never in this file —
       # Render ignores `sync: false` inside an envVarGroup, and ignores it on a

@@ -129,7 +129,7 @@ Response: `{ "assignment": WorkAssignment | null }`.
     "agentSessionId": 92,
     "linearSessionId": "f6c1…",
     "linearSessionUrl": "https://linear.app/acme/issue/ENG-123#agent-session-f6c1",
-    "dashboardUrl": "https://app.hypotenuse.dev/sessions/92",
+    "dashboardUrl": "https://www.hypotenuse.cloud/sessions/92",
     "kind": "session_created",
     "role": "worker",
     "fresh": true,
