@@ -34,6 +34,7 @@ import { dirname, join, resolve } from "node:path";
 import {
   scopedDatabaseUrl,
   scopedRedisUrl,
+  unscopedRedisUrl,
   workspacePorts,
   workspaceSlug,
 } from "./workspace";
@@ -181,7 +182,12 @@ const unscopedTestUrl = pinned
   : testUrlBase;
 
 const testUrl = scopedDatabaseUrl(unscopedTestUrl, slug);
-const redisUrl = scopedRedisUrl(redisBase, slug);
+// Redis too: a hashed index says nothing about its slug, so a previous pin is
+// what tells us to return to the shared index before (re)scoping.
+const redisUrl = scopedRedisUrl(
+  unscopedRedisUrl(redisBase, Boolean(pinned)),
+  slug,
+);
 const ports = workspacePorts(slug);
 
 console.log(

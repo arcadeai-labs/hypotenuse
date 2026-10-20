@@ -164,6 +164,27 @@ export function scopedRedisUrl(connectionString: string, slug: string): string {
   return url.toString();
 }
 
+/** The Redis index every unscoped checkout's tests share. */
+export const SHARED_REDIS_TEST_DATABASE = 1;
+
+/**
+ * Undo {@link scopedRedisUrl}: point a URL that a previous workspace id scoped
+ * back at the shared test index. A hashed index carries no record of the slug
+ * that produced it, so the caller says whether one was applied.
+ * @param connectionString - The configured URL, possibly already scoped.
+ * @param wasScoped - Whether a previous run pinned a workspace id.
+ * @returns The URL on the shared test index when it was scoped; unchanged otherwise.
+ */
+export function unscopedRedisUrl(
+  connectionString: string,
+  wasScoped: boolean,
+): string {
+  if (!wasScoped) return connectionString;
+  const url = new URL(connectionString);
+  url.pathname = `/${SHARED_REDIS_TEST_DATABASE}`;
+  return url.toString();
+}
+
 /**
  * The ports this workspace's e2e stack should bind.
  *
