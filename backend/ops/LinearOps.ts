@@ -496,6 +496,7 @@ export function serializeLinearInstallation(row: LinearInstallation) {
     status: row.status,
     accessTokenLastFour: row.accessTokenLastFour,
     accessTokenExpiresAt: row.accessTokenExpiresAt?.getTime() ?? null,
+    connectedAt: row.connectedAt.getTime(),
     lastRefreshedAt: row.lastRefreshedAt?.getTime() ?? null,
     refreshFailedAt: row.refreshFailedAt?.getTime() ?? null,
     refreshError: row.refreshError,

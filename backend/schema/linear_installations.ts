@@ -99,6 +99,14 @@ export const linearInstallations = pgTable(
     accessTokenExpiresAt: timestamp("access_token_expires_at", {
       withTimezone: true,
     }),
+    /**
+     * When an admin last completed the install for this row (first connect or
+     * reconnect). Only the callback writes it, so a client waiting on a connect
+     * can tell its own approval from a token refresh or a rate-limit write.
+     */
+    connectedAt: timestamp("connected_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
     lastRefreshedAt: timestamp("last_refreshed_at", { withTimezone: true }),
     refreshFailedAt: timestamp("refresh_failed_at", { withTimezone: true }),
     refreshError: text("refresh_error"),

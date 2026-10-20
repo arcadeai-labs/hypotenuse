@@ -25,6 +25,8 @@ export interface LinearInstallation {
   status: "active" | "revoked" | "error";
   accessTokenLastFour: string;
   accessTokenExpiresAt: number | null;
+  /** When an admin last completed the install; only the callback moves it. */
+  connectedAt: number;
   lastRefreshedAt: number | null;
   refreshError: string | null;
   teamIds: string[];
@@ -56,18 +58,19 @@ const STATUS_GLYPH: Record<LinearInstallation["status"], GlyphName> = {
 
 /**
  * Whether a connect that started from `baseline` has finished: the
- * installation is active and has changed since. Compared against the server's
- * own `updatedAt`, never this machine's clock, so clock skew cannot end the
- * wait early or never.
+ * installation is active and an admin completed an install since. Read from the
+ * server's `connectedAt`, which only the install callback writes — a token
+ * refresh or a rate-limit snapshot moves `updatedAt` but not this — and never
+ * from this machine's clock, so clock skew cannot end the wait early or never.
  * @param current - The installation now.
- * @param baseline - Its `updatedAt` when connect started, or null if none.
+ * @param baseline - Its `connectedAt` when connect started, or null if none.
  * @returns True once the new connection has landed.
  */
 export function connectFinished(
   current: LinearInstallation | null,
   baseline: number | null,
 ): boolean {
-  return current?.status === "active" && current.updatedAt !== baseline;
+  return current?.status === "active" && current.connectedAt !== baseline;
 }
 
 /**
@@ -165,7 +168,7 @@ export function registerLinearCommands(program: Command): void {
             query: { projectId },
           });
 
-        const baseline = (await read()).installation?.updatedAt ?? null;
+        const baseline = (await read()).installation?.connectedAt ?? null;
         const { authorizeUrl } = await client.request<{
           authorizeUrl: string;
         }>("GET", "/linear/connect", { query: { projectId } });

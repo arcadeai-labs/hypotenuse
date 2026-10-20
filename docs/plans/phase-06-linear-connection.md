@@ -459,15 +459,18 @@ under Verification is still to do.
   revocation is a toggle on the app's settings page, which [`DEPLOY.md`](../DEPLOY.md) already said. The schema's
   `display` takes only `iconUrl`, and there is no icon to point at, so the manifest has no `display`.
 - **The in-flight refresh record holds only its start time**, not the encrypted refresh token. A failed or lost
-  refresh commits nothing, so the row itself still holds the token Linear just spent, and the next attempt
-  presents it again; the Redis key only marks that a replay is under way (and words `refreshError` if Linear then
+  refresh leaves the tokens alone — it only notes the failure on `refreshError`, inside the same row-locked
+  transaction, so the note can never land on top of a concurrent refresher's success — so the row itself still
+  holds the token Linear just spent, and the next attempt presents it again; the Redis key only marks that a replay is under way (and words `refreshError` if Linear then
   refuses). One fewer secret at rest.
 - **Only `invalid_grant` marks an installation `error`.** Any other token-endpoint refusal (`invalid_client` after a
   client-secret rotation, say) sets `refreshError` and leaves it `active`, so fixing the deployment's configuration
   recovers every workspace without anyone reconnecting.
-- **Two more columns:** `appUserName` (what the dashboard calls the app — Linear may have suffixed it) and
+- **Three more columns:** `appUserName` (what the dashboard calls the app — Linear may have suffixed it),
   `appUserCapabilities` (`app`, `isAssignable`, `isMentionable`, `supportsAgentSessions`, read with the app's own
-  token at install, LC-DEL-06). Both token columns are `jsonb` holding `CryptoOps`' `{ ciphertext, iv, authTag }`.
+  token at install, LC-DEL-06), and `connectedAt`, which only the callback writes. `hypotenuse linear connect` waits
+  for `connectedAt` to move; it first watched `updatedAt`, which a token refresh or a rate-limit write also moves, so
+  a reconnect could report success while the admin was still on Linear's screen. Both token columns are `jsonb` holding `CryptoOps`' `{ ciphertext, iv, authTag }`.
 - **Two more callback refusals:** `forbidden` (the starter lost the admin tag while on Linear's screen — the callback
   re-checks inside the write transaction) and `workspace_changed` (a connected project re-consenting into another
   workspace). The success redirect carries `projectId`, so the dashboard opens the project that was connected.
@@ -494,7 +497,7 @@ under Verification is still to do.
   `|`, which GitHub's table parser splits into extra cells.
 - **Rule 13's decisions:** `linear:catalog` gets no command until `routing add` uses it; `linear:callback` is a
   browser hop; `linear:refresh-tokens` is a clock; `linear:manifest-url` is a server-side operator action with no
-  `web` route. `linear connect` polls `linear:installation` until it is `active` with a new `updatedAt`.
+  `web` route. `linear connect` polls `linear:installation` until it is `active` with a new `connectedAt`.
 - **The finear gaps are recorded, not filed.** This session's GitHub access reached only this repository, so the
   two new rows in [Known finear gaps](../LINEAR_COVERAGE.md#known-finear-gaps) (no rate-limit headers or
   `RATELIMITED`; no non-admin fixture human, which leaves LC-OAUTH-03 `planned`) say "to file", like the others.

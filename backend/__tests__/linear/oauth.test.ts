@@ -257,6 +257,7 @@ describe("linear:callback", () => {
         "status",
         "accessTokenLastFour",
         "accessTokenExpiresAt",
+        "connectedAt",
         "lastRefreshedAt",
         "refreshFailedAt",
         "refreshError",
@@ -344,6 +345,11 @@ describe("linear:callback", () => {
     const after = await installationRow(universe.projectId);
     expect(after.id).toBe(before.id);
     expect(after.appUserId).toBe(before.appUserId);
+    // Only a completed install moves connectedAt; a client waiting on a
+    // connect watches it.
+    expect(after.connectedAt.getTime()).toBeGreaterThan(
+      before.connectedAt.getTime(),
+    );
     expect(after.accessTokenEncrypted).not.toEqual(before.accessTokenEncrypted);
     expect(after.status).toBe("active");
   });

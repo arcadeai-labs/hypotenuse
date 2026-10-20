@@ -21,6 +21,7 @@ function installation(
     status: "active",
     accessTokenLastFour: "abcd",
     accessTokenExpiresAt: null,
+    connectedAt: 1_000,
     lastRefreshedAt: null,
     refreshError: null,
     teamIds: ["team-1"],
@@ -31,24 +32,32 @@ function installation(
 }
 
 describe("linear connect's wait", () => {
-  test("finishes only when the installation is active and changed since it started", () => {
+  test("finishes only when the installation is active and an install completed since it started", () => {
     expect(connectFinished(null, null)).toBe(false);
     expect(connectFinished(installation(), null)).toBe(true);
     // Unchanged since connect started: the old connection, not the new one.
     expect(connectFinished(installation(), 1_000)).toBe(false);
-    expect(connectFinished(installation({ updatedAt: 2_000 }), 1_000)).toBe(
+    expect(connectFinished(installation({ connectedAt: 2_000 }), 1_000)).toBe(
       true,
     );
+    // A token refresh or a rate-limit write moves updatedAt, not connectedAt:
+    // the admin may still be on Linear's consent screen.
+    expect(
+      connectFinished(
+        installation({ updatedAt: 5_000, lastRefreshedAt: 5_000 }),
+        1_000,
+      ),
+    ).toBe(false);
     // A refused reconnect leaves an errored or revoked row as it was.
     expect(
       connectFinished(
-        installation({ status: "error", updatedAt: 2_000 }),
+        installation({ status: "error", connectedAt: 2_000 }),
         1_000,
       ),
     ).toBe(false);
     expect(
       connectFinished(
-        installation({ status: "revoked", updatedAt: 2_000 }),
+        installation({ status: "revoked", connectedAt: 2_000 }),
         1_000,
       ),
     ).toBe(false);

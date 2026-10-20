@@ -269,6 +269,7 @@ export class LinearCallback extends AuditedAction {
       oauthClientId: config.linear.clientId,
       scopes: grant.scopes,
       ...tokenColumns(grant),
+      connectedAt: new Date(),
       lastRefreshedAt: null,
       refreshFailedAt: null,
       refreshError: null,

@@ -13,6 +13,7 @@ CREATE TABLE "linear_installations" (
 	"refresh_token_encrypted" jsonb,
 	"access_token_last_four" text DEFAULT '' NOT NULL,
 	"access_token_expires_at" timestamp with time zone,
+	"connected_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"last_refreshed_at" timestamp with time zone,
 	"refresh_failed_at" timestamp with time zone,
 	"refresh_error" text,

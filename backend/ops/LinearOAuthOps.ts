@@ -267,8 +267,10 @@ export interface RefreshOptions {
  *    time only, for 30 minutes) before spending the refresh token.
  * 3. **Success** writes the new access *and* refresh token in the same
  *    transaction, then clears the record.
- * 4. **No answer** (network, timeout, 5xx, a lost response) writes nothing. The
- *    row still holds the refresh token that was just spent, and the next attempt
+ * 4. **No answer** (network, timeout, 5xx, a lost response) leaves the tokens
+ *    alone and only notes the failure on `refreshError`, under the same lock so
+ *    it cannot overwrite a later success. The row still holds the refresh token
+ *    that was just spent, and the next attempt
  *    presents it again — which Linear honours for 30 minutes with the same new
  *    pair. That replay is the whole use of the grace period: it turns a lost
  *    response from "logged out of the workspace" into a retry.
@@ -283,7 +285,7 @@ export interface RefreshOptions {
  * @param installationId - The installation.
  * @param options - Why this refresh is happening.
  * @returns The row after the attempt.
- * @throws {LinearUnavailableError} When Linear did not answer (nothing changed).
+ * @throws {LinearUnavailableError} When Linear did not answer (the tokens are unchanged).
  * @throws {LinearInstallationUnavailableError} When the row no longer exists.
  */
 export async function refreshInstallationTokens(
@@ -368,8 +370,18 @@ export async function refreshInstallationTokens(
         refused = updated;
         return updated;
       }
+      // Recorded under the same lock, so it can never land on top of a later
+      // refresher's success. The tokens are left exactly as they were.
       transient = e instanceof Error ? e : new Error(String(e));
-      return current;
+      const [noted] = await tx
+        .update(linearInstallations)
+        .set({
+          refreshFailedAt: new Date(),
+          refreshError: `The last refresh failed and will be retried: ${transient.message}`,
+        })
+        .where(eq(linearInstallations.id, installationId))
+        .returning();
+      return noted;
     }
 
     settled = true;
@@ -395,13 +407,6 @@ export async function refreshInstallationTokens(
   }
   if (transient) {
     const failure = transient as Error;
-    await api.db.db
-      .update(linearInstallations)
-      .set({
-        refreshFailedAt: new Date(),
-        refreshError: `The last refresh failed and will be retried: ${failure.message}`,
-      })
-      .where(eq(linearInstallations.id, installationId));
     throw failure instanceof LinearUnavailableError
       ? failure
       : new LinearUnavailableError(failure.message);

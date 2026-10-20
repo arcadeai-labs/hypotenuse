@@ -149,6 +149,35 @@ describe("linear:refresh-tokens", () => {
     expect(await api.redis.redis.exists(inflightRefreshKey(id))).toBe(0);
   });
 
+  test("a failed refresh cannot stamp its error over a concurrent refresher's success", async () => {
+    await setTokenExpiry(universe.projectId, soon());
+    const { id, connectedAt } = await installationRow(universe.projectId);
+    linear.clearRequests();
+    // Whichever refresher takes the lock first loses its response; the second
+    // then refreshes for real. The failure is recorded under the lock, so it is
+    // never written after the success.
+    linear.fault({
+      kind: "drop",
+      match: (r) => r.grantType === "refresh_token",
+    });
+    const [first, second] = await Promise.allSettled([
+      refreshInstallationTokens(id),
+      refreshInstallationTokens(id),
+    ]);
+    expect([first.status, second.status].sort()).toEqual([
+      "fulfilled",
+      "rejected",
+    ]);
+    expect(refreshesSent()).toBe(2);
+    const row = await installationRow(universe.projectId);
+    expect(row.status).toBe("active");
+    expect(row.refreshError).toBeNull();
+    expect(row.refreshFailedAt).toBeNull();
+    // A refresh is not a connect.
+    expect(row.connectedAt).toEqual(connectedAt);
+    expect(await tokenWorks(await appToken(universe.projectId))).toBe(true);
+  });
+
   test("a 401 refreshes inline once and retries the request", async () => {
     const row = await installationRow(universe.projectId);
     // Something outside this server spent the refresh token, so the access
