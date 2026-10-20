@@ -79,6 +79,7 @@ or a manager review.
 | `stickyRunnerId` | the runner holding the session's worktree, if any, when this item was created |
 | `offeredToRunnerId`, `offerExpiresAt` | current offer |
 | `runnerId`, `claimedAt`, `leaseExpiresAt` | current claim |
+| `agentId` | the runner's agent for this role, recorded when the item is offered; counted against `limits.agents` |
 | `cancelRequestedAt`, `cancelReason` | `stop`, `delegate_removed`, `installation_revoked`, `runner_revoked`, `dashboard`, `superseded` |
 | `attempts` | claims that ended without completion (lease lapses) |
 | `outcome` jsonb | from `daemon:complete`: `{ outcome, error?, acpSessionId?, branch? }` |
@@ -172,8 +173,13 @@ the one decision where a wrong guess costs a whole turn in the wrong codebase.
 - an agent configured for the role is `available` (the daemon reports per-role agent availability)
 - **subscriptions**: for each kind (`team`, `project`, `label`), either the runner has no rows of that kind, or
   one matches (team key; project id; any of the issue's labels)
-- **capacity**: `capacity − count(work_items in offered/claimed/running for this runner) > 0`, counted on the
-  server — the heartbeat's `activeCount` is for display, because it lags by up to a beat
+- **capacity, at three levels**, all counted on the server over `work_items` in `offered` / `claimed` / `running`
+  for this runner (the heartbeat's `activeCount` is for display, because it lags by up to a beat):
+  - machine: `count(all) < limits.maxParallelJobs`
+  - role: `count(role = item.role) < limits.roles[item.role]`, when that key is set
+  - agent: `count(agentId = A) < limits.agents[A]`, when set, where `A` is the agent this runner uses for
+    `item.role` (from `capabilities.agents[].roles`). `work_items.agentId` is recorded at offer time, so an
+    offered-but-unclaimed item already counts against its agent.
 
 ### Ranking: sticky, then issuer, then anyone
 
@@ -185,7 +191,7 @@ the one decision where a wrong guess costs a whole turn in the wrong codebase.
    wait) stickiness is dropped: the item is offered to others, `session.runnerId` moves to whoever claims it, and the
    assignment says `fresh: true` so the new runner creates a new worktree and rebuilds history from activities.
 2. **The issuer's runners.** `preferredUserId`'s runners next, least-loaded first.
-3. **Everyone else**, least-loaded (lowest used/capacity) first, ties broken by longest-idle.
+3. **Everyone else**, least-loaded (lowest used / `maxParallelJobs`) first, ties broken by longest-idle.
 
 ### Who the issuer is: `linear_identities`
 
@@ -391,7 +397,7 @@ with given capabilities, holds a socket, claims, posts events, and completes —
 |---|---|
 | `role-selection.test.ts` | rule order; each `match` field; prefix stripped; default worker; seeded rules exist; role fixed on follow-up |
 | `repository-selection.test.ts` | pin wins; single candidate; finear `/__test/repository-suggestions` above and below threshold; `select` elicitation shape with GitHub URLs; answer parsing (value, label, `owner/name`, free text with one name, two misses → error) |
-| `eligibility.test.ts` | each condition in isolation, as a whole-set equality on the eligible ids; empty subscription kind matches all; capacity counted server-side |
+| `eligibility.test.ts` | each condition in isolation, as a whole-set equality on the eligible ids; empty subscription kind matches all; capacity counted server-side at all three levels (a runner with machine room but a full role, or a full agent, is not eligible; an offered item already counts) |
 | `ranking.test.ts` | sticky first; sticky offline → waiting thought, then after `stickyTimeoutMs` (column-controlled) offered elsewhere with `fresh: true`; issuer's runner before a less-loaded stranger; e-mail match recorded as `linkedVia = email`; null creator → no preference |
 | `claim.test.ts` | only the offered runner can claim; expired offer → re-offered to the next; `cap × 4` concurrent claims from many runners never exceed any runner's capacity and never double-claim |
 | `lease.test.ts` | heartbeats renew; lapse → `queued` with `attempts + 1` and stickiness kept; fourth lapse → `failed` + `error` |

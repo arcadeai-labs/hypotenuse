@@ -2,7 +2,7 @@
 
 > **Goal:** `hypotenuse daemon start` turns a person's machine into a runner. The daemon reads a validated
 > TOML config file, holds the runner's connection to the server (heartbeat over HTTP, a content-free ping over
-> WebSocket), runs up to `max_concurrent_sessions` sessions in slots, keeps its own state in `bun:sqlite`, and
+> WebSocket), runs up to `max_parallel_jobs` jobs in slots (with optional per-role and per-agent limits), keeps its own state in `bun:sqlite`, and
 > answers the CLI's `daemon`, `agents`, and `worktrees` commands over a local control socket. It survives
 > laptop sleep, Wi-Fi changes, server deploys, and its own upgrade without losing a session's events.
 
@@ -243,7 +243,8 @@ to an inherited pipe. If the child reports a fatal error first (invalid config, 
 missing), the parent prints it and exits 1. This is the difference between `daemon start` saying "started" and
 the daemon being started.
 
-**The pidfile** guards against double starts. On start:
+**The pidfile is the machine lock**, so it always lives at `~/.local/state/hypotenuse/daemon.pid`, ignoring
+`--state-dir` and `-c`. A second daemon with a different config still finds it. On start:
 
 - If the pidfile names a live process **and** the control socket answers `status`, the daemon is already
   running: exit 1 with its pid.
@@ -251,6 +252,11 @@ the daemon being started.
 
 Both checks are needed: a pid can be reused by an unrelated process after a reboot, and a socket file can
 outlive its process.
+
+The lock only sees the current OS user. The server closes the rest of the gap: the daemon computes `machineId`
+(sha256 of `/etc/machine-id`, macOS `IOPlatformUUID`, or Windows `MachineGuid`), and `daemon:connect` refuses it
+with a 409 naming the other runner if a different online runner already has that id. That covers a second user on a
+shared build box and two projects on one laptop. The daemon prints the refusal and exits 1 (`machine_in_use`).
 
 **Startup order** (in `cli/src/daemon/supervisor.ts` `startDaemon()`):
 
@@ -266,7 +272,8 @@ outlive its process.
 
 ### 7. The supervisor and its slots
 
-The supervisor owns `runner.max_concurrent_sessions` **slots**. A slot is either free or holds one
+The supervisor owns `runner.max_parallel_jobs` **slots**, plus a counter per role and per agent that has a
+`max_parallel`. A slot is either free or holds one
 `SessionRunner`. A `SessionRunner` runs one work item at a time for one agent session: the null executor in
 this phase, then the ACP host in [phase 11](./phase-11-acp-agent-host.md).
 
@@ -274,7 +281,7 @@ this phase, then the ACP host in [phase 11](./phase-11-acp-agent-host.md).
             offer (ws ping or heartbeat.offers)
                          │
                          ▼
-   free slot? ──no──► ignore (server re-offers elsewhere after offerTtl)
+   free slot for the machine, the role, and the agent? ──no──► ignore (server re-offers after offerTtl)
        │yes
        ▼
    daemon:claim ──409/404──► release slot (someone else claimed / cancelled)
@@ -286,7 +293,9 @@ this phase, then the ACP host in [phase 11](./phase-11-acp-agent-host.md).
    daemon:complete(outcome) ──► local_sessions.state = idle|done ──► slot freed
 ```
 
-- **Heartbeat capacity** is `max_concurrent_sessions − busy slots`. Draining reports 0.
+- **Heartbeat limits** are `{ maxParallelJobs, roles, agents }` from the config. Draining reports
+  `maxParallelJobs: 0`. The server does the counting. The daemon's own check above is a guard for a race (an
+  offer that arrived just before a reload lowered a limit), not the routing decision.
 - **Sticky sessions don't hold slots.** A session whose last turn finished and whose worktree is kept is
   `idle` in `local_sessions`. A follow-up for it is offered to this runner first, but only claimed when a slot
   is free. Holding a slot for an idle session would let three quiet threads block a runner forever.
@@ -307,7 +316,8 @@ this phase, then the ACP host in [phase 11](./phase-11-acp-agent-host.md).
 frees, after a reconnect, and after a config reload. The request is `HeartbeatRequest` from `protocol/`
 (see [`RUNNER_PROTOCOL.md`](../RUNNER_PROTOCOL.md)):
 
-- `RunnerCapabilities`: capacity, roles, agents with their availability, repositories by name and normalized
+- `machineId` and `limits` (machine, per-role, per-agent)
+- `RunnerCapabilities`: roles, agents with their availability and the roles they serve, repositories by name and normalized
   remote, subscriptions
 - the active work items with their states and the leases to renew
 - the daemon version and `PROTOCOL_VERSION`
@@ -403,7 +413,8 @@ daemon start")` and exit 3. `--json` callers get `{ running: false }`.
 logged and **ignored**, and the old config stays live. A valid file applies its *safe* keys at once:
 
 - `runner.roles`, `subscriptions.*`
-- `max_concurrent_sessions`, increasing only; decreasing takes effect as slots free
+- `max_parallel_jobs` and every `max_parallel`: raising applies at once; lowering never interrupts a running job,
+  it takes effect as jobs finish
 - `log.level`
 - `[roles.*]` prompts and policies, for new turns only
 - `[[repositories]]` additions
@@ -413,7 +424,7 @@ Changing `server.url`, `server.project`, an existing repository's `path`, or an 
 session uses it is reported in `requiresRestart`. A heartbeat follows every reload so routing sees the change
 within one round trip.
 
-**Drain.** The daemon reports capacity 0, claims nothing new, and waits for running turns to finish, up to
+**Drain.** The daemon reports `maxParallelJobs: 0`, claims nothing new, and waits for running turns to finish, up to
 `timeoutMs`. With `cancel: true` (or after the timeout), remaining turns take the cancel path from
 [phase 11](./phase-11-acp-agent-host.md#9-cancel-stop-and-kill), which posts a final activity explaining the
 stop.
@@ -604,6 +615,7 @@ bun run --cwd cli hypotenuse daemon stop
 - [ ] `daemon start` background and foreground, ready pipe, pidfile with stale detection, `stop`, `restart`,
       `status`, `logs`, `reload`
 - [ ] Supervisor slots, claim path, cancel routing, drain, recovery of interrupted sessions
+- [ ] Parallelism at three levels (`max_parallel_jobs`, role and agent `max_parallel`) reported as `limits`; one daemon per machine via the fixed-path lock and `machineId`
 - [ ] ServerLink: 15 s heartbeat, one-subscription socket, jittered backoff, 401 = revoked, clock-skew warning
 - [ ] EventSink: durable before return, per-session `seq`, ephemeral supersession, ordered completion, server
       dedupe on `eventId`

@@ -22,6 +22,13 @@ and MCP servers is in [phase 11](./plans/phase-11-acp-agent-host.md),
 | Per-session agent logs | `~/.local/state/hypotenuse/sessions/<agentSessionId>.log` | with the state directory |
 | Worktrees | `~/.hypotenuse/worktrees/<repository>/<ISSUE-ID>` | `[sessions] worktree_root` |
 | Update-check cache | `~/.config/hypotenuse/update.json` | — |
+| Machine lock | `~/.local/state/hypotenuse/daemon.pid` — always this path, whatever `--state-dir` or `-c` say | — |
+
+**One daemon per machine** is enforced twice. Locally, the lock above lives at a fixed path, so a second daemon
+started with a different config or state directory still finds it. On the server, every heartbeat carries a
+`machineId`, a stable hash of the OS machine id (`/etc/machine-id`, macOS `IOPlatformUUID`, Windows
+`MachineGuid`). `daemon:connect` refuses a runner whose `machineId` belongs to another runner that is online,
+naming that runner. This catches a second OS user on a shared box, and two projects on one laptop.
 
 `hypotenuse config path` prints the resolved paths. `hypotenuse config init` writes a starter file,
 `hypotenuse config validate` checks one, and `hypotenuse config schema` prints the JSON Schema. The first line
@@ -61,8 +68,42 @@ of a generated file points editors at that schema:
 | Key | Type | Default | Rules |
 |---|---|---|---|
 | `name` | string | the machine's hostname | 1–64 chars; display only — the runner's identity is its token |
-| `max_concurrent_sessions` | integer | `2` | 1–32; turns running at once. Idle sessions waiting for a follow-up do not hold a slot |
+| `max_parallel_jobs` | integer | CPU cores ÷ 4, at least 1, at most 8 | 1–32. Jobs (turns) running at once on this machine. Idle sessions waiting for a follow-up do not hold a slot. See [Parallelism](#parallelism) |
 | `roles` | array of `"manager"` \| `"worker"` | `["worker"]` | each needs a `[roles.<name>]` table |
+
+## Parallelism
+
+How many jobs this machine runs at once is decided at three levels, and a job starts only when **all three** have
+room:
+
+```
+runner.max_parallel_jobs          3   ███ the machine
+roles.<role>.max_parallel         1   █   e.g. at most one manager turn at a time
+agents.<agent>.max_parallel       2   ██  e.g. two Claude sessions on one subscription
+```
+
+- The machine cap is required in effect (it has a default). The role and agent limits are optional and can only
+  lower what the machine allows.
+- A **job** is one turn: a new session, a follow-up prompt, a dispatch, or a manager review. A session waiting for
+  a person between turns holds nothing.
+- The daemon reports all three limits on every heartbeat. The server counts this runner's live jobs per role and
+  per agent itself and **never offers a job that would exceed any of them**, so a full runner is skipped rather
+  than offered work it must refuse.
+- **One daemon per machine.** A second `hypotenuse daemon start` on the same machine refuses to start, so the cap
+  is a real machine-wide limit. See `machine_id` under [Files and locations](#files-and-locations).
+
+```toml
+[runner]
+max_parallel_jobs = 3
+
+[roles.manager]
+agent = "claude"
+max_parallel = 1          # never more than one manager turn at once
+
+[agents.claude]
+preset = "claude"
+max_parallel = 2          # one Claude Max seat handles two sessions comfortably
+```
 
 ## `[subscriptions]`
 
@@ -89,6 +130,7 @@ preset id without a table gets the preset with defaults.
 | `env` | table of strings | `{}` | added to the agent's environment; `$VAR` allowed |
 | `auth_method` | string | — | which of the agent's advertised ACP `authMethods` to use when it reports `auth_required` |
 | `startup_timeout` | duration | `"60s"` | time allowed for the process to answer `initialize` (`npx` cold installs are slow) |
+| `max_parallel` | integer | — (no agent limit) | 1–32. Jobs using this agent at once, across every role that uses it, inside `runner.max_parallel_jobs` — for rate limits or subscription seats; a value ≥ the machine cap is a warning |
 
 **Presets**
 
@@ -122,6 +164,7 @@ listed in `runner.roles`.
 | `prompt` | string | the built-in template for the role | exactly one of `prompt` / `prompt_file` may be set; neither means the built-in |
 | `prompt_file` | path | — | Markdown template; must exist; variables must be known |
 | `permission_policy` | `"allow"` \| `"ask"` \| `"deny"`, or a table | worker: `"allow"`, manager: `"ask"` | the table form is `{ default = "allow", execute = "ask", fetch = "deny" }` with keys `default`, `read`, `edit`, `delete`, `move`, `search`, `execute`, `think`, `fetch`, `other` (ACP tool kinds) |
+| `max_parallel` | integer | — (no role limit) | 1–32. Jobs of this role running at once, inside `runner.max_parallel_jobs`; a value ≥ the machine cap is a warning (no effect) |
 | `mode` | string | — | ACP session mode / `mode` config option to select after creating the session, if the agent offers it |
 | `turn_timeout` | duration | `[sessions] turn_timeout` | overrides the session default for this role |
 | `additional_directories` | array of paths | `[]` | extra directories the agent may read and write through ACP `fs/*`, besides its worktree |
@@ -256,7 +299,7 @@ project = "acme"
 
 [runner]
 name = "evan-mbp"
-max_concurrent_sessions = 3
+max_parallel_jobs = 3
 roles = ["manager", "worker"]
 
 [subscriptions]
@@ -331,6 +374,7 @@ $ hypotenuse config validate
 ✗ repositories[1].path: ~/code/api-old is not a git repository
 ✗ sessions.keepalive_interval: 45m is longer than Linear's 30m stale window
 ! repositories[0].base_branch: "trunk" not found on origin (github.com/acme/web)
+! agents.claude.max_parallel: 4 is not below runner.max_parallel_jobs (3); it has no effect
 ! roles.worker.extra_mcp_servers[0].env.SENTRY_AUTH_TOKEN: $SENTRY_AUTH_TOKEN is not set in this environment
 3 errors, 2 warnings
 ```

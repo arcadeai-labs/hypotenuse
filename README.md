@@ -68,7 +68,7 @@ project = "acme"
 
 [runner]
 name = "my-laptop"
-max_concurrent_sessions = 2
+max_parallel_jobs = 2        # jobs at once on this machine; roles and agents can set lower max_parallel
 roles = ["worker", "manager"]
 
 [subscriptions]

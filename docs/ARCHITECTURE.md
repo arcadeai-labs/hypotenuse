@@ -146,10 +146,10 @@ config file (see [`CONFIG.md`](./CONFIG.md)). A runner advertises which roles it
 ## Runners and routing
 
 A **runner** is one registered daemon. It belongs to one project and one person (its owner), and every
-heartbeat reports what it can do: free capacity, roles, agent kinds, repositories (by remote), and Linear
+heartbeat reports what it can do: its parallel-job limits (machine, per role, per agent), roles, agent kinds, repositories (by remote), and Linear
 subscriptions (team keys, project ids, labels).
 
-A work item is **eligible** for a runner when the runner is online, not draining, has a free slot, serves the
+A work item is **eligible** for a runner when the runner is online, not draining, has room at all three limits (machine, the role, and the agent it would use), serves the
 role, has the chosen repository (or the work needs none), and its subscriptions match the issue. Among eligible
 runners:
 
@@ -202,7 +202,8 @@ activity that implies it.
 
 ## The daemon
 
-One process per machine, `hypotenuse daemon start` (or a launchd / systemd user service installed by
+**One process per machine**, enforced by a fixed-path lock and by the server refusing a second online runner
+with the same machine id. `hypotenuse daemon start` (or a launchd / systemd user service installed by
 `hypotenuse service install`). It holds no state the server cannot rebuild except the worktrees themselves:
 
 - `~/.config/hypotenuse/config.toml` — the config file ([`CONFIG.md`](./CONFIG.md)).
@@ -263,7 +264,7 @@ row: which installation, which issue, which role. The two tool sets:
 | `linear_identities` | Linear user ⇄ Hypotenuse user links, per installation |
 | `agent_sessions` | the mirror of each Linear agent session: issue, role, repository, sticky runner, parent (manager) session, plan, external URLs, status |
 | `agent_activities` | inbound prompts and the outbound outbox, with client UUIDs, delivery status, and attempts |
-| `runners` | registered daemons: owner, token hash, last heartbeat, capacity, roles, agents, repositories |
+| `runners` | registered daemons: owner, token hash, machine id, last heartbeat, parallel-job limits, roles, agents, repositories |
 | `runner_subscriptions` | the Linear teams, projects, and labels each runner accepts, replaced on every heartbeat |
 | `work_items` | one per turn: kind, role, status, offered/claimed runner, lease, attempts |
 | `routing_rules` | a project's ordered role-selection rules |

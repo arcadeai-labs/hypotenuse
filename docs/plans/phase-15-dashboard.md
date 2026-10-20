@@ -35,7 +35,7 @@ content-free socket frames. This plan does not restate them; it says what Hypote
   waiting and why).
 - **Linear settings section**: connect / reconnect / disconnect, org name, app user, scopes, team access, token
   expiry, last webhook received, recent delivery outcomes.
-- **Runners page**: live list (status, owner, capacity used/total, roles, agents, repositories, version, platform,
+- **Runners page**: live list (status, owner, jobs used/total with per-role and per-agent limits when set, roles, agents, repositories, version, platform,
   last heartbeat); register (shows the token once and the exact `hypotenuse runner register` / config snippet),
   edit name, drain, revoke.
 - **Sessions list**: filters (role, status, runner, owner, issue team), pagination; **session page**: the mirrored

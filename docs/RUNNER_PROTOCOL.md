@@ -50,7 +50,8 @@ check the envelope, not only the status.
 
 ### `daemon:connect`
 
-`POST /api/daemon/connect` — no body.
+`POST /api/daemon/connect` with `{ "machineId": "sha256:…" }`. Answers 409 `machine_in_use` with
+`{ runnerId, runnerName }` when a different runner with that `machineId` is online: one daemon per machine.
 
 ```json
 { "runnerId": 5, "channel": "runner:5", "heartbeatIntervalMs": 15000, "leaseMs": 60000, "serverTime": 1792478400000 }
@@ -72,8 +73,9 @@ Request (`HeartbeatRequest`):
   "platform": "darwin-arm64",
   "hostname": "evan-mbp",
   "draining": false,
-  "capacity": 3,
-  "active": [{ "workItemId": 812, "agentSessionId": 91, "state": "running" }],
+  "machineId": "sha256:4be1…",
+  "limits": { "maxParallelJobs": 3, "roles": { "manager": 1 }, "agents": { "claude": 2 } },
+  "active": [{ "workItemId": 812, "agentSessionId": 91, "role": "worker", "agentId": "codex", "state": "running" }],
   "capabilities": {
     "roles": ["manager", "worker"],
     "agents": [
@@ -90,6 +92,8 @@ Request (`HeartbeatRequest`):
 |---|---|
 | `active[].state` | `starting` \| `running` \| `cancelling` — each listed item's lease is renewed |
 | `draining` | true while shutting down or upgrading: finish held work, receive no offers |
+| `machineId` | stable hash of the OS machine id; the server allows one online runner per machine |
+| `limits` | `maxParallelJobs` (the machine), and optional per-role and per-agent caps. Absent keys mean "no limit at that level". The server counts live work items per runner, per role, and per agent itself and never offers past any of them |
 | `capabilities` | replaces the server's copy when its hash changes; `subscriptions` empty arrays mean "all" |
 
 Response (`HeartbeatResponse`):

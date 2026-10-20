@@ -76,7 +76,8 @@ the daemon refuses to start a second time against the same credentials file, whi
 | `enabled` boolean | an owner or admin can pause a runner without revoking it; a disabled runner is never offered work |
 | `lastHeartbeatAt`, `lastConnectedAt` timestamptz | |
 | `protocolVersion` int, `daemonVersion` text, `platform` text (`darwin-arm64`, …), `hostname` text | from the heartbeat |
-| `capacity` int, `activeCount` int | `max_concurrent_sessions` and the number of live turns, from the heartbeat |
+| `limits` jsonb, `activeCount` int | `{ maxParallelJobs, roles?: { [role]: n }, agents?: { [agentId]: n } }` and the number of live jobs, from the heartbeat |
+| `machineId` text | from the heartbeat; `daemon:connect` refuses a runner whose `machineId` matches another **online** runner (409, naming it) — one daemon per machine |
 | `roles` jsonb | `["manager","worker"]` subset |
 | `agents` jsonb | `[{ id, preset, available, version? }]` — `available` is the daemon's own probe (binary on PATH, `initialize` succeeded) |
 | `repositories` jsonb | `[{ name, remote, baseBranch }]` — `remote` normalized to `hostname/owner/name` |
@@ -211,8 +212,9 @@ Request body (`protocol/src/heartbeat.ts`, `HeartbeatRequest`):
   "platform": "darwin-arm64",
   "hostname": "evan-mbp",
   "draining": false,
-  "capacity": 3,
-  "active": [{ "workItemId": 812, "agentSessionId": 91, "state": "running" }],
+  "machineId": "sha256:4be1…",
+  "limits": { "maxParallelJobs": 3, "roles": { "manager": 1 }, "agents": { "claude": 2 } },
+  "active": [{ "workItemId": 812, "agentSessionId": 91, "role": "worker", "agentId": "codex", "state": "running" }],
   "capabilities": {
     "roles": ["manager", "worker"],
     "agents": [{ "id": "claude", "preset": "claude", "available": true }],
@@ -326,6 +328,7 @@ What a runner is, what it can and cannot do on your behalf, how to register one,
 | `runner-token-middleware.test.ts` | unknown, revoked, and malformed tokens → byte-identical 401; disabled runner may heartbeat but nothing else; owner removed from project → 401 and runner revoked; wrong protocol version → 426 with the supported range |
 | `daemon-policy.test.ts` | every `daemon:*` action refused to Peach's session and to Peach's MCP token; every non-`daemon:*` action refused to a runner token (iterated over the whole registry, not a sample); `DAEMON_ONLY_ACTION_NAMES` equals the `daemon:` prefix set |
 | `daemon-heartbeat.test.ts` | capabilities and subscriptions replaced; unchanged capabilities write no subscription rows (counted); `draining` sets status; `{event:"runners"}` published only on change; response shape is the final one |
+| `machine.test.ts` | a second runner connecting with an online runner's `machineId` gets 409 `machine_in_use` naming it; the same runner reconnecting is fine; once the first goes offline the second may connect |
 | `runner-channel.test.ts` | `daemon:connect` cookie subscribes to its own channel; another runner's channel refused; Peach's session refused; revocation sends `revoked` and the next subscribe on that session fails |
 | `runner-presence.test.ts` | writing `lastHeartbeatAt` back 46 s then running `work:reap` → `offline` (time controlled by columns, not waits); a heartbeat brings it back |
 | `runner-ratelimit.test.ts` | the 13th heartbeat in a minute → 429 for that runner only |
@@ -345,7 +348,7 @@ hypotenuse runner list
 TOKEN=$(jq -r .token ~/.config/hypotenuse/credentials.json)
 curl -s -X POST localhost:8080/api/daemon/heartbeat -H "Authorization: Bearer $TOKEN" \
   -H "X-Hypotenuse-Protocol: 1" -H 'Content-Type: application/json' \
-  -d '{"protocolVersion":1,"daemonVersion":"dev","platform":"darwin-arm64","hostname":"laptop","draining":false,"capacity":2,"active":[],"capabilities":{"roles":["worker"],"agents":[],"repositories":[],"subscriptions":{"teams":[],"projects":[],"labels":[]}}}' | jq
+  -d '{"protocolVersion":1,"daemonVersion":"dev","platform":"darwin-arm64","hostname":"laptop","draining":false,"machineId":"sha256:dev","limits":{"maxParallelJobs":2},"active":[],"capabilities":{"roles":["worker"],"agents":[],"repositories":[],"subscriptions":{"teams":[],"projects":[],"labels":[]}}}' | jq
 # the same token against a human action must fail:
 curl -s localhost:8080/api/runners?projectId=1 -H "Authorization: Bearer $TOKEN" | jq .error.type
 ```
