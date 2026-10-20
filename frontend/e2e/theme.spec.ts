@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import tokens from "../../design/tokens.json" with { type: "json" };
+import { signUp } from "./session.ts";
 
 // The stored theme must apply before first paint. The boot script in
 // index.html is what guarantees it; these assert the property, not a delay.
@@ -47,7 +48,7 @@ test("System follows the OS live, without a reload", async ({ page }) => {
 
 test("the account menu's choice persists across a reload", async ({ page }) => {
   await page.emulateMedia({ colorScheme: "light" });
-  await page.goto("/home");
+  await signUp(page, "Theme Theo");
   await page.getByTestId("account-menu").click();
   await page.getByTestId("theme-dark").click();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");

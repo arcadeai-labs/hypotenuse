@@ -10,6 +10,12 @@ export interface CommandContext {
   showShortcuts: () => void;
   /** Focus the current page's search field, if it has one. */
   focusSearch: () => void;
+  /**
+   * `can()` bound to the active project's standing. False for everything
+   * until `project:view` has answered, so a gated command is hidden rather
+   * than offered and refused.
+   */
+  may: (actionName: string) => boolean;
 }
 
 /**
@@ -20,16 +26,16 @@ export interface Command {
   id: string;
   title: string;
   /** Palette group heading. */
-  group: "Navigation" | "Theme" | "View";
+  group: "Navigation" | "Project" | "Theme" | "View";
   keywords?: string[];
   /** A key sequence as the keymap reads it: `"g s"`, `"?"`, `"["`, `"mod+k"`. */
   shortcut?: string;
-  /** Hidden, and not dispatched, when this returns false. Later commands gate on `can()`. */
+  /** Hidden, and not dispatched, when this returns false. Gated commands ask `ctx.may()`. */
   when?: (ctx: CommandContext) => boolean;
   run: (ctx: CommandContext) => void;
 }
 
-/** The commands that exist before anything is signed in or loaded. */
+/** Every command. Gated ones carry a `when` that asks `ctx.may()`. */
 export const COMMANDS: Command[] = [
   {
     id: "go-home",
@@ -64,6 +70,41 @@ export const COMMANDS: Command[] = [
     title: "Go to Settings",
     group: "Navigation",
     run: (c) => c.navigate("/settings"),
+  },
+  {
+    id: "go-account",
+    title: "Go to Account",
+    group: "Navigation",
+    keywords: ["profile", "password"],
+    run: (c) => c.navigate("/account"),
+  },
+  {
+    id: "go-invites",
+    title: "Go to Invites",
+    group: "Navigation",
+    run: (c) => c.navigate("/invites"),
+  },
+  {
+    id: "invite-member",
+    title: "Invite member",
+    group: "Project",
+    keywords: ["teammate", "invite", "people"],
+    when: (c) => c.may("invite:create"),
+    run: (c) => c.navigate("/invites"),
+  },
+  {
+    id: "open-audit-log",
+    title: "Open audit log",
+    group: "Project",
+    keywords: ["history", "changes"],
+    when: (c) => c.may("audit:list"),
+    run: (c) => c.navigate("/audit"),
+  },
+  {
+    id: "new-project",
+    title: "New project",
+    group: "Project",
+    run: (c) => c.navigate("/projects/new"),
   },
   {
     id: "go-docs",

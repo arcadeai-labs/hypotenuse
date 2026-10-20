@@ -150,7 +150,8 @@ use, in **both** themes, and fails below 4.5:1 for body text and 3:1 for large t
 ```
 
 - **Sidebar** (240px, collapsible to icons at `[`): project switcher, Home, Sessions, Runners, Routing, Settings,
-  Docs. Counts are live.
+  Docs. Counts are live. The switcher's menu also holds Invites, Audit log, and New project; the foot holds the
+  notification bell and the account menu, so both work collapsed.
 - **List views**, grouped by status with "Waiting for you" first. A *Display* menu chooses grouping (status, runner,
   role, person) and ordering. Filters are chips.
 - **Detail views** use a main column plus a 280px **properties panel**: status, role, runner, agent, repository,

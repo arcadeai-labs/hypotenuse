@@ -394,6 +394,36 @@ export default css;
 }
 
 /**
+ * Render the notification e-mail palette. Mail clients honour neither custom
+ * properties nor `prefers-color-scheme` reliably, so mail is painted once, in
+ * the light theme, from literal values generated here rather than typed into a
+ * template.
+ * @param themes - Generated tokens.
+ * @returns TypeScript source exporting the palette.
+ */
+export function renderEmailPalette(themes: Record<"light" | "dark", ThemeTokens>): string {
+  const t = themes.light;
+  const palette = {
+    background: t["bg-app"],
+    surface: t["bg-panel"],
+    border: t["border-default"],
+    text: t["text-primary"],
+    textMuted: t["text-secondary"],
+    accent: t.accent,
+    textOnAccent: t["text-on-accent"],
+  };
+  return `// ${HEADER}
+// Notification e-mail colors: the light theme, as literals mail clients can render.
+
+export const EMAIL_PALETTE = {
+${Object.entries(palette)
+  .map(([key, value]) => `  ${key}: "${value}",`)
+  .join("\n")}
+} as const;
+`;
+}
+
+/**
  * Render the mark: a right triangle whose hypotenuse — drawn in the accent — runs
  * from Linear (top right) to your machine (bottom left).
  * @param t - One theme's tokens (the triangle takes its primary text color), or
@@ -416,6 +446,7 @@ export const OUTPUTS = [
   { path: "frontend/src/styles/_tokens.generated.scss", render: renderScss },
   { path: "design/tokens.json", render: renderJson },
   { path: "backend/theme/hypotenuse-theme.ts", render: renderKeryxTheme },
+  { path: "backend/theme/email-palette.ts", render: renderEmailPalette },
   { path: "design/mark.svg", render: (themes) => renderMark(themes.light) },
   { path: "frontend/public/favicon.svg", render: (themes) => renderMark(themes.light) },
   { path: "frontend/public/favicon-dark.svg", render: (themes) => renderMark(themes.dark) },

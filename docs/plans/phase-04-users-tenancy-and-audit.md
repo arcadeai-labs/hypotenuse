@@ -270,17 +270,90 @@ step → the second user cannot open `/audit`.
 
 ## Definition of done
 
-- [ ] ToolExec's pages, section framework, and hooks run unchanged on the design system's kit and shell; auth pages wired
-- [ ] Nine ported tables, generated as fresh migrations; every timestamp `timestamptz`
-- [ ] Session and RBAC middleware; `actions:permissions`; `can()`; standing decided by the server
-- [ ] Signup bootstraps project, membership, admin tag, settings row, and audit row in one transaction
-- [ ] CRUD + paginated `list` for projects, memberships, tags, invites; last-admin and reserved-tag guards
-- [ ] `AuditedAction` on every mutation outside the closed list; `SENSITIVE_KEYS` covers Linear and runner secrets
-- [ ] Notifications (browser + e-mail) and the `project:<projectId>:notifications` channel
-- [ ] MCP publish policy with Hypotenuse's never-lists, asserted by `rbac.test.ts`
-- [ ] `buildTestUniverse()` and `getMcpAccessToken()`; the e2e job joins the CI gate
-- [ ] User docs for accounts, projects, members, and audit under `frontend/src/content/docs/`
+- [x] ToolExec's pages, section framework, and hooks run unchanged on the design system's kit and shell; auth pages wired
+- [x] Nine ported tables, generated as fresh migrations; every timestamp `timestamptz`
+- [x] Session and RBAC middleware; `actions:permissions`; `can()`; standing decided by the server
+- [x] Signup bootstraps project, membership, admin tag, settings row, and audit row in one transaction
+- [x] CRUD + paginated `list` for projects, memberships, tags, invites; last-admin and reserved-tag guards
+- [x] `AuditedAction` on every mutation outside the closed list; `SENSITIVE_KEYS` covers Linear and runner secrets
+- [x] Notifications (browser + e-mail) and the `project:<projectId>:notifications` channel
+- [x] MCP publish policy with Hypotenuse's never-lists, asserted by `rbac.test.ts`
+- [x] `buildTestUniverse()` and `getMcpAccessToken()`; the e2e job joins the CI gate
+- [x] User docs for accounts, projects, members, and audit under `frontend/src/content/docs/`
 
 ## Learnings from the build
 
-_Nothing yet — this phase has not been built._
+### What is built
+
+All ten Definition of done items. The backend is ToolExec's, trimmed: nine tables in one fresh migration, the session
+and RBAC middleware, `AuditedAction`, every action in the step 5 table except the two noted below, the notifications
+channel, and `applyMcpToolPolicy` stamped by `initializers/mcpToolPolicy.ts`. The frontend is ToolExec's pages,
+contexts, and section framework inside the design system's shell; the e2e suite drives the real backend in the
+existing **E2E Test** job, which now has Postgres and Redis. The operator CLI commands that wrap these actions are
+out of scope here and arrive with the CLI itself (rule 13's decision, recorded).
+
+### Where the port departs from ToolExec
+
+- **The notification frame is `{ "event": "notifications" }` and nothing else.** ToolExec's carried the row's id
+  and recipient so a tab could ignore frames that were not its own. Here every member's tab re-reads
+  `notification:list` / `notification:unread-count` on any frame and toasts only rows it has not seen before; the
+  first read after page load toasts nothing. The cost is one cheap re-read per open tab per notification in the
+  project, which is the price of a channel that carries nothing to leak.
+- **`project_settings` has no setting columns**, so `project:settings-edit` is not ported: an edit action with
+  nothing to edit would be an MCP tool that does nothing. `project:settings-view` returns the row; the first
+  feature that adds a column (routing) adds the edit action with it. `createProjectForOwner` inserts the row, and
+  `getOrCreateSettings` keeps its lazy insert only as a backstop.
+- **`NetworkGuardOps` is not ported.** Hypotenuse has no URL a person types and the server fetches — Linear's
+  endpoints are configuration — so the SSRF guard would be dead code. Port it with the first feature that fetches a
+  user-supplied URL. `RawRequestOps` is ported now, for the Linear webhook, which must verify its signature over the raw bytes.
+- **There are no notification templates yet.** The registry is empty and every row renders through the generic
+  fallback; each kind arrives with the feature that raises it. The mail chrome is painted from
+  `backend/theme/email-palette.ts`, a new output of `design/tokens.ts` — mail clients cannot read custom
+  properties, and literals typed into a template would drift from the app.
+- **The settings page has General, MCP endpoint, Members, Tags, and Danger zone**, and General renames through
+  `project:edit`. ToolExec's terminal `tx-*` classes are gone (`tx-` means *transcript* here); the ported pages'
+  layout utilities (`d-flex`, `mb-3`, …) are defined token-only in `styles/_pages.scss`.
+- **Shell wiring:** the project switcher works, and its menu holds Invites, Audit log, and New project so the
+  sidebar's destinations stay as `DESIGN.md` lists them. The bell sits in the sidebar foot beside the account menu.
+  "Invite member" and "Open audit log" in `⌘K` are gated through `can()` against the active project's standing
+  (`hooks/useProjectStanding.ts`).
+
+### Traps found while building
+
+- **An empty `backend/lua/` fails boot.** `loadRedisScripts` reads the directory and git keeps no empty ones, so
+  `lua/.gitkeep` is load-bearing until the first script lands. The flush-fallback test writes a fixture script,
+  loads it, and removes it, so the `EVAL` path is proven before the application ships a script of its own.
+- **`/api/status` must touch the newest migration's column**, not `SELECT NOW()`: Keryx binds before
+  `DATABASE_AUTO_MIGRATE` finishes, and `e2e/global-setup.ts` waits on `healthy`. It reads
+  `notifications.link_path`; move it whenever a newer migration lands.
+- **Backend suites sign up dozens of users from one address**, so `RATE_LIMIT_ENABLED_TEST=false` in
+  `.env.example`. The e2e backend turns the limiter back on, because the browser path is the only place it runs.
+- **The e2e backend works its own queues** (`TASK_PROCESSORS_TEST=1`, a one-second dispatch tick) — the opposite of
+  `bun test`, which drives jobs in-process. The notifications spec inserts a pending row, since no feature raises one
+  yet, and waits for the real clock and socket to deliver it.
+- **Headless Chromium's starting notification permission differs by build** — `"denied"` on CI's, `"default"` on
+  a preinstalled one — so the permission spec installs a stand-in `Notification` and counts `requestPermission`
+  calls instead of reading the browser's answer.
+- **A stopped backend leaves node-resque's scheduler leader lock in Redis** until it expires (about a minute), and a
+  backend booted before then never becomes leader, so no clock ticks. Locally that shows up as the live
+  notification spec timing out when Playwright follows a backend suite or another e2e run too closely; CI's Redis
+  is fresh. Wait for `resque:resque_scheduler_leader_lock` to expire, or give the e2e stack its own Redis index.
+- **`bun test` and Playwright share the test database**, and every backend file opens with `clearDatabase()`. Run
+  one at a time per checkout, or give one of them its own database.
+- **Two bugs came over with the port, and review caught both.** `invite:reject` never checked that the invite
+  was still pending, so an accepted invite could be rewritten to `rejected` with the membership left in place. And
+  the last-admin guard read the admin set in the transaction without locking it, so under `READ COMMITTED` two
+  admins removing each other at once both passed it. `lockProjectAdmins` now takes `FOR UPDATE` on the project row
+  before every last-admin read; the concurrency tests in `membership.test.ts` fail every time without it.
+- **Whole-set assertions catch what spot checks miss.** `rbac.test.ts` compares every action's level and the full
+  published-tool set against literal maps, so a new action changes those maps in the same commit and its level and
+  MCP exposure are a decision a reviewer sees.
+
+### The Keryx frame-ordering defect
+
+Still present in Keryx 0.48.0: `handleWebSocketConnectionMessage` awaits per message, but nothing serializes one
+connection's messages, so a subscribe and an unsubscribe sent in one tick can apply out of order. It was described in
+ToolExec but never filed upstream, and this build could not reach `actionhero/keryx` to file it, so there is no
+issue number to record in `AGENTS.md` yet. The repro is three frames — subscribe, unsubscribe, subscribe — on one
+authenticated socket in one tick, followed by a broadcast on that channel. The dashboard's ref-counted channel
+registry keeps it from mattering in practice.

@@ -25,7 +25,14 @@ export class Status implements Action {
     if (api.db?.enabled) {
       databaseHealthy = false;
       try {
-        await api.db.db.execute(sql`SELECT NOW()`);
+        // Touch a column from the newest migration, not just `SELECT NOW()`.
+        // The web server binds before `DATABASE_AUTO_MIGRATE` finishes, so a
+        // bare clock query would report healthy against an empty schema —
+        // exactly the race e2e global-setup and load balancers must not trust.
+        // Move this to the newest migration's column when one is added.
+        await api.db.db.execute(
+          sql`SELECT link_path FROM notifications LIMIT 0`,
+        );
         databaseHealthy = true;
       } catch {}
     }

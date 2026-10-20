@@ -69,4 +69,13 @@ describe("auth form validation", () => {
       name: "Enter your name.",
     });
   });
+
+  test("a sign-up name is held to the server's minimum length", () => {
+    expect(
+      validateAuthFields(
+        { email: "a@b.co", password: "12345678", name: "Al" },
+        true,
+      ).name,
+    ).toBe("Use at least 3 characters.");
+  });
 });
