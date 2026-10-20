@@ -3,6 +3,7 @@ import { relativeTime } from "../components/NotificationBell";
 import {
   type AppNotification,
   appendToast,
+  applyRead,
   isNotificationsBroadcast,
   newArrivals,
   notificationsChannel,
@@ -88,6 +89,23 @@ describe("newArrivals", () => {
 
   test("a row that is already read is never toasted", () => {
     expect(newArrivals(new Set([1]), [row(2, Date.now()), row(1)])).toEqual([]);
+  });
+
+  test("a read that was not applied changes nothing, so the backlog stays quiet", () => {
+    // A superseded or failed read resolves null. Were it an empty first read,
+    // the next real read would toast every unread row.
+    const skipped = applyRead(null, null);
+    expect(skipped).toEqual({ arrivals: [], seen: null });
+
+    const first = applyRead(skipped.seen, [row(2), row(1)]);
+    expect(first.arrivals).toEqual([]);
+    expect([...(first.seen ?? [])].sort()).toEqual([1, 2]);
+
+    const later = applyRead(first.seen, null);
+    expect(later.seen).toBe(first.seen);
+
+    const next = applyRead(later.seen, [row(3), row(2), row(1)]);
+    expect(next.arrivals.map((n) => n.id)).toEqual([3]);
   });
 });
 

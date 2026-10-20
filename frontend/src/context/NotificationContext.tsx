@@ -83,6 +83,28 @@ export function newArrivals(
   return fresh.filter((n) => !n.readAt && !seen.has(n.id)).reverse();
 }
 
+/**
+ * Fold one read into the tab's history: which rows to toast, and the ids seen.
+ *
+ * `fresh` is `null` when no read was applied — superseded by a newer one, or
+ * failed. That must change nothing: treating it as an empty first read would
+ * seed an empty history, and the next real read would toast the whole unread
+ * backlog.
+ * @param seen - Ids already seen, or `null` before the first read.
+ * @param fresh - The list just read, or `null` if no read was applied.
+ * @returns The rows to toast and the history to keep.
+ */
+export function applyRead(
+  seen: ReadonlySet<number> | null,
+  fresh: AppNotification[] | null,
+): { arrivals: AppNotification[]; seen: ReadonlySet<number> | null } {
+  if (fresh === null) return { arrivals: [], seen };
+  return {
+    arrivals: newArrivals(seen, fresh),
+    seen: new Set([...(seen ?? []), ...fresh.map((n) => n.id)]),
+  };
+}
+
 /** Everything the bell and the toasts read. */
 export interface NotificationState {
   /** Unread `browser` notifications for the active project. */
@@ -95,8 +117,11 @@ export interface NotificationState {
   markRead: (ids: number[]) => Promise<void>;
   /** Mark every unread notification of the caller's read. */
   markAllRead: () => Promise<void>;
-  /** Re-read the list and the count from the server; resolves with the list. */
-  refresh: () => Promise<AppNotification[]>;
+  /**
+   * Re-read the list and the count from the server; resolves with the list, or
+   * `null` when the read was superseded by a newer one or failed.
+   */
+  refresh: () => Promise<AppNotification[] | null>;
   /** Dismiss one toast. */
   dismissToast: (id: number) => void;
   /** Ask the browser for desktop-notification permission. From a click only. */
@@ -145,14 +170,16 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     () => localStorage.getItem(PERMISSION_DECLINED_KEY) === "true",
   );
 
-  const seen = useRef<Set<number> | null>(null);
+  const seen = useRef<ReadonlySet<number> | null>(null);
   // Every refresh takes a ticket; only the newest may write. Switching project
   // while a read is in flight would otherwise let the slower, older response
   // land last and put another project's rows and count in the bell.
   const latestRefresh = useRef(0);
-  const refreshRef = useRef<() => Promise<AppNotification[]>>(async () => []);
+  const refreshRef = useRef<() => Promise<AppNotification[] | null>>(
+    async () => null,
+  );
 
-  const refresh = useCallback(async (): Promise<AppNotification[]> => {
+  const refresh = useCallback(async (): Promise<AppNotification[] | null> => {
     const ticket = ++latestRefresh.current;
     if (!user) {
       setUnreadCount(0);
@@ -175,7 +202,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
           `/notifications/unread-count?${scope}`,
         ),
       ]);
-      if (ticket !== latestRefresh.current) return [];
+      if (ticket !== latestRefresh.current) return null;
       setNotifications(list.notifications);
       setUnreadCount(count.count);
       // Returned as well as stored, so the socket handler can raise toasts from
@@ -185,7 +212,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
       // A failed refresh leaves the last known state on screen. The badge being
       // briefly stale is a far smaller problem than the bell emptying itself
       // because one request lost a race with a session refresh.
-      return [];
+      return null;
     }
   }, [user, activeProjectId]);
 
@@ -283,12 +310,9 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
    * @returns Nothing; failures leave the last known state on screen.
    */
   const refreshAndToast = useCallback(async () => {
-    const fresh = await refreshRef.current();
-    for (const arrived of newArrivals(seen.current, fresh)) showToast(arrived);
-    seen.current = new Set([
-      ...(seen.current ?? []),
-      ...fresh.map((n) => n.id),
-    ]);
+    const read = applyRead(seen.current, await refreshRef.current());
+    for (const arrived of read.arrivals) showToast(arrived);
+    seen.current = read.seen;
     // `showToast` only touches state setters, so an empty list is honest.
   }, []);
 
