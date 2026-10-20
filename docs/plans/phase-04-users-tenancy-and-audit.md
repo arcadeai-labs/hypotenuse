@@ -351,9 +351,10 @@ out of scope here and arrive with the CLI itself (rule 13's decision, recorded).
 
 ### The Keryx frame-ordering defect
 
-Still present in Keryx 0.48.0: `handleWebSocketConnectionMessage` awaits per message, but nothing serializes one
-connection's messages, so a subscribe and an unsubscribe sent in one tick can apply out of order. It was described in
-ToolExec but never filed upstream, and this build could not reach `actionhero/keryx` to file it, so there is no
-issue number to record in `AGENTS.md` yet. The repro is three frames — subscribe, unsubscribe, subscribe — on one
-authenticated socket in one tick, followed by a broadcast on that channel. The dashboard's ref-counted channel
-registry keeps it from mattering in practice.
+Filed as [actionhero/keryx#550](https://github.com/actionhero/keryx/issues/550). Still present in Keryx 0.48.0:
+`handleWebSocketConnectionMessage` awaits per message, but nothing serializes one connection's messages, and
+`handleWebsocketSubscribe` only records the subscription after awaiting the session, the channel middleware, and
+presence. So against `project:<id>:notifications` (whose middleware runs a membership query) a `subscribe` then
+`unsubscribe` sent in one tick was acknowledged `unsubscribed, subscribed` and kept receiving broadcasts in 40 of 40
+trials. The dashboard's ref-counted channel registry defers the last unsubscribe past the current turn, which keeps
+it from mattering in practice.
