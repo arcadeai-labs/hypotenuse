@@ -289,6 +289,9 @@ Lessons from building it, kept here so the next session starts with them.
   this reason; branch protection needs an admin); GitHub GraphQL may be unavailable (resolve review threads through
   the REST routes the error message names); `bun install` inside `docker build` may fail on an intercepting proxy
   (CI's Docker jobs are then the proof). Say so in the phase's learnings rather than working around a refusal.
+- **Run every check locally before pushing — Bugbot reviews every push.** Each push to a PR starts a new review,
+  and a finding means another round. Lint, the touched suites, and `bun test __tests__/docs` first; one validated push
+  beats three speculative ones.
 - **Signatures and footers** follow the repository owner's global rules for commits and PR text.
 
 ## Where the detail lives

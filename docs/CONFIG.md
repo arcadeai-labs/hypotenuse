@@ -36,7 +36,7 @@ check atomic. This catches a second OS user on a shared box, and two projects on
 of a generated file points editors at that schema:
 
 ```toml
-#:schema https://hypotenuse.dev/schemas/config-v1.json
+#:schema https://www.hypotenuse.cloud/schemas/config-v1.json
 ```
 
 ## Format and conventions
@@ -291,11 +291,11 @@ The daemon sets these in every agent's environment and every setup command's env
 A runner that serves both roles: a Claude Code manager and a Codex worker, across two repositories.
 
 ```toml
-#:schema https://hypotenuse.dev/schemas/config-v1.json
+#:schema https://www.hypotenuse.cloud/schemas/config-v1.json
 config_version = 1
 
 [server]
-url = "https://api.hypotenuse.dev"
+url = "https://api.hypotenuse.cloud"
 project = "acme"
 
 [runner]

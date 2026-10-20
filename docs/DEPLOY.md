@@ -14,7 +14,7 @@ through npm and GitHub Releases ([`plans/phase-05-cli-and-distribution.md`](./pl
 ```
 ┌──────────────────────┐  ┌──────────────────────┐  ┌──────────────────────┐
 │ hypotenuse-api       │  │ hypotenuse-worker    │  │ hypotenuse-frontend  │
-│ api.<domain>         │  │                      │  │ www.<domain>         │
+│ api.hypotenuse.cloud         │  │                      │  │ www.hypotenuse.cloud         │
 │ type: web, 1c-2g     │  │ type: worker, 1c-2g  │  │ type: web, starter   │
 │ TASKS       off      │  │ TASKS       on       │  │ nginx :10000         │
 │ MIGRATE     off      │  │ MIGRATE     on ◀─────┼── owns the schema     │
@@ -30,8 +30,8 @@ through npm and GitHub Releases ([`plans/phase-05-cli-and-distribution.md`](./pl
 - **Web and worker are the same image**, differing only by `WEB_SERVER_ENABLED`, `TASKS_ENABLED`, and
   `DATABASE_AUTO_MIGRATE`.
 - **The worker owns migrations.** Only `hypotenuse-worker` sets `DATABASE_AUTO_MIGRATE=true`.
-- **Linear talks only to `hypotenuse-api`**: webhooks arrive at `https://api.<domain>/api/webhooks/linear`, and
-  the OAuth callback is `https://api.<domain>/api/linear/callback`. Both are derived from `APPLICATION_URL` and
+- **Linear talks only to `hypotenuse-api`**: webhooks arrive at `https://api.hypotenuse.cloud/api/webhooks/linear`, and
+  the OAuth callback is `https://api.hypotenuse.cloud/api/linear/callback`. Both are derived from `APPLICATION_URL` and
   printed by `GET /api/status` under `linear`.
 - **Runner daemons hold WebSockets to `hypotenuse-api`.** A deploy drains them with close code 1001; daemons
   reconnect, and their HTTP heartbeat covers the gap.
@@ -52,17 +52,17 @@ All shared values live on the **`hypotenuse-shared`** env group, which both back
 | `LINEAR_CLIENT_SECRET` | group, dashboard | from the Linear OAuth app |
 | `LINEAR_WEBHOOK_SECRET` | group, dashboard | the app's webhook signing secret |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM` | group, dashboard | optional; without `SMTP_HOST`, mail is logged, not sent |
-| `FRONTEND_URL` | group | `https://www.<domain>` — the worker writes it into e-mail and Linear `externalUrls` |
+| `FRONTEND_URL` | group | `https://www.hypotenuse.cloud` — the worker writes it into e-mail and Linear `externalUrls` |
 | `NODE_ENV`, `LOG_LEVEL`, `LOG_FORMAT` | group | `production`, `info`, `json` |
 | `SENTRY_DSN`, `SENTRY_ENVIRONMENT`, `SENTRY_TRACES_SAMPLE_RATE=0`, `SENTRY_ENABLE_METRICS=false`, `SENTRY_ENABLE_LOGS=false` | group | errors only |
-| `APPLICATION_URL` | api + worker | `https://api.<domain>` |
-| `WEB_SERVER_ALLOWED_ORIGINS` | api | `https://www.<domain>` |
+| `APPLICATION_URL` | api + worker | `https://api.hypotenuse.cloud` |
+| `WEB_SERVER_ALLOWED_ORIGINS` | api | `https://www.hypotenuse.cloud` |
 | `SESSION_COOKIE_SECURE` / `SESSION_COOKIE_SAME_SITE` | api | `true` / `None` |
 | `MCP_OAUTH_TRUST_PROXY` | api | `true` — otherwise the OAuth issuer is Render's internal origin and `hypotenuse login` fails |
 | `DATABASE_AUTO_MIGRATE` | api `false`, worker `true` | |
 | `TASKS_ENABLED` / `TASK_PROCESSORS` | api `false`/`0`, worker `true`/`1` | |
 | `PROCESS_NAME`, `OTEL_SERVICE_NAME` | per service | `hypotenuse-api` / `hypotenuse-worker` |
-| `VITE_API_URL` | frontend build arg | `https://api.<domain>` |
+| `VITE_API_URL` | frontend build arg | `https://api.hypotenuse.cloud` |
 
 `LINEAR_API_URL` and `LINEAR_OAUTH_URL` are **not** set in production; they default to `https://api.linear.app`
 and `https://linear.app`, and exist so tests can point the server at finear.
@@ -113,14 +113,14 @@ parameter per line here for reading):
 https://linear.app/settings/api/applications/new
   ?distribution=private
   &oauth.client_name=Hypotenuse
-  &oauth.client_uri=https://www.<domain>
-  &oauth.redirect_uris=https://api.<domain>/api/linear/callback
+  &oauth.client_uri=https://www.hypotenuse.cloud
+  &oauth.redirect_uris=https://api.hypotenuse.cloud/api/linear/callback
   &oauth.grant_types=authorization_code
   &display.description=Coding%20agents%20on%20your%20team%27s%20machines
-  &display.iconUrl=https://www.<domain>/hypotenuse-icon.png
+  &display.iconUrl=https://www.hypotenuse.cloud/hypotenuse-icon.png
   &developer.name=Arcade
   &webhook.enabled=true
-  &webhook.url=https://api.<domain>/api/webhooks/linear
+  &webhook.url=https://api.hypotenuse.cloud/api/webhooks/linear
   &webhook.resourceTypes=AgentSessionEvent
   &webhook.resourceTypes=AppUserNotification
   &webhook.resourceTypes=PermissionChange
@@ -153,8 +153,9 @@ To list Hypotenuse publicly later, submit it to Linear's integration directory a
 1. **Merge to `main`** once **CI Complete** is green.
 2. **Create the Blueprint**: Render dashboard → *New* → *Blueprint* → this repository. Apply all five resources
    and the `hypotenuse-shared` group.
-3. **Choose the domain.** Attach `api.<domain>` and `www.<domain>` (and the apex, for redirect only). Write the
-   concrete hostnames into `render.yaml` and `render-blueprint.test.ts` in one PR.
+3. **Point DNS at Render.** The project owns `hypotenuse.cloud`: `api.hypotenuse.cloud` is the backend,
+   `www.hypotenuse.cloud` the frontend, and the apex is attached only to redirect to `www`. `render.yaml` already
+   declares all three; add the DNS records the Render dashboard names for each and wait for their certificates.
 4. **Create the Linear OAuth app** (above) and add its three secrets to `hypotenuse-shared`.
 5. **npm trusted publisher** (one-time, for the CLI): on npmjs.com, add a trusted publisher for
    `@arcadeai/hypotenuse` pointing at `arcadeai-labs/hypotenuse` and `.github/workflows/auto-release.yml`.
@@ -163,10 +164,10 @@ To list Hypotenuse publicly later, submit it to Linear's integration directory a
 ## Verify
 
 ```bash
-curl -s https://api.<domain>/api/status | jq '{healthy, checks, linear}'
-curl -s https://api.<domain>/.well-known/oauth-authorization-server | jq -r .issuer    # https://api.<domain>
+curl -s https://api.hypotenuse.cloud/api/status | jq '{healthy, checks, linear}'
+curl -s https://api.hypotenuse.cloud/.well-known/oauth-authorization-server | jq -r .issuer    # https://api.hypotenuse.cloud
 # an unsigned webhook must be refused, and refused identically to a bad signature
-curl -s -o /dev/null -w '%{http_code}\n' -X POST https://api.<domain>/api/webhooks/linear -d '{}'
+curl -s -o /dev/null -w '%{http_code}\n' -X POST https://api.hypotenuse.cloud/api/webhooks/linear -d '{}'
 ```
 
 Then, in the browser: sign up → Settings → **Linear** → *Connect* → approve as a Linear workspace admin →
@@ -175,7 +176,7 @@ the connection shows the workspace name and the teams granted. In Linear, delega
 registered — ends with an error saying no runner is available. That one round trip proves the webhook URL, the
 signing secret, token storage and decryption across api and worker, and the activity outbox.
 
-Finally: `hypotenuse login --url https://api.<domain>` completes in a browser, and `hypotenuse whoami` answers.
+Finally: `hypotenuse login --url https://api.hypotenuse.cloud` completes in a browser, and `hypotenuse whoami` answers.
 
 ## Rollback
 

@@ -121,7 +121,7 @@ Everything else derives from the schema:
   transform; paths are expanded (`~`, env vars) and made absolute in a transform. Relative paths resolve
   against the **config file's directory**, so a repo-local config can say `prompt_file = "prompts/worker.md"`.
 - **JSON Schema.** `hypotenuse config schema` prints `z.toJSONSchema(ConfigSchema)` with `$id`
-  `https://hypotenuse.dev/schemas/config-v1.json`, so editors with Taplo / Even Better TOML can offer
+  `https://www.hypotenuse.cloud/schemas/config-v1.json`, so editors with Taplo / Even Better TOML can offer
   completion through a `#:schema` directive, which `config init` writes as the file's first line.
 - **Validation.** Shape errors come from zod; the semantic checks in §3 run after.
 - **Docs.** The `.describe()` on every field is the text in `CONFIG.md`'s tables.
@@ -206,7 +206,7 @@ runner against staging:
 {
   "version": 1,
   "servers": {
-    "https://api.hypotenuse.dev": {
+    "https://api.hypotenuse.cloud": {
       "session": { "accessToken": "…", "refreshToken": "…", "expiresAt": 1792000000000 },
       "runner": { "id": 42, "projectId": 7, "name": "evan-mbp", "token": "hyp_rt_…" }
     }

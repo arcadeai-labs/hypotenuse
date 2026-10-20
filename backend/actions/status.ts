@@ -1,12 +1,17 @@
 import { sql } from "drizzle-orm";
 import { Action, api, HTTP_METHOD } from "keryx";
 import { z } from "zod";
+import {
+  linearCallbackUrl,
+  linearConfigured,
+  linearWebhookUrl,
+} from "../ops/LinearOps";
 import packageJSON from "../package.json";
 
 export class Status implements Action {
   name = "status";
   description =
-    "Returns server health and runtime information including the server name, process ID, package version, uptime in milliseconds, memory consumption in MB, and dependency health checks for the database and Redis. A check is `null` when that dependency is disabled (e.g. no `DATABASE_URL`), and disabled checks do not affect `healthy`. Does not require authentication.";
+    "Returns server health and runtime information including the server name, process ID, package version, uptime in milliseconds, memory consumption in MB, and dependency health checks for the database and Redis, and the Linear webhook and OAuth callback URLs this deployment expects (with whether Linear credentials are configured). A check is `null` when that dependency is disabled (e.g. no `DATABASE_URL`), and disabled checks do not affect `healthy`. Does not require authentication.";
   inputs = z.object({});
   web = { route: "/status", method: HTTP_METHOD.GET };
   tracing = false;
@@ -45,6 +50,13 @@ export class Status implements Action {
       checks: {
         database: databaseHealthy,
         redis: redisHealthy,
+      },
+      // What an operator pastes into the Linear OAuth app's settings, derived
+      // from APPLICATION_URL so nobody has to guess. Not part of `healthy`.
+      linear: {
+        configured: linearConfigured(),
+        webhookUrl: linearWebhookUrl(),
+        callbackUrl: linearCallbackUrl(),
       },
     };
   }

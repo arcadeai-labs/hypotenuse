@@ -119,7 +119,7 @@ Global options: `-c/--config <path>` (the daemon config file, read from [phase 1
 
 ```json
 {
-  "baseUrl": "https://api.<domain>",
+  "baseUrl": "https://api.hypotenuse.cloud",
   "project": 12,
   "oauth": { "clientId": "…", "accessToken": "…", "refreshToken": "…", "expiresAt": 1767225600000 },
   "runner": null
@@ -131,7 +131,7 @@ credential; operator sign-in and the runner token are deliberately separate entr
 de-registers a machine and revoking a runner never signs a person out.
 
 Base URL precedence, highest wins: `--url`, `HYPOTENUSE_URL`, `credentials.json` `baseUrl`, the config file's
-`[server] url`, then the compiled-in default `https://api.<domain>` (set when the staging domain is chosen in
+`[server] url`, then the compiled-in default `https://api.hypotenuse.cloud` (the staging API; chosen in
 [phase 2](./phase-02-deployment.md)). Callers pass the origin; the client appends `/api`.
 
 ### 4. Signing in: through the dashboard, onto a CLI token we own

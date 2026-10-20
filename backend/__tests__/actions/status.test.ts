@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { type ActionResponse, api } from "keryx";
+import { type ActionResponse, api, config } from "keryx";
 import type { Status } from "../../actions/status";
 import { HOOK_TIMEOUT, serverUrl } from "../setup";
 
@@ -37,5 +37,17 @@ describe("status", () => {
     expect(body.healthy).toBe(true);
     expect(body.name).toBe("hypotenuse-test");
     expect(body.uptime).toBeGreaterThanOrEqual(0);
+  });
+});
+
+describe("status: Linear URLs", () => {
+  test("reports the webhook and callback URLs derived from APPLICATION_URL", async () => {
+    const res = await fetch(`${url}/api/status`);
+    const body = (await res.json()) as ActionResponse<Status>;
+    const origin = config.server.web.applicationUrl.replace(/\/+$/, "");
+    expect(body.linear.webhookUrl).toBe(`${origin}/api/webhooks/linear`);
+    expect(body.linear.callbackUrl).toBe(`${origin}/api/linear/callback`);
+    // The example env leaves the Linear app unconfigured.
+    expect(body.linear.configured).toBe(false);
   });
 });

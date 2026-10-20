@@ -5,7 +5,7 @@
 > origin Linear can deliver webhooks to**. A local developer gets the same property through a reserved
 > ngrok tunnel, because Linear refuses to deliver to `localhost`.
 
-> **Status: planned, not built.** Nothing is deployed. The blueprint is ToolExec's, renamed and pruned, plus
+> **Status: built (not yet deployed).** Nothing is deployed. The blueprint is ToolExec's, renamed and pruned, plus
 > the Linear keys and the public webhook URL every later phase assumes.
 
 Hypotenuse's reason for having a hosted half at all is that **Linear webhooks need a public URL**. A daemon on a
@@ -207,17 +207,63 @@ curl -s -o /dev/null -w '%{http_code}\n' -X POST https://api.<domain>/api/webhoo
 
 ## Definition of done
 
-- [ ] `render.yaml` defines `hypotenuse-api`, `hypotenuse-worker`, `hypotenuse-frontend`, `hypotenuse-redis`, `hypotenuse-db`
-- [ ] Api and worker share `backend/Dockerfile`; only the worker migrates and runs tasks
-- [ ] `hypotenuse-shared` holds `SECRETS_ENCRYPTION_KEY` (generated once), `NODE_ENV`, logging, and Sentry literals
-- [ ] `LINEAR_*` and `SMTP_*` live on the env group via the dashboard; none appears with a value in the file
-- [ ] `MCP_OAUTH_TRUST_PROXY=true`; the issuer is the public origin
-- [ ] Public hostnames declared as `domains:`; webhook and callback URLs derived from `APPLICATION_URL` and shown on `/api/status`
-- [ ] Reserved ngrok tunnel works for local webhook development
-- [ ] `render-blueprint.test.ts` asserts every invariant above
-- [ ] `docs/DEPLOY.md` covers rehearsal, first deploy, the Linear app, rollback, and rotation
-- [ ] Staging deploys automatically on merge to `main`
+- [x] `render.yaml` defines `hypotenuse-api`, `hypotenuse-worker`, `hypotenuse-frontend`, `hypotenuse-redis`, `hypotenuse-db`
+- [x] Api and worker share `backend/Dockerfile`; only the worker migrates and runs tasks
+- [x] `hypotenuse-shared` holds `SECRETS_ENCRYPTION_KEY` (generated once), `NODE_ENV`, and logging (no Sentry yet — see learnings)
+- [x] `LINEAR_*` and `SMTP_*` live on the env group via the dashboard; none appears with a value in the file
+- [x] `MCP_OAUTH_TRUST_PROXY=true`
+- [x] Public hostnames declared as `domains:`; webhook and callback URLs derived from `APPLICATION_URL` and shown on `/api/status`
+- [x] Reserved ngrok tunnel for local webhook development (ported with the foundation)
+- [x] `render-blueprint.test.ts` asserts every invariant above
+- [x] `docs/DEPLOY.md` covers rehearsal, first deploy, the Linear app, rollback, and rotation
+- [ ] Staging deploys automatically on merge to `main` — needs the Render Blueprint created by someone with Render access
 
 ## Learnings from the build
 
-_Nothing yet — this phase has not been built._
+### What is built, and what only a person with Render access can do
+
+The blueprint, its invariant test, and the Linear URL reporting are built and tested. **Nothing is deployed**: creating
+the Render Blueprint, attaching DNS, and adding the dashboard-only secrets need a Render account, which an agent
+session does not have. `docs/DEPLOY.md` is the checklist for whoever does it first, and the unticked Definition of done
+item above is that step.
+
+### The domain
+
+The project owns `hypotenuse.cloud`: `www.hypotenuse.cloud` is the frontend, `api.hypotenuse.cloud` the backend, and
+the apex is attached only so Render redirects it to `www`. The blueprint test does **not** hard-code the domain: it
+derives the expected hosts from `APPLICATION_URL` and `WEB_SERVER_ALLOWED_ORIGINS` and checks each is attached as a
+`domains:` entry on the service that answers it, so a future domain change is an edit to `render.yaml` alone. The
+example URLs across the docs (`api.hypotenuse.cloud` in configs, `www.hypotenuse.cloud` for dashboard links and the
+config JSON Schema) use the same two hosts.
+
+### Decisions that differ from the plan's table
+
+- **`APPLICATION_URL` is set on the worker too**, not only the API. The worker writes dashboard and session links into
+  Linear (`externalUrls`), and Keryx's default is `http://localhost:8080` — the ToolExec failure mode where a worker
+  quietly wrote unreachable URLs. The test asserts both backends carry the same `https://` origin.
+- **No Sentry keys yet.** ToolExec's blueprint commits a Sentry DSN for `@keryxjs/sentry`; Hypotenuse does not depend
+  on that plugin yet, so the keys would configure nothing. They arrive with the plugin.
+- **`SMTP_*` are not declared `sync: false` in the group.** Render ignores `sync: false` inside an `envVarGroup`, so
+  ToolExec's declarations there were decorative. They are listed in a comment instead and set in the dashboard.
+
+### `/api/status` reports the Linear URLs
+
+`linear.webhookUrl` and `linear.callbackUrl` come from `ops/LinearOps.ts` (`linearWebhookUrl()`,
+`linearCallbackUrl()`), derived from `config.server.web.applicationUrl` plus the API route, and `linear.configured`
+says whether the three `LINEAR_*` secrets are present. They are reported, never part of `healthy`: a deployment
+without a Linear app yet is still a healthy server. `config/linear.ts` is the `linear` config namespace the
+connection phase reads.
+
+### A config augmentation must travel with its readers
+
+`config/linear.ts` declares `config.linear` by augmenting Keryx's `KeryxConfig`. The frontend type-checks
+`actions/status.ts` through the `@backend/*` alias and reaches `ops/LinearOps.ts`, but not `config/index.ts` — so
+`config.linear` did not exist in that program and `tsc -b` failed. Every ops file that reads an app config namespace
+carries `import type {} from "../config/<namespace>"`, which costs nothing at runtime and brings the augmentation
+along wherever the file is type-checked.
+
+### The ToolExec blueprint test was not ported wholesale
+
+ToolExec's is 800+ lines, most of it about sandboxes, GitHub App keys, and proxies Hypotenuse does not have. The port
+keeps its strict Zod schema of the blueprint subset (so a typo'd key fails to parse) and the `COMPUTE_PLANS` enum (the
+`starter plus` trap), and asserts only the invariants this plan lists.

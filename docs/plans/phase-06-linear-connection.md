@@ -403,7 +403,7 @@ Against a real Linear workspace (staging, once):
 ```bash
 bun keryx.ts linear:manifest-url                       # create the app in Linear from this URL
 # set LINEAR_CLIENT_ID / SECRET / WEBHOOK_SECRET in hypotenuse-shared, deploy
-hypotenuse login --url https://api.staging.hypotenuse.dev
+hypotenuse login --url https://api.hypotenuse.cloud
 hypotenuse linear connect                              # approve as a Linear admin, pick teams
 hypotenuse linear status --json | jq '.installation | {status, organizationName, appUserId, accessTokenExpiresAt}'
 # 25 hours later: still active, accessTokenExpiresAt moved, lastRefreshedAt recent
