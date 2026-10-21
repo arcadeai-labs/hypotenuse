@@ -48,6 +48,13 @@
       "when": 1792563812621,
       "tag": "0006_sweet_black_bolt",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1792610710768,
+      "tag": "0007_productive_magik",
+      "breakpoints": true
     }
   ]
 }

@@ -206,7 +206,7 @@ describe("doctor", () => {
       group: "agents",
       status: "ok",
       message:
-        "fake: fake-agent 1.2.3 answered initialize; auth methods: oauth, api-key",
+        "fake: fake-agent 1.2.3 answered initialize; auth methods: oauth, api-key; a session opened",
     });
     expect(report.checks).toContainEqual(
       expect.objectContaining({ group: "config", status: "ok" }),

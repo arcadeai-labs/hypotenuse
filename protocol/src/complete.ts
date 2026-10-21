@@ -10,6 +10,13 @@ export const CompleteRequest = z.strictObject({
   error: z.string().max(4096).nullable().optional(),
   acpSessionId: z.string().max(255).nullable().optional(),
   branch: z.string().max(255).nullable().optional(),
+  answersConsumed: z
+    .array(z.number().int().positive())
+    .max(100)
+    .optional()
+    .describe(
+      "The activity ids of delivered answers the turn took as answers; any other answer becomes the session's next prompt",
+    ),
 });
 export type CompleteRequest = z.infer<typeof CompleteRequest>;
 

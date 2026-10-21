@@ -11,7 +11,7 @@
  * | Credentials | present, `0600`, a runner for the server |
  * | Server | `/api/status`, a dry-run heartbeat, latency, clock skew |
  * | Daemon | the control socket's `status`; the service unit |
- * | Agents | each used agent's command; `--agent <id>` runs `initialize` |
+ * | Agents | each used agent's command; `--agent <id>` runs `initialize` and opens a session |
  * | Repositories | pass-3 checks and `git fetch --dry-run` |
  * | Disk | free space under `worktree_root` against `min_free_disk` |
  */
@@ -21,6 +21,8 @@ import { dirname } from "node:path";
 import type { Command } from "commander";
 import { PROTOCOL_HEADER, PROTOCOL_VERSION } from "../../../protocol/src/index";
 import pkg from "../../package.json";
+import { handshake } from "../acp/handshake";
+import { resolveAgentLaunch } from "../acp/presets";
 import { ApiClient, ApiError } from "../api/client";
 import { originOf } from "../api/credentials";
 import { checkConfig, formatIssue } from "../config/check";
@@ -35,7 +37,6 @@ import { tildify } from "../config/paths";
 import { resolveAgents } from "../config/resolve";
 import type { Config } from "../config/schema";
 import { type CliContext, emit, runCommand } from "../context";
-import { probeAgent } from "../daemon/acp-probe";
 import {
   buildCapabilities,
   buildLimits,
@@ -321,11 +322,13 @@ export async function runDoctor(
       );
       continue;
     }
-    const probe = await probeAgent(
-      agent.command,
-      { ...ctx.env, ...agent.env },
-      config.agents[agent.id]?.startup_timeout ?? 60_000,
-    );
+    const launch = resolveAgentLaunch(config, agent.id, ctx.env);
+    const probe = await handshake({
+      command: agent.command,
+      env: launch?.env ?? (ctx.env as Record<string, string>),
+      timeoutMs: config.agents[agent.id]?.startup_timeout ?? 60_000,
+      session: true,
+    });
     if (!probe.ok)
       list.fail("agents", `${agent.id}: initialize failed: ${probe.error}`);
     else {
@@ -333,10 +336,24 @@ export async function runDoctor(
         [probe.agentInfo?.name, probe.agentInfo?.version]
           .filter(Boolean)
           .join(" ") || agent.id;
-      list.ok(
-        "agents",
-        `${agent.id}: ${name} answered initialize${probe.authMethods.length ? `; auth methods: ${probe.authMethods.map((m) => m.id).join(", ")}` : "; no authentication needed"}`,
-      );
+      const methods = probe.authMethods.length
+        ? `; auth methods: ${probe.authMethods.map((m) => m.id).join(", ")}`
+        : "; no authentication needed";
+      if (probe.session)
+        list.ok(
+          "agents",
+          `${agent.id}: ${name} answered initialize${methods}; a session opened`,
+        );
+      else if (probe.authRequired)
+        list.fail(
+          "agents",
+          `${agent.id}: ${name} is not logged in — \`hypotenuse agents login ${agent.id}\``,
+        );
+      else
+        list.fail(
+          "agents",
+          `${agent.id}: ${name} answered initialize, but a session did not open: ${probe.error}`,
+        );
     }
   }
   if (
@@ -428,7 +445,7 @@ export function registerDoctorCommand(program: Command): void {
     )
     .option(
       "--agent <id>",
-      "also start this agent and run the ACP initialize handshake",
+      "also start this agent, run the ACP handshake, and open a session",
     )
     .option("--offline", "skip every check that needs the network")
     .action(async function (this: Command) {

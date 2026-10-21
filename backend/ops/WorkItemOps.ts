@@ -1,4 +1,5 @@
 import type {
+  Answer,
   Cancel,
   ClaimRequest,
   CompleteRequest,
@@ -31,6 +32,7 @@ import {
   type WorkCancelReason,
   type WorkItem,
   type WorkItemOutcome,
+  type WorkItemPrompt,
   type WorkItemStatus,
   workItems,
 } from "../schema/work_items";
@@ -365,6 +367,61 @@ export interface FinishOptions {
   fallback?: OutboundContent | null;
   /** Send the fallback in the acknowledgement lane (stops). */
   urgent?: boolean;
+  /** The delivered answers the daemon reported taking; the rest are requeued. */
+  answersConsumed?: readonly number[];
+}
+
+/**
+ * Turn a held item's delivered answers that its turn did not take into the
+ * session's next `prompt` turn — a reply that chose nothing is an instruction
+ * ("don't delete build, run the tests first"), and a turn that ended or was
+ * lost before reading one must not drop it.
+ * @param tx - The transaction (the session is locked).
+ * @param item - The item.
+ * @param consumed - The activity ids the turn took as answers.
+ * @returns Whether a prompt was queued.
+ */
+async function releaseAnswers(
+  tx: TxHandle,
+  item: WorkItem,
+  consumed: readonly number[],
+): Promise<boolean> {
+  const taken = new Set(consumed);
+  const left = item.answers.filter((a) => !taken.has(a.activityId));
+  if (left.length === 0) return false;
+  const session = await lockSession(tx, item.agentSessionId);
+  for (const answer of left) await createOrMergePrompt(tx, session, answer);
+  return true;
+}
+
+/**
+ * A person's follow-up to a held turn that is waiting on them: appended to
+ * the turn's `answers`, which heartbeats deliver, instead of queueing a turn.
+ * @param tx - The transaction (the session is locked).
+ * @param agentSessionId - The session.
+ * @param prompt - The inbound activity's id and text.
+ * @returns The effects (a `work` frame to the runner), or null when no held
+ *   turn is waiting.
+ */
+export async function answerWaitingTurn(
+  tx: TxHandle,
+  agentSessionId: number,
+  prompt: WorkItemPrompt,
+): Promise<WorkEffects | null> {
+  const waiting = (await liveItems(tx, agentSessionId)).find(
+    (i) =>
+      (HELD_WORK_STATUSES as readonly string[]).includes(i.status) &&
+      i.awaitingAnswerSince !== null &&
+      i.cancelRequestedAt === null,
+  );
+  if (!waiting) return null;
+  await tx
+    .update(workItems)
+    .set({ answers: [...waiting.answers, prompt], awaitingAnswerSince: null })
+    .where(eq(workItems.id, waiting.id));
+  const effects = noEffects();
+  if (waiting.runnerId) effects.frames.set(waiting.runnerId, "work");
+  return effects;
 }
 
 /**
@@ -383,12 +440,17 @@ export async function finishWorkItem(
   options: FinishOptions,
 ): Promise<WorkEffects> {
   const effects = noEffects();
+  // A stopped turn takes its unread answers with it: a stop disengages.
+  if (options.status !== "cancelled") {
+    await releaseAnswers(tx, item, options.answersConsumed ?? []);
+  }
   await tx
     .update(workItems)
     .set({
       status: options.status,
       finishedAt: new Date(),
       waitingReason: null,
+      awaitingAnswerSince: null,
       ...(options.outcome !== undefined ? { outcome: options.outcome } : {}),
       ...(options.cancelReason ? { cancelReason: options.cancelReason } : {}),
     })
@@ -555,6 +617,7 @@ export async function requeueRunnerWork(
       );
       continue;
     }
+    await releaseAnswers(tx, item, []);
     await tx
       .update(workItems)
       .set(requeuedColumns())
@@ -595,6 +658,10 @@ function requeuedColumns() {
     waitingReason: null,
     // Sequence numbers are per claim: the next claimant numbers from 1.
     lastEventSeq: 0,
+    // Answers were for the lost claim's questions; `releaseAnswers` has
+    // already made them a prompt.
+    awaitingAnswerSince: null,
+    answers: [],
   };
 }
 
@@ -612,7 +679,12 @@ export async function heartbeatWork(
   tx: TxHandle,
   runnerId: number,
   active: number[],
-): Promise<{ offers: Offer[]; cancels: Cancel[]; unknownActive: number[] }> {
+): Promise<{
+  offers: Offer[];
+  cancels: Cancel[];
+  unknownActive: number[];
+  answers: Answer[];
+}> {
   const now = new Date();
   const held = await tx
     .select()
@@ -657,6 +729,15 @@ export async function heartbeatWork(
         reason: i.cancelReason ?? "stop",
       })),
     unknownActive: active.filter((id) => !heldIds.has(id)),
+    answers: held
+      .filter((i) => !i.cancelRequestedAt)
+      .flatMap((i) =>
+        i.answers.map((a) => ({
+          workItemId: i.id,
+          activityId: a.activityId,
+          body: a.body,
+        })),
+      ),
   };
 }
 
@@ -1021,6 +1102,10 @@ export async function buildAssignment(
           }))
         : null,
     origin: session.origin,
+    creator:
+      session.creatorName || session.creatorEmail
+        ? { name: session.creatorName, email: session.creatorEmail }
+        : null,
     humanDelegated:
       session.origin === "delegation" && session.creatorExternalUserId !== null,
     leaseExpiresAt: item.leaseExpiresAt!.getTime(),
@@ -1118,6 +1203,7 @@ export async function applyEvents(
   let answered = item.answeredAt;
   let usage = item.usage;
   let daemonState = item.daemonState;
+  let awaiting = item.awaitingAnswerSince;
 
   for (const { event, index } of ordered) {
     const owner = recorded.get(event.eventId);
@@ -1174,6 +1260,7 @@ export async function applyEvents(
       usage = counts;
     }
     if (event.type === "status") daemonState = event.state;
+    if (event.type === "elicitation") awaiting = new Date();
     response.accepted++;
   }
 
@@ -1186,6 +1273,7 @@ export async function applyEvents(
       answeredAt: answered,
       usage,
       daemonState,
+      awaitingAnswerSince: awaiting,
     })
     .where(eq(workItems.id, item.id));
   return { response, effects };
@@ -1328,6 +1416,7 @@ export async function completeWork(
     },
     fallback,
     urgent: request.outcome === "cancelled",
+    answersConsumed: request.answersConsumed ?? [],
   });
   return { alreadyTerminal: false, effects };
 }
@@ -1409,6 +1498,7 @@ export async function reapWork(): Promise<ReapResult> {
         result.failed.push(item.id);
         return;
       }
+      await releaseAnswers(tx, item, []);
       await tx
         .update(workItems)
         .set({ ...requeuedColumns(), attempts })

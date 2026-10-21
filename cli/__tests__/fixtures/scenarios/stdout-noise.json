@@ -1,0 +1,11 @@
+{
+  "turns": [
+    [
+      { "stdout": "INFO starting up" },
+      { "stdout": "INFO loading model" },
+      { "stdout": "INFO ready" },
+      { "sleep": 2000 },
+      { "stop": "end_turn" }
+    ]
+  ]
+}

@@ -26,6 +26,7 @@ import { listRoutingRules, roleSwitchAttempt, stripPrefix } from "./RoutingOps";
 import type { HandlerResult } from "./TriggerEventOps";
 import {
   ackBody,
+  answerWaitingTurn,
   cancelSessionWork,
   createOrMergePrompt,
   createSessionCreatedItem,
@@ -282,7 +283,8 @@ export async function handleAgentSessionEvent(
 
 /**
  * A person's follow-up, as work. A pending repository question takes it as
- * the answer. Otherwise it joins the session's queued follow-up or becomes a
+ * the answer, and so does a running turn waiting on a question it asked.
+ * Otherwise it joins the session's queued follow-up or becomes a
  * new turn; a person typing while a turn runs is told it will be read next.
  * A role prefix for the other role does not switch roles — the role is the
  * session's for life — and the session says so.
@@ -302,6 +304,11 @@ async function followUp(
   if (session.pendingRepositoryChoice) {
     return answerRepositoryChoice(tx, session, body);
   }
+  const answered = await answerWaitingTurn(tx, session.id, {
+    activityId,
+    body,
+  });
+  if (answered) return answered;
   const effects = noEffects();
   let text = body;
   if (session.role) {

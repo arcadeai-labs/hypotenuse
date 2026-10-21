@@ -4,9 +4,7 @@ The `hypotenuse` daemon is what makes a machine a [runner](/docs/runners). It ke
 project, takes the work routed to it, runs it, and reports back. It reads one config file, keeps its own small
 database, and runs until you stop it — as a user service it starts at login and comes back after a crash.
 
-> **Where this is today.** The daemon connects, claims work, and reports it end to end, but the part that runs a
-> coding agent is not installed yet: a turn it takes is answered with a note saying so. Everything on this page —
-> the config file, the service, `doctor` — is what the agent host plugs into.
+Each turn it takes runs a [coding agent](/docs/agents) on this machine.
 
 ## Set up a machine
 
@@ -49,14 +47,14 @@ The daemon runs the same checks when it starts and refuses an invalid file rathe
 |---|---|
 | `hypotenuse daemon start` | starts it in the background and waits until it is connected and ready — or prints why it is not |
 | `hypotenuse daemon status` | the runner, the server connection, busy slots, and events waiting to be sent; exits `3` when the daemon is not running |
-| `hypotenuse daemon logs -f` | follows the log; `--session <id>` keeps one agent session's lines |
+| `hypotenuse daemon logs -f` | follows the log; `--session <id>` shows one session's agent log instead — the agent's output and every message exchanged with it |
 | `hypotenuse daemon reload` | re-reads the config (as `kill -HUP` does) and says which changes need a restart |
 | `hypotenuse daemon stop` | takes no new work, lets running turns finish (up to `--timeout`, 10 minutes), then exits |
 | `hypotenuse daemon stop --cancel` | stops running turns at once; each says in Linear where it was stopped |
 | `hypotenuse daemon restart` | stop, then start |
 
 **Reload** applies what is safe at once — roles, subscriptions, limits, the log level, prompts and policies for new
-turns, new repositories. Changing the server, an existing repository's path, or the command of an agent that is
+turns, new repositories — and forgets that an agent was found logged out, so it is offered work again. Changing the server, an existing repository's path, or the command of an agent that is
 running needs `hypotenuse daemon restart`, and `reload` says so instead of half-applying it.
 
 If a daemon stops answering, `daemon stop` says so and suggests `hypotenuse daemon stop --force`, which stops the
@@ -116,7 +114,8 @@ When a runner is not picking anything up, run `hypotenuse doctor`. It checks, in
 update exists; `git`, `gh`, and Bun; the config file; the credentials; the server, the runner token, latency and
 clock skew; the daemon and its service; each agent's command; each repository's origin; and free disk space. Each
 line is ✓, ! (a warning), or ✕, and it exits `1` if anything failed. `hypotenuse doctor --agent claude` also starts
-that agent and asks it to introduce itself, which shows whether it needs you to log in first.
+that agent, asks it to introduce itself, and opens a session, which shows whether it needs you to log in first —
+`hypotenuse agents login claude` does that ([coding agents](/docs/agents#logging-in)).
 
 ## Files
 
@@ -125,5 +124,7 @@ that agent and asks it to introduce itself, which shows whether it needs you to 
 | Config | `~/.config/hypotenuse/config.toml` (`-c <path>` or `HYPOTENUSE_CONFIG` for another) |
 | Credentials | `~/.config/hypotenuse/credentials.json`, readable only by you; the daemon refuses it otherwise |
 | State, log, control socket | `~/.local/state/hypotenuse/` — or, for a config elsewhere, `.hypotenuse-state/` beside it |
+| Session logs | `sessions/<session>.log` in the state directory |
+| Session working directories | `workspaces/<session>` in the state directory, until worktrees replace them |
 
 `hypotenuse config path` prints the ones in use.

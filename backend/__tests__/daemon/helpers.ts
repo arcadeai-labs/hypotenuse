@@ -12,7 +12,8 @@ import type { TestUser } from "../setup";
  * server: a temporary home with its own config, credentials, state, and a git
  * clone whose origin is `github.com/acme/web`. Nothing is scripted on the
  * daemon's side — it heartbeats, subscribes, claims, posts events, and
- * completes on its own, with the null executor in its slots.
+ * completes on its own, running the scripted fake ACP agent
+ * (`cli/__tests__/fixtures/fake-acp-agent.ts`) as its worker's agent.
  */
 
 /** The CLI's entry point, run from source. */
@@ -26,10 +27,26 @@ export const CLI = join(
   "cli.ts",
 );
 
+/** The scripted fake ACP agent every daemon home runs. */
+export const FAKE_AGENT = join(
+  import.meta.dir,
+  "..",
+  "..",
+  "..",
+  "cli",
+  "__tests__",
+  "fixtures",
+  "fake-acp-agent.ts",
+);
+
 /** Options for one daemon home. */
 export interface DaemonHomeOptions {
-  /** How long the null executor holds each turn open. */
+  /** How long each turn runs (the `ticking` scenario); 0 plays `happy`. */
   turnMs?: number;
+  /** The fake agent's scenario, instead of the one `turnMs` picks. */
+  scenario?: string;
+  /** More `[roles.worker]` keys. */
+  worker?: string;
   /** Extra config TOML appended to the file. */
   extraConfig?: string;
   /** The server origin the daemon talks to (a proxy, say). */
@@ -47,7 +64,8 @@ export class DaemonHome {
    * @param url - The server the daemon talks to.
    * @param runner - The registered runner.
    * @param machine - The raw machine id this home reports.
-   * @param turnMs - How long the null executor holds a turn.
+   * @param turnMs - How long each turn runs.
+   * @param scenario - The fake agent's scenario, if not the one `turnMs` picks.
    */
   constructor(
     readonly root: string,
@@ -55,6 +73,7 @@ export class DaemonHome {
     readonly runner: TestRunner,
     readonly machine: string,
     readonly turnMs: number,
+    readonly scenario: string | null = null,
   ) {}
 
   /**
@@ -121,9 +140,10 @@ export class DaemonHome {
         "max_parallel_jobs = 2",
         'roles = ["worker"]',
         "[agents.claude]",
-        'command = ["bun"]',
+        `command = ["bun", "${FAKE_AGENT}"]`,
         "[roles.worker]",
         'agent = "claude"',
+        options.worker ?? "",
         "[[repositories]]",
         'path = "~/web"',
         'base_branch = "main"',
@@ -141,12 +161,39 @@ export class DaemonHome {
       runner,
       `test-machine-${runner.id}`,
       options.turnMs ?? 0,
+      options.scenario ?? null,
     );
   }
 
   /** The config file. */
   get configPath(): string {
     return join(this.root, "config", "hypotenuse", "config.toml");
+  }
+
+  /** Where the fake agent records what it receives (JSONL). */
+  get recordPath(): string {
+    return join(this.root, "agent-record.jsonl");
+  }
+
+  /**
+   * What the fake agent has received, in order.
+   * @returns One entry per request or notification.
+   */
+  received(): {
+    method: string;
+    params: Record<string, unknown>;
+    pid: number;
+    session: string | null;
+  }[] {
+    try {
+      return readFileSync(this.recordPath, "utf8")
+        .trim()
+        .split("\n")
+        .filter(Boolean)
+        .map((l) => JSON.parse(l));
+    } catch {
+      return [];
+    }
   }
 
   /** The default state directory. */
@@ -162,7 +209,10 @@ export class DaemonHome {
       XDG_CONFIG_HOME: join(this.root, "config"),
       XDG_STATE_HOME: join(this.root, "state"),
       HYPOTENUSE_MACHINE_ID: this.machine,
-      HYPOTENUSE_NULL_TURN_MS: String(this.turnMs),
+      FAKE_ACP_SCENARIO:
+        this.scenario ?? (this.turnMs > 0 ? "ticking" : "happy"),
+      FAKE_ACP_LONG_MS: String(this.turnMs),
+      FAKE_ACP_RECORD: this.recordPath,
       HYPOTENUSE_NO_UPDATE_CHECK: "1",
       HYPOTENUSE_URL: undefined,
       HYPOTENUSE_CONFIG: undefined,

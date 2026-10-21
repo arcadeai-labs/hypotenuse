@@ -1,7 +1,6 @@
 /**
- * The seam between the supervisor and whatever runs a turn. This build's
- * slots run the null executor; the ACP agent host replaces it behind the same
- * interface.
+ * The seam between the supervisor and whatever runs a turn: the ACP agent
+ * host (`acp/host.ts`) in the daemon, and scripted executors in tests.
  */
 import type {
   CANCEL_REASONS,
@@ -11,6 +10,14 @@ import type {
 import type { Config } from "../config/schema";
 import type { EventInput } from "./event-sink";
 import type { DaemonLog } from "./log";
+
+/** A person's reply to a question the turn asked, as the server delivers it. */
+export interface TurnReply {
+  /** The inbound prompt activity it came from. */
+  activityId: number;
+  /** What they wrote. */
+  body: string;
+}
 
 /** Why a running turn is being stopped. */
 export type StopReason =
@@ -36,6 +43,24 @@ export interface TurnContext {
   emit(event: EventInput): void;
   /** The daemon log, with this session's fields. */
   log: DaemonLog;
+  /** The daemon's state directory (session logs, working directories). */
+  stateDir: string;
+  /** The daemon's environment, which agents inherit. */
+  env: Record<string, string | undefined>;
+  /** The ACP session this runner last held for the session, if any. */
+  previousAcpSessionId: string | null;
+  /**
+   * Register the reader of a person's replies to the turn's questions. It
+   * answers true when a reply answered a question, false when it did not
+   * (it becomes the session's next prompt), and null when nothing was asked.
+   */
+  onReply(handler: (reply: TurnReply) => boolean | null): void;
+  /** Record the agent's process id (null once it is gone). */
+  setPid(pid: number | null): void;
+  /** Report whether the turn's agent could start, for capabilities. */
+  agentAvailability(available: boolean, error?: string): void;
+  /** The turn's state as heartbeats report it. */
+  setState(state: "starting" | "running"): void;
 }
 
 /** How a turn ended. */

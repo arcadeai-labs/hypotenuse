@@ -1,0 +1,947 @@
+/**
+ * The ACP agent host: the `SessionExecutor` the daemon's slots run. One turn
+ * is one agent process:
+ *
+ * 1. **Spawn** the role's agent in its own process group, its stderr and a
+ *    JSON-RPC trace going to the session log, after an ephemeral "Starting…"
+ *    thought so the session visibly moves however slow the start is.
+ * 2. **`initialize`** within the agent's `startup_timeout`.
+ * 3. **Choose the session**: `session/resume` (no replay) or `session/load`
+ *    (replay discarded) for a follow-up on this runner, else `session/new`.
+ *    `auth_required` calls `authenticate` once with an agent-run method; an
+ *    agent that only offers terminal logins fails the turn with the command
+ *    that fixes it, and is reported unavailable until a handshake succeeds.
+ * 4. **Prompt** with `buildPrompt`, mapping every update to events as it
+ *    arrives, flushing thoughts on a timer, and keeping the session out of
+ *    Linear's stale state with "Still working" thoughts.
+ * 5. **Answer** the agent's permission requests and elicitations by policy, or
+ *    by asking the person and waiting — the turn timer paused, the idle timer
+ *    running.
+ * 6. **End** from the stop reason, or on **one cancel path** for every reason a
+ *    turn stops early: `session/cancel`, every open question answered
+ *    `cancelled`, `stop_grace` for the agent to wind down, then SIGTERM and
+ *    SIGKILL to its process group, then the final activity for the reason.
+ *
+ * Until worktrees exist, a session works in `<state dir>/workspaces/<id>`.
+ */
+import { mkdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import pkg from "../../package.json";
+import { repositoryName } from "../config/resolve";
+import type { RoleConfig } from "../config/schema";
+import type { EventInput } from "../daemon/event-sink";
+import type {
+  SessionExecutor,
+  StopReason,
+  TurnContext,
+  TurnResult,
+} from "../daemon/executor";
+import {
+  AcpConnection,
+  AcpError,
+  type AgentCapabilities,
+  type AuthMethod,
+  errorMessage,
+  type InitializeResponse,
+  isAuthRequired,
+  type McpServer,
+  type NewSessionResponse,
+  RESOURCE_REFUSED,
+  type SessionConfigOption,
+} from "./connection";
+import {
+  elicitationQuestion,
+  permissionQuestion,
+  QuestionQueue,
+} from "./elicitation";
+import { ConfinedFs, OutsideWorktree } from "./fs";
+import {
+  changedFiles,
+  quoteTail,
+  SessionLog,
+  sessionLogPath,
+  stopActivity,
+} from "./lifecycle";
+import { TurnMapper } from "./mapping";
+import { automaticOption, decide } from "./permissions";
+import { resolveAgentLaunch, sessionVariables } from "./presets";
+import { buildPrompt } from "./prompt";
+
+/** Consecutive non-ACP stdout lines that fail a turn. */
+export const NOISE_LIMIT = 3;
+
+/** How long after SIGTERM before SIGKILL. */
+export const KILL_GRACE_MS = 5_000;
+
+/** How often the turn's timers are checked. */
+export const TICK_MS = 1_000;
+
+/** Why a turn ended early, inside the host. */
+type EndReason = StopReason | "timeout" | "idle" | "noise";
+
+/** A failure that ends the turn with an `error`. */
+class TurnFailure extends Error {
+  /**
+   * @param body - The error activity's body.
+   * @param unavailable - Mark the agent unavailable with this reason.
+   */
+  constructor(
+    readonly body: string,
+    readonly unavailable?: string,
+  ) {
+    super(body);
+  }
+}
+
+/** Options for the host (tests shorten its timers). */
+export interface HostOptions {
+  /** The timer tick. */
+  tickMs?: number;
+  /** SIGTERM to SIGKILL. */
+  killGraceMs?: number;
+  /** The clock. */
+  now?: () => number;
+}
+
+/** The daemon's executor. */
+export class AcpSessionExecutor implements SessionExecutor {
+  /**
+   * @param options - Timer overrides.
+   */
+  constructor(private readonly options: HostOptions = {}) {}
+
+  /**
+   * Run one turn.
+   * @param ctx - The turn.
+   * @returns How it ended.
+   */
+  run(ctx: TurnContext): Promise<TurnResult> {
+    return new Turn(ctx, this.options).run();
+  }
+}
+
+/**
+ * Resolve when a promise settles or a timer fires, whichever is first.
+ * @param promise - The promise.
+ * @param ms - The timeout.
+ * @param onTimeout - The value on timeout.
+ * @returns The result.
+ */
+async function within<T, U>(
+  promise: Promise<T>,
+  ms: number,
+  onTimeout: U,
+): Promise<T | U> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<U>((resolve) => {
+        timer = setTimeout(() => resolve(onTimeout), ms);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** One turn, from spawn to final activity. */
+class Turn {
+  private readonly now: () => number;
+  private readonly role: RoleConfig | undefined;
+  private readonly agentId: string;
+  private readonly cwd: string;
+  private readonly branch: string | null = null;
+  private readonly log: SessionLog;
+  private readonly mapper: TurnMapper;
+  private readonly questions: QuestionQueue;
+  private conn: AcpConnection | null = null;
+  private acpSessionId: string | null = null;
+  private agentTitle: string;
+  private endReason: EndReason | null = null;
+  private ended!: Promise<EndReason>;
+  private endNow!: (reason: EndReason) => void;
+  private lastTraffic: number;
+  private lastEmit: number;
+  private waitingSince: number | null = null;
+  private pausedMs = 0;
+  private promptStartedAt: number | null = null;
+  private noiseInARow = 0;
+  private noiseFailure: string | null = null;
+  private fs: ConfinedFs;
+  private where: string;
+
+  /**
+   * @param ctx - The turn.
+   * @param options - Timer overrides.
+   */
+  constructor(
+    private readonly ctx: TurnContext,
+    private readonly options: HostOptions,
+  ) {
+    this.now = options.now ?? Date.now;
+    const assignment = ctx.assignment;
+    this.role = ctx.config.roles[assignment.role];
+    this.agentId = assignment.agentId ?? this.role?.agent ?? "unknown";
+    this.agentTitle = this.agentId;
+    this.cwd = join(
+      ctx.stateDir,
+      "workspaces",
+      String(assignment.agentSessionId),
+    );
+    mkdirSync(this.cwd, { recursive: true, mode: 0o700 });
+    this.log = new SessionLog(
+      sessionLogPath(ctx.stateDir, assignment.agentSessionId),
+      ctx.config.log.level === "trace",
+    );
+    this.mapper = new TurnMapper({
+      cwd: this.cwd,
+      now: this.now,
+      onUnknown: (kind) =>
+        ctx.log.debug(`ignoring an unknown session update kind: ${kind}`, {
+          session: assignment.agentSessionId,
+        }),
+    });
+    this.questions = new QuestionQueue({
+      post: (event) => this.emit(event),
+      waiting: (waiting) => {
+        if (waiting) {
+          this.waitingSince = this.now();
+          this.emit({ type: "status", state: "waiting_permission" });
+        } else {
+          if (this.waitingSince !== null)
+            this.pausedMs += this.now() - this.waitingSince;
+          this.waitingSince = null;
+          this.lastTraffic = this.now();
+          this.emit({ type: "status", state: "running" });
+        }
+      },
+    });
+    this.fs = new ConfinedFs([
+      this.cwd,
+      ...(this.role?.additional_directories ?? []),
+    ]);
+    const repo = assignment.repository;
+    this.where = repo ? `\`${repo.remote}\`` : "its working directory";
+    this.lastTraffic = this.now();
+    this.lastEmit = this.now();
+    this.ended = new Promise((resolve) => {
+      this.endNow = (reason) => {
+        if (this.endReason) return;
+        this.endReason = reason;
+        resolve(reason);
+      };
+    });
+  }
+
+  /**
+   * Report an event.
+   * @param event - The event.
+   */
+  private emit(event: EventInput): void {
+    this.lastEmit = this.now();
+    this.ctx.emit(event);
+  }
+
+  /**
+   * Report several events.
+   * @param events - The events.
+   */
+  private emitAll(events: EventInput[]): void {
+    for (const event of events) this.emit(event);
+  }
+
+  /**
+   * The whole turn.
+   * @returns How it ended.
+   */
+  async run(): Promise<TurnResult> {
+    const { ctx } = this;
+    ctx.signal.addEventListener("abort", () =>
+      this.endNow(ctx.stopReason() ?? "stop"),
+    );
+    if (ctx.signal.aborted) this.endNow(ctx.stopReason() ?? "stop");
+    ctx.onReply((reply) => {
+      this.log.note(`reply ${reply.activityId}`);
+      return this.questions.deliver(reply);
+    });
+
+    let timer: ReturnType<typeof setInterval> | undefined;
+    try {
+      this.emit({
+        type: "thought",
+        body: `Starting ${this.agentId} in ${this.where}…`,
+        ephemeral: true,
+      });
+      await this.start();
+      timer = setInterval(() => this.tick(), this.options.tickMs ?? TICK_MS);
+      return await this.prompt();
+    } catch (error) {
+      if (error instanceof TurnFailure) {
+        if (error.unavailable) ctx.agentAvailability(false, error.unavailable);
+        this.log.note(`failed: ${error.body}`);
+        if (!this.endReason) {
+          this.emitAll(this.mapper.flushThought(false));
+          this.emit({ type: "error", body: error.body });
+          return this.result("failed", error.body);
+        }
+        // Awaited: `finally` closes the agent, and must not run first.
+        return await this.stopped();
+      }
+      if (this.endReason) return await this.stopped();
+      throw error;
+    } finally {
+      clearInterval(timer);
+      await this.shutdown();
+    }
+  }
+
+  /**
+   * A result.
+   * @param outcome - The outcome.
+   * @param error - The error text, if failed.
+   * @returns The turn result.
+   */
+  private result(outcome: TurnResult["outcome"], error?: string): TurnResult {
+    return {
+      outcome,
+      error: error ? error.slice(0, 4000) : null,
+      acpSessionId: this.acpSessionId,
+      branch: this.branch,
+    };
+  }
+
+  /**
+   * Spawn, initialize, and open the ACP session.
+   * @throws {TurnFailure} When the agent cannot be started or used.
+   */
+  private async start(): Promise<void> {
+    const { ctx } = this;
+    const { assignment } = ctx;
+    const launch = resolveAgentLaunch(
+      ctx.config,
+      this.agentId,
+      ctx.env,
+      sessionVariables(assignment, this.branch),
+    );
+    if (!launch) {
+      throw new TurnFailure(
+        `Runner ${ctx.runnerName} has no agent \`${this.agentId}\` configured for the ${assignment.role} role.`,
+      );
+    }
+    this.log.note(`spawn ${launch.command.join(" ")} in ${this.cwd}`);
+    try {
+      this.conn = AcpConnection.spawn({
+        command: launch.command,
+        cwd: this.cwd,
+        env: launch.env,
+        stderr: (line) => this.log.stderr(line),
+        noise: (line) => this.noise(line),
+        trace: (line, message) => {
+          if (line.startsWith("<-")) {
+            this.lastTraffic = this.now();
+            this.noiseInARow = 0;
+          }
+          this.log.rpc(line, message);
+        },
+        handlers: {
+          update: (n) => {
+            if (this.acpSessionId && n.sessionId !== this.acpSessionId) return;
+            this.emitAll(this.mapper.update(n.update));
+          },
+          requestPermission: (params) => this.permission(params),
+          readTextFile: async (params) => {
+            try {
+              return {
+                content: this.fs.read(params.path, params.line, params.limit),
+              };
+            } catch (error) {
+              throw this.fsError(error);
+            }
+          },
+          writeTextFile: async (params) => {
+            try {
+              this.fs.write(params.path, params.content);
+            } catch (error) {
+              throw this.fsError(error);
+            }
+          },
+          createElicitation: (params) =>
+            this.questions.ask(elicitationQuestion(params, this.agentTitle)),
+          unknown: (method) => this.log.note(`unhandled ${method}`),
+        },
+      });
+    } catch (error) {
+      const message = `Could not start ${this.agentId} (\`${launch.command.join(" ")}\`): ${errorMessage(error)}`;
+      throw new TurnFailure(message, `could not start: ${errorMessage(error)}`);
+    }
+    const conn = this.conn;
+    ctx.setPid(conn.pid);
+    ctx.setState("starting");
+
+    const init = await this.guard(
+      conn.initialize(pkg.version),
+      launch.startupTimeoutMs,
+      `${this.agentId} did not answer initialize within ${launch.startupTimeoutMs / 1000}s (\`${launch.command.join(" ")}\`).`,
+      true,
+    );
+    this.agentTitle =
+      init.agentInfo?.title ?? init.agentInfo?.name ?? this.agentId;
+    ctx.log.debug(
+      `${this.agentId} initialized: ${init.agentInfo?.name ?? "?"} ${init.agentInfo?.version ?? ""}`,
+      { session: assignment.agentSessionId },
+    );
+    await this.openSession(init, launch.authMethod);
+    ctx.agentAvailability(true);
+    ctx.setState("running");
+  }
+
+  /**
+   * Await an agent request, failing the turn if the agent exits, the turn is
+   * stopped, or (with a timeout) it takes too long.
+   * @param request - The request.
+   * @param timeoutMs - How long it may take, or 0 for no limit.
+   * @param timeoutMessage - The error when it does not answer in time.
+   * @param unavailableOnFailure - Mark the agent unavailable if the process dies.
+   * @returns The answer.
+   */
+  private async guard<T>(
+    request: Promise<T>,
+    timeoutMs: number,
+    timeoutMessage: string,
+    unavailableOnFailure = false,
+  ): Promise<T> {
+    const conn = this.conn as AcpConnection;
+    const stop = Symbol("stop");
+    const exit = conn.exited.then((code) => ({ exit: code }));
+    const races: Promise<unknown>[] = [
+      request.then(
+        (value) => ({ value }),
+        (error) => ({ error }),
+      ),
+      exit,
+      this.ended.then(() => stop),
+    ];
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    if (timeoutMs > 0)
+      races.push(
+        new Promise((resolve) => {
+          timer = setTimeout(() => resolve({ timeout: true }), timeoutMs);
+        }),
+      );
+    const outcome = (await Promise.race(races).finally(() =>
+      clearTimeout(timer),
+    )) as
+      | { value: T }
+      | { error: unknown }
+      | { exit: number | null }
+      | { timeout: true }
+      | typeof stop;
+    if (outcome === stop) throw new TurnFailure("stopped");
+    if ("value" in outcome) return outcome.value;
+    if ("error" in outcome) {
+      // A dying agent closes the connection a moment before it exits: say
+      // it exited, with its code, rather than that the connection closed.
+      const exited = await within(conn.exited, 1_000, "running" as const);
+      if (exited === "running") throw outcome.error;
+      throw new TurnFailure(
+        `${this.agentId} exited unexpectedly (code ${exited ?? "signal"}).${quoteTail(this.log.tail())}`,
+        unavailableOnFailure
+          ? `exited before initialize (code ${exited ?? "signal"})`
+          : undefined,
+      );
+    }
+    if ("timeout" in outcome)
+      throw new TurnFailure(
+        `${timeoutMessage}${quoteTail(this.log.tail())}`,
+        unavailableOnFailure ? "did not answer initialize" : undefined,
+      );
+    throw new TurnFailure(
+      `${this.agentId} exited unexpectedly (code ${outcome.exit ?? "signal"}).${quoteTail(this.log.tail())}`,
+      unavailableOnFailure
+        ? `exited before initialize (code ${outcome.exit ?? "signal"})`
+        : undefined,
+    );
+  }
+
+  /**
+   * Create, resume, or load the ACP session, authenticating once if needed.
+   * @param init - The agent's `initialize` answer.
+   * @param configuredMethod - The config's `auth_method`.
+   */
+  private async openSession(
+    init: InitializeResponse,
+    configuredMethod: string | null,
+  ): Promise<void> {
+    let authenticated = false;
+    for (;;) {
+      try {
+        await this.chooseSession(init.agentCapabilities ?? {});
+        return;
+      } catch (error) {
+        if (!isAuthRequired(error) || authenticated) {
+          if (error instanceof TurnFailure) throw error;
+          throw new TurnFailure(
+            `${this.agentId} could not open a session: ${errorMessage(error)}${quoteTail(this.log.tail())}`,
+          );
+        }
+        const method = this.authMethodFor(
+          init.authMethods ?? [],
+          configuredMethod,
+        );
+        if (!method) {
+          throw new TurnFailure(
+            `${this.agentId} on runner ${this.ctx.runnerName} is not logged in. On that machine, run: \`hypotenuse agents login ${this.agentId}\``,
+            "not logged in",
+          );
+        }
+        this.log.note(`authenticate ${method}`);
+        await this.guard(
+          (this.conn as AcpConnection).authenticate(method),
+          0,
+          "",
+        );
+        authenticated = true;
+      }
+    }
+  }
+
+  /**
+   * The auth method the host may run itself: the configured one if the agent
+   * runs it, else the agent's first agent-run method. Terminal methods need a
+   * person at the machine.
+   * @param methods - The advertised methods.
+   * @param configured - The config's `auth_method`.
+   * @returns The method id, or null.
+   */
+  private authMethodFor(
+    methods: AuthMethod[],
+    configured: string | null,
+  ): string | null {
+    const agentRun = methods.filter(
+      (m) => (m as { type?: string }).type !== "terminal",
+    );
+    if (configured)
+      return agentRun.find((m) => m.id === configured)?.id ?? null;
+    return agentRun[0]?.id ?? null;
+  }
+
+  /**
+   * The session for this turn (§5 of the plan's table).
+   * @param caps - The agent's capabilities.
+   */
+  private async chooseSession(caps: AgentCapabilities): Promise<void> {
+    const conn = this.conn as AcpConnection;
+    const { assignment, previousAcpSessionId } = this.ctx;
+    const extra = this.role?.additional_directories ?? [];
+    const directories =
+      extra.length && caps.sessionCapabilities?.additionalDirectories
+        ? { additionalDirectories: extra }
+        : {};
+    const mcpServers = this.mcpServers(caps);
+    this.resumed = false;
+    if (
+      previousAcpSessionId &&
+      !assignment.fresh &&
+      assignment.kind === "prompt"
+    ) {
+      try {
+        if (caps.sessionCapabilities?.resume) {
+          const answer = await this.guard(
+            conn.resumeSession({
+              sessionId: previousAcpSessionId,
+              cwd: this.cwd,
+              mcpServers,
+              ...directories,
+            }),
+            0,
+            "",
+          );
+          this.acpSessionId = previousAcpSessionId;
+          this.resumed = true;
+          await this.applyMode(answer);
+          return;
+        }
+        if (caps.loadSession) {
+          this.acpSessionId = previousAcpSessionId;
+          this.mapper.replaying = true;
+          try {
+            const answer = await this.guard(
+              conn.loadSession({
+                sessionId: previousAcpSessionId,
+                cwd: this.cwd,
+                mcpServers,
+                ...directories,
+              }),
+              0,
+              "",
+            );
+            this.resumed = true;
+            await this.applyMode(answer);
+            return;
+          } finally {
+            this.mapper.replaying = false;
+          }
+        }
+      } catch (error) {
+        if (isAuthRequired(error) || error instanceof TurnFailure) throw error;
+        this.acpSessionId = null;
+        this.log.note(
+          `resuming ${previousAcpSessionId} failed: ${errorMessage(error)}`,
+        );
+        this.ctx.log.info(
+          `could not resume the agent's session; starting a new one with the history in the prompt: ${errorMessage(error)}`,
+          { session: assignment.agentSessionId },
+        );
+      }
+    }
+    const created: NewSessionResponse = await this.guard(
+      conn.newSession({ cwd: this.cwd, mcpServers, ...directories }),
+      0,
+      "",
+    );
+    this.acpSessionId = created.sessionId;
+    await this.applyMode(created);
+  }
+
+  /** Whether this turn continues the agent's own session. */
+  private resumed = false;
+
+  /** Settles when `session/prompt` answers (or fails). */
+  private promptSettled: Promise<void> | null = null;
+
+  /**
+   * The role's extra MCP servers, as ACP wants them (HTTP ones only for an
+   * agent that advertises HTTP MCP).
+   * @param caps - The agent's capabilities.
+   * @returns The servers.
+   */
+  private mcpServers(caps: AgentCapabilities): McpServer[] {
+    const servers = this.role?.extra_mcp_servers ?? [];
+    const env = this.ctx.env;
+    const expand = (v: string) =>
+      v.replace(
+        /\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))/g,
+        (_, a?: string, b?: string) => env[(a ?? b) as string] ?? "",
+      );
+    return servers.flatMap((s): McpServer[] => {
+      if (s.command?.length) {
+        const [command, ...args] = s.command;
+        return [
+          {
+            name: s.name,
+            command:
+              Bun.which(command as string, { PATH: env.PATH ?? "" }) ??
+              (command as string),
+            args,
+            env: Object.entries(s.env ?? {}).map(([name, value]) => ({
+              name,
+              value: expand(value),
+            })),
+          },
+        ];
+      }
+      if (s.url && caps.mcpCapabilities?.http) {
+        return [
+          {
+            type: "http" as const,
+            name: s.name,
+            url: s.url,
+            headers: Object.entries(s.headers ?? {}).map(([name, value]) => ({
+              name,
+              value: expand(value),
+            })),
+          },
+        ];
+      }
+      return [];
+    });
+  }
+
+  /**
+   * Select the role's `mode`, if the agent offers one.
+   * @param answer - The session's creation answer.
+   */
+  private async applyMode(answer: {
+    configOptions?: SessionConfigOption[] | null;
+    modes?: { availableModes: { id: string }[] } | null;
+  }): Promise<void> {
+    const mode = this.role?.mode;
+    const sessionId = this.acpSessionId;
+    if (!mode || !sessionId) return;
+    const conn = this.conn as AcpConnection;
+    const option = (answer.configOptions ?? []).find(
+      (o) => o.category === "mode" || o.id === "mode",
+    );
+    try {
+      if (option) {
+        await this.guard(
+          conn.setConfigOption(sessionId, option.id, mode),
+          0,
+          "",
+        );
+        return;
+      }
+      if (answer.modes?.availableModes.some((m) => m.id === mode)) {
+        await this.guard(conn.setMode(sessionId, mode), 0, "");
+        return;
+      }
+      this.ctx.log.warn(
+        `${this.agentId} offers no mode "${mode}"; continuing in its default`,
+      );
+    } catch (error) {
+      if (error instanceof TurnFailure) throw error;
+      this.ctx.log.warn(
+        `selecting mode "${mode}" failed: ${errorMessage(error)}`,
+      );
+    }
+  }
+
+  /**
+   * Send the prompt and see the turn to its end.
+   * @returns How it ended.
+   */
+  private async prompt(): Promise<TurnResult> {
+    const { ctx } = this;
+    const conn = this.conn as AcpConnection;
+    const sessionId = this.acpSessionId as string;
+    let templateText: string | null = null;
+    if (this.role?.prompt_file) {
+      try {
+        templateText = readFileSync(this.role.prompt_file, "utf8");
+      } catch (error) {
+        throw new TurnFailure(
+          `Runner ${ctx.runnerName} cannot read its ${ctx.assignment.role} prompt file: ${errorMessage(error)}`,
+        );
+      }
+    }
+    const blocks = buildPrompt(
+      ctx.assignment,
+      this.role,
+      {
+        cwd: this.cwd,
+        branch: this.branch,
+        repositoryName: this.repositoryName(),
+        runnerName: ctx.runnerName,
+        resumed: this.resumed,
+        templateText,
+      },
+      (name) =>
+        ctx.log.warn(
+          `the prompt template uses an unknown variable {{${name}}}; it rendered empty`,
+        ),
+    );
+    this.promptStartedAt = this.now();
+    this.lastTraffic = this.now();
+    const request = conn.prompt(sessionId, blocks);
+    this.promptSettled = request.then(
+      () => {},
+      () => {},
+    );
+    const answer = await this.guard(request, 0, "").catch((error: unknown) => {
+      if (error instanceof TurnFailure) throw error;
+      throw new TurnFailure(
+        `${this.agentId} failed the turn: ${errorMessage(error)}${quoteTail(this.log.tail())}`,
+      );
+    });
+    if (this.endReason) return await this.stopped();
+    this.emit({ type: "status", state: "finishing" });
+    const stop =
+      answer.stopReason === "cancelled" ? "end_turn" : answer.stopReason;
+    this.emitAll(this.mapper.finish(stop, { branch: this.branch }));
+    return stop === "end_turn"
+      ? this.result("completed")
+      : this.result("failed", `stopReason: ${stop}`);
+  }
+
+  /**
+   * The repository's configured name, if the turn has one.
+   * @returns The name.
+   */
+  private repositoryName(): string | null {
+    const remote = this.ctx.assignment.repository?.remote;
+    if (!remote) return null;
+    const repo = this.ctx.config.repositories.find(
+      (r) => r.remote && r.remote.includes(remote),
+    );
+    return repo ? repositoryName(repo) : (remote.split("/").pop() ?? null);
+  }
+
+  /**
+   * The cancel path's end: wind the agent down, then say what a stopped turn
+   * owes for its reason.
+   * @returns How it ended.
+   */
+  private async stopped(): Promise<TurnResult> {
+    const reason = this.endReason ?? "stop";
+    const waitingOnPerson =
+      this.questions.waiting || this.waitingSince !== null;
+    await this.windDown();
+    if (reason === "noise") {
+      const body =
+        this.noiseFailure ?? `${this.agentId} wrote output that is not ACP.`;
+      this.mapper.stopping = false;
+      this.emit({ type: "error", body });
+      return this.result("failed", body);
+    }
+    const timeouts = this.ctx.config.sessions;
+    const event = stopActivity({
+      reason,
+      runnerName: this.ctx.runnerName,
+      cwd: this.cwd,
+      branch: this.branch,
+      timeoutMs:
+        reason === "idle"
+          ? timeouts.idle_timeout
+          : (this.role?.turn_timeout ?? timeouts.turn_timeout),
+      waitingOnPerson,
+      changedFiles: changedFiles(this.cwd),
+    });
+    if (event) this.emit(event);
+    this.log.note(`stopped: ${reason}`);
+    if (reason === "timeout" || reason === "idle")
+      return this.result(
+        "failed",
+        event && "body" in event ? String(event.body) : reason,
+      );
+    return this.result("cancelled");
+  }
+
+  /**
+   * Steps 1–4 of the cancel path: `session/cancel`, answer every open
+   * question `cancelled`, wait `stop_grace`, then SIGTERM and SIGKILL.
+   */
+  private async windDown(): Promise<void> {
+    this.mapper.stopping = true;
+    this.questions.cancelAll();
+    const conn = this.conn;
+    if (!conn || conn.hasExited) return;
+    const grace = this.ctx.config.sessions.stop_grace;
+    const deadline = this.now() + grace;
+    if (this.acpSessionId && this.promptSettled) {
+      await conn.cancel(this.acpSessionId);
+      // The agent answers `session/prompt` with `cancelled` once it has wound
+      // down; its stdin closing then lets it exit on its own.
+      await within(
+        Promise.race([this.promptSettled, conn.exited]),
+        grace,
+        null,
+      );
+    }
+    conn.close();
+    const left = Math.max(deadline - this.now(), 500);
+    if ((await within(conn.exited, left, "timeout")) !== "timeout") return;
+    this.log.note("still running after stop_grace; SIGTERM");
+    conn.signal("SIGTERM");
+    if (
+      (await within(
+        conn.exited,
+        this.options.killGraceMs ?? KILL_GRACE_MS,
+        "timeout",
+      )) !== "timeout"
+    )
+      return;
+    this.log.note("still running; SIGKILL");
+    conn.signal("SIGKILL");
+    await within(conn.exited, 2_000, null);
+  }
+
+  /** Close the agent after a turn that ended on its own. */
+  private async shutdown(): Promise<void> {
+    const conn = this.conn;
+    if (!conn) return;
+    if (!conn.hasExited) {
+      conn.close();
+      if ((await within(conn.exited, 2_000, "timeout")) === "timeout") {
+        conn.signal("SIGTERM");
+        if (
+          (await within(
+            conn.exited,
+            this.options.killGraceMs ?? KILL_GRACE_MS,
+            "timeout",
+          )) === "timeout"
+        )
+          conn.signal("SIGKILL");
+      }
+    }
+    this.ctx.setPid(null);
+  }
+
+  /** The timers: thought flushes, keepalives, idle and turn timeouts. */
+  private tick(): void {
+    if (this.endReason) return;
+    const now = this.now();
+    this.emitAll(this.mapper.tick());
+    const sessions = this.ctx.config.sessions;
+    const waiting = this.waitingSince !== null;
+    if (now - this.lastTraffic >= sessions.idle_timeout) {
+      this.endNow("idle");
+      return;
+    }
+    const turnTimeout = this.role?.turn_timeout ?? sessions.turn_timeout;
+    if (this.promptStartedAt !== null && !waiting) {
+      const elapsed = now - this.promptStartedAt - this.pausedMs;
+      if (elapsed >= turnTimeout) {
+        this.endNow("timeout");
+        return;
+      }
+    }
+    if (!waiting && now - this.lastEmit >= sessions.keepalive_interval) {
+      const last = this.mapper.lastAction;
+      this.emit({
+        type: "thought",
+        body: last ? `Still working: ${last}` : "Still working.",
+        ephemeral: true,
+      });
+    }
+  }
+
+  /**
+   * A line of stdout that is not ACP.
+   * @param line - The line.
+   */
+  private noise(line: string): void {
+    this.log.note(`stdout (not ACP): ${line.slice(0, 500)}`);
+    this.noiseInARow++;
+    if (this.noiseInARow >= NOISE_LIMIT && !this.noiseFailure) {
+      this.noiseFailure = `${this.agentId} wrote ${NOISE_LIMIT} lines to stdout that are not ACP, so its output cannot be trusted. Its launch command may need a flag to speak ACP, or to log to stderr.${quoteTail(this.log.tail())}`;
+      this.endNow("noise");
+    }
+  }
+
+  /**
+   * Answer a permission request by policy, or ask the person.
+   * @param params - The request.
+   * @returns The answer.
+   */
+  private async permission(params: Parameters<typeof permissionQuestion>[0]) {
+    const policy = this.role?.permission_policy ?? "allow";
+    const decision = decide(policy, params.toolCall.kind);
+    if (decision !== "ask") {
+      const optionId = automaticOption(params.options, decision);
+      this.log.note(
+        `permission ${params.toolCall.toolCallId}: ${decision} → ${optionId ?? "cancelled"}`,
+      );
+      return optionId
+        ? { outcome: { outcome: "selected" as const, optionId } }
+        : { outcome: { outcome: "cancelled" as const } };
+    }
+    this.emitAll(this.mapper.flushThought(true));
+    return this.questions.ask(permissionQuestion(params, this.where, this.cwd));
+  }
+
+  /**
+   * The JSON-RPC error for a refused or failed file operation.
+   * @param error - What the handler threw.
+   * @returns The error to answer with.
+   */
+  private fsError(error: unknown): AcpError {
+    if (error instanceof OutsideWorktree) {
+      this.log.note(`refused file access outside the worktree: ${error.path}`);
+      return new AcpError(RESOURCE_REFUSED, "outside the session worktree", {
+        path: error.path,
+      });
+    }
+    return new AcpError(-32603, errorMessage(error));
+  }
+}

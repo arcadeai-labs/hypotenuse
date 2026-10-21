@@ -254,8 +254,8 @@ with the same machine id. `hypotenuse daemon start` (or a launchd / systemd user
 
 Inside, a **supervisor** owns `runner.max_parallel_jobs` slots (counted again per role and per agent), **ServerLink**
 heartbeats and holds the one-subscription socket, and the **EventSink** drains the queue. A slot runs a turn
-through a `SessionExecutor`; until the ACP host exists that is a null executor that answers and completes. On
-start, a turn a previous process left running is marked `interrupted` and left to the server's lease to re-offer.
+through a `SessionExecutor` — the ACP agent host (`cli/src/acp/host.ts`), one agent process per turn. On start, a
+turn a previous process left running is marked `interrupted` and left to the server's lease to re-offer.
 
 For each claimed work item it:
 
@@ -286,6 +286,10 @@ For each claimed work item it:
 | a PR URL in a tool result or `daemon:linear-report-pr` | `external_url` | `agentSessionUpdate(addedExternalUrls)` labelled "Pull Request" |
 | `usage_update` | `usage` | dashboard only |
 | Linear `prompted` with `signal: stop` | `cancel` frame → `session/cancel` | final `response` saying it stopped and where things stand |
+
+A question asked mid-turn (a permission under `ask`, an agent's elicitation) does not end the turn: the agent
+waits, the person's reply is delivered to it through the heartbeat's `answers`, and a reply that answers nothing
+becomes the next turn ([`RUNNER_PROTOCOL.md`](./RUNNER_PROTOCOL.md#questions-mid-turn)).
 
 ## The Hypotenuse MCP server
 

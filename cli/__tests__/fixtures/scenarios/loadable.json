@@ -1,0 +1,24 @@
+{
+  "agentCapabilities": { "loadSession": true },
+  "replay": [
+    {
+      "sessionUpdate": "user_message_chunk",
+      "content": { "type": "text", "text": "Begin." }
+    },
+    {
+      "sessionUpdate": "agent_message_chunk",
+      "content": {
+        "type": "text",
+        "text": "An old answer that must not be sent again."
+      }
+    },
+    {
+      "sessionUpdate": "tool_call",
+      "toolCallId": "old-1",
+      "title": "old",
+      "kind": "read",
+      "status": "completed"
+    }
+  ],
+  "turns": [[{ "echoPrompt": true }, { "stop": "end_turn" }]]
+}

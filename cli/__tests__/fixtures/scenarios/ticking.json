@@ -1,0 +1,16 @@
+{
+  "turns": [
+    [
+      {
+        "ticks": { "everyMs": 500, "env": "FAKE_ACP_LONG_MS", "default": 3000 }
+      },
+      {
+        "update": {
+          "sessionUpdate": "agent_message_chunk",
+          "content": { "type": "text", "text": "Finished the long job." }
+        }
+      },
+      { "stop": "end_turn" }
+    ]
+  ]
+}

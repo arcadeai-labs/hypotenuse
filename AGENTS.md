@@ -246,6 +246,12 @@ The map is [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md). What follows is the
 - **Lock a session before its work items, and both before a runner row.** Cancellation starts from the session and
   a daemon's writes from an item; any other order deadlocks a Stop against a running turn. Lock an item with
   `WorkItemOps.lockItemWithSession`.
+- **A question mid-turn is answered in the turn.** A held turn that posts an `elicitation` is marked awaiting an
+  answer; the person's next follow-up is appended to that item's `answers` (`WorkItemOps.answerWaitingTurn`) and
+  delivered by heartbeat, not queued. Whatever the daemon does not report in `answersConsumed` becomes the next
+  `prompt` turn when the item ends or is requeued (`releaseAnswers`) — except after a stop.
+- **The agent host owns the ACP SDK through one module.** `cli/src/acp/connection.ts` is the only importer of
+  `@agentclientprotocol/sdk` (pinned exactly); everything else imports its types from there.
 - **A session is sticky to its runner** because its worktree lives there. Re-offering it elsewhere means a fresh
   worktree and replayed history, and is visible in the session as a thought.
 - **History comes from activities, not comments.** Comments can be edited; activities are frozen.
@@ -276,7 +282,10 @@ The map is [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md). What follows is the
   spawns the real `hypotenuse daemon --foreground` against the booted backend and finear, in a temporary home
   with its own config, credentials, state, and a git clone, sometimes through `daemon/proxy.ts` — a recording
   HTTP + WebSocket proxy that can make the server vanish and come back. `HYPOTENUSE_MACHINE_ID` gives each such
-  daemon its own machine, and `HYPOTENUSE_NULL_TURN_MS` holds the placeholder executor's turns open.
+  daemon its own machine. Its coding agent is the fake ACP agent (`cli/__tests__/fixtures/fake-acp-agent.ts`), a
+  real ACP agent on the SDK's agent side playing a JSON scenario from `fixtures/scenarios/` (`FAKE_ACP_SCENARIO`)
+  and recording every request it receives (`FAKE_ACP_RECORD`); `cli/__tests__/acp/` drives the agent host against
+  it directly. No test in CI launches a real coding agent.
 - **Control time by writing columns or advancing finear's clock, never by waiting.** A test that advances
   finear's clock aligns `webhookClock` (`ops/LinearWebhookOps.ts`) to it, or the server refuses finear's
   deliveries as replays.

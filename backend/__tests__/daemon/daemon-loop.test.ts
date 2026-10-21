@@ -17,8 +17,8 @@ import { DaemonHome, outbound, until } from "./helpers";
 /**
  * The whole loop with the real daemon: `hypotenuse daemon start
  * --foreground` heartbeats, subscribes to its channel, is woken by the routing
- * ping, claims the turn, runs the null executor, and its `thought` and
- * `response` land in `agent_activities` and in finear while the work item
+ * ping, claims the turn, runs the fake ACP agent through the agent host, and
+ * its events land in `agent_activities` and in finear while the work item
  * reaches `completed`. `daemon status` answers over the control socket.
  */
 
@@ -88,12 +88,12 @@ describe("daemon loop", () => {
     ]);
     expect(bodies).toContainEqual([
       "thought",
-      "Hypotenuse runner mario-laptop received this; no agent host is installed yet.",
+      "Starting claude in `github.com/acme/web`…",
     ]);
-    expect(bodies.at(-1)?.[0]).toBe("response");
-    expect(String(bodies.at(-1)?.[1])).toContain(
-      "Runner mario-laptop has no coding agent yet",
-    );
+    expect(bodies.at(-1)).toEqual([
+      "response",
+      "Fixed the rounding in `src/a.ts`.",
+    ]);
     await settle();
   }, 30_000);
 

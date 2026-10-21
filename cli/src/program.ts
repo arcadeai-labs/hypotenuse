@@ -5,6 +5,7 @@
  */
 import { Command } from "commander";
 import pkg from "../package.json";
+import { registerAgentsCommands } from "./commands/agents";
 import { registerAuditCommands } from "./commands/audit";
 import { registerAuthCommands } from "./commands/auth";
 import { registerCheckUpdateCommand } from "./commands/check-update";
@@ -80,6 +81,7 @@ export function buildProgram(): Command {
   registerIdentityCommands(program);
   registerConfigCommands(program);
   registerDaemonCommands(program);
+  registerAgentsCommands(program);
   registerServiceCommands(program);
   registerDoctorCommand(program);
   registerCheckUpdateCommand(program);

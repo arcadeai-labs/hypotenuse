@@ -1,0 +1,16 @@
+{
+  "turns": [
+    [
+      {
+        "update": {
+          "sessionUpdate": "agent_message_chunk",
+          "content": {
+            "type": "text",
+            "text": "That would delete production data."
+          }
+        }
+      },
+      { "stop": "refusal" }
+    ]
+  ]
+}

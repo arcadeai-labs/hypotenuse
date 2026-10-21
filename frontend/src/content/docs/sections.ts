@@ -1,6 +1,7 @@
 import configReference from "../../../../docs/CONFIG.md?raw";
 import accounts from "./accounts.md?raw";
 import agentSessions from "./agent-sessions.md?raw";
+import agents from "./agents.md?raw";
 import audit from "./audit.md?raw";
 import cli from "./cli.md?raw";
 import config from "./config.md?raw";
@@ -74,6 +75,7 @@ export const DOCS_SECTIONS: DocsSection[] = [
   },
   { slug: "runners", title: "Runners", markdown: runners },
   { slug: "daemon", title: "The daemon", markdown: daemon },
+  { slug: "agents", title: "Coding agents", markdown: agents },
   {
     slug: "config",
     title: "Config file",

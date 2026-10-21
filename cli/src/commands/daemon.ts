@@ -23,6 +23,7 @@ import {
   statSync,
 } from "node:fs";
 import { type Command, Option } from "commander";
+import { sessionLogPath } from "../acp/lifecycle";
 import { parseDuration } from "../config/durations";
 import { loadConfig } from "../config/loader";
 import { daemonPaths, defaultStateDir, tildify } from "../config/paths";
@@ -75,6 +76,8 @@ export interface DaemonLocation {
   socket: string;
   log: string;
   stopGraceMs: number;
+  /** The state directory (session logs live under it). */
+  stateDir: string;
 }
 
 /**
@@ -96,6 +99,7 @@ export function locateDaemon(ctx: CliContext): DaemonLocation {
     pidfile: paths.pidfile,
     socket: record?.socketPath ?? paths.socket,
     log: paths.log,
+    stateDir: paths.stateDir,
     stopGraceMs: loaded.config?.sessions.stop_grace ?? 10_000,
   };
 }
@@ -158,7 +162,7 @@ export function describeStatus(status: DaemonStatus, ctx: CliContext): string {
  * @param error - What the call threw.
  * @throws {ExitError} With code 3 when the daemon is not running; else rethrows.
  */
-function notRunning(ctx: CliContext, error: unknown): never {
+export function notRunning(ctx: CliContext, error: unknown): never {
   if (error instanceof DaemonNotRunning) {
     if (ctx.json) console.log(JSON.stringify({ running: false }));
     throw new ExitError(
@@ -498,7 +502,10 @@ export function registerDaemonCommands(program: Command): void {
     .description("Print the daemon's log")
     .option("-f, --follow", "keep printing new lines")
     .option("-n, --lines <n>", "how many lines to print", "200")
-    .option("--session <id>", "only lines about one agent session")
+    .option(
+      "--session <id>",
+      "one agent session's log: its agent's stderr and ACP trace",
+    )
     .action(async function (this: Command) {
       await runCommand(this, async (ctx) => {
         const opts = this.opts() as {
@@ -506,7 +513,21 @@ export function registerDaemonCommands(program: Command): void {
           lines: string;
           session?: string;
         };
-        await tailLog(locateDaemon(ctx).log, {
+        const located = locateDaemon(ctx);
+        // A session's agent log (its stderr and JSON-RPC trace) when it has
+        // one; else the daemon log's lines about it.
+        const sessionLog =
+          opts.session && /^\d+$/.test(opts.session)
+            ? sessionLogPath(located.stateDir, Number(opts.session))
+            : null;
+        if (sessionLog && existsSync(sessionLog)) {
+          await tailLog(sessionLog, {
+            lines: Number(opts.lines) || 200,
+            follow: Boolean(opts.follow),
+          });
+          return;
+        }
+        await tailLog(located.log, {
           lines: Number(opts.lines) || 200,
           follow: Boolean(opts.follow),
           session: opts.session,

@@ -1,0 +1,24 @@
+{
+  "turns": [
+    [
+      {
+        "elicit": {
+          "mode": "form",
+          "message": "Which database should I use?",
+          "requestedSchema": {
+            "type": "object",
+            "properties": {
+              "db": {
+                "type": "string",
+                "title": "Database",
+                "enum": ["postgres", "sqlite"]
+              }
+            },
+            "required": ["db"]
+          }
+        }
+      },
+      { "stop": "end_turn" }
+    ]
+  ]
+}

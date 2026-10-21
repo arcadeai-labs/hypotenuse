@@ -150,9 +150,16 @@ preset id without a table gets the preset with defaults.
 | `auggie` | `npx -y @augmentcode/auggie --acp` |
 | `kilo` | `npx -y @kilocode/cli acp` |
 
+Presets that start with `npx` get `npm_config_yes=true`; `codex` gets `NO_BROWSER=1` and `auggie`
+`AUGMENT_DISABLE_AUTO_UPDATE=1`. An agent inherits the daemon's environment except the daemon's own
+`HYPOTENUSE_*` settings, then gets these defaults, its `env`, and the per-session variables below, in that order.
+
 Agents authenticate with their own credentials on this machine (Claude Code login, `OPENAI_API_KEY`, and so
 on). If one needs an interactive login, run `hypotenuse agents login <id>`. `hypotenuse doctor --agent <id>`
-checks it.
+checks it by starting the agent and opening a session. A turn never asks a person to log in: an agent that
+reports `auth_required` is sent `authenticate` once with `auth_method` (or its first method it can run itself),
+and an agent that only offers a terminal login fails the turn with the command to run, and is reported
+unavailable (so routing stops offering it work) until `agents login` succeeds or the daemon reloads.
 
 ## Roles
 
@@ -207,7 +214,7 @@ guidance, conversation history, the request, and environment notes) is added by 
 | `issue.title` | the issue title |
 | `issue.url` | the Linear issue URL |
 | `issue.description` | the issue description (Markdown) |
-| `issue.team.key`, `issue.team.name` | the issue's team |
+| `issue.team.key`, `issue.team.name` | the issue's team (the server does not send the team's name yet, so `issue.team.name` renders empty) |
 | `session.url` | the Linear agent session URL |
 | `session.id` | the Hypotenuse agent session id |
 | `role` | `manager` or `worker` |
@@ -217,16 +224,19 @@ guidance, conversation history, the request, and environment notes) is added by 
 | `runner.name` | this runner |
 | `dispatch.parent_identifier` | for dispatched work, the issue the manager dispatched from |
 
-**The built-in templates**, in short:
+**The built-in templates** (`cli/src/acp/templates/`), in short:
 
-- **Worker:** implement the issue in the worktree; keep a plan current; commit in small steps that reference
-  the issue identifier; push the branch and open a pull request; report it with `linear_report_pr` as soon as
-  it exists; ask with `linear_ask_user` and end the turn when a decision belongs to a person; finish with a
-  short summary of what changed and what to review; never claim to be a person.
-- **Manager:** own the shape of the work; write or refine the PRD (project description or a Linear document);
-  break it into issues and sub-issues with clear acceptance criteria; dispatch implementable issues with
-  `hypotenuse_dispatch`; review workers' results when review turns arrive; ask before large scope changes;
-  never write code itself.
+- **Worker:** implement the issue in the working directory; read the issue and Linear's context first; keep a
+  plan current; commit in small steps that reference the issue identifier; push the branch and open a pull
+  request that links the issue; ask once and stop when a decision belongs to a person; finish with a short
+  summary of what changed, what was tested, and what to review first.
+- **Manager:** own the shape of the work; write or refine the plan; break it into issues small enough for one
+  session each, with acceptance criteria; ask before changing scope; never write code itself; finish with what
+  was decided and what happens next.
+
+Whatever the template, the prompt opens by telling the agent which issue and session it works for and that it
+is an AI agent that must never claim to be a person. A follow-up that resumes the agent's own session gets only
+that reminder and the new message.
 
 `hypotenuse config validate` rejects unknown variables (`{{issue.titel}}` suggests `{{issue.title}}`).
 
@@ -267,7 +277,7 @@ that have it, matched by normalized `remote`.
 
 | Key | Type | Default | Rules |
 |---|---|---|---|
-| `level` | `"error"` \| `"warn"` \| `"info"` \| `"debug"` \| `"trace"` | `"info"` | overridden by `-v` (debug) and `HYPOTENUSE_LOG_LEVEL`; `trace` logs ACP message contents to session logs |
+| `level` | `"error"` \| `"warn"` \| `"info"` \| `"debug"` \| `"trace"` | `"info"` | overridden by `-v` (debug) and `HYPOTENUSE_LOG_LEVEL`; every session's agent log (`<state dir>/sessions/<id>.log`) has the agent's stderr and one line per ACP message (method and size); `trace` adds the messages' contents, which can include code and secrets |
 | `file` | path | `<state dir>/daemon.log` | rotated at 10 MB, five kept |
 
 ## Environment variables
