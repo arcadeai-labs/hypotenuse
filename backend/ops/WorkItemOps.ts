@@ -390,7 +390,21 @@ async function releaseAnswers(
   const left = item.answers.filter((a) => !taken.has(a.activityId));
   if (left.length === 0) return false;
   const session = await lockSession(tx, item.agentSessionId);
-  for (const answer of left) await createOrMergePrompt(tx, session, answer);
+  let queued: WorkItem | null = null;
+  for (const answer of left)
+    queued = (await createOrMergePrompt(tx, session, answer)).item;
+  // A later follow-up may already be queued (typed after this answer was
+  // delivered): the person's messages are read in the order they sent them,
+  // and inbound activity ids are that order.
+  const ordered = [...(queued?.prompt ?? [])].sort(
+    (a, b) => a.activityId - b.activityId,
+  );
+  if (queued && JSON.stringify(ordered) !== JSON.stringify(queued.prompt)) {
+    await tx
+      .update(workItems)
+      .set({ prompt: ordered })
+      .where(eq(workItems.id, queued.id));
+  }
   return true;
 }
 

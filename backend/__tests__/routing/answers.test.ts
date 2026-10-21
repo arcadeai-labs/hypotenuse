@@ -159,6 +159,26 @@ describe("answers", () => {
     expect(items[1].prompt?.map((p) => p.body)).toEqual(["and then the docs"]);
   });
 
+  test("an unread answer joins a queued follow-up in the order it was sent", async () => {
+    const { externalSessionId, session, workItemId } =
+      await waitingTurn("Unread, then more");
+    await personSays(linear, externalSessionId, "run the tests first");
+    await personSays(linear, externalSessionId, "and then the docs");
+    await laptop.events(workItemId, [
+      { type: "response", body: "I did not remove build/." },
+    ]);
+    await laptop.complete(workItemId, "completed");
+    const items = await itemsOf(session.id);
+    expect(items.map((i) => [i.kind, i.status])).toEqual([
+      ["session_created", "completed"],
+      ["prompt", "queued"],
+    ]);
+    expect(items[1].prompt?.map((p) => p.body)).toEqual([
+      "run the tests first",
+      "and then the docs",
+    ]);
+  });
+
   test("a stop while waiting cancels the turn and drops its unread answers", async () => {
     const { externalSessionId, session, workItemId } =
       await waitingTurn("Stop waiting");
