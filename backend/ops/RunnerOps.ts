@@ -497,6 +497,17 @@ export function machineInUseResponse(conflict: MachineConflict): Response {
  * @returns True for a unique violation on `runners_live_machine_idx`.
  */
 export function isMachineIndexViolation(error: unknown): boolean {
+  return isUniqueViolation(error, "runners_live_machine_idx");
+}
+
+/**
+ * Whether an error is a unique violation on one named index, wherever Drizzle
+ * nested the driver's error in its `cause` chain.
+ * @param error - What a query or transaction threw.
+ * @param constraint - The index name.
+ * @returns True for a `23505` on that index.
+ */
+export function isUniqueViolation(error: unknown, constraint: string): boolean {
   let current: unknown = error;
   for (let depth = 0; depth < 8 && current; depth++) {
     const e = current as {
@@ -504,9 +515,7 @@ export function isMachineIndexViolation(error: unknown): boolean {
       constraint?: unknown;
       cause?: unknown;
     };
-    if (e.code === "23505" && e.constraint === "runners_live_machine_idx") {
-      return true;
-    }
+    if (e.code === "23505" && e.constraint === constraint) return true;
     current = e.cause;
   }
   return false;

@@ -9,12 +9,13 @@ import {
 import { ProjectMemberMiddleware } from "../../middleware/rbac";
 import {
   canManageRunner,
+  isUniqueViolation,
   publishRunnersChanged,
   runnerInProject,
   runnerNameInput,
   serializeRunner,
 } from "../../ops/RunnerOps";
-import { runners } from "../../schema/runners";
+import { type Runner, runners } from "../../schema/runners";
 
 /**
  * `runner:edit` — rename a runner, or pause and resume it. A paused
@@ -93,23 +94,30 @@ export class RunnerEdit extends AuditedAction {
           ),
         )
         .limit(1);
-      if (taken) {
-        throw new TypedError({
-          message: `A runner named "${params.name}" is already registered in this project`,
-          type: ErrorType.CONNECTION_ACTION_PARAM_VALIDATION,
-          key: "name",
-        });
-      }
+      if (taken) throw nameTaken(params.name);
     }
 
-    const [after] = await tx
-      .update(runners)
-      .set({
-        ...(params.name !== undefined ? { name: params.name } : {}),
-        ...(params.enabled !== undefined ? { enabled: params.enabled } : {}),
-      })
-      .where(eq(runners.id, before.id))
-      .returning();
+    // In a savepoint: a concurrent rename onto the same name passes the check
+    // above too, and the name index refuses the loser. The savepoint keeps
+    // the transaction usable so that refusal is the same 406, not a 500.
+    let after: Runner | undefined;
+    try {
+      [after] = await tx.transaction((sp) =>
+        sp
+          .update(runners)
+          .set({
+            ...(params.name !== undefined ? { name: params.name } : {}),
+            ...(params.enabled !== undefined
+              ? { enabled: params.enabled }
+              : {}),
+          })
+          .where(eq(runners.id, before.id))
+          .returning(),
+      );
+    } catch (error) {
+      if (!isUniqueViolation(error, "runners_project_name_idx")) throw error;
+      throw nameTaken(params.name!);
+    }
 
     connection.metadata.auditBefore = serializeRunner(before);
     connection.metadata.auditAfter = serializeRunner(after!);
@@ -126,4 +134,17 @@ export class RunnerEdit extends AuditedAction {
   async afterCommit(_result: unknown, params: ActionParams<RunnerEdit>) {
     await publishRunnersChanged(params.projectId);
   }
+}
+
+/**
+ * The refusal for a name another unrevoked runner in the project holds.
+ * @param name - The name asked for.
+ * @returns A 406 on `name`.
+ */
+function nameTaken(name: string): TypedError {
+  return new TypedError({
+    message: `A runner named "${name}" is already registered in this project`,
+    type: ErrorType.CONNECTION_ACTION_PARAM_VALIDATION,
+    key: "name",
+  });
 }

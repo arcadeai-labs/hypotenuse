@@ -265,3 +265,28 @@ describe("runner:edit and runner:revoke", () => {
     expect(all.some((r) => r.status === "revoked")).toBe(true);
   });
 });
+
+describe("runner:edit under concurrency", () => {
+  test("concurrent renames onto one name: one lands, the rest are told it is taken", async () => {
+    const racers = await Promise.all(
+      Array.from({ length: 6 }, (_, i) =>
+        registerRunner(url, universe.peach, universe.projectId, `renamer-${i}`),
+      ),
+    );
+    const statuses = await Promise.all(
+      racers.map(async (r) => {
+        const res = await fetch(`${url}/api/runner/${r.id}`, {
+          method: "POST",
+          headers: authHeaders(universe.peach.sessionId),
+          body: JSON.stringify({
+            projectId: universe.projectId,
+            name: "contested",
+          }),
+        });
+        return res.status;
+      }),
+    );
+    expect(statuses.filter((s) => s === 200)).toHaveLength(1);
+    expect(statuses.filter((s) => s === 406)).toHaveLength(racers.length - 1);
+  });
+});
