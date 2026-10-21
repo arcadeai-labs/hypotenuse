@@ -165,6 +165,8 @@ services:
       paths:
         - frontend/**
         - design/**
+        # The public docs' Config file page is rendered from the reference.
+        - docs/CONFIG.md
         # `tsc -b` resolves action response types through `@backend/*`, so a
         # backend or protocol change can break — or fix — the frontend build.
         - backend/**

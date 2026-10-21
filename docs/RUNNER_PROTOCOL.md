@@ -104,6 +104,7 @@ Request (`HeartbeatRequest`):
 | `machineId` | stable hash of the OS machine id; the server allows one live (`online` or `draining`) runner per machine |
 | `limits` | `maxParallelJobs` (the machine), and optional per-role and per-agent caps. Absent keys mean "no limit at that level". The server counts live work items per runner, per role, and per agent itself and never offers past any of them |
 | `capabilities` | replaces the server's copy when its hash changes; `subscriptions` empty arrays mean "all" |
+| `dryRun` | optional. `true` validates and answers **without recording anything** — no presence, capabilities, leases, offers, or routing pass. `config validate --online` and `doctor` send it. A machine held by another live runner still gets the 409 |
 
 Response (`HeartbeatResponse`):
 
@@ -125,6 +126,11 @@ costs one row update per beat.
 `offers` lists every offer standing for this runner (unexpired), oldest first; `cancels` lists every item it holds
 whose session asked to stop. Every `active` item the runner does hold has its lease renewed.
 
+A dry run's answer has empty `offers`, `cancels`, and `unknownActive`, plus two fields no other heartbeat carries:
+`runner` — `{ id, name, projectId, projectSlug }`, who the token is — and `unknownSubscriptions` —
+`{ teams: [...] }`, the subscribed team keys the project's Linear connection cannot see, or `null` when there is
+no working connection to ask (the integration's cached catalog is read, never written).
+
 `unknownActive` lists `active` items the server no longer considers this runner's (lease reaped, reassigned,
 cancelled and closed). The daemon must stop work on them **without** emitting further events — someone else may
 own the session now.
@@ -139,7 +145,8 @@ new capabilities — runs a routing pass, so a freed slot is offered work at onc
 Response: `{ "assignment": WorkAssignment | null }`. The oldest standing offer (among `workItemIds`, if given) is
 taken `FOR UPDATE SKIP LOCKED`, so two claims never take one item, and the runner's capacity is re-checked under
 its own row lock. A claim naming an item this runner already holds answers the same assignment with a renewed
-lease, so a claim whose answer was lost is safe to repeat. Nothing claimable is `{ "assignment": null }`, never an
+lease, so a claim whose answer was lost is safe to repeat — and the daemon repeats it on its next heartbeat, offered
+or not, after a network error or a 5xx. Nothing claimable is `{ "assignment": null }`, never an
 error.
 
 ```json
@@ -193,7 +200,9 @@ error.
 
 ### `daemon:events`
 
-`POST /api/daemon/events` — `{ "workItemId": 813, "events": SessionEvent[] }`, ≤ 100 events, ≤ 256 KiB.
+`POST /api/daemon/events` — `{ "workItemId": 813, "events": SessionEvent[] }`, ≤ 100 events, ≤ 256 KiB. The daemon
+sends at most 50 events or 64 KiB per call, from its persisted queue in `seq` order, and a work item's
+`daemon:complete` only after its last event was acknowledged.
 
 Response: `{ "accepted": 12, "duplicates": 0, "dropped": 0, "cancelRequested": false }`. `dropped` counts events
 refused because a cancel is in progress (only `response` and `error` are accepted then); `cancelRequested` lets a

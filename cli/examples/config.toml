@@ -1,0 +1,64 @@
+#:schema https://www.hypotenuse.cloud/schemas/config-v1.json
+config_version = 1
+
+[server]
+url = "https://api.hypotenuse.cloud"
+project = "acme"
+
+[runner]
+name = "evan-mbp"
+max_parallel_jobs = 3
+roles = ["manager", "worker"]
+
+[subscriptions]
+teams = ["ENG", "WEB"]          # only these Linear teams
+labels = []                     # any label
+
+[agents.claude]
+preset = "claude"
+
+[agents.codex]
+preset = "codex"
+env = { CODEX_API_KEY = "$OPENAI_API_KEY" }
+
+[roles.manager]
+agent = "claude"
+prompt_file = "prompts/manager.md"   # relative to this file
+permission_policy = "ask"            # every tool call that needs approval goes to Linear
+turn_timeout = "30m"
+
+[roles.worker]
+agent = "codex"
+# no prompt: the built-in worker template
+permission_policy = { default = "allow", fetch = "ask" }
+
+[[roles.worker.extra_mcp_servers]]
+name = "sentry"
+command = ["npx", "-y", "@sentry/mcp-server"]
+env = { SENTRY_AUTH_TOKEN = "$SENTRY_AUTH_TOKEN" }
+
+[[repositories]]
+name = "web"
+path = "~/code/web"
+remote = "github.com/acme/web"
+base_branch = "main"
+setup = ["bun install --frozen-lockfile"]
+
+[[repositories]]
+name = "api"
+path = "~/code/api"
+remote = "github.com/acme/api"
+base_branch = "develop"
+setup = ["uv sync", "cp .env.example .env"]
+setup_timeout = "15m"
+cleanup = "on-merge"
+
+[sessions]
+worktree_root = "~/.hypotenuse/worktrees"
+cleanup = "on-complete"
+turn_timeout = "90m"
+idle_timeout = "20m"
+keepalive_interval = "10m"
+
+[log]
+level = "info"

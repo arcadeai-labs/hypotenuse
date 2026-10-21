@@ -12,6 +12,7 @@
  * Callers pass an origin; the client appends `/api`.
  */
 import { existsSync, readFileSync } from "node:fs";
+import { parse } from "smol-toml";
 import { type Credentials, originOf } from "./credentials";
 
 /** The hosted API. */
@@ -41,7 +42,7 @@ export function configServerUrl(path: string): string | undefined {
   if (!existsSync(path)) return undefined;
   let parsed: unknown;
   try {
-    parsed = Bun.TOML.parse(readFileSync(path, "utf8"));
+    parsed = parse(readFileSync(path, "utf8"));
   } catch (error) {
     throw new Error(
       `${path} is not valid TOML: ${error instanceof Error ? error.message : String(error)}`,

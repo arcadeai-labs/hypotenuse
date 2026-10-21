@@ -1,0 +1,20 @@
+# Written by `hypotenuse service install`. Remove it with `hypotenuse service uninstall`.
+[Unit]
+Description=Hypotenuse runner daemon
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart={{exec}}
+Restart=on-failure
+RestartSec=5
+# 78: a config, credential, or revocation problem a restart cannot fix.
+RestartPreventExitStatus=78
+KillMode=mixed
+TimeoutStopSec=1min
+Environment=HYPOTENUSE_SERVICE=1
+Environment="PATH={{path}}"
+
+[Install]
+WantedBy=default.target

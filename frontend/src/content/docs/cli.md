@@ -2,7 +2,7 @@
 
 `hypotenuse` is the command line for Hypotenuse. It signs in to a server through your browser and does from a
 terminal what you can click in the dashboard: pick a project, add members, send invites, manage tags, connect
-integrations such as Linear, register your machine as a runner, decide how work is routed, read and stop `@hypotenuse`'s agent sessions, and read the audit log. Later releases add the runner daemon that runs coding agents on your machine.
+integrations such as Linear, register your machine as a runner, decide how work is routed, read and stop `@hypotenuse`'s agent sessions, and read the audit log. It is also the runner itself: `hypotenuse daemon` turns this machine into one ([the daemon](/docs/daemon)).
 
 ## Installing
 
@@ -75,6 +75,9 @@ hypotenuse login --url http://localhost:8080
 | 4 | `[server] url` in `~/.config/hypotenuse/config.toml` |
 | 5 | `https://api.hypotenuse.cloud` |
 
+The daemon reads its config first: `--url`, then `HYPOTENUSE_URL`, then `[server] url`, then the only server this
+machine has a runner on.
+
 Commands about a project act on the one you select:
 
 ```bash
@@ -98,7 +101,11 @@ hypotenuse --project 12 member list   # or name it for one command (also HYPOTEN
 | `runner register [--name <name>] [--replace] [--force]`, `list [--status <status>] [--all]`, `view <runner>`, `edit <runner> [--name] [--enable\|--disable]`, `revoke <runner> [--yes]` | the selected project's runners, below |
 | `routing list`, `add --name <name> --role manager\|worker [match flags] [--repository <repo>] [--disabled]`, `edit <id> [...]`, `remove <id>`, `reorder <id...>`, `settings [...]` | the selected project's routing rules and settings, below |
 | `identity list [--user <id>]`, `link --user <id> --linear-user <id> [--name] [--email]`, `unlink <id>` | links between Linear users and project members, below |
-| `check-update`, `upgrade` | updates, below |
+| `config init [--repo <path>...]`, `validate [--online]`, `schema`, `path` | the daemon's config file — [the daemon](/docs/daemon), [every key](/docs/config) |
+| `daemon start [--foreground]`, `stop [--timeout] [--cancel] [--force]`, `restart`, `status`, `logs [-f] [--session <id>]`, `reload` | run this machine as a runner — [the daemon](/docs/daemon) |
+| `service install [--print]`, `uninstall`, `status` | the daemon as a launchd or systemd user service |
+| `doctor [--agent <id>] [--offline]` | check this machine's runner setup end to end |
+| `check-update`, `upgrade [--no-restart]` | updates, below; `upgrade` also restarts a running daemon on the new version |
 
 Admin-only commands are refused for members with the same message the dashboard shows. `hypotenuse <command>
 --help` lists each command's options.
@@ -238,4 +245,8 @@ Everything lives in `~/.config/hypotenuse/` (or `$XDG_CONFIG_HOME/hypotenuse/`):
 
 - `credentials.json` — your sign-in and this machine's runner token for each server, readable only by you. Keep it
   private: it acts as you. The CLI refuses to read it if other users can (`chmod 600` it, as the error says).
+- `config.toml` — the daemon's config ([every key](/docs/config)).
 - `update.json` — when the update check last ran.
+
+The daemon keeps its database, log, and control socket in `~/.local/state/hypotenuse/`. `hypotenuse config path`
+prints the files in use.

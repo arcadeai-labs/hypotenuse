@@ -71,6 +71,7 @@ describe("the npm package", () => {
       "path",
       "crypto",
       "url",
+      "child_process",
     ]);
     const stray = [...imports].filter(
       (spec) =>

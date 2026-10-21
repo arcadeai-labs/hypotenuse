@@ -1,7 +1,7 @@
 {
   "name": "@arcadeai/hypotenuse",
-  "version": "0.5.0",
-  "description": "Hypotenuse \u2014 run coding agents on your machine for Linear agent sessions",
+  "version": "0.6.0",
+  "description": "Hypotenuse — run coding agents on your machine for Linear agent sessions",
   "type": "module",
   "license": "Apache-2.0",
   "bin": {
@@ -40,6 +40,7 @@
   "dependencies": {
     "commander": "^14.0.3",
     "nanospinner": "^1.2.2",
+    "smol-toml": "^1.9.1",
     "upgradr": "^0.4.0",
     "zod": "^4.3.6"
   },

@@ -3,6 +3,8 @@ import { type Action, api, type Connection, config, HTTP_METHOD } from "keryx";
 import { RunnerRateLimitMiddleware } from "../../middleware/runnerRateLimit";
 import type { PrincipalMeta, SessionImpl } from "../../middleware/session";
 import { protocolUnsupportedResponse } from "../../ops/DaemonPolicyOps";
+import { getIntegration } from "../../ops/IntegrationOps";
+import { loadCatalog } from "../../ops/LinearCatalogOps";
 import {
   applyHeartbeat,
   findMachineConflict,
@@ -31,6 +33,10 @@ import { applyEffects, heartbeatWork, noEffects } from "../../ops/WorkItemOps";
  * changed what routing reads (presence, capacity, capabilities) runs a
  * routing pass.
  *
+ * A **dry run** (`dryRun: true`, sent by `config validate --online` and
+ * `doctor`) writes nothing: it answers who the token is and which subscribed
+ * team keys the project's Linear connection cannot see, with no offers.
+ *
  * Machine traffic: not audited, never MCP, never wrapped by the CLI.
  */
 export class DaemonHeartbeat implements Action {
@@ -55,6 +61,7 @@ export class DaemonHeartbeat implements Action {
       return protocolUnsupportedResponse();
     }
     const runner = connection.metadata.runner!;
+    if (params.dryRun) return dryRun(params, connection);
 
     let result: HeartbeatResult;
     let work: Awaited<ReturnType<typeof heartbeatWork>> = {
@@ -95,3 +102,52 @@ export class DaemonHeartbeat implements Action {
     };
   }
 }
+
+/**
+ * Answer a dry-run heartbeat: the same refusals, no writes. Team keys are
+ * checked against the integration's (cached) catalog; `null` when there is no
+ * working connection to ask.
+ * @param params - The heartbeat.
+ * @param connection - The runner's connection.
+ * @returns The answer, or the 409 a real heartbeat would get.
+ */
+const dryRun = async (
+  params: HeartbeatRequest,
+  connection: Connection<SessionImpl, PrincipalMeta>,
+) => {
+  const runner = connection.metadata.runner!;
+  const conflict = await findMachineConflict(runner, params.machineId);
+  if (conflict) return machineInUseResponse(conflict);
+  let unknownSubscriptions: { teams: string[] } | null = null;
+  try {
+    const integration = await getIntegration(runner.projectId, "linear");
+    if (integration && integration.status === "active") {
+      const keys = new Set(
+        (await loadCatalog(integration)).teams.map((t) => t.key),
+      );
+      unknownSubscriptions = {
+        teams: params.capabilities.subscriptions.teams.filter(
+          (team) => !keys.has(team),
+        ),
+      };
+    }
+  } catch {
+    unknownSubscriptions = null;
+  }
+  return {
+    serverTime: Date.now(),
+    heartbeatIntervalMs: config.runners.heartbeatIntervalMs,
+    leaseMs: config.runners.leaseMs,
+    offers: [],
+    cancels: [],
+    unknownActive: [],
+    runner: {
+      id: runner.id,
+      name: runner.name,
+      projectId: runner.projectId,
+      projectSlug:
+        connection.metadata.project?.slug ?? String(runner.projectId),
+    },
+    unknownSubscriptions,
+  };
+};

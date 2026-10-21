@@ -1,12 +1,52 @@
 /**
  * `hypotenuse upgrade` — replace this install with the latest release, by
- * whichever method installed it.
+ * whichever method installed it, then hand a running daemon over to it:
+ * drain (up to ten minutes, turns finish), then `restart`, which re-executes
+ * the new binary — or, under launchd or systemd, exits for the service
+ * manager to restart. upgradr knows nothing about a running daemon; this is
+ * that missing piece. `--no-restart` skips it.
  */
 import type { Command } from "commander";
 import type { Updater, UpgradeResult } from "upgradr";
 import { emit, runCommand } from "../context";
+import { callDaemon, DaemonNotRunning } from "../daemon/control-client";
 import { logger } from "../output/logger";
 import { updater } from "../update/updater";
+import { locateDaemon } from "./daemon";
+
+/** How long an upgrade lets running turns finish before the restart. */
+export const UPGRADE_DRAIN_MS = 10 * 60_000;
+
+/**
+ * Drain and restart the daemon, if one is running.
+ * @param socketPath - Its control socket.
+ * @param call - The control-socket caller (tests pass a stub).
+ * @returns `not-running`, or how the daemon restarts (`re-exec` or `service`).
+ */
+export async function restartRunningDaemon(
+  socketPath: string,
+  call: typeof callDaemon = callDaemon,
+): Promise<"not-running" | "re-exec" | "service"> {
+  try {
+    await call(socketPath, "status", {}, 3_000);
+  } catch (error) {
+    if (error instanceof DaemonNotRunning) return "not-running";
+    throw error;
+  }
+  await call(
+    socketPath,
+    "drain",
+    { timeoutMs: UPGRADE_DRAIN_MS, cancel: false },
+    UPGRADE_DRAIN_MS + 60_000,
+  );
+  const answer = await call<{ mode: "re-exec" | "service" }>(
+    socketPath,
+    "restart",
+    {},
+    10_000,
+  );
+  return answer.mode;
+}
 
 /** What Windows binary installs run instead of an in-place swap. */
 export const WINDOWS_REINSTALL =
@@ -57,7 +97,7 @@ export async function performUpgrade(
     if (info.hasUpdate) {
       return {
         result,
-        message: `hypotenuse v${result.to} is available. Windows cannot replace a running hypotenuse.exe; reinstall with:\n  ${WINDOWS_REINSTALL}`,
+        message: `hypotenuse v${result.to} is available. Windows cannot replace a running hypotenuse.exe; stop the daemon (\`hypotenuse daemon stop\`) and reinstall with:\n  ${WINDOWS_REINSTALL}`,
         failed: false,
         exitCode: 0,
       };
@@ -114,9 +154,13 @@ export async function performUpgrade(
 export function registerUpgradeCommand(program: Command): void {
   program
     .command("upgrade")
-    .description("Upgrade hypotenuse to the latest release")
+    .description(
+      "Upgrade hypotenuse to the latest release, and restart a running daemon on it",
+    )
+    .option("--no-restart", "leave a running daemon on the old version")
     .action(async function (this: Command) {
       await runCommand(this, async (ctx) => {
+        const { restart } = this.opts() as { restart: boolean };
         const spinner = logger.spinner("Checking for updates");
         let outcome: UpgradeOutcome;
         try {
@@ -132,6 +176,38 @@ export function registerUpgradeCommand(program: Command): void {
           console.log(outcome.message);
         }
         if (outcome.exitCode !== 0) process.exitCode = outcome.exitCode;
+        const replaced =
+          outcome.result.performed &&
+          outcome.result.success &&
+          outcome.result.method !== "local-dev";
+        if (!replaced) return;
+        const { socket } = locateDaemon(ctx);
+        if (!restart) {
+          logger.warn(
+            "A running daemon keeps the old version until `hypotenuse daemon restart`.",
+          );
+          return;
+        }
+        const waiting = logger.spinner(
+          "Letting the daemon's running turns finish",
+        );
+        try {
+          const how = await restartRunningDaemon(socket);
+          waiting.stop();
+          if (how !== "not-running") {
+            logger.success(
+              how === "service"
+                ? "The daemon exited for its service manager to restart it on the new version."
+                : "Restarted the daemon on the new version.",
+            );
+          }
+        } catch (error) {
+          waiting.stop();
+          logger.error(
+            `Could not restart the daemon: ${error instanceof Error ? error.message : String(error)}. Run \`hypotenuse daemon restart\`.`,
+          );
+          process.exitCode = 1;
+        }
       });
     });
 }

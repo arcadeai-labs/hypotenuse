@@ -272,8 +272,11 @@ The map is [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md). What follows is the
   acknowledgement as deployed.
 - **CLI / daemon:** `cd cli && bun test` for unit tests; `backend/__tests__/cli/` spawns the real CLI against the
   booted server, approving its sign-in over HTTP as a test user; `cli/test/e2e/test-upgrade.sh` installs the branch
-  by npm, bun, and binary (it installs globally — CI or a throwaway machine only); end-to-end suites in `backend/__tests__/e2e/` spawn the real
-  `hypotenuse daemon` against the booted backend, finear, a temporary git origin, and the fake ACP agent.
+  by npm, bun, and binary (it installs globally — CI or a throwaway machine only); `backend/__tests__/daemon/`
+  spawns the real `hypotenuse daemon --foreground` against the booted backend and finear, in a temporary home
+  with its own config, credentials, state, and a git clone, sometimes through `daemon/proxy.ts` — a recording
+  HTTP + WebSocket proxy that can make the server vanish and come back. `HYPOTENUSE_MACHINE_ID` gives each such
+  daemon its own machine, and `HYPOTENUSE_NULL_TURN_MS` holds the placeholder executor's turns open.
 - **Control time by writing columns or advancing finear's clock, never by waiting.** A test that advances
   finear's clock aligns `webhookClock` (`ops/LinearWebhookOps.ts`) to it, or the server refuses finear's
   deliveries as replays.
@@ -301,8 +304,11 @@ cd backend && bun test path/to/file.test.ts   # one file (after a first `bun run
 cd backend && bun keryx.ts linear:manifest-url  # the pre-filled Linear app-creation link (APPLICATION_URL must be public HTTPS)
 cd backend && bun keryx.ts integrations:refresh-tokens # run the token refresh clock once
 cd cli && bun test                            # CLI + daemon unit tests
+cd backend && bun test __tests__/daemon       # the real daemon against the real server and finear
 bun run --cwd cli hypotenuse --help
-bun run --cwd cli hypotenuse config validate -c ./examples/config.toml
+bun run --cwd cli hypotenuse -c ./examples/config.toml config validate --offline
+bun run --cwd cli hypotenuse config schema > frontend/public/schemas/config-v1.json   # after a schema change
+bun run --cwd cli hypotenuse doctor
 cd cli && bun run build                       # compiled binary at dist/hypotenuse
 cd cli && bun run bundle                      # the npm bundle at dist/hypotenuse.js (prepack runs it)
 bash cli/test/e2e/test-upgrade.sh             # npm + bun + binary installs, globally — CI or a throwaway box
@@ -346,6 +352,9 @@ Lessons from building it, kept here so the next session starts with them.
   wall must send valid params.
 - **Keryx instantiates every exported function with a prototype under `actions/`**, not only classes. Helpers
   shared by actions live in `ops/`.
+- **A daemon test waits on what crosses a process, never on a timer of ours.** Spawn the daemon, then poll the
+  database or its log (`DaemonHome.waitForLog`, `until`); move leases by writing columns and running `work:reap`.
+  A CLI process that holds a socket or timer open never exits — close every connection on every outcome.
 - **Keryx reports a schema failure by the param's first path segment.** When a caller must know which element of
   an array was refused (`daemon:events`), validate the elements in the action.
 - **Signatures and footers** follow the repository owner's global rules for commits and PR text.

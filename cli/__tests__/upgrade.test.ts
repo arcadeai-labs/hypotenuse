@@ -158,3 +158,29 @@ describe("hypotenuse upgrade", () => {
     expect(attempted).toBe(true);
   });
 });
+
+describe("a running daemon after an upgrade", () => {
+  test("is drained (turns finish) and then restarted; none running is left alone", async () => {
+    const { restartRunningDaemon } = await import("../src/commands/upgrade");
+    const { DaemonNotRunning } = await import("../src/daemon/control-client");
+    const calls: [string, Record<string, unknown> | undefined][] = [];
+    const running = (async (
+      _socket: string,
+      method: string,
+      params?: Record<string, unknown>,
+    ) => {
+      calls.push([method, params]);
+      return method === "restart" ? { restarting: true, mode: "service" } : {};
+    }) as never;
+    expect(await restartRunningDaemon("/s.sock", running)).toBe("service");
+    expect(calls).toEqual([
+      ["status", {}],
+      ["drain", { timeoutMs: 600_000, cancel: false }],
+      ["restart", {}],
+    ]);
+    const absent = (async () => {
+      throw new DaemonNotRunning("/s.sock");
+    }) as never;
+    expect(await restartRunningDaemon("/s.sock", absent)).toBe("not-running");
+  });
+});

@@ -79,3 +79,19 @@ describe("auth form validation", () => {
     ).toBe("Use at least 3 characters.");
   });
 });
+
+describe("the config file page", () => {
+  test("is docs/CONFIG.md from its file table on, with no link left relative", async () => {
+    const { publicConfigReference } = await import("../content/docs/sections");
+    const page = findSection("config")?.markdown ?? "";
+    expect(page).toContain("\n## Files and locations\n");
+    expect(page).toContain("## `[[repositories]]`");
+    const links = [...page.matchAll(/\]\(([^)]+)\)/g)].map((m) => m[1] ?? "");
+    expect(links.filter((l) => !/^(#|\/docs\/|https:\/\/)/.test(l))).toEqual(
+      [],
+    );
+    expect(() => publicConfigReference("# no anchor")).toThrow(
+      "exactly one '## Files and locations'",
+    );
+  });
+});

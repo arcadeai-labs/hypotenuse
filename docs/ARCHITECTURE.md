@@ -243,9 +243,19 @@ with the same machine id. `hypotenuse daemon start` (or a launchd / systemd user
   token, kept apart so `logout` never de-registers a machine (0600).
 - `~/.local/state/hypotenuse/state.db` — `bun:sqlite`: local sessions, their worktrees, ACP session ids (for
   `session/load` after a restart), and process ids.
-- `~/.local/state/hypotenuse/daemon.sock` — the control socket the CLI's `agents`, `worktrees`, and `daemon`
-  commands talk to.
+- `~/.local/state/hypotenuse/state.db` also holds the **offline queue**: every event a turn produces is written
+  there (with its `eventId` and per-claim `seq`) before it is sent, so a server deploy or a train tunnel costs
+  latency and nothing else; a newer ephemeral event supersedes older unsent ones.
+- `~/.local/state/hypotenuse/daemon.sock` — the control socket (`0600`, newline-delimited JSON-RPC) the CLI's
+  `daemon`, `doctor`, `upgrade`, `agents`, and `worktrees` commands talk to.
+- `~/.local/state/hypotenuse/daemon.pid` — the machine lock, at that path whatever `-c` or `--state-dir` say; it
+  records the running daemon's own socket.
 - `~/.hypotenuse/worktrees/<repo>/<ISSUE-ID>` — default `sessions.worktree_root`.
+
+Inside, a **supervisor** owns `runner.max_parallel_jobs` slots (counted again per role and per agent), **ServerLink**
+heartbeats and holds the one-subscription socket, and the **EventSink** drains the queue. A slot runs a turn
+through a `SessionExecutor`; until the ACP host exists that is a null executor that answers and completes. On
+start, a turn a previous process left running is marked `interrupted` and left to the server's lease to re-offer.
 
 For each claimed work item it:
 

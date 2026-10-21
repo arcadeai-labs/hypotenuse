@@ -1,3 +1,4 @@
+import { normalizeRemote } from "@hypotenuse/protocol";
 import { and, asc, eq, sql } from "drizzle-orm";
 import { api, ErrorType, TypedError } from "keryx";
 import { z } from "zod";
@@ -12,7 +13,6 @@ import {
   routingRules,
 } from "../schema/routing_rules";
 import type { TxHandle } from "./ProjectOps";
-import { normalizeRemote } from "./RunnerOps";
 
 /**
  * Work routing's decisions, each by the cheapest source that can make it:

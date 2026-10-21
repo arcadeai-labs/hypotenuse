@@ -1,8 +1,11 @@
+import configReference from "../../../../docs/CONFIG.md?raw";
 import accounts from "./accounts.md?raw";
 import agentSessions from "./agent-sessions.md?raw";
 import audit from "./audit.md?raw";
 import cli from "./cli.md?raw";
+import config from "./config.md?raw";
 import connectingLinear from "./connecting-linear.md?raw";
+import daemon from "./daemon.md?raw";
 import gettingStarted from "./getting-started.md?raw";
 import index from "./index.md?raw";
 import managerAndWorker from "./manager-and-worker.md?raw";
@@ -11,6 +14,34 @@ import projects from "./projects.md?raw";
 import routing from "./routing.md?raw";
 import runners from "./runners.md?raw";
 import why from "./why.md?raw";
+
+/** Where the repository's own docs live, for links the public site cannot serve. */
+const REPOSITORY_DOCS =
+  "https://github.com/arcadeai-labs/hypotenuse/blob/main/docs/";
+
+/**
+ * The public half of `docs/CONFIG.md` — from its file table on — with links
+ * into the repository made absolute. The reference has one source; this page
+ * is its intro plus that.
+ * @param reference - `docs/CONFIG.md`'s text.
+ * @returns The markdown to append.
+ */
+export function publicConfigReference(reference: string): string {
+  const anchor = "\n## Files and locations\n";
+  const at = reference.indexOf(anchor);
+  if (at === -1 || reference.indexOf(anchor, at + 1) !== -1) {
+    throw new Error(
+      "docs/CONFIG.md must have exactly one '## Files and locations'",
+    );
+  }
+  return reference
+    .slice(at + 1)
+    .replace(
+      /\]\(\.\.\/([^)]+)\)/g,
+      "](https://github.com/arcadeai-labs/hypotenuse/blob/main/$1)",
+    )
+    .replace(/\]\(\.\/([^)]+)\)/g, `](${REPOSITORY_DOCS}$1)`);
+}
 
 /** One page of the public docs. */
 export interface DocsSection {
@@ -42,6 +73,12 @@ export const DOCS_SECTIONS: DocsSection[] = [
     markdown: agentSessions,
   },
   { slug: "runners", title: "Runners", markdown: runners },
+  { slug: "daemon", title: "The daemon", markdown: daemon },
+  {
+    slug: "config",
+    title: "Config file",
+    markdown: `${config}\n${publicConfigReference(configReference)}`,
+  },
   { slug: "routing", title: "Routing", markdown: routing },
   {
     slug: "manager-and-worker",

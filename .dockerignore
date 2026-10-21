@@ -9,6 +9,8 @@ node_modules
 .git
 .github
 docs
+# The public config docs page is built from the reference itself.
+!docs/CONFIG.md
 
 .env
 **/.env
