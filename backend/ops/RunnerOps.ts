@@ -28,6 +28,7 @@ import { users } from "../schema/users";
 import { RUNNER_TOKEN_PREFIX, sha256Hex } from "./CliTokenOps";
 import { isAdmin } from "./MembershipOps";
 import type { TxHandle } from "./ProjectOps";
+import { applyEffects, noEffects, requeueRunnerWork } from "./WorkItemOps";
 
 /**
  * Runners: registration, tokens, heartbeats, presence, and revocation.
@@ -344,10 +345,11 @@ export async function trackRunnerSession(
  * are left as they were. The caller runs {@link afterRunnersRevoked} once the
  * transaction commits.
  *
- * Work a revoked runner holds is returned to the queue by work routing, in
- * this same transaction, once work items exist.
+ * The work a revoked runner holds or was offered goes back to the queue in
+ * this same transaction (`requeueRunnerWork`): the work is still wanted, only
+ * this machine is not.
  * @param tx - The transaction.
- * @param where - Which runners (by id).
+ * @param runnerIds - Which runners.
  * @param reason - Why.
  * @returns The revoked rows (only those this call changed).
  */
@@ -357,11 +359,16 @@ export async function revokeRunners(
   reason: RunnerRevokeReason,
 ): Promise<Runner[]> {
   if (runnerIds.length === 0) return [];
-  return tx
+  const revoked = await tx
     .update(runners)
     .set({ status: "revoked", revokedAt: new Date(), revokedReason: reason })
     .where(and(inArray(runners.id, runnerIds), ne(runners.status, "revoked")))
     .returning();
+  await requeueRunnerWork(
+    tx,
+    revoked.map((r) => r.id),
+  );
+  return revoked;
 }
 
 /**
@@ -391,6 +398,9 @@ export async function afterRunnersRevoked(
     }
   }
   for (const projectId of projectIds) await publishRunnersChanged(projectId);
+  // Its work went back to the queue; place it elsewhere now. Any answer the
+  // requeue enqueued is sent by the outbox's own clock.
+  if (revoked.length > 0) await applyEffects({ ...noEffects(), route: true });
 }
 
 /**

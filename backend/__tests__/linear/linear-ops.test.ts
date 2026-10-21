@@ -7,6 +7,7 @@ import {
   CreateAgentSessionOnIssue,
   CreateComment,
   GetAgentSessionActivities,
+  GetComment,
   GetInstallationIdentity,
   GetIssue,
   GetOrganization,
@@ -113,10 +114,16 @@ describe("every Linear operation document executes against finear", () => {
       input: { stateId: FINEAR_FIXTURES.primary.started },
     });
     expect(moved.issueUpdate.issue.state.type).toBe("started");
+    expect(read.issue.parent).toBeNull();
+    expect(read.issue.project).toBeNull();
     const comment = await run(CreateComment, {
       input: { issueId: issue.id, body: "Picking this up." },
     });
     expect(comment.commentCreate.success).toBe(true);
+    const readBack = await run(GetComment, {
+      id: comment.commentCreate.comment.id,
+    });
+    expect(readBack.comment.body).toBe("Picking this up.");
 
     const onComment = await run(CreateAgentSessionOnComment, {
       input: { commentId: comment.commentCreate.comment.id },

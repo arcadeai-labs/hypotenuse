@@ -29,6 +29,7 @@ import {
   type LinearViewer,
 } from "../../ops/linear/operations";
 import { getCallerTags, isAdmin } from "../../ops/MembershipOps";
+import { seedRoutingRules } from "../../ops/RoutingOps";
 import { integrations } from "../../schema/integrations";
 
 /** A refusal that becomes `?error=<code>` on the dashboard redirect. */
@@ -311,6 +312,10 @@ export class LinearCallback extends AuditedAction {
       throw e;
     }
 
+    // The first connection seeds the role prefixes, so the whole decision is
+    // one list an admin can read; a reconnect keeps whatever they made of it.
+    const seeded = existing ? [] : await seedRoutingRules(tx, projectId);
+
     const serialized = serializeIntegration(row);
     connection.metadata.auditBefore = existing
       ? serializeIntegration(existing)
@@ -323,6 +328,7 @@ export class LinearCallback extends AuditedAction {
       type: "linear",
       externalWorkspaceId: organization.id,
       reconnect: Boolean(existing),
+      seededRoutingRules: seeded.map((rule) => rule.name),
     };
     return { integration: serialized };
   }

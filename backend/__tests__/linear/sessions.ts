@@ -46,9 +46,9 @@ export async function waitFor<T>(
 }
 
 /**
- * Run the processing and delivery jobs until there is nothing left to do —
- * what the `triggers` queue's worker would do, but in this process and in a
- * known order.
+ * Run the processing, routing, and delivery jobs until there is nothing left
+ * to do — what the workers would do, but in this process and in a known
+ * order.
  * @param rounds - The most passes to make.
  */
 export async function settle(rounds = 10): Promise<void> {
@@ -57,11 +57,16 @@ export async function settle(rounds = 10): Promise<void> {
       "triggers:process-pending",
       { graceMs: 0 },
     );
+    const routed = await runAction<{ prepared: number; offered: number[] }>(
+      "work:route",
+    );
     const delivered = await runAction<{ sent: number; failed: number }>(
       "activities:deliver-due",
     );
     if (
       processed.processed === 0 &&
+      routed.prepared === 0 &&
+      routed.offered.length === 0 &&
       delivered.sent === 0 &&
       delivered.failed === 0
     ) {

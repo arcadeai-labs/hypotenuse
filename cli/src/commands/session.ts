@@ -1,9 +1,9 @@
 /**
  * `hypotenuse session` — the selected project's agent sessions, from every
  * trigger type (Linear today)
- * (`agent-session:list`, `agent-session:view`, `agent-session:activities`):
- * every time `@hypotenuse` was delegated an issue or mentioned, and the
- * conversation that followed.
+ * (`agent-session:list`, `agent-session:view`, `agent-session:activities`,
+ * `agent-session:cancel`): every time `@hypotenuse` was delegated an issue or
+ * mentioned, the conversation that followed, and stopping its work.
  */
 import type { Command } from "commander";
 import {
@@ -135,7 +135,7 @@ export function describeSession(
 }
 
 /**
- * Register `session list` and `session view`.
+ * Register `session list`, `session view`, and `session cancel`.
  * @param program - The root program.
  */
 export function registerSessionCommands(program: Command): void {
@@ -236,6 +236,29 @@ export function registerSessionCommands(program: Command): void {
         }
         emit(ctx, { agentSession, activities }, () =>
           describeSession(agentSession, activities),
+        );
+      });
+    });
+
+  session
+    .command("cancel <id>")
+    .description(
+      "Stop a session's work, as Stop in Linear does: work not started is cancelled; a running turn is told to stop and report",
+    )
+    .action(async function (this: Command, id: string) {
+      await runCommand(this, async (ctx) => {
+        const projectId = await ctx.projectId();
+        const result = await ctx.signedInClient().request<{
+          agentSession: AgentSession;
+        }>("POST", `/agent-session/${encodeURIComponent(id)}/cancel`, {
+          body: { projectId },
+        });
+        const s = result.agentSession;
+        emit(
+          ctx,
+          result,
+          () =>
+            `Asked session #${s.id} (${s.issueIdentifier ?? s.externalSessionId}) to stop. Linear shows what it was left doing.`,
         );
       });
     });

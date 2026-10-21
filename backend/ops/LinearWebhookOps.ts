@@ -8,6 +8,7 @@ import {
 import { agentSessions } from "../schema/agent_sessions";
 import { type Integration, integrations } from "../schema/integrations";
 import type { TriggerEvent } from "../schema/trigger_events";
+import { TERMINAL_WORK_STATUSES, workItems } from "../schema/work_items";
 import {
   enqueueActivity,
   failPending,
@@ -21,7 +22,20 @@ import {
 import { getAdminUserIds } from "./MembershipOps";
 import { enqueueNotification } from "./NotificationOps";
 import type { TxHandle } from "./ProjectOps";
+import { listRoutingRules, roleSwitchAttempt, stripPrefix } from "./RoutingOps";
 import type { HandlerResult } from "./TriggerEventOps";
+import {
+  ackBody,
+  cancelSessionWork,
+  createOrMergePrompt,
+  createSessionCreatedItem,
+  lockSession,
+  mergeEffects,
+  noEffects,
+  QUEUED_BEHIND_BODY,
+  type WorkEffects,
+} from "./WorkItemOps";
+import { answerRepositoryChoice } from "./WorkRouteOps";
 
 /**
  * Linear's webhooks: verifying a delivery, and what each one does once it is
@@ -31,19 +45,6 @@ import type { HandlerResult } from "./TriggerEventOps";
  * changes state runs later, in `triggers:process-event`, so the endpoint answers
  * well inside Linear's five seconds whatever the work costs.
  */
-
-/** What every acknowledgement says while no runner can pick the work up. */
-export const ACK_BODY = "Received.";
-
-/**
- * The interim ending: there is nothing to route work to yet, so a session is
- * acknowledged and then told so, rather than left looking unresponsive. Work
- * routing replaces this with real work.
- */
-export const NO_RUNNER_BODY = "No runner is connected for this project yet.";
-
-/** The answer to a stop signal when nothing was running to stop. */
-export const STOPPED_BODY = "Stopped. Nothing was running.";
 
 /**
  * The clock the timestamp check reads. Production never changes it; the test
@@ -198,14 +199,14 @@ async function hasOutbound(
 }
 
 /**
- * `AgentSessionEvent`: the mirror, the acknowledgement, and the interim
- * answers.
+ * `AgentSessionEvent`: the mirror, the acknowledgement, and the work.
  *
  * | Action | Effect |
  * |---|---|
- * | `created` | upsert the session; enqueue the `ack` thought, then the no-runner `error` |
- * | `prompted`, `stop` signal | record the prompt; answer a `response` that nothing was running |
- * | `prompted`, otherwise | record the prompt; answer the no-runner `error` |
+ * | `created` | upsert the session; enqueue the `ack` thought and the session's first turn (routing prepares and places it) |
+ * | `prompted`, `stop` signal | record the prompt; cancel the session's work (see `cancelSessionWork`) |
+ * | `prompted`, a repository question pending | record the prompt; take it as the answer |
+ * | `prompted`, otherwise | record the prompt; merge it into a queued follow-up or queue a new turn, sticky to the session's runner |
  * | anything else | `ignored` |
  *
  * An event for another app user (never expected: one webhook per app) is
@@ -242,14 +243,13 @@ export async function handleAgentSessionEvent(
     await enqueueActivity(
       tx,
       session.id,
-      { type: "thought", body: ACK_BODY },
+      { type: "thought", body: ackBody(session.issueIdentifier) },
       { priority: "ack" },
     );
-    await enqueueActivity(tx, session.id, {
-      type: "error",
-      body: NO_RUNNER_BODY,
-    });
-    return { outcome: "handled", deliver: [session.id] };
+    await createSessionCreatedItem(tx, session);
+    const effects = noEffects();
+    effects.route = true;
+    return { outcome: "handled", deliver: [session.id], effects };
   }
 
   const activity = payload.agentActivity ?? null;
@@ -259,9 +259,10 @@ export async function handleAgentSessionEvent(
   )
     ? (activity.signal as ActivitySignal)
     : null;
+  const body = promptBody(activity);
   const recorded = await recordInboundPrompt(tx, session.id, {
     externalActivityId: activity.id,
-    body: promptBody(activity),
+    body,
     signal,
     signalMetadata: activity.signalMetadata ?? null,
     externalSourceCommentId: activity.sourceCommentId ?? null,
@@ -269,20 +270,65 @@ export async function handleAgentSessionEvent(
   });
   if (!recorded.created) return { outcome: "handled", deliver: [] };
 
-  if (signal === "stop") {
-    await enqueueActivity(
-      tx,
-      session.id,
-      { type: "response", body: STOPPED_BODY },
-      { priority: "ack" },
-    );
-  } else {
-    await enqueueActivity(tx, session.id, {
-      type: "error",
-      body: NO_RUNNER_BODY,
-    });
+  const effects =
+    signal === "stop"
+      ? await cancelSessionWork(tx, session.id, {
+          reason: "stop",
+          announce: true,
+        })
+      : await followUp(tx, session.id, recorded.row.id, body);
+  return { outcome: "handled", deliver: [...effects.deliver], effects };
+}
+
+/**
+ * A person's follow-up, as work. A pending repository question takes it as
+ * the answer. Otherwise it joins the session's queued follow-up or becomes a
+ * new turn; a person typing while a turn runs is told it will be read next.
+ * A role prefix for the other role does not switch roles — the role is the
+ * session's for life — and the session says so.
+ * @param tx - The transaction.
+ * @param agentSessionId - The session.
+ * @param activityId - The recorded inbound prompt.
+ * @param body - What the person typed.
+ * @returns The effects to apply.
+ */
+async function followUp(
+  tx: TxHandle,
+  agentSessionId: number,
+  activityId: number,
+  body: string,
+): Promise<WorkEffects> {
+  const session = await lockSession(tx, agentSessionId);
+  if (session.pendingRepositoryChoice) {
+    return answerRepositoryChoice(tx, session, body);
   }
-  return { outcome: "handled", deliver: [session.id] };
+  const effects = noEffects();
+  let text = body;
+  if (session.role) {
+    const rules = await listRoutingRules(tx, session.projectId);
+    const attempt = roleSwitchAttempt(rules, body, session.role);
+    if (attempt?.match.promptPrefix) {
+      await enqueueActivity(tx, session.id, {
+        type: "thought",
+        body: `This session stays a **${session.role}** session — its role is fixed for its life. Mention me again with \`${attempt.match.promptPrefix}\` to start a ${attempt.role} session.`,
+      });
+      effects.deliver.add(session.id);
+      text = stripPrefix(body, attempt.match.promptPrefix) || body;
+    }
+  }
+  const work = await createOrMergePrompt(tx, session, {
+    activityId,
+    body: text,
+  });
+  if (work.behind) {
+    await enqueueActivity(tx, session.id, {
+      type: "thought",
+      body: QUEUED_BEHIND_BODY,
+    });
+    effects.deliver.add(session.id);
+  }
+  effects.route = true;
+  return effects;
 }
 
 /**
@@ -346,11 +392,30 @@ export async function handlePermissionChange(
         ),
       )
       .returning({ id: agentSessions.id });
+    const effects = noEffects();
     for (const { id } of cut) {
+      mergeEffects(
+        effects,
+        await cancelSessionWork(tx, id, {
+          reason: "integration_revoked",
+          announce: false,
+        }),
+      );
       await failPending(tx, { agentSessionId: id }, "team access removed");
     }
+    return { outcome: "handled", deliver: [], effects: undelivered(effects) };
   }
   return { outcome: "handled", deliver: [] };
+}
+
+/**
+ * Effects whose outbox rows were just failed: nothing to deliver, but the
+ * frames and the routing pass still matter.
+ * @param effects - The effects.
+ * @returns The same effects with no deliveries.
+ */
+function undelivered(effects: WorkEffects): WorkEffects {
+  return { ...effects, deliver: new Set() };
 }
 
 /**
@@ -378,6 +443,18 @@ export async function handleOAuthAppRevoked(
       refreshFailedAt: null,
     })
     .where(eq(integrations.id, integration.id));
+  const effects = noEffects();
+  for (const id of await sessionsWithLiveWork(tx, {
+    integrationId: integration.id,
+  })) {
+    mergeEffects(
+      effects,
+      await cancelSessionWork(tx, id, {
+        reason: "integration_revoked",
+        announce: false,
+      }),
+    );
+  }
   await failPending(
     tx,
     { integrationId: integration.id },
@@ -394,15 +471,44 @@ export async function handleOAuthAppRevoked(
     outcome: "handled",
     deliver: [],
     revokedIntegrationId: integration.id,
+    effects: undelivered(effects),
   };
+}
+
+/**
+ * The sessions with a turn that has not ended, of an integration or on one
+ * issue.
+ * @param tx - The transaction.
+ * @param where - The integration, and optionally the issue.
+ * @returns Session ids.
+ */
+async function sessionsWithLiveWork(
+  tx: TxHandle,
+  where: { integrationId: number; externalIssueId?: string },
+): Promise<number[]> {
+  const rows = await tx
+    .selectDistinct({ id: agentSessions.id })
+    .from(agentSessions)
+    .innerJoin(workItems, eq(workItems.agentSessionId, agentSessions.id))
+    .where(
+      and(
+        eq(agentSessions.integrationId, where.integrationId),
+        where.externalIssueId
+          ? eq(agentSessions.externalIssueId, where.externalIssueId)
+          : undefined,
+        notInArray(workItems.status, [...TERMINAL_WORK_STATUSES]),
+      ),
+    );
+  return rows.map((r) => r.id);
 }
 
 /**
  * `Issue` data events. The one this reads: `@hypotenuse` stopped being the
  * issue's delegate — a person un-delegated it, or dismissed the session, which
  * removes the delegate. Its sessions on the issue are marked
- * `delegateRemovedAt`, which cancellation reads. Every other issue change is
- * `ignored`.
+ * `delegateRemovedAt` and their live turns cancelled, quietly: the person
+ * disengaged, and nothing re-engages without a new prompt or delegation.
+ * Every other issue change is `ignored`.
  * @param tx - The transaction.
  * @param integration - The integration.
  * @param payload - The body: `data` is the issue now, `updatedFrom` the
@@ -439,5 +545,18 @@ export async function handleIssueEvent(
         isNull(agentSessions.delegateRemovedAt),
       ),
     );
-  return { outcome: "handled", deliver: [] };
+  const effects = noEffects();
+  for (const id of await sessionsWithLiveWork(tx, {
+    integrationId: integration.id,
+    externalIssueId: data.id,
+  })) {
+    mergeEffects(
+      effects,
+      await cancelSessionWork(tx, id, {
+        reason: "delegate_removed",
+        announce: false,
+      }),
+    );
+  }
+  return { outcome: "handled", deliver: [...effects.deliver], effects };
 }

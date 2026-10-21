@@ -426,18 +426,97 @@ psql hypotenuse -c "select w.id, s.issue_identifier, w.kind, w.role, w.status, r
 
 ## Definition of done
 
-- [ ] `work_items` with the one-active-turn partial unique index; `routing_rules`; `external_identities`
-- [ ] Role selection by ordered rules with seeded prefixes, default worker, decision named in the session
-- [ ] Repository selection: pin → single → `issueRepositorySuggestions` ≥ threshold → `select` elicitation → answer parsing
-- [ ] Eligibility as one query; capacity counted server-side
-- [ ] Ranking: sticky (with timeout and fresh worktree), issuer, least-loaded
-- [ ] Offers via ping + heartbeat; `daemon:claim` with `FOR UPDATE SKIP LOCKED`; leases renewed and reaped
-- [ ] `daemon:events` validated, idempotent by `eventId`, stop-filtered; `daemon:complete` never leaves a session hanging
-- [ ] Follow-ups merged; stop and every other cancel source handled within `stopGraceMs`
-- [ ] Queue timeout explains why; keepalive only for sessions waiting on Hypotenuse
-- [ ] `routing-rule:*`, `external-identity:*`, `agent-session:cancel` with CLI commands, settings UI, and user docs
-- [ ] Phase 7's interim "no runner" ending removed
+- [x] `work_items` with the one-active-turn partial unique index; `routing_rules`; `external_identities`
+- [x] Role selection by ordered rules with seeded prefixes, default worker, decision named in the session
+- [x] Repository selection: pin → single → `issueRepositorySuggestions` ≥ threshold → `select` elicitation → answer parsing
+- [x] Eligibility as one query; capacity counted server-side
+- [x] Ranking: sticky (with timeout and fresh worktree), issuer, least-loaded
+- [x] Offers via ping + heartbeat; `daemon:claim` with `FOR UPDATE SKIP LOCKED`; leases renewed and reaped
+- [x] `daemon:events` validated, idempotent by `eventId`, stop-filtered; `daemon:complete` never leaves a session hanging
+- [x] Follow-ups merged; stop and every other cancel source handled within `stopGraceMs`
+- [x] Queue timeout explains why; keepalive only for sessions waiting on Hypotenuse
+- [x] `routing-rule:*`, `external-identity:*`, `agent-session:cancel` with CLI commands, settings UI, and user docs
+- [x] Phase 7's interim "no runner" ending removed
 
 ## Learnings from the build
 
-_Nothing yet — this phase has not been built._
+### What is built
+
+Every Definition of done item, with one gap named below (a member linking their own Linear account). The backend
+gained three tables (`work_items`, `routing_rules`, `external_identities`) and four columns (`agent_sessions`
+`issueSnapshot`, `instruction`, `pendingRepositoryChoice`, and a foreign key on `runnerId`; `project_settings.routing`)
+in migration `0006`; four ops modules (`RoutingOps` — the decisions; `WorkItemOps` — a turn's lifecycle;
+`WorkRouteOps` — preparing and placing turns, the only one that calls Linear; `IdentityOps`); the
+`daemon:claim|events|complete` actions; `routing-rule:*`, `external-identity:list|link|unlink`,
+`agent-session:cancel`, and `project:settings-edit`; and the `work:route` and `sessions:keepalive` clocks beside a
+larger `work:reap`. `protocol/` gained `work.ts`, `events.ts`, and `complete.ts` (additive: `PROTOCOL_VERSION` stays
+1). The CLI gained `routing`, `identity`, and `session cancel` at 0.5.0; the dashboard Settings → Routing and a
+linked-accounts card on Account; the public docs *Routing* and *Managers and workers*. Nothing has run against a
+real Linear workspace or a real daemon yet.
+
+### Where the build departs from the plan
+
+- **Preparation is a routing step, not part of `created`.** A webhook's issue carries no labels, project, or parent,
+  and a mention's `created` carries only the thread's *root* comment, so choosing a role means reading Linear —
+  `GetIssue` (now with `parent` and `project { name }`) and `GetComment` for the mention's text. `created` only
+  mirrors, acknowledges (*"On it — finding a runner for ENG-123."*), and inserts the first turn; `work:route`
+  prepares it outside any transaction and writes the result under the session's lock, re-checking what it read.
+  What it read is kept: `issueSnapshot` (rules, subscriptions, and the assignment's `issue`) and `instruction` (the
+  mention with its prefix stripped, sent in the assignment). Follow-ups reuse the snapshot rather than read the
+  issue again.
+- **A turn exists before it is prepared.** `work_items.role` is null and `repositoryResolved` false until routing
+  decides; only a prepared item is offered. A worker with no runner holding any repository waits as an unresolved
+  item with a waiting thought, and a repository question waits as an item too (the plan said "no work item is
+  created yet") — so the queue timeout, the stop, and the keepalive all see it.
+- **Timeouts count from `queuedAt`**, which a lapsed lease resets, not from `createdAt`: a turn whose runner slept
+  for a minute 29 minutes in must not expire on its return.
+- **A waiting thought is ephemeral and sent once per distinct reason** (`waitingReason`), so a 5-second clock does
+  not repeat itself into the session.
+- **A follow-up behind any unfinished turn gets the "Got it" thought**, queued or running: the person typed and
+  something should say it was heard.
+- **One lock order: a session, then its work items, then a runner row.** Cancellation starts from the session;
+  claims, events, completions, the reaper, and offers start from an item. Written the obvious way, a Stop arriving
+  while the daemon posts events could deadlock and lose the stop — found in review, before any test did.
+  `WorkItemOps.lockItemWithSession` is the one way to lock an item.
+- **Offers are made under one Redis lease** (`work:route`), so two passes never count capacity at once;
+  preparation runs before it under per-session leases, so a slow Linear holds up nothing else. A claim re-checks
+  the machine's capacity under the runner's row lock.
+- **`daemon:events` validates each event itself.** Keryx reports a schema failure by the param's first path
+  segment only (`events`), and the daemon must learn *which* event was refused; the 406's `key` is
+  `events.<index>.…`. A `usage` or `status` event at or below the highest `seq` taken counts as a duplicate — it is
+  recorded nowhere to compare with. An oversized batch answers 413 `PAYLOAD_TOO_LARGE`.
+- **Revocation clears stickiness.** `revokeRunners` returns the runner's work to the queue in the revoking
+  transaction (offers withdrawn, claims requeued without an attempt, a turn being stopped finished) and drops it as
+  any session's sticky runner: its worktree is gone with it.
+- **Cancellation is quiet unless a person asked.** A stop and `agent-session:cancel` answer; an un-delegation,
+  a dismissed session, a lost team, and an uninstall cancel without a word. "Stopped. Nothing was running." stays
+  for a stop with nothing to stop.
+- **`project:settings-edit` is new.** The plan named it as if it existed. `routing` is stored sparse (a key absent
+  takes its default; `null` resets one) and answered resolved.
+- **Queues are `["triggers", "routing", "orchestrator", "default"]`**; `work:route`, `work:reap`, and
+  `sessions:keepalive` run on `routing`. A heartbeat runs a routing pass only when it changed presence, capacity, or
+  capabilities.
+- **The assignment carries `agentId`, `instruction`, and each history entry's `activityId`** (so a daemon can tell
+  this turn's prompts in the history from older ones); `prompt` stays null for `session_created`.
+- **Identity linking is the admin's and the e-mail match's.** `external-identity:link` is admin-only; a member
+  linking their own Linear account through a Linear *user* OAuth round trip is not built — it needs a second
+  redirect URI on the app and a browser hop of its own. The e-mail match covers the common case, and an admin covers
+  the rest.
+- **The suites live in `backend/__tests__/routing/`**, with the scripted daemon in `routing/helpers.ts` (not
+  `helpers/scriptedDaemon.ts`). `settle()` now runs a routing pass between processing and delivery, as the workers
+  would. Scripted daemons heartbeat far more than every 15 seconds, so these files turn the per-runner rate limits
+  off (`withoutRunnerRateLimits()`).
+- **CLI:** a rule's Linear project is `--linear-project`, because `--project` is the global project selector.
+
+### Traps found while building
+
+- **Keryx's action loader instantiates every exported function that has a prototype**, not only classes — a plain
+  `export function` helper in `actions/` would land in the registry. Helpers live in `ops/` (arrow functions are
+  safe, having no prototype).
+- **An ephemeral thought is superseded by the next enqueue**, before it is sent. The routing thought must be
+  enqueued before a waiting thought in the same transaction, or the waiting one silently never goes.
+- **Test suites sharing one database fail each other** even when run by different agents in different processes;
+  every parallel suite here had its own `DATABASE_URL_TEST` and `REDIS_URL_TEST`.
+- **finear supports `issueLabelCreate`, `labelIds`, `parent`, `project`, and `comment(id)`**, so labels, sub-issues,
+  and mention text are tested end to end; `issueRepositorySuggestions` is driven through
+  `/__test/repository-suggestions`.

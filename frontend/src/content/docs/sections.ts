@@ -5,8 +5,10 @@ import cli from "./cli.md?raw";
 import connectingLinear from "./connecting-linear.md?raw";
 import gettingStarted from "./getting-started.md?raw";
 import index from "./index.md?raw";
+import managerAndWorker from "./manager-and-worker.md?raw";
 import members from "./members.md?raw";
 import projects from "./projects.md?raw";
+import routing from "./routing.md?raw";
 import runners from "./runners.md?raw";
 import why from "./why.md?raw";
 
@@ -40,6 +42,12 @@ export const DOCS_SECTIONS: DocsSection[] = [
     markdown: agentSessions,
   },
   { slug: "runners", title: "Runners", markdown: runners },
+  { slug: "routing", title: "Routing", markdown: routing },
+  {
+    slug: "manager-and-worker",
+    title: "Managers and workers",
+    markdown: managerAndWorker,
+  },
   { slug: "members", title: "Members and tags", markdown: members },
   { slug: "audit", title: "Audit log", markdown: audit },
   { slug: "cli", title: "The CLI", markdown: cli },

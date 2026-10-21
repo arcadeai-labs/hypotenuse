@@ -2,7 +2,7 @@
 
 `hypotenuse` is the command line for Hypotenuse. It signs in to a server through your browser and does from a
 terminal what you can click in the dashboard: pick a project, add members, send invites, manage tags, connect
-integrations such as Linear, register your machine as a runner, read `@hypotenuse`'s agent sessions, and read the audit log. Later releases add the runner daemon that runs coding agents on your machine.
+integrations such as Linear, register your machine as a runner, decide how work is routed, read and stop `@hypotenuse`'s agent sessions, and read the audit log. Later releases add the runner daemon that runs coding agents on your machine.
 
 ## Installing
 
@@ -94,8 +94,10 @@ hypotenuse --project 12 member list   # or name it for one command (also HYPOTEN
 | `tag list`, `create <name>`, `edit <id> --name`, `delete <id>`, `assign <id> --user <userId>`, `unassign <id> --user <userId>` | permission tags |
 | `audit list [--since 7d] [--until <time>] [--action tag:edit]` | the audit log; times are ISO-8601, epoch milliseconds, or `7d` / `12h` / `30m` ago |
 | `integration list`, `view <type>`, `connect <type> [--no-browser] [--timeout <seconds>]`, `disconnect <type> [--yes]` | the selected project's integrations — today `linear` — below |
-| `session list [--type linear] [--status <status>] [--role <role>] [--issue ENG-123]`, `view <id>` | the selected project's agent sessions, below |
+| `session list [--type linear] [--status <status>] [--role <role>] [--issue ENG-123]`, `view <id>`, `cancel <id>` | the selected project's agent sessions, below |
 | `runner register [--name <name>] [--replace] [--force]`, `list [--status <status>] [--all]`, `view <runner>`, `edit <runner> [--name] [--enable\|--disable]`, `revoke <runner> [--yes]` | the selected project's runners, below |
+| `routing list`, `add --name <name> --role manager\|worker [match flags] [--repository <repo>] [--disabled]`, `edit <id> [...]`, `remove <id>`, `reorder <id...>`, `settings [...]` | the selected project's routing rules and settings, below |
+| `identity list [--user <id>]`, `link --user <id> --linear-user <id> [--name] [--email]`, `unlink <id>` | links between Linear users and project members, below |
 | `check-update`, `upgrade` | updates, below |
 
 Admin-only commands are refused for members with the same message the dashboard shows. `hypotenuse <command>
@@ -134,6 +136,54 @@ whether it started from a delegation or a mention. `--type`, `--status`, `--role
 and everything Hypotenuse wrote back, each with its delivery status — `sent`, `pending` while it waits its turn or
 Linear's rate limit, `failed` when Linear refused it, or `superseded` when a later activity replaced it before it was
 sent.
+
+`hypotenuse session cancel <id>` stops a session's work, as pressing **Stop** in Linear does: work no runner has
+started is cancelled and the session says so; a running turn is told to stop and report the state it left things in.
+Any member can do it.
+
+### Routing
+
+`hypotenuse routing list` shows the project's routing rules in the order they are tried. The first enabled rule
+whose match holds for a new session decides whether a **manager** or a **worker** answers it; when none matches, a
+worker does. Every project starts with two rules, `/manage` and `/work`, that match a mention beginning with that
+word. [Routing](/docs/routing) explains the whole decision.
+
+`hypotenuse routing add --name <name> --role manager|worker` adds a rule at the end. The match flags are all
+optional, and every one given must hold:
+
+| Flag | Matches when |
+|---|---|
+| `--label <labels>` | the issue has any of these labels (repeatable, or comma-separated) |
+| `--team <keys>` | the issue is in one of these teams, by key (`ENG`) |
+| `--linear-project <ids>` | the issue is in one of these Linear projects, by id |
+| `--prefix /manage` | the mention starts with this word |
+| `--has-parent`, `--no-parent` | the issue is, or is not, a sub-issue |
+| `--origin delegation\|mention` | the session started that way |
+
+`--repository <repo>` also pins the repository the work happens in, and `--disabled` adds the rule switched off.
+Labels and team keys are checked against the connected Linear workspace; a project with no working connection skips
+the check and says so.
+
+`hypotenuse routing edit <id>` takes the same flags; any match flag replaces the rule's whole match. `--enable` and
+`--disable` switch it on and off, and `--clear-repository` removes the pin. `hypotenuse routing remove <id>` deletes
+a rule, and `hypotenuse routing reorder <id...>` sets the order, listing every rule id, first tried first.
+
+`hypotenuse routing settings` shows how long work waits: the queue timeout, how long a follow-up waits for the
+runner that has its worktree, how long an offer to a runner stands, how long a stopped runner has to confirm, and how
+sure Linear must be of a repository before Hypotenuse picks it without asking. Change them with `--queue-timeout 45m`,
+`--sticky-timeout 10m` (`0` never waits), `--offer-ttl 10s`, `--stop-grace 30s`, `--repository-confidence 0.7`, and
+`--max-review-rounds 3`; `--reset <key>` returns one to its default.
+
+Reading rules and settings is open to every member; changing them is for project admins.
+
+### Identities
+
+When someone starts a session, Hypotenuse prefers runners owned by that person. It recognises them by a project member
+with the same e-mail as their Linear account, or by a link an admin made. `hypotenuse identity list` shows the links
+and how each was made. `hypotenuse identity link --user <id> --linear-user <id>` links a Linear user to a member
+(admins only), and `hypotenuse identity unlink <id>` removes a link — your own, or anyone's as an admin. Linking
+yourself by signing in to Linear is not available yet. A link only changes which runner is preferred, never what
+anyone may do.
 
 ### Runners
 

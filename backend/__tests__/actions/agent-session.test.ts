@@ -3,7 +3,7 @@ import { type ActionResponse, api } from "keryx";
 import type { AgentSessionActivities } from "../../actions/agent-session/agent-session-activities";
 import type { AgentSessionList } from "../../actions/agent-session/agent-session-list";
 import type { AgentSessionView } from "../../actions/agent-session/agent-session-view";
-import { ACK_BODY } from "../../ops/LinearWebhookOps";
+import { ackBody } from "../../ops/WorkItemOps";
 import { useFinear } from "../linear/finear";
 import { integrationRow } from "../linear/helpers";
 import {
@@ -86,8 +86,8 @@ describe("agent-session:list", () => {
     expect(body.agentSessions[0]).toMatchObject({
       issueTitle: "Third",
       origin: "delegation",
-      status: "error",
-      role: null,
+      status: "active",
+      role: "worker",
       runnerId: null,
     });
   });
@@ -116,7 +116,7 @@ describe("agent-session:list", () => {
     );
     expect(unknownType.status).toBe(406);
     const none = await get<ActionResponse<AgentSessionList>>(
-      `/agent-sessions?projectId=${universe.projectId}&status=active`,
+      `/agent-sessions?projectId=${universe.projectId}&status=error`,
       universe.toad.sessionId,
     );
     expect(none.body.agentSessions).toEqual([]);
@@ -183,19 +183,26 @@ describe("agent-session:activities", () => {
       ]),
     ).toEqual([
       [1, "outbound", "thought", "sent"],
-      [2, "outbound", "error", "sent"],
+      [2, "outbound", "thought", "sent"],
+      [3, "outbound", "thought", "sent"],
     ]);
+    const [{ body: viewed }] = [
+      await get<ActionResponse<AgentSessionView>>(
+        `/agent-session/${sessionIds[0]}?projectId=${universe.projectId}`,
+        universe.luigi.sessionId,
+      ),
+    ];
     expect(body.activities[0].content).toEqual({
       type: "thought",
-      body: ACK_BODY,
+      body: ackBody(viewed.agentSession.issueIdentifier),
     });
-    expect(body.pagination.total).toBe(2);
+    expect(body.pagination.total).toBe(3);
 
     const newer = await get<ActionResponse<AgentSessionActivities>>(
       `/agent-session/${sessionIds[0]}/activities?projectId=${universe.projectId}&afterSeq=1`,
       universe.luigi.sessionId,
     );
-    expect(newer.body.activities.map((a) => a.seq)).toEqual([2]);
+    expect(newer.body.activities.map((a) => a.seq)).toEqual([2, 3]);
   });
 
   test("an outsider is refused, and another project's session is not found", async () => {

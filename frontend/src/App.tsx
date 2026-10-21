@@ -8,6 +8,7 @@ import GeneralSection from "./components/settings/sections/GeneralSection";
 import IntegrationsSection from "./components/settings/sections/IntegrationsSection";
 import McpSection from "./components/settings/sections/McpSection";
 import MembersSection from "./components/settings/sections/MembersSection";
+import RoutingSection from "./components/settings/sections/RoutingSection";
 import TagsSection from "./components/settings/sections/TagsSection";
 import { PublicShell } from "./components/shell/PublicShell";
 import { AuthProvider } from "./context/AuthContext";
@@ -97,6 +98,7 @@ export function App() {
                     path="integrations"
                     element={<IntegrationsSection />}
                   />
+                  <Route path="routing" element={<RoutingSection />} />
                   <Route path="mcp" element={<McpSection />} />
                   <Route path="members" element={<MembersSection />} />
                   <Route path="tags" element={<TagsSection />} />

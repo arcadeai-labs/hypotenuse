@@ -51,6 +51,25 @@ resumes it from the terminal with `hypotenuse runner edit`.
 Presence comes from heartbeats, not from the live connection: a daemon behind a network that blocks WebSockets
 still works, a few seconds slower.
 
+## How work reaches a runner
+
+Hypotenuse never pushes work onto a machine. When work is ready it **offers** it to the best runner that could take
+it — the one already holding the session, then one of the person's own, then the least busy — and pings the
+daemon, which **claims** it. An offer the runner does not claim within the project's offer time (10 seconds) goes to
+the next runner. Which runners qualify, and in what order, is described in [routing](/docs/routing).
+
+A claim is a **lease**: the runner keeps the work for as long as it keeps heartbeating and reporting. If it goes
+quiet for a minute — a closed lid mid-run — the work returns to the queue and goes back to the same runner when it
+returns, or to another after the project's sticky timeout. After the fourth lapse the work is given up with an
+error.
+
+**Capacity is counted by Hypotenuse**, from the limits the runner reports: how many runs at once on the machine,
+and optionally per role and per agent. Work offered but not yet claimed already counts, so a busy runner is never
+offered more than it allowed.
+
+**Sessions are sticky.** A session's follow-ups go to the runner that holds its worktree. Revoking a runner returns
+its work to the queue for another runner, which starts a fresh worktree from the session's history.
+
 ## One daemon per machine
 
 A machine runs one daemon. If a second runner starts on a machine where another is already online or draining —
@@ -61,7 +80,7 @@ the machine. Stop the first one, or wait for it to go offline.
 
 Its owner or a project admin can revoke a runner from the Runners page or with `hypotenuse runner revoke`.
 Revocation is immediate: the token stops working on its next request, the daemon's live connection loses its
-authority, and the daemon is told to stop. It cannot be undone; register the machine again for a new token.
+authority, the daemon is told to stop, and any work it held goes back to the queue for another runner. It cannot be undone; register the machine again for a new token.
 
 To replace a machine's token — say it leaked — register again with the same name:
 

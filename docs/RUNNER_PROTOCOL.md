@@ -122,16 +122,25 @@ Capabilities and subscriptions are rewritten only when the hash of the normalize
 as `hostname/owner/name`, labels lowercased, subscription values sorted and de-duplicated), so a steady daemon
 costs one row update per beat.
 
+`offers` lists every offer standing for this runner (unexpired), oldest first; `cancels` lists every item it holds
+whose session asked to stop. Every `active` item the runner does hold has its lease renewed.
+
 `unknownActive` lists `active` items the server no longer considers this runner's (lease reaped, reassigned,
 cancelled and closed). The daemon must stop work on them **without** emitting further events — someone else may
-own the session now. Until the server routes work, it holds no work items for any runner, so every item in `active` comes back
-in `unknownActive`, and `offers` and `cancels` are always empty.
+own the session now.
+
+A heartbeat that changed what routing reads — the runner came online, went draining, freed capacity, or reported
+new capabilities — runs a routing pass, so a freed slot is offered work at once.
 
 ### `daemon:claim`
 
 `POST /api/daemon/claim` — `{ "workItemIds": [813] }` (optional; omitted means "anything offered to me").
 
-Response: `{ "assignment": WorkAssignment | null }`.
+Response: `{ "assignment": WorkAssignment | null }`. The oldest standing offer (among `workItemIds`, if given) is
+taken `FOR UPDATE SKIP LOCKED`, so two claims never take one item, and the runner's capacity is re-checked under
+its own row lock. A claim naming an item this runner already holds answers the same assignment with a renewed
+lease, so a claim whose answer was lost is safe to repeat. Nothing claimable is `{ "assignment": null }`, never an
+error.
 
 ```json
 {
@@ -144,6 +153,7 @@ Response: `{ "assignment": WorkAssignment | null }`.
     "dashboardUrl": "https://www.hypotenuse.cloud/sessions/92",
     "kind": "session_created",
     "role": "worker",
+    "agentId": "claude",
     "fresh": true,
     "repository": { "remote": "github.com/acme/web", "baseBranch": "main" },
     "branch": "hypotenuse/eng-123-fix-checkout-rounding",
@@ -153,10 +163,12 @@ Response: `{ "assignment": WorkAssignment | null }`.
       "teamKey": "ENG", "labels": ["bug"], "state": { "name": "Todo", "type": "unstarted" },
       "parent": null, "project": { "id": "…", "name": "Checkout" }
     },
+    "instruction": null,
     "promptContext": "<issue identifier=\"ENG-123\">…</issue>",
     "guidance": [{ "origin": "team", "teamKey": "ENG", "body": "Always open a draft PR." },
                  { "origin": "workspace", "body": "Reference the issue id in commits." }],
-    "history": [{ "seq": 1, "direction": "outbound", "type": "thought", "body": "On it — finding a runner for ENG-123." }],
+    "previousComments": null,
+    "history": [{ "seq": 1, "activityId": 330, "direction": "outbound", "type": "thought", "body": "On it — finding a runner for ENG-123.", "signal": null }],
     "prompt": null,
     "origin": "delegation",
     "humanDelegated": true,
@@ -168,11 +180,14 @@ Response: `{ "assignment": WorkAssignment | null }`.
 | Field | Notes |
 |---|---|
 | `kind` | `session_created` \| `prompt` \| `dispatch` \| `review` |
+| `agentId` | the runner's agent for this role, chosen when the item was offered and counted against `limits.agents` |
+| `instruction` | what the mention said, with a matched role prefix stripped (`/manage plan the launch` → `plan the launch`); null for a delegation |
+| `branch` | a hint, `hypotenuse/<identifier>-<title slug>`; null without a repository |
 | `type`, `externalSessionId`, `externalSessionUrl` | the trigger the session came from (`linear` today) and the session's id and page there; the daemon never interprets them beyond display and logs |
 | `fresh` | true when the daemon must create a new worktree and cannot `session/load` an ACP session — first turn, or a sticky session moved to this runner |
 | `repository` | null for a manager working without one |
 | `guidance` | already ordered: nearest team first, then parent teams, then workspace |
-| `history` | the session's conversation from `agent_activities`, both directions, delivered/received only, in `seq` order — never from comments |
+| `history` | the session's conversation from `agent_activities`, both directions, delivered/received only, in `seq` order — never from comments. It includes this turn's own prompts; `activityId` matches `prompt[].activityId` |
 | `prompt` | for `prompt` kind: `[{ "activityId": 330, "body": "Also handle the EUR case" }]` (merged follow-ups); for `review`: the dispatched worker's result |
 | `humanDelegated` | the session was started by a person delegating (not an automation) — read by issue hygiene |
 
@@ -210,7 +225,12 @@ Rules, enforced by the schema and the server:
 - `eventId` is the idempotency key end to end: it becomes `agent_activities.clientActivityId` and Linear's
   `agentActivityCreate(input.id)`. Resend a batch freely.
 - `seq` orders events within a work item; the server inserts in `seq` order and rejects a batch that goes
-  backwards (409 `SEQ_REGRESSION`) — that would be a daemon bug, and resending the same batch is not one.
+  backwards (409 `SEQ_REGRESSION`) — that would be a daemon bug, and resending the same batch is not one: an event
+  already recorded counts as a `duplicate`, and a `usage` or `status` event at or below the highest `seq` taken is
+  treated as one too, since it is recorded nowhere to compare with. Two events in one batch sharing a `seq` are a
+  406.
+- The first `daemon:events` call for a claimed item moves it to `running`; every call renews its lease. One invalid
+  event rejects the whole batch with a 406 whose `key` names it (`events.<index>`).
 
 ### `daemon:complete`
 
@@ -220,8 +240,11 @@ Rules, enforced by the schema and the server:
 { "workItemId": 813, "outcome": "completed", "acpSessionId": "sess_01…", "branch": "hypotenuse/eng-123-fix-checkout-rounding", "error": null }
 ```
 
-`outcome`: `completed` \| `failed` \| `cancelled`. Idempotent: completing a terminal item answers 200 with
-`{ "alreadyTerminal": true }`. If the turn emitted no `response`, `error`, or `elicitation`, the server writes one.
+`outcome`: `completed` \| `failed` \| `cancelled`. Answers `{ "alreadyTerminal": false }`. Idempotent: completing a
+terminal item answers 200 with `{ "alreadyTerminal": true }` — including a late completion of a turn the server
+already ended after the stop grace. If the turn emitted no `response`, `error`, or `elicitation`, the server writes
+one: "Done." for `completed` (a daemon bug, logged), the `error` text (or a generic one) for `failed`, "Stopped."
+for `cancelled`. Routing runs next, so a queued follow-up is offered at once.
 
 ### `daemon:linear-*` and `daemon:dispatch`
 
@@ -313,7 +336,7 @@ any `daemon:events` response — so it is delivered as long as *any* request suc
 | 406 | `CONNECTION_ACTION_PARAM_VALIDATION` | schema violation; `key` / event index included | log as a bug; drop the batch item; never retry unchanged |
 | 409 | `NOT_YOUR_WORK` | the item is not claimed by this runner | stop work on it silently |
 | 409 | `SEQ_REGRESSION` | events out of order | log as a bug |
-| 413 | — | batch over 256 KiB | split and resend |
+| 413 | `PAYLOAD_TOO_LARGE` | batch over 256 KiB | split and resend |
 | 426 | `PROTOCOL_UNSUPPORTED` | version outside the server's range | drain; ask for an upgrade |
 | 429 | `CONNECTION_RATE_LIMITED` | per-runner limit | back off to `Retry-After` |
 | 5xx / network | — | transient | retry with backoff; events are idempotent |

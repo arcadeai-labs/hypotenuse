@@ -27,7 +27,8 @@ export interface SettingsSection {
    * request**. Every section here today is readable by any member — Integrations
    * included, since `integration:view` is member-level and only its Connect
    * and Disconnect controls are admin-gated; the sections that later add
-   * runners and routing set this where their reads are admin-only.
+   * runners set this where their reads are admin-only. Routing is readable by
+   * every member; only its controls are admin-gated.
    */
   readAction: string | null;
 }
@@ -45,6 +46,7 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
     group: "Project",
     readAction: null,
   },
+  { slug: "routing", label: "Routing", group: "Project", readAction: null },
   { slug: "mcp", label: "MCP endpoint", group: "Project", readAction: null },
   { slug: "members", label: "Members", group: "People", readAction: null },
   { slug: "tags", label: "Tags", group: "People", readAction: null },

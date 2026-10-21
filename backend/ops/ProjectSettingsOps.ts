@@ -1,10 +1,110 @@
 import { eq } from "drizzle-orm";
 import type { api } from "keryx";
+import { z } from "zod";
 import {
   type ProjectSettings,
   projectSettings,
+  type RoutingSettings,
 } from "../schema/project_settings";
 import type { TxHandle } from "./ProjectOps";
+
+/** Work routing's defaults, for every key a project has not set. */
+export const ROUTING_DEFAULTS: RoutingSettings = {
+  queueTimeoutMs: 30 * 60 * 1000,
+  stickyTimeoutMs: 10 * 60 * 1000,
+  offerTtlMs: 10_000,
+  repositoryConfidence: 0.7,
+  stopGraceMs: 30_000,
+  maxReviewRounds: 3,
+};
+
+/** One hour in ms, the most any routing timer waits but the queue timeout. */
+const HOUR_MS = 60 * 60 * 1000;
+
+/** Each routing setting's bounds: a typo cannot park work for a year or offer it for a millisecond. */
+const routingFields = {
+  queueTimeoutMs: z
+    .number()
+    .int()
+    .min(60_000)
+    .max(24 * HOUR_MS)
+    .describe("A turn no runner takes within this long expires (ms)"),
+  stickyTimeoutMs: z
+    .number()
+    .int()
+    .min(0)
+    .max(24 * HOUR_MS)
+    .describe(
+      "How long a follow-up waits for the runner holding its worktree (ms); 0 never waits",
+    ),
+  offerTtlMs: z
+    .number()
+    .int()
+    .min(2_000)
+    .max(5 * 60_000)
+    .describe("How long an offer stands before it goes elsewhere (ms)"),
+  repositoryConfidence: z
+    .number()
+    .min(0)
+    .max(1)
+    .describe("The confidence Linear's top repository suggestion needs (0-1)"),
+  stopGraceMs: z
+    .number()
+    .int()
+    .min(1_000)
+    .max(HOUR_MS)
+    .describe("How long a stopped turn's runner has to confirm (ms)"),
+  maxReviewRounds: z
+    .number()
+    .int()
+    .min(0)
+    .max(20)
+    .describe("How many review rounds a manager runs on one dispatch"),
+};
+
+/**
+ * The `routing` section a settings edit may change: a key left out keeps its
+ * value, and `null` returns it to its default.
+ */
+export const RoutingSettingsEditInput = z.strictObject({
+  queueTimeoutMs: routingFields.queueTimeoutMs.nullable().optional(),
+  stickyTimeoutMs: routingFields.stickyTimeoutMs.nullable().optional(),
+  offerTtlMs: routingFields.offerTtlMs.nullable().optional(),
+  repositoryConfidence: routingFields.repositoryConfidence
+    .nullable()
+    .optional(),
+  stopGraceMs: routingFields.stopGraceMs.nullable().optional(),
+  maxReviewRounds: routingFields.maxReviewRounds.nullable().optional(),
+});
+
+/**
+ * A project's routing settings, every key filled in.
+ * @param settings - The settings row (or just its `routing` column).
+ * @returns The stored values over the defaults.
+ */
+export function resolveRoutingSettings(
+  settings: Pick<ProjectSettings, "routing"> | null | undefined,
+): RoutingSettings {
+  return { ...ROUTING_DEFAULTS, ...(settings?.routing ?? {}) };
+}
+
+/**
+ * Read a project's routing settings.
+ * @param db - A transaction or the shared handle.
+ * @param projectId - The project.
+ * @returns Its settings over the defaults.
+ */
+export async function getRoutingSettings(
+  db: TxHandle | typeof api.db.db,
+  projectId: number,
+): Promise<RoutingSettings> {
+  const [row] = await db
+    .select({ routing: projectSettings.routing })
+    .from(projectSettings)
+    .where(eq(projectSettings.projectId, projectId))
+    .limit(1);
+  return resolveRoutingSettings(row);
+}
 
 /**
  * Read a project's settings, creating the row if it has none.
@@ -45,9 +145,8 @@ export async function getOrCreateSettings(
  * Shape a settings row into the API-safe object returned by actions. Timestamps
  * are emitted as epoch milliseconds.
  *
- * A straight projection today. It exists anyway, because a serializer is the one
- * place a future secret-bearing column can be dropped without auditing every
- * call site.
+ * `routing` is answered resolved — every key, defaults filled in — because a
+ * client deciding what a turn will wait for must not guess a default.
  * @param settings - The settings row from the database.
  * @returns The serialized settings.
  */
@@ -55,6 +154,7 @@ export function serializeProjectSettings(settings: ProjectSettings) {
   return {
     id: settings.id,
     projectId: settings.projectId,
+    routing: resolveRoutingSettings(settings),
     createdAt: settings.createdAt.getTime(),
     updatedAt: settings.updatedAt.getTime(),
   };
