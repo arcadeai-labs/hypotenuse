@@ -42,6 +42,7 @@ Much of this is a port, and each port says so in its phase:
 | [15](./phase-15-dashboard.md) | Dashboard | Integrations (the Linear connection), runners, sessions and transcripts, routing rules, identities; live channels; CLI parity; user docs |
 | [16](./phase-16-signals-and-hardening.md) | Signals and hardening | Every signal (`stop`, `auth`, `select`, `continue`); `AppUserNotification`; rate-limit and replay hardening; the AIG checklist |
 | [17](./phase-17-conformance-and-e2e.md) | Conformance and end to end | Every `LINEAR_COVERAGE.md` row closed; the full daemon + finear + fake-agent suite; an optional nightly real-agent run |
+| [18](./phase-18-opentelemetry-export.md) | OpenTelemetry export | Per-project OTLP exporters; one trace per turn joining server, daemon, and the agent's native telemetry; content levels, a runner-side cap, redaction; relayed through the server so collector credentials never reach a runner |
 
 Each phase doc is named `phase-NN-<kebab-title>.md`, so searching for "routing" or "worktree" finds the file without
 opening this index.
@@ -56,6 +57,7 @@ Each phase ends in a reviewable, deployable state. **Phase 1 halts for review be
                └─► 6 ─► 7 ─► 8 ─► 9 ─────────┘
                                    └─► 15 (after 9; grows with 12–14)
                                                      16, 17 (last)
+                                                     18 (after 9 and 11–15)
 ```
 
 - **The look comes before any page.** The [design system](./phase-03-design-system.md) lands ToolExec's UI-kit API

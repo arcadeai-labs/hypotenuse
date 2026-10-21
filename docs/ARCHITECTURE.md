@@ -351,3 +351,4 @@ Trigger jobs — processing a delivery, sending an outbox — run on the `trigge
 | Dashboard, live channels, operator CLI parity | [`phase-15-dashboard.md`](./plans/phase-15-dashboard.md) |
 | Signals, notifications, rate limits, AIG | [`phase-16-signals-and-hardening.md`](./plans/phase-16-signals-and-hardening.md) |
 | Coverage conformance and the end-to-end suite | [`phase-17-conformance-and-e2e.md`](./plans/phase-17-conformance-and-e2e.md) |
+| Per-project OpenTelemetry export | [`phase-18-opentelemetry-export.md`](./plans/phase-18-opentelemetry-export.md) |
