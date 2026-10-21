@@ -3,6 +3,7 @@
 // transcript log, and the style guide. Tokens only.
 
 $narrow: 767.98px;
+$docs-rail-min: 1099.98px;
 
 // ---------------------------------------------------------------------------
 // Public shell
@@ -28,6 +29,10 @@ $narrow: 767.98px;
   background: color-mix(in srgb, var(--bg-app) 88%, transparent);
   backdrop-filter: blur(8px);
   border-bottom: 1px solid var(--border-subtle);
+
+  @media (max-width: $narrow) {
+    padding: 0 var(--space-4);
+  }
 }
 
 .public-brand {
@@ -94,6 +99,10 @@ $narrow: 767.98px;
   max-width: 1200px;
   margin: 0 auto;
   padding: var(--space-8) var(--space-6);
+
+  @media (max-width: $narrow) {
+    padding: var(--space-5) var(--space-4);
+  }
 }
 
 .public-footer {
@@ -119,6 +128,11 @@ $narrow: 767.98px;
 
   a {
     color: var(--text-secondary);
+  }
+
+  @media (max-width: $narrow) {
+    flex-wrap: wrap;
+    padding: var(--space-4);
   }
 }
 
@@ -309,14 +323,22 @@ $narrow: 767.98px;
     margin-bottom: var(--space-2);
   }
 
+  // Clear the sticky top bar, and on a phone the section picker pinned under it.
+  h2,
+  h3 {
+    scroll-margin-top: 64px;
+
+    @media (max-width: $narrow) {
+      scroll-margin-top: 116px;
+    }
+  }
+
   h2 {
     margin-top: var(--space-5);
-    scroll-margin-top: 64px;
   }
 
   h3 {
     margin-top: var(--space-3);
-    scroll-margin-top: 64px;
   }
 
   ul,
@@ -333,7 +355,11 @@ $narrow: 767.98px;
     border-radius: var(--radius-sm);
   }
 
+  // A wide table scrolls inside itself instead of widening the page.
   table {
+    display: block;
+    max-width: 100%;
+    overflow-x: auto;
     border-collapse: collapse;
 
     th,
@@ -381,15 +407,65 @@ $narrow: 767.98px;
   justify-content: center;
   gap: var(--space-8);
 
+  // The rail goes first: three columns leave a tablet's article too narrow.
+  @media (max-width: $docs-rail-min) {
+    grid-template-columns: 180px minmax(0, 72ch);
+    gap: var(--space-6);
+  }
+
   @media (max-width: $narrow) {
     grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-4);
+  }
+}
+
+.docs-nav-frame {
+  position: sticky;
+  top: 72px;
+  align-self: start;
+
+  // Pinned under the top bar, so another section is one tap away mid-page.
+  @media (max-width: $narrow) {
+    top: 48px;
+    z-index: 5;
+    margin: calc(var(--space-5) * -1) calc(var(--space-4) * -1) 0;
+    padding: var(--space-2) var(--space-4);
+    background: color-mix(in srgb, var(--bg-app) 88%, transparent);
+    backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--border-subtle);
+  }
+}
+
+.docs-nav-toggle {
+  display: none;
+
+  @media (max-width: $narrow) {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    width: 100%;
+    height: var(--row-height);
+    padding: 0 var(--space-3);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius);
+    background: var(--bg-panel);
+    color: var(--text-primary);
+    font-weight: 500;
+    cursor: pointer;
+
+    svg {
+      color: var(--text-tertiary);
+      transition: transform var(--dur-fast) var(--ease);
+    }
+
+    &[aria-expanded="true"] svg {
+      transform: rotate(180deg);
+    }
   }
 }
 
 .docs-nav {
-  position: sticky;
-  top: 72px;
-  align-self: start;
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
@@ -415,9 +491,24 @@ $narrow: 767.98px;
     }
   }
 
-  // Hidden, not unmounted, so one selector resolves at every width.
+  // Folded behind the toggle, not unmounted, so one selector resolves at
+  // every width.
   @media (max-width: $narrow) {
     display: none;
+    margin-top: var(--space-1);
+    padding: var(--space-1);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-lg);
+    background: var(--bg-panel);
+    box-shadow: var(--shadow-2);
+
+    &[data-open="true"] {
+      display: flex;
+    }
+
+    a {
+      height: var(--row-height);
+    }
   }
 }
 
@@ -442,7 +533,7 @@ $narrow: 767.98px;
     }
   }
 
-  @media (max-width: $narrow) {
+  @media (max-width: $docs-rail-min) {
     display: none;
   }
 }
