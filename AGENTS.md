@@ -336,7 +336,11 @@ Lessons from building it, kept here so the next session starts with them.
   test.
 - **Parallel sub-agents get disjoint files.** When a phase splits across forks in one worktree, name each fork's
   files explicitly, keep shared entry points (`App.tsx`, `package.json`, `app.scss`) with the parent, and let only
-  the parent commit. Each fork checks its own files; the parent runs the whole suite once they land.
+  the parent commit. Each fork checks its own files; the parent runs the whole suite once they land. Suites running
+  at once on one `hypotenuse_test` fail each other: give each its own `DATABASE_URL_TEST` and `REDIS_URL_TEST`.
+- **Keryx validates params before `beforeAct` hooks.** The principal hook — and with it the daemon/human wall —
+  only sees a request whose params already passed the action's schema; a test sweeping the registry through the
+  wall must send valid params.
 - **Signatures and footers** follow the repository owner's global rules for commits and PR text.
 
 ## Where the detail lives

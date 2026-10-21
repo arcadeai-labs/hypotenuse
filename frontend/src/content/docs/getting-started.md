@@ -30,9 +30,8 @@ with tags. They see the invitation the next time they sign in, and accepting it 
 
 ## What comes next
 
-A project connects to one Linear workspace, and the machines that take its work register as runners. Both are set up
-from **Settings** once those sections are available; until then a project holds its people, their tags, and the
-record of what they changed.
+A project connects to one Linear workspace from **Settings → Integrations**, and the machines that take its work
+register as [runners](/docs/runners) with `hypotenuse runner register`.
 
-Read on: [accounts](/docs/accounts), [projects](/docs/projects), [members](/docs/members), and the
-[audit log](/docs/audit).
+Read on: [accounts](/docs/accounts), [projects](/docs/projects), [runners](/docs/runners),
+[members](/docs/members), and the [audit log](/docs/audit).

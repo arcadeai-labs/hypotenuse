@@ -17,6 +17,7 @@ import {
   mkdirSync,
   readFileSync,
   renameSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { dirname } from "node:path";
@@ -43,13 +44,22 @@ export const LoginSchema = z.object({
   expiresAt: z.number().optional(),
 });
 
+/** This machine's runner on one server, written by `hypotenuse runner register`. */
+export const RunnerCredentialSchema = z.object({
+  runnerId: z.number(),
+  projectId: z.number(),
+  name: z.string(),
+  /** The `hyp_rt_…` runner token; the daemon's only credential. */
+  token: z.string(),
+});
+
 /** One server's entry. */
 export const ServerEntrySchema = z.object({
   login: LoginSchema.nullable().default(null),
   /** The project `hypotenuse project use` selected, by id. */
   project: z.number().nullable().default(null),
-  /** Written by `hypotenuse runner register`; opaque to everything else. */
-  runner: z.unknown().nullable().default(null),
+  /** Written by `hypotenuse runner register`. */
+  runner: RunnerCredentialSchema.nullable().default(null),
 });
 
 /** The whole file. */
@@ -61,6 +71,7 @@ export const CredentialsSchema = z.object({
 });
 
 export type Login = z.infer<typeof LoginSchema>;
+export type RunnerCredential = z.infer<typeof RunnerCredentialSchema>;
 export type ServerEntry = z.infer<typeof ServerEntrySchema>;
 export type Credentials = z.infer<typeof CredentialsSchema>;
 
@@ -73,14 +84,34 @@ export function emptyCredentials(): Credentials {
 }
 
 /**
+ * Refuse a credentials file other users can read or write, as ssh refuses a
+ * private key: the file holds bearer tokens. Skipped on Windows, whose
+ * permissions are not mode bits.
+ * @param path - The file.
+ * @throws {Error} Naming the path and the `chmod` that fixes it.
+ */
+export function assertPrivateFile(path: string): void {
+  if (process.platform === "win32") return;
+  const mode = statSync(path).mode & 0o777;
+  if ((mode & 0o077) !== 0) {
+    throw new Error(
+      `${path} is accessible by other users (mode ${mode.toString(8).padStart(4, "0")}); it holds tokens. Run \`chmod 600 ${path}\` and try again.`,
+    );
+  }
+}
+
+/**
  * Read the credentials file. A missing file is an empty one; a malformed one is
- * an error naming the path, never silently replaced.
+ * an error naming the path, never silently replaced; one readable by other
+ * users is refused (see {@link assertPrivateFile}).
  * @param path - The file to read.
  * @returns The parsed credentials.
- * @throws {Error} When the file exists but is not valid credentials.
+ * @throws {Error} When the file exists but is not valid credentials, or is
+ *   group- or world-accessible.
  */
 export function loadCredentials(path = credentialsPath()): Credentials {
   if (!existsSync(path)) return emptyCredentials();
+  assertPrivateFile(path);
   let raw: unknown;
   try {
     raw = JSON.parse(readFileSync(path, "utf8"));

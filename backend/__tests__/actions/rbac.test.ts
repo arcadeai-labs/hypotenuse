@@ -53,6 +53,13 @@ const EXPECTED_LEVELS: Record<string, RbacLevel> = {
   "agent-session:list": "member",
   "agent-session:view": "member",
   "agent-session:activities": "member",
+  // Runners: any member registers their own and reads the fleet; editing and
+  // revoking are owner-or-admin, decided inside the action on the row.
+  "runner:register": "member",
+  "runner:list": "member",
+  "runner:view": "member",
+  "runner:edit": "member",
+  "runner:revoke": "member",
 
   // Admin-gated: managing people, tags, invites, the project itself, and
   // reading the audit log, which names who did what.
@@ -113,6 +120,11 @@ const EXPECTED_LEVELS: Record<string, RbacLevel> = {
   "trigger-events:sweep": "none",
   "activities:deliver": "none",
   "activities:deliver-due": "none",
+  // The daemon's surface: the runner token is the gate, and it carries its
+  // project — no `projectId` param.
+  "daemon:connect": "none",
+  "daemon:heartbeat": "none",
+  "work:reap": "none",
 };
 
 /** Every clock: task-only, never an HTTP route. */
@@ -125,6 +137,7 @@ const CLOCKS = [
   "triggers:process-pending",
   "trigger-events:sweep",
   "activities:deliver-due",
+  "work:reap",
 ];
 
 let universe: TestUniverse;
@@ -285,6 +298,10 @@ describe("MCP publish policy", () => {
         "project:list",
         "project:settings-view",
         "project:view",
+        "runner:edit",
+        "runner:list",
+        "runner:revoke",
+        "runner:view",
         "tag:create",
         "tag:delete",
         "tag:edit",

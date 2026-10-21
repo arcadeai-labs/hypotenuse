@@ -1,9 +1,9 @@
 # @arcadeai/hypotenuse
 
 The `hypotenuse` command line: sign in to a [Hypotenuse](https://github.com/arcadeai-labs/hypotenuse)
-server through your browser, manage projects, members, invites, tags, and the audit log, and keep
-itself up to date. Later releases add the runner daemon that runs coding agents on your machine for
-Linear agent sessions.
+server through your browser, manage projects, members, invites, tags, and the audit log, register
+this machine as a runner, and keep itself up to date. Later releases add the runner daemon that runs
+coding agents on your machine for Linear agent sessions.
 
 ## Install
 
@@ -24,6 +24,7 @@ hypotenuse login              # approve in the browser; --no-browser for SSH
 hypotenuse project use my-team
 hypotenuse member list
 hypotenuse integration connect linear  # a Linear workspace admin approves in the browser
+hypotenuse runner register --name my-laptop  # saves a runner token for the daemon
 hypotenuse --json audit list --since 7d | jq
 hypotenuse upgrade
 ```

@@ -111,6 +111,27 @@ const EXPECTED_INDEXES: Record<string, { table: string; def: RegExp }> = {
     table: "notifications",
     def: /\(user_id,\s*channel,\s*read_at\)/i,
   },
+  // Every runner request resolves its bearer token by hash.
+  runners_token_hash_idx: {
+    table: "runners",
+    def: /UNIQUE.*\(token_hash\)/i,
+  },
+  // A name is unique among a project's unrevoked runners, so `--replace`
+  // can reuse it.
+  runners_project_name_idx: {
+    table: "runners",
+    def: /UNIQUE.*\(project_id,\s*name\) WHERE \(status <> 'revoked'::text\)/i,
+  },
+  // One live runner per machine, atomically.
+  runners_live_machine_idx: {
+    table: "runners",
+    def: /UNIQUE.*\(machine_id\) WHERE \(status = ANY \(ARRAY\['online'::text, 'draining'::text\]\)\)/i,
+  },
+  // A heartbeat replays as an upsert of the same scopes.
+  runner_subscriptions_unique_idx: {
+    table: "runner_subscriptions",
+    def: /UNIQUE.*\(runner_id,\s*type,\s*kind,\s*value\)/i,
+  },
 };
 
 beforeAll(async () => {

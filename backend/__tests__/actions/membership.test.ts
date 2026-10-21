@@ -4,13 +4,28 @@ import type { MembershipList } from "../../actions/membership/membership-list";
 import type { ProjectCreate } from "../../actions/project/project-create";
 import type { TagList } from "../../actions/tag/tag-list";
 import { getAdminUserIds } from "../../ops/MembershipOps";
+import { runnerSessionsKey } from "../../ops/RunnerOps";
 import { ADMIN_TAG } from "../../ops/TagOps";
+import {
+  connect,
+  eventually,
+  frames,
+  heartbeat,
+  heartbeatBody,
+  openSocket,
+  registerRunner,
+  runnerRow,
+  sessionCookie,
+  subscribe,
+} from "../runners/helpers";
 import {
   authHeaders,
   buildTestUniverse,
   cookieHeader,
+  createUserAndLogin,
   HOOK_TIMEOUT,
   inviteAndAccept,
+  TEST_PASSWORD,
   type TestUniverse,
 } from "../setup";
 
@@ -177,6 +192,66 @@ describe("membership:delete", () => {
       { headers: cookieHeader(universe.mario.sessionId) },
     );
     expect(shared.status).toBe(403);
+  });
+
+  test("removing a member revokes the runners they registered in that project, and only those", async () => {
+    const yoshi = await createUserAndLogin(
+      url,
+      "Yoshi",
+      "yoshi@yoshis.island",
+      TEST_PASSWORD,
+    );
+    await inviteAndAccept(url, universe.peach, universe.projectId, yoshi, []);
+    const shared = await registerRunner(
+      url,
+      yoshi,
+      universe.projectId,
+      "yoshi-shared",
+    );
+    const own = await registerRunner(url, yoshi, yoshi.projectId, "yoshi-own");
+
+    const connected = await connect(
+      url,
+      shared.token,
+      heartbeatBody().machineId,
+    );
+    const session = sessionCookie(connected);
+    const socket = await openSocket(url, session);
+    try {
+      expect((await subscribe(socket, `runner:${shared.id}`)).ok).toBe(true);
+
+      const res = await fetch(`${url}/api/membership`, {
+        method: "DELETE",
+        headers: authHeaders(universe.peach.sessionId),
+        body: JSON.stringify({
+          projectId: universe.projectId,
+          userId: yoshi.userId,
+        }),
+      });
+      expect(res.status).toBe(200);
+
+      const revoked = await runnerRow(shared.id);
+      expect(revoked.status).toBe("revoked");
+      expect(revoked.revokedReason).toBe("membership_removed");
+      expect((await runnerRow(own.id)).status).not.toBe("revoked");
+
+      expect(
+        await eventually(() =>
+          frames(socket, `runner:${shared.id}`).includes("revoked"),
+        ),
+      ).toBe(true);
+      expect(await api.redis.redis.exists(runnerSessionsKey(shared.id))).toBe(
+        0,
+      );
+      expect((await heartbeat(url, shared.token, heartbeatBody())).status).toBe(
+        401,
+      );
+      expect((await heartbeat(url, own.token, heartbeatBody())).status).toBe(
+        200,
+      );
+    } finally {
+      socket.socket.close();
+    }
   });
 
   test("removing a non-member is a validation error", async () => {

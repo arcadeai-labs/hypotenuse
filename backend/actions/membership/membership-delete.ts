@@ -12,9 +12,15 @@ import {
   lockProjectAdmins,
   serializeMembership,
 } from "../../ops/MembershipOps";
+import {
+  afterRunnersRevoked,
+  revokeRunners,
+  serializeRunner,
+} from "../../ops/RunnerOps";
 import { serializeTag } from "../../ops/TagOps";
 import { getUserById } from "../../ops/UserOps";
 import { projectMemberships } from "../../schema/project_memberships";
+import { runners } from "../../schema/runners";
 import { tags } from "../../schema/tags";
 import { userTags } from "../../schema/user_tags";
 
@@ -26,11 +32,15 @@ import { userTags } from "../../schema/user_tags";
  * members but nobody able to administer it. The guard reads the admin set inside
  * the same transaction as the delete, so two concurrent removals cannot both see
  * two admins and both succeed.
+ *
+ * Every runner the removed member owns in the project is revoked in the same
+ * transaction — their membership was those runners' authority — and their
+ * daemons are told once it commits.
  */
 export class MembershipDelete extends AuditedAction {
   name = "membership:delete";
   description =
-    "Remove a member from a project, along with the tags they hold in it. Requires the admin tag on the project. The project's last admin cannot be removed — promote another member first, or delete the project.";
+    "Remove a member from a project, along with the tags they hold in it, and revoke every runner they registered in it. Requires the admin tag on the project. The project's last admin cannot be removed — promote another member first, or delete the project.";
   middleware = [AdminMiddleware()];
   web = { route: "/membership", method: HTTP_METHOD.DELETE };
   inputs = z.object({
@@ -143,6 +153,45 @@ export class MembershipDelete extends AuditedAction {
         ),
       );
 
-    return { success: true };
+    const owned = await tx
+      .select({ id: runners.id })
+      .from(runners)
+      .where(
+        and(
+          eq(runners.projectId, params.projectId),
+          eq(runners.userId, params.userId),
+        ),
+      );
+    const revoked = await revokeRunners(
+      tx,
+      owned.map((r) => r.id),
+      "membership_removed",
+    );
+    if (revoked.length > 0) {
+      connection.metadata.auditBefore = {
+        ...(connection.metadata.auditBefore as Record<string, unknown>),
+        revokedRunners: revoked.map((r) => serializeRunner(r)),
+      };
+    }
+
+    return { success: true, revokedRunnerIds: revoked.map((r) => r.id) };
+  }
+
+  /**
+   * Tell the removed member's daemons they are revoked, and delete their
+   * sockets' sessions.
+   * @param result - What {@link MembershipDelete.runWithAudit} returned.
+   * @param params - The validated inputs.
+   */
+  async afterCommit(
+    result: { revokedRunnerIds: number[] },
+    params: ActionParams<MembershipDelete>,
+  ) {
+    await afterRunnersRevoked(
+      result.revokedRunnerIds.map((id) => ({
+        id,
+        projectId: params.projectId,
+      })),
+    );
   }
 }

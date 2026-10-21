@@ -294,8 +294,8 @@ row: which integration, which issue, which role. The two tool sets:
 | `external_identities` | trigger-system user (`externalUserId`) ⇄ Hypotenuse user (`userId`) links, per integration |
 | `agent_sessions` | the mirror of each agent session, typed (`type`, `externalSessionId`): issue, role, repository, sticky runner, parent (manager) session, plan, external URLs, status |
 | `agent_activities` | inbound prompts and the outbound outbox, with client UUIDs, delivery status, and attempts |
-| `runners` | registered daemons: owner, token hash, machine id, last heartbeat, parallel-job limits, roles, agents, repositories |
-| `runner_subscriptions` | the teams, projects, and labels (per trigger `type`) each runner accepts, replaced on every heartbeat |
+| `runners` | registered daemons: owner, token sha256 and last four, status (`online`, `offline`, `draining`, `revoked`) and `enabled`, machine id, last heartbeat and connect, parallel-job limits, roles, agents, repositories, the hash of the last reported capabilities. A name is unique among a project's unrevoked runners; a machine id among its live (`online` or `draining`) ones. A revoked row is kept with its reason |
+| `runner_subscriptions` | the teams, projects, and labels (per trigger `type`) each runner accepts, replaced whenever a heartbeat's capability hash changes |
 | `work_items` | one per turn: kind, role, status, offered/claimed runner, lease, attempts |
 | `routing_rules` | a project's ordered role-selection rules |
 
@@ -321,7 +321,7 @@ costs latency, never correctness.
 | `triggers:process-event` | enqueued per delivery; `triggers:process-pending` every 5 s for a lost job | the event table above |
 | `activities:deliver` | enqueued per session; `activities:deliver-due` every 1 s | drains the outbound outbox under the token bucket |
 | `work:route` | enqueued + 5 s | offers queued work; expires work with no eligible runner after `routing.queueTimeout` |
-| `work:reap` | 15 s | returns work with expired leases to `queued`; marks runners offline after `runners.offlineAfter` |
+| `work:reap` | 15 s | marks runners `offline` after `runners.offlineAfterMs` (45 s) without a heartbeat; returns work with expired leases to `queued` once work items exist |
 | `sessions:keepalive` | 60 s | a server-side keepalive `thought` for sessions whose runner is waiting on a person or reconnecting |
 | `integrations:refresh-tokens` | 5 min | refreshes access tokens within 30 minutes of expiry under a row lock (refresh tokens rotate; a lost response is replayed inside Linear's 30-minute grace; `invalid_grant` marks the integration `error` and notifies its admins). A 401 anywhere refreshes inline through the same function |
 | `notifications:dispatch` | 30 s | delivers queued notifications: a ping on the project channel, and the e-mail (logged when `SMTP_HOST` is empty) |

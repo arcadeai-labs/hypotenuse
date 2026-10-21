@@ -2,7 +2,7 @@
 
 `hypotenuse` is the command line for Hypotenuse. It signs in to a server through your browser and does from a
 terminal what you can click in the dashboard: pick a project, add members, send invites, manage tags, connect
-integrations such as Linear, read `@hypotenuse`'s agent sessions, and read the audit log. Later releases add the runner daemon that runs coding agents on your machine.
+integrations such as Linear, register your machine as a runner, read `@hypotenuse`'s agent sessions, and read the audit log. Later releases add the runner daemon that runs coding agents on your machine.
 
 ## Installing
 
@@ -95,6 +95,7 @@ hypotenuse --project 12 member list   # or name it for one command (also HYPOTEN
 | `audit list [--since 7d] [--until <time>] [--action tag:edit]` | the audit log; times are ISO-8601, epoch milliseconds, or `7d` / `12h` / `30m` ago |
 | `integration list`, `view <type>`, `connect <type> [--no-browser] [--timeout <seconds>]`, `disconnect <type> [--yes]` | the selected project's integrations — today `linear` — below |
 | `session list [--type linear] [--status <status>] [--role <role>] [--issue ENG-123]`, `view <id>` | the selected project's agent sessions, below |
+| `runner register [--name <name>] [--replace] [--force]`, `list [--status <status>] [--all]`, `view <runner>`, `edit <runner> [--name] [--enable\|--disable]`, `revoke <runner> [--yes]` | the selected project's runners, below |
 | `check-update`, `upgrade` | updates, below |
 
 Admin-only commands are refused for members with the same message the dashboard shows. `hypotenuse <command>
@@ -134,6 +135,27 @@ and everything Hypotenuse wrote back, each with its delivery status — `sent`, 
 Linear's rate limit, `failed` when Linear refused it, or `superseded` when a later activity replaced it before it was
 sent.
 
+### Runners
+
+A runner is a machine that runs coding agents for the project. `hypotenuse runner register` registers **this**
+machine, owned by you, in the selected project. It is named after the machine unless you pass `--name`. Its token
+is saved in `credentials.json`, never printed. The command then checks in with the server once, so the runner shows
+up with its machine details straight away, and fails loudly if the token does not work. Names are unique in a project:
+`--replace` revokes the runner with that name and registers a new one, which is also how you replace a token you
+think has leaked. A machine holds one runner per server, so registering into a different project needs `--force`.
+Without it, the CLI refuses to orphan the runner you already have.
+
+`hypotenuse runner list` shows the project's runners: who owns each, whether it is `online`, `draining`, or
+`offline`, how much work it is doing out of how much it takes, and its last check-in. `--all` includes revoked
+runners. `hypotenuse runner view <runner>` (by id or name) adds what the server last heard: roles, agents,
+repositories, the teams, projects, and labels it takes work from, and whether its live connection is attached.
+
+`hypotenuse runner edit <runner> --disable` pauses a runner: it stays connected but is offered no work, until
+`--enable`. `--name` renames it. `hypotenuse runner revoke <runner>` revokes it for good. Its token stops working and
+its daemon is told to stop at once. If it is this machine's runner, the token is removed from `credentials.json`.
+Editing and revoking are for the runner's owner or a project admin. [Runners](/docs/runners) explains what a runner
+can and cannot do for you.
+
 ## Output and scripting
 
 Tables and messages are for people; add `--json` (`-j`) and stdout carries the server's answer as JSON, with no
@@ -164,5 +186,6 @@ Once a day the CLI checks for a new release in the background and mentions it af
 
 Everything lives in `~/.config/hypotenuse/` (or `$XDG_CONFIG_HOME/hypotenuse/`):
 
-- `credentials.json` — your sign-in for each server, readable only by you. Keep it private: it acts as you.
+- `credentials.json` — your sign-in and this machine's runner token for each server, readable only by you. Keep it
+  private: it acts as you. The CLI refuses to read it if other users can (`chmod 600` it, as the error says).
 - `update.json` — when the update check last ran.

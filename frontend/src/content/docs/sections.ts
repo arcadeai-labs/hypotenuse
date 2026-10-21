@@ -7,6 +7,7 @@ import gettingStarted from "./getting-started.md?raw";
 import index from "./index.md?raw";
 import members from "./members.md?raw";
 import projects from "./projects.md?raw";
+import runners from "./runners.md?raw";
 import why from "./why.md?raw";
 
 /** One page of the public docs. */
@@ -38,6 +39,7 @@ export const DOCS_SECTIONS: DocsSection[] = [
     title: "Agent sessions",
     markdown: agentSessions,
   },
+  { slug: "runners", title: "Runners", markdown: runners },
   { slug: "members", title: "Members and tags", markdown: members },
   { slug: "audit", title: "Audit log", markdown: audit },
   { slug: "cli", title: "The CLI", markdown: cli },

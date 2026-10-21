@@ -356,18 +356,66 @@ curl -s localhost:8080/api/runners?projectId=1 -H "Authorization: Bearer $TOKEN"
 
 ## Definition of done
 
-- [ ] `runners` and `runner_subscriptions`; capability hash avoids rewrite churn
-- [ ] Tokens: prefixed, hashed, shown once, revocation complete (row, work, sessions, frame) in one transaction + publish
-- [ ] `RunnerTokenMiddleware` re-checks owner membership and protocol version on every request
-- [ ] `DAEMON_ONLY_ACTION_NAMES` + `beforeAct` hook; whole-registry tests in both directions
-- [ ] `daemon:connect` cookie; one subscribe per socket; `runner:<id>` channel machine-only
-- [ ] `daemon:heartbeat` with the final request/response shape; presence via `work:reap`
-- [ ] Membership removal revokes runners
-- [ ] Per-runner rate limits
-- [ ] `hypotenuse runner` commands; credentials file 0600 with a mode check
-- [ ] Minimal Runners page, live; user docs page
-- [ ] `protocol/` heartbeat schemas and `RUNNER_PROTOCOL.md`
+- [x] `runners` and `runner_subscriptions`; capability hash avoids rewrite churn
+- [x] Tokens: prefixed, hashed, shown once, revocation complete (row, work, sessions, frame) in one transaction + publish
+- [x] `RunnerTokenMiddleware` re-checks owner membership and protocol version on every request
+- [x] `DAEMON_ONLY_ACTION_NAMES` + `beforeAct` hook; whole-registry tests in both directions
+- [x] `daemon:connect` cookie; one subscribe per socket; `runner:<id>` channel machine-only
+- [x] `daemon:heartbeat` with the final request/response shape; presence via `work:reap`
+- [x] Membership removal revokes runners
+- [x] Per-runner rate limits
+- [x] `hypotenuse runner` commands; credentials file 0600 with a mode check
+- [x] Minimal Runners page, live; user docs page
+- [x] `protocol/` heartbeat schemas and `RUNNER_PROTOCOL.md`
 
 ## Learnings from the build
 
-_Nothing yet — this phase has not been built._
+**Built.** The server half, the `hypotenuse runner` commands (CLI 0.4.0), a minimal live Runners page, and the
+*Runners* user doc. Where the build differs from the plan above, this section is what is true.
+
+**Where the pieces live.**
+
+- **There is no separate `RunnerTokenMiddleware` or `daemonPolicy` `beforeAct` hook.** The wall needs to know the
+  principal before any middleware runs, so resolving a runner is part of the one principal hook
+  (`middleware/session.ts` → `resolveRunner` in `middleware/runnerToken.ts`), and the wall is
+  `daemonPolicyRefusal` in `ops/DaemonPolicyOps.ts`, applied by that hook. `initializers/daemonPolicy.ts` holds only
+  the protocol check (below).
+- **The protocol check is a web `beforeRequest` hook, not middleware,** because the answer is a 426 and Keryx's
+  `ErrorType`s map to a fixed set of statuses without one. It matches the `/api/daemon/` path, so every daemon
+  action must route there (asserted in `daemon-policy.test.ts`), and it runs *before* authentication: a daemon too
+  old to speak the protocol is told to upgrade whatever its token. The 409 `MACHINE_IN_USE` is likewise a raw
+  `Response` returned by the action. Both bodies keep Keryx's `{ error: { type, message } }` envelope.
+- **A WebSocket action frame is not protocol-checked** — it has no headers. The session it carries was minted by
+  `daemon:connect`, which was.
+- **Keryx's initializer loader instantiates every export** of a file in `initializers/`. Exporting a helper
+  function next to the initializer class broke boot with a `dependsOn` of `undefined`; helpers live in `ops/`.
+- **The credentials file already existed** (`cli/src/api/credentials.ts`, keyed by server origin, with a `runner`
+  slot), so there is no `cli/src/config/credentials.ts`. `--force` guards replacing this server's runner with one in
+  a *different project*: credentials for a different server are a different key and orphan nothing. The mode check
+  applies to every CLI command, not only `runner`.
+
+**Decisions the plan left open.**
+
+| Question | Answer |
+|---|---|
+| Name uniqueness with `--replace` | `(projectId, name)` is unique only among unrevoked runners (a partial index), so a replacement reuses the name and the revoked row keeps it |
+| Who may `--replace` | the existing runner's owner or a project admin, the same rule as edit and revoke |
+| A machine id held by another tenant | still refused — machine ids are global, which is what catches a second OS user on a shared box — but `runnerId` and `runnerName` are `null` unless the other runner shares the caller's project or owner |
+| `unknownActive` before work items exist | every `active` item is echoed: the server holds no work for any runner, which is the truth the field reports |
+| Revocation's "return claimed work to `queued`" | there are no work items yet; `revokeRunners` is the single place work routing adds it, in the same transaction |
+| The socket of a revoked runner | its sessions are deleted from Redis, but a live socket holds its session in memory, so `runner:<id>`'s middleware re-reads the row on every subscribe. The socket is not force-closed — only the process holding it could, and the daemon exits on `revoked` |
+| The first heartbeat from `runner register` | there is no daemon config yet, so it reports empty capabilities and `maxParallelJobs: 1`; the daemon's own heartbeats replace them |
+| Per-runner rate limits in tests | on (unlike the per-user limiter), with their own config and key prefix; `buildTestUniverse()` clears the keys, since runner ids restart |
+| Which changes reach the dashboard | status, capability hash, `activeCount`, and limits — the fields the Runners page shows |
+
+**Things that bit.**
+
+- **Keryx validates params before `beforeAct` hooks run.** A runner token sending a human action *invalid* params
+  gets that action's 406 rather than the wall's 403. Nothing leaks that `swagger` does not already publish, but a
+  test sweeping the registry must send valid params to reach the wall; `daemon-policy.test.ts` sends a superset.
+- **Keryx publishes its own presence frames** (`{ event: "join" | "leave", presenceKey }`) on every channel,
+  content-free ones included. A test counting a channel's frames counts by `event`.
+- **The frontend type-checks `backend/ops/*`.** `RunnerOps.ts` reads `config.runners`, so it imports the config
+  augmentation type-only, as `CliTokenOps.ts` does for `cliAuth`.
+- **Two suites on one test database fail each other.** Parallel agents in one checkout share `hypotenuse_test`;
+  give each its own with `DATABASE_URL_TEST` and `REDIS_URL_TEST` (or `bun run workspace:setup`).
