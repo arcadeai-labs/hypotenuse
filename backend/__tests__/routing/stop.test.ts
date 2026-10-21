@@ -193,19 +193,31 @@ describe("a running turn", () => {
       cancelReason: "superseded",
     });
 
-    const answer = await laptop.events(turn!.workItemId, [
+    const batch = [
       { type: "action", action: "Editing", parameter: "a.ts" },
       { type: "plan", entries: [{ content: "x", status: "pending" }] },
       {
         type: "response",
         body: "Stopped. The fix is half-applied on the branch.",
       },
-    ]);
+    ].map((event, i) => ({
+      eventId: crypto.randomUUID(),
+      seq: i + 2,
+      at: Date.now(),
+      ...event,
+    }));
+    const answer = await laptop.rawEvents(turn!.workItemId, batch);
     expect(answer.body).toEqual({
       accepted: 1,
       duplicates: 0,
       dropped: 2,
       cancelRequested: true,
+    });
+    // A resend whose answer was lost drops the same events again.
+    const resent = await laptop.rawEvents(turn!.workItemId, batch);
+    expect(resent).toEqual({
+      status: 200,
+      body: { accepted: 0, duplicates: 1, dropped: 2, cancelRequested: true },
     });
     expect((await laptop.complete(turn!.workItemId, "cancelled")).body).toEqual(
       { alreadyTerminal: false },

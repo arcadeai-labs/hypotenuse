@@ -227,8 +227,9 @@ Rules, enforced by the schema and the server:
 - `seq` orders events within a work item; the server inserts in `seq` order and rejects a batch that goes
   backwards (409 `SEQ_REGRESSION`) — that would be a daemon bug, and resending the same batch is not one: an event
   already recorded counts as a `duplicate`, and a `usage` or `status` event at or below the highest `seq` taken is
-  treated as one too, since it is recorded nowhere to compare with. Two events in one batch sharing a `seq` are a
-  406.
+  treated as one too, since it is recorded nowhere to compare with, and so is an event dropped by a stop. Two
+  events in one batch sharing a `seq` are a 406. `seq` is per **claim**: a turn whose lease lapsed and was claimed
+  again numbers from 1.
 - The first `daemon:events` call for a claimed item moves it to `running`; every call renews its lease. One invalid
   event rejects the whole batch with a 406 whose `key` names it (`events.<index>`).
 

@@ -83,6 +83,25 @@ describe("leases", () => {
     const { session } = await delegatedSession(linear, appUserId, "Lose me");
     let claimed = await laptop.claim();
     const id = claimed!.workItemId;
+    /**
+     * Post one thought numbered from 1, as a daemon starting the turn does.
+     * @param body - The thought.
+     * @returns The status.
+     */
+    const firstEvent = async (body: string) =>
+      (
+        await laptop.rawEvents(id, [
+          {
+            eventId: crypto.randomUUID(),
+            seq: 1,
+            at: Date.now(),
+            type: "thought",
+            body,
+            ephemeral: false,
+          },
+        ])
+      ).status;
+    expect(await firstEvent("Starting")).toBe(200);
 
     for (let attempt = 1; attempt <= 3; attempt++) {
       const reaped = await lapse(id);
@@ -107,6 +126,8 @@ describe("leases", () => {
       });
       claimed = await laptop.claim([id]);
       expect(claimed).toMatchObject({ workItemId: id, fresh: false });
+      // Sequence numbers are per claim: the retry numbers from 1 again.
+      expect(await firstEvent(`Starting again, attempt ${attempt}`)).toBe(200);
     }
 
     const reaped = await lapse(id);

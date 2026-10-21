@@ -593,6 +593,8 @@ function requeuedColumns() {
     fresh: null,
     queuedAt: new Date(),
     waitingReason: null,
+    // Sequence numbers are per claim: the next claimant numbers from 1.
+    lastEventSeq: 0,
   };
 }
 
@@ -1130,6 +1132,13 @@ export async function applyEvents(
       response.duplicates++;
       continue;
     }
+    // Checked before the sequence: a dropped event is recorded nowhere, so a
+    // resent batch must drop it again rather than call it a regression.
+    if (item.cancelRequestedAt && !STOPPING_EVENT_TYPES.has(event.type)) {
+      lastSeq = Math.max(lastSeq, event.seq);
+      response.dropped++;
+      continue;
+    }
     if (event.seq <= item.lastEventSeq) {
       if (event.type === "usage" || event.type === "status") {
         // Not recorded anywhere to compare with: a resend of a batch.
@@ -1144,10 +1153,6 @@ export async function applyEvents(
       );
     }
     lastSeq = Math.max(lastSeq, event.seq);
-    if (item.cancelRequestedAt && !STOPPING_EVENT_TYPES.has(event.type)) {
-      response.dropped++;
-      continue;
-    }
     try {
       await recordEvent(tx, item, event);
     } catch (e) {
