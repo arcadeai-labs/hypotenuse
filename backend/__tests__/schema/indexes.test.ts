@@ -54,6 +54,16 @@ const EXPECTED_INDEXES: Record<string, { table: string; def: RegExp }> = {
     def: /UNIQUE.*\(token_hash\)/i,
   },
   cli_tokens_user_idx: { table: "cli_tokens", def: /\(user_id\)/i },
+  // One installation per project, and one live installation per workspace:
+  // every webhook routes by workspace id, and a disconnected row is kept.
+  linear_installations_project_idx: {
+    table: "linear_installations",
+    def: /UNIQUE.*\(project_id\)/i,
+  },
+  linear_installations_org_live: {
+    table: "linear_installations",
+    def: /UNIQUE.*\(organization_id\) WHERE \(status <> 'revoked'::text\)/i,
+  },
   notifications_unread_idx: {
     table: "notifications",
     def: /\(user_id,\s*channel,\s*read_at\)/i,

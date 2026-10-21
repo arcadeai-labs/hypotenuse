@@ -327,12 +327,15 @@ describe("secret redaction", () => {
     });
   });
 
-  test("the denylist covers the Linear and runner secrets before they exist", () => {
+  test("the denylist covers the Linear and runner secrets", () => {
     for (const key of [
       "accessToken",
       "refreshToken",
-      "accessTokenEnc",
-      "refreshTokenEnc",
+      "accessTokenEncrypted",
+      "refreshTokenEncrypted",
+      "access_token",
+      "refresh_token",
+      "code_verifier",
       "clientSecret",
       "webhookSecret",
       "code",

@@ -13,6 +13,13 @@
       "when": 1792530760032,
       "tag": "0001_omniscient_iron_lad",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1792539607671,
+      "tag": "0002_goofy_lord_tyger",
+      "breakpoints": true
     }
   ]
 }

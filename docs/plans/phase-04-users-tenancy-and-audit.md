@@ -306,8 +306,8 @@ out of scope here and arrive with the CLI itself (rule 13's decision, recorded).
 - **`NetworkGuardOps` is not ported.** Hypotenuse has no URL a person types and the server fetches — Linear's
   endpoints are configuration — so the SSRF guard would be dead code. Port it with the first feature that fetches a
   user-supplied URL. `RawRequestOps` is ported now, for the Linear webhook, which must verify its signature over the raw bytes.
-- **There are no notification templates yet.** The registry is empty and every row renders through the generic
-  fallback; each kind arrives with the feature that raises it. The mail chrome is painted from
+- **Notification templates arrive with the feature that raises them.** The first is `linear-refresh-failed`, from
+  the Linear connection; a row whose template is unregistered renders through the generic fallback. The mail chrome is painted from
   `backend/theme/email-palette.ts`, a new output of `design/tokens.ts` — mail clients cannot read custom
   properties, and literals typed into a template would drift from the app.
 - **The settings page has General, MCP endpoint, Members, Tags, and Danger zone**, and General renames through
@@ -325,7 +325,7 @@ out of scope here and arrive with the CLI itself (rule 13's decision, recorded).
   loads it, and removes it, so the `EVAL` path is proven before the application ships a script of its own.
 - **`/api/status` must touch the newest migration's column**, not `SELECT NOW()`: Keryx binds before
   `DATABASE_AUTO_MIGRATE` finishes, and `e2e/global-setup.ts` waits on `healthy`. It reads
-  `cli_tokens.last_four` today; move it whenever a newer migration lands.
+  `linear_installations.app_user_capabilities` today; move it whenever a newer migration lands.
 - **Backend suites sign up dozens of users from one address**, so `RATE_LIMIT_ENABLED_TEST=false` in
   `.env.example`. The e2e backend turns the limiter back on, because the browser path is the only place it runs.
 - **The e2e backend works its own queues** (`TASK_PROCESSORS_TEST=1`, a one-second dispatch tick) — the opposite of

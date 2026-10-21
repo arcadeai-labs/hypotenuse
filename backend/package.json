@@ -32,6 +32,8 @@
     "@linear/sdk": "97.1.0",
     "@types/bun": "latest",
     "@types/nodemailer": "^8.0.1",
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1",
     "drizzle-kit": "^0.31.10",
     "graphql": "16.11.0",
     "typescript": "^7.0.2"

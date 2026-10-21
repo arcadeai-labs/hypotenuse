@@ -47,7 +47,7 @@ describe("status: Linear URLs", () => {
     const origin = config.server.web.applicationUrl.replace(/\/+$/, "");
     expect(body.linear.webhookUrl).toBe(`${origin}/api/webhooks/linear`);
     expect(body.linear.callbackUrl).toBe(`${origin}/api/linear/callback`);
-    // The example env leaves the Linear app unconfigured.
-    expect(body.linear.configured).toBe(false);
+    // The example env configures a test Linear app (the one finear registers).
+    expect(body.linear.configured).toBe(true);
   });
 });

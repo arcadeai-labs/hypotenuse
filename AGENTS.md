@@ -249,8 +249,14 @@ The map is [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md). What follows is the
 ## Testing
 
 - **Backend:** `cd backend && bun test`. `buildTestUniverse()` seeds the ToolExec cast (Peach admin, Mario, Luigi,
-  Toad, and Bowser the outsider) over real HTTP. `useFinear()` boots finear in process with an OAuth app whose
-  webhook points at the test server, installs it with `actor=app`, and exposes finear's control routes.
+  Toad, and Bowser the outsider) over real HTTP. `useFinear()` — called after the file's `buildTestUniverse()`
+  `beforeAll` — boots finear in process with this server's OAuth client (the `LINEAR_*_TEST` values) registered
+  against the server's real callback and webhook URLs, points `config.linear` at it, and exposes finear's control
+  routes. `linear.install(projectId, sessionId)` drives connect → finear's consent screen → callback. finear sits
+  behind a small proxy that records every request and can stamp Linear's rate-limit headers, answer one request
+  `RATELIMITED`, or lose one response — the things finear does not do. Every Linear call goes through
+  `ops/LinearOps.ts` `linearRequest`, with documents in `ops/linear/operations.ts`, each executed against finear in
+  `linear-ops.test.ts`.
 - **CLI / daemon:** `cd cli && bun test` for unit tests; `backend/__tests__/cli/` spawns the real CLI against the
   booted server, approving its sign-in over HTTP as a test user; `cli/test/e2e/test-upgrade.sh` installs the branch
   by npm, bun, and binary (it installs globally — CI or a throwaway machine only); end-to-end suites in `backend/__tests__/e2e/` spawn the real
@@ -275,6 +281,8 @@ cd frontend && bun run docs:illustrations     # light + dark screenshots (fronte
 open http://localhost:3000/style-guide        # every primitive and fixture surface, both themes side by side
 cd backend && bun run test                    # fetches finear, then real server + finear
 cd backend && bun test path/to/file.test.ts   # one file (after a first `bun run finear:fetch`)
+cd backend && bun keryx.ts linear:manifest-url  # the pre-filled Linear app-creation link (APPLICATION_URL must be public HTTPS)
+cd backend && bun keryx.ts linear:refresh-tokens # run the token refresh clock once
 cd cli && bun test                            # CLI + daemon unit tests
 bun run --cwd cli hypotenuse --help
 bun run --cwd cli hypotenuse config validate -c ./examples/config.toml

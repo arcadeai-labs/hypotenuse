@@ -9,6 +9,7 @@ import { registerAuditCommands } from "./commands/audit";
 import { registerAuthCommands } from "./commands/auth";
 import { registerCheckUpdateCommand } from "./commands/check-update";
 import { registerInviteCommands } from "./commands/invite";
+import { registerLinearCommands } from "./commands/linear";
 import { registerMemberCommands } from "./commands/member";
 import { registerProjectCommands } from "./commands/project";
 import { registerTagCommands } from "./commands/tag";
@@ -54,6 +55,7 @@ export function buildProgram(): Command {
   registerInviteCommands(program);
   registerTagCommands(program);
   registerAuditCommands(program);
+  registerLinearCommands(program);
   registerCheckUpdateCommand(program);
   registerUpgradeCommand(program);
   return program;

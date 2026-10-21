@@ -93,10 +93,28 @@ hypotenuse --project 12 member list   # or name it for one command (also HYPOTEN
 | `invite list`, `pending`, `create --email [--tag <id>]`, `accept <id>`, `reject <id>` | invitations; `pending` lists the ones addressed to you |
 | `tag list`, `create <name>`, `edit <id> --name`, `delete <id>`, `assign <id> --user <userId>`, `unassign <id> --user <userId>` | permission tags |
 | `audit list [--since 7d] [--until <time>] [--action tag:edit]` | the audit log; times are ISO-8601, epoch milliseconds, or `7d` / `12h` / `30m` ago |
+| `linear status`, `connect [--no-browser] [--timeout <seconds>]`, `disconnect [--yes]` | the selected project's Linear workspace connection, below |
 | `check-update`, `upgrade` | updates, below |
 
 Admin-only commands are refused for members with the same message the dashboard shows. `hypotenuse <command>
 --help` lists each command's options.
+
+### Connecting Linear
+
+`hypotenuse linear status` shows which Linear workspace the project is connected to, the `@hypotenuse` app user,
+the granted scopes and teams, and when its token expires. It never shows a token.
+
+`hypotenuse linear connect` (project admins) prints the address of Linear's consent screen and opens it in your
+browser; `--no-browser` only prints it, for SSH. Whoever opens it must be an **admin of the Linear workspace**,
+signed in to the dashboard as you. Once they approve, Linear sends the browser back to the dashboard and the
+command prints the connection. It waits five minutes by default; if the dashboard shows an error, the command
+times out and the dashboard says why. Running it again on a connected project reconnects the same workspace.
+
+`hypotenuse linear disconnect` (project admins) revokes the app's tokens at Linear, which uninstalls
+`@hypotenuse` from the workspace at once. It asks first; `--yes` skips the question, and is required when the
+command is not run from a terminal.
+
+What the consent screen asks for, and what each error means, is in [Connecting Linear](/docs/connecting-linear).
 
 ## Output and scripting
 

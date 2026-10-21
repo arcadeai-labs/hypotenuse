@@ -106,33 +106,36 @@ Hypotenuse is **one Linear OAuth application per deployment**, installed into ea
 `actor=app`. Create it once per environment (staging, and later production), and one more per developer for
 local work pointed at their ngrok tunnel.
 
-The quickest way is Linear's app manifest link, which pre-fills the creation form. Open (URL-encoded, one
-parameter per line here for reading):
+The quickest way is Linear's app manifest link, which pre-fills the creation form with a JSON manifest that
+validates against Linear's published schema. The deployment prints its own, with the callback and webhook URLs
+derived from `APPLICATION_URL`:
 
+```bash
+cd backend
+APPLICATION_URL=https://api.hypotenuse.cloud FRONTEND_URL=https://www.hypotenuse.cloud \
+  bun keryx.ts linear:manifest-url                      # --name "Hypotenuse Staging" for a second app
 ```
-https://linear.app/settings/api/applications/new
-  ?distribution=private
-  &oauth.client_name=Hypotenuse
-  &oauth.client_uri=https://www.hypotenuse.cloud
-  &oauth.redirect_uris=https://api.hypotenuse.cloud/api/linear/callback
-  &oauth.grant_types=authorization_code
-  &display.description=Coding%20agents%20on%20your%20team%27s%20machines
-  &display.iconUrl=https://www.hypotenuse.cloud/hypotenuse-icon.png
-  &developer.name=Arcade
-  &webhook.enabled=true
-  &webhook.url=https://api.hypotenuse.cloud/api/webhooks/linear
-  &webhook.resourceTypes=AgentSessionEvent
-  &webhook.resourceTypes=AppUserNotification
-  &webhook.resourceTypes=PermissionChange
-  &webhook.resourceTypes=Issue
-  &webhook.resourceTypes=Comment
-```
+
+It answers `{ url, manifest }`; open `url`. It refuses a name containing "Linear" (Linear would), and refuses a
+webhook URL that is not public HTTPS — loopback, private-network, and `linear.app` hosts included — so locally it
+needs the tunnel's URL (below). The manifest sets:
+
+- `oauth.client_name` — "Hypotenuse" unless `--name` says otherwise; `oauth.client_uri` — the dashboard;
+- `oauth.redirect_uris` — `${APPLICATION_URL}/api/linear/callback`; `oauth.grant_types` — `authorization_code` only;
+- `webhook.url` — `${APPLICATION_URL}/api/webhooks/linear`, with `AgentSessionEvent`, `AppUserNotification`,
+  `PermissionChange`, `Issue`, and `Comment`;
+- `distribution` — `private`.
+
+The command runs without the three Linear secrets, so it works before the app exists. **The api and worker do
+not**: in production they refuse to boot until `LINEAR_CLIENT_ID`, `LINEAR_CLIENT_SECRET`, and
+`LINEAR_WEBHOOK_SECRET` are all set, because a deployment without them looks healthy until somebody tries Linear.
 
 Then, in the app's settings:
 
 1. Confirm **Agent session events**, **Inbox notifications**, and **Permission changes** are enabled, and enable
    **OAuth app revoked** if it is offered as a separate toggle (it is not in the manifest's resource-type enum).
-   Enabling agent session events turns on the agent-session UI for every workspace that installs the app.
+   **Enabling agent session events turns on the agent-session UI for every workspace that installs the app.**
+   Upload the icon here too; the manifest carries none.
 2. The name and icon are how `@hypotenuse` appears in Linear's mention, assignee, and filter menus. If the name
    collides with a workspace member, Linear appends a number.
 3. Copy the **client ID**, **client secret**, and **webhook signing secret** into `hypotenuse-shared` as
@@ -156,7 +159,8 @@ To list Hypotenuse publicly later, submit it to Linear's integration directory a
 3. **Point DNS at Render.** The project owns `hypotenuse.cloud`: `api.hypotenuse.cloud` is the backend,
    `www.hypotenuse.cloud` the frontend, and the apex is attached only to redirect to `www`. `render.yaml` already
    declares all three; add the DNS records the Render dashboard names for each and wait for their certificates.
-4. **Create the Linear OAuth app** (above) and add its three secrets to `hypotenuse-shared`.
+4. **Create the Linear OAuth app** (above) and add its three secrets to `hypotenuse-shared`. Until they are there
+   the api and worker fail their boot by design, so redeploy both once they are.
 5. **The CLI's first npm release is by hand**, because npm accepts a trusted publisher only for a package that
    already exists. Merging the version bump runs `auto-release.yml`: CI passes, the draft `v<version>` release is
    created with its six binaries, and `publish-npm` fails. Then:
@@ -215,6 +219,7 @@ Linear will not deliver webhooks to `localhost`. Use the reserved tunnel:
 bun run ngrok          # prints https://<you>-api.ngrok.app/api/webhooks/linear and …/api/linear/callback
 ```
 
-Create a personal development Linear app with the manifest link above, substituting the tunnel's URLs, and put
-its three secrets in `backend/.env`. Tests never need this: finear runs in-process and delivers to the test
-server directly.
+Create a personal development Linear app from `APPLICATION_URL=https://<you>-api.ngrok.app bun keryx.ts
+linear:manifest-url` (in `backend/`), and put its three secrets in `backend/.env`. Tests never need this: finear runs
+in-process with a test OAuth client (the `LINEAR_*_TEST` values in `.env.example`) and delivers to the test server
+directly.
