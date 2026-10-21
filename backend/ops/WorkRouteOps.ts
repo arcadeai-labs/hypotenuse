@@ -813,10 +813,11 @@ export async function routeWork(): Promise<RouteResult> {
 /**
  * Keep sessions that are waiting **on Hypotenuse** from going `stale`: a
  * session with a queued turn (no runner yet, a sticky runner away, a lease
- * that lapsed) whose newest outbound activity is older than 25 minutes gets an
- * ephemeral thought saying what it waits for. A session waiting on a
- * **person** — a repository question — is left alone: stale is the right
- * state for a question nobody has answered.
+ * that lapsed) and none under way, whose newest outbound activity is older
+ * than 25 minutes, gets an ephemeral thought saying what it waits for. A
+ * session waiting on a **person** — a repository question — is left alone:
+ * stale is the right state for a question nobody has answered. One with a
+ * turn under way is the daemon's to keep alive.
  * @param quietMs - How long without an outbound activity counts as quiet.
  * @returns The sessions kept alive.
  */
@@ -834,6 +835,11 @@ export async function keepaliveSessions(
     JOIN integrations i ON i.id = s.integration_id
     WHERE w.status = 'queued'
       AND s.pending_repository_choice IS NULL
+      -- A turn under way is the daemon's to keep alive, follow-ups or not.
+      AND NOT EXISTS (
+        SELECT 1 FROM work_items a
+        WHERE a.agent_session_id = s.id
+          AND a.status IN ('offered', 'claimed', 'running'))
       AND i.status = 'active'
       AND coalesce(
         (SELECT max(a.created_at) FROM agent_activities a

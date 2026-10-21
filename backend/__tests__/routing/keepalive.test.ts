@@ -15,6 +15,7 @@ import {
   ago,
   delegatedSession,
   itemsOf,
+  personSays,
   ScriptedDaemon,
   withoutRunnerRateLimits,
 } from "./helpers";
@@ -114,17 +115,30 @@ describe("sessions:keepalive", () => {
     expect(await keepalive()).not.toContain(session.id);
   });
 
-  test("LC-BP-03 a session whose turn is running is the daemon's to keep alive", async () => {
+  test("LC-BP-03 a session whose turn is running is the daemon's to keep alive, follow-ups queued or not", async () => {
     await daemon.heartbeat({
       capabilities: { ...daemon.shape.capabilities, repositories: [WEB] },
     });
-    const { session } = await delegatedSession(linear, appUserId, "Running");
+    const { session, externalSessionId } = await delegatedSession(
+      linear,
+      appUserId,
+      "Running",
+    );
     const assignment = await daemon.claim();
     expect(assignment?.agentSessionId).toBe(session.id);
     await daemon.events(assignment!.workItemId, [
       { type: "thought", body: "Working", ephemeral: false },
     ]);
     expect((await itemsOf(session.id))[0].status).toBe("running");
+    await quiet(session.id);
+    expect(await keepalive()).not.toContain(session.id);
+
+    // A follow-up queued behind the running turn is the daemon's too.
+    await personSays(linear, externalSessionId, "And the docs");
+    expect((await itemsOf(session.id)).map((i) => i.status)).toEqual([
+      "running",
+      "queued",
+    ]);
     await quiet(session.id);
     expect(await keepalive()).not.toContain(session.id);
   });
