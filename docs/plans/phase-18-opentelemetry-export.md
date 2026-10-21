@@ -83,7 +83,7 @@ returns `headerNames`, never values.
 | `signals` | text[] | any of `traces`, `metrics`, `logs` |
 | `content` | text | `metadata`, `content`, or `full` (§5) |
 | `agent_native` | bool | capture the coding agent's own telemetry (§7) |
-| `trace_sample_ratio` | real | 0–1, applied per turn (§9) |
+| `trace_sample_ratio` | real | 0–1, applied per turn and per exporter (§9) |
 | `resource_attributes` | jsonb | extra resource attributes, string values only |
 | `last_export_at`, `last_error`, `last_error_at` | timestamptz / text | shown on the settings page |
 | `created_at`, `updated_at` | timestamptz | |
@@ -239,7 +239,7 @@ somewhere else). The exact keys are verified against each agent's release at bui
 
 | Preset | Native telemetry | How it is pointed at the receiver |
 |---|---|---|
-| `claude` | yes | `CLAUDE_CODE_ENABLE_TELEMETRY=1`, `OTEL_{METRICS,LOGS}_EXPORTER=otlp`, `OTEL_EXPORTER_OTLP_PROTOCOL`, `OTEL_EXPORTER_OTLP_ENDPOINT`; at `full`, `OTEL_LOG_USER_PROMPTS=1` and `OTEL_LOG_TOOL_DETAILS=1` |
+| `claude` | yes | `CLAUDE_CODE_ENABLE_TELEMETRY=1`, `OTEL_{METRICS,LOGS,TRACES}_EXPORTER=otlp` plus whatever flag the release requires to emit traces (beta at the time of writing), `OTEL_EXPORTER_OTLP_PROTOCOL`, `OTEL_EXPORTER_OTLP_ENDPOINT`; at `full`, `OTEL_LOG_USER_PROMPTS=1` and `OTEL_LOG_TOOL_DETAILS=1` |
 | `codex` | yes | its `[otel]` config, passed by `-c` overrides on the command line |
 | `gemini` | yes | its telemetry settings, by environment or `--telemetry-*` flags |
 | `goose`, `opencode`, others | where they read standard `OTEL_*` variables | standard `OTEL_EXPORTER_OTLP_*`; otherwise none, and the settings page says which agents contribute native data |
@@ -275,14 +275,22 @@ be able to *require* a level is left for when someone asks for it.
 
 ### 9. Volume, sampling, and loss
 
-- **Sampling** is per turn, decided once on the server when the work item is created
-  (`trace_sample_ratio` against a hash of the trace id) and carried in the `traceparent` sampled flag, so a turn
-  is kept or dropped whole. Metrics are never sampled. Logs follow their trace.
+- **Sampling** is per turn and per exporter, and every decision uses the same number: a hash of the trace id
+  mapped to [0, 1). An exporter keeps a turn when that number is below its `trace_sample_ratio`, so exporters
+  with different ratios each get the share they asked for, and an exporter at 0.1 keeps a subset of what one at
+  0.5 keeps. The `traceparent` sampled flag, set when the work item is created, records whether **any** exporter
+  keeps the turn (the number is below the project's highest ratio). It decides whether the daemon collects spans
+  and logs at all; the worker then drops the turn for each exporter whose own ratio it misses. A turn is kept or
+  dropped whole for each exporter. Metrics are never sampled. Logs follow their trace.
 - **Daemon:** a bounded in-memory queue (`buffer_mb`), flushed to `daemon:telemetry` every 2 s or 1 MB,
   gzip'd. When full it drops the oldest log records first, then spans, never metrics, and counts what it
   dropped. A failed post retries with backoff inside the buffer's limit. Telemetry never blocks the turn.
-- **Server ingress:** `daemon:telemetry` checks the runner holds a live work item in a project with an
-  exporter, enforces a per-project byte rate (Redis token bucket, `backend/lua/`), pushes the batch to a Redis
+- **Server ingress:** `daemon:telemetry` checks that the batch's `X-Hypotenuse-Work-Item` names a work item
+  this runner claimed, that its `traceparent` matches the item's, that the project has an exporter, and that
+  the item is either non-terminal or has a `finishedAt` less than `TELEMETRY_LATE_WINDOW` (default 5 minutes) ago. The
+  window exists because the receiver drains and the queue flushes after `daemon:complete`, which must not wait
+  for telemetry. A batch past the window is refused with `410`, and the daemon counts it as dropped. The server
+  then enforces a per-project byte rate (Redis token bucket, `backend/lua/`), pushes the batch to a Redis
   stream with a TTL, and answers `202`. It never calls a collector inline.
 - **Export:** `telemetry:export` drains the stream, filters per exporter (§5), and POSTs with retry on
   `429` / `5xx` honouring `Retry-After`. After repeated failures an exporter is marked with `last_error` and
@@ -297,8 +305,9 @@ Additive to [`RUNNER_PROTOCOL.md`](../RUNNER_PROTOCOL.md), so no `PROTOCOL_VERSI
 - the claim carries `telemetry: { traceparent, sampled, content, agentNative } | null`;
 - `daemon:connect` capabilities carry `telemetry: { enabled, maxContent, agentNative }`;
 - `daemon:telemetry` (new, in `DAEMON_ONLY_ACTION_NAMES`): `POST`, body is an OTLP/HTTP protobuf
-  `ExportTraceServiceRequest` / `ExportMetricsServiceRequest` / `ExportLogsServiceRequest` with a
-  `X-Hypotenuse-Signal` header and the turn's `traceparent`;
+  `ExportTraceServiceRequest` / `ExportMetricsServiceRequest` / `ExportLogsServiceRequest` with
+  `X-Hypotenuse-Signal` and `X-Hypotenuse-Work-Item` headers and the turn's `traceparent`; accepted until
+  `TELEMETRY_LATE_WINDOW` after the turn finishes;
 - every `daemon:*` call for a turn may carry `traceparent`.
 
 A daemon too old to know `telemetry` ignores it; the server then exports server spans only.
@@ -347,7 +356,7 @@ values never echoed. Bump `cli/package.json`.
 
 `frontend/src/content/docs/telemetry.md` (what each level sends, the runner cap, which agents contribute native
 data, the redaction caveat); `CONFIG.md` `[telemetry]`; `RUNNER_PROTOCOL.md` §10; `ARCHITECTURE.md` (a
-telemetry section and the trust-boundary row for exporter headers); `DEPLOY.md` (`TELEMETRY_ALLOW_PRIVATE_ENDPOINTS`).
+telemetry section and the trust-boundary row for exporter headers); `DEPLOY.md` (`TELEMETRY_ALLOW_PRIVATE_ENDPOINTS`, `TELEMETRY_LATE_WINDOW`).
 
 ### 10. Tests
 
@@ -372,7 +381,11 @@ protocol to us, like finear.
   header values. None appear.
 - **Loss:** a tiny `buffer_mb` with a collector answering `503` — the turn completes on time, and
   `hypotenuse.telemetry.dropped` counts what was lost.
-- **Sampling:** ratio 0 exports metrics and no spans; ratio 1 exports every turn whole.
+- **Sampling:** ratio 0 exports metrics and no spans; ratio 1 exports every turn whole; two exporters at 0.2
+  and 0.6 over many turns each receive their share, and every turn the 0.2 exporter keeps is one the 0.6
+  exporter keeps too.
+- **Late batches:** a batch posted after `daemon:complete` inside the window is exported; one past it (the
+  work item's `finishedAt` moved back) gets `410`.
 
 ## Verification
 
