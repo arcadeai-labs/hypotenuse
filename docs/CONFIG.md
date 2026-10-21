@@ -110,11 +110,11 @@ max_parallel = 2          # one Claude Max seat handles two sessions comfortably
 
 Which Linear work this runner accepts. All three filters must match. An empty list means "no restriction" on
 that dimension. These are routing **preferences**: the server never offers work outside them, and the
-installation's team access still applies.
+integration's team access still applies.
 
 | Key | Type | Default | Rules |
 |---|---|---|---|
-| `teams` | array of strings | `[]` (all teams the installation can access) | Linear team keys, e.g. `"ENG"`; unknown keys are reported by `config validate --online` |
+| `teams` | array of strings | `[]` (all teams the integration can access) | Linear team keys, e.g. `"ENG"`; unknown keys are reported by `config validate --online` |
 | `projects` | array of strings | `[]` | Linear project ids or exact names |
 | `labels` | array of strings | `[]` | issue must carry at least one of these labels |
 

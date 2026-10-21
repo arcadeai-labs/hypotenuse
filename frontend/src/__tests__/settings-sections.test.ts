@@ -7,7 +7,7 @@ import {
 import {
   CALLBACK_ERROR_MESSAGES,
   callbackErrorMessage,
-} from "../components/settings/sections/LinearSection";
+} from "../components/settings/sections/LinearIntegrationCard";
 
 // `sections.ts` is deliberately pure — no JSX, no router — so what goes quietly
 // wrong in it can be asserted without a render harness. There is no
@@ -112,7 +112,7 @@ describe("deciding whether a section may fetch", () => {
   });
 });
 
-describe("the Linear section's callback messages", () => {
+describe("the Linear integration card's callback messages", () => {
   test("every refusal code the callback redirects with has its own sentence", () => {
     // The table is typed by the backend's code union, so `tsc` refuses a code
     // without a sentence; this pins that each sentence is real and distinct.
@@ -128,9 +128,11 @@ describe("the Linear section's callback messages", () => {
     expect(callbackErrorMessage("something_new")).toContain("Try again");
   });
 
-  test("the section is readable by every member: its gate is per control", () => {
-    expect(SETTINGS_SECTIONS.find((s) => s.slug === "linear")?.readAction).toBe(
-      null,
-    );
+  test("the Integrations section is readable by every member: its gate is per control", () => {
+    expect(
+      SETTINGS_SECTIONS.find((s) => s.slug === "integrations")?.readAction,
+    ).toBe(null);
+    // The old slug is gone, not aliased.
+    expect(SETTINGS_SECTIONS.some((s) => s.slug === "linear")).toBe(false);
   });
 });

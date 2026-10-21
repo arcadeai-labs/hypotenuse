@@ -54,15 +54,58 @@ const EXPECTED_INDEXES: Record<string, { table: string; def: RegExp }> = {
     def: /UNIQUE.*\(token_hash\)/i,
   },
   cli_tokens_user_idx: { table: "cli_tokens", def: /\(user_id\)/i },
-  // One installation per project, and one live installation per workspace:
+  // One integration per project and type, and one live integration per
+  // workspace:
   // every webhook routes by workspace id, and a disconnected row is kept.
-  linear_installations_project_idx: {
-    table: "linear_installations",
-    def: /UNIQUE.*\(project_id\)/i,
+  integrations_project_type_idx: {
+    table: "integrations",
+    def: /UNIQUE.*\(project_id,\s*type\)/i,
   },
-  linear_installations_org_live: {
-    table: "linear_installations",
-    def: /UNIQUE.*\(organization_id\) WHERE \(status <> 'revoked'::text\)/i,
+  integrations_workspace_live: {
+    table: "integrations",
+    def: /UNIQUE.*\(type,\s*external_workspace_id\) WHERE \(status <> 'revoked'::text\)/i,
+  },
+  // A retried webhook delivery is an insert that conflicts; the sweep clock
+  // reads only what is unprocessed; retention deletes by age.
+  trigger_events_delivery_idx: {
+    table: "trigger_events",
+    def: /UNIQUE.*\(type,\s*delivery_id\)/i,
+  },
+  trigger_events_unprocessed_idx: {
+    table: "trigger_events",
+    def: /\(processed_at\) WHERE \(processed_at IS NULL\)/i,
+  },
+  trigger_events_received_idx: {
+    table: "trigger_events",
+    def: /\(received_at\)/i,
+  },
+  // A replayed `created` is an upsert; the dashboard lists by project and
+  // status; issue events find an issue's sessions.
+  agent_sessions_external_session_idx: {
+    table: "agent_sessions",
+    def: /UNIQUE.*\(type,\s*external_session_id\)/i,
+  },
+  agent_sessions_project_status_idx: {
+    table: "agent_sessions",
+    def: /\(project_id,\s*status\)/i,
+  },
+  agent_sessions_issue_idx: {
+    table: "agent_sessions",
+    def: /\(type,\s*external_issue_id\)/i,
+  },
+  // `seq` is the delivery order and gap-free per session; the client id is
+  // what makes a retried send idempotent; the outbox clock reads what is due.
+  agent_activities_session_seq_idx: {
+    table: "agent_activities",
+    def: /UNIQUE.*\(agent_session_id,\s*seq\)/i,
+  },
+  agent_activities_client_id_idx: {
+    table: "agent_activities",
+    def: /UNIQUE.*\(client_activity_id\)/i,
+  },
+  agent_activities_pending_idx: {
+    table: "agent_activities",
+    def: /\(next_attempt_at\) WHERE \(delivery_status = 'pending'::text\)/i,
   },
   notifications_unread_idx: {
     table: "notifications",

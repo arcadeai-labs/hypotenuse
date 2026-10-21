@@ -152,7 +152,7 @@ The action, in one transaction on the server:
 1. **Load and lock** the calling session (`agent_sessions … FOR UPDATE`). Refuse unless `role = manager`, the
    session is not terminal, and the calling runner holds its live work item.
 2. **Guards** (each a typed 406 with a reason the tool returns to the model verbatim):
-   - the target issue is in the session's installation and on a team the installation can access;
+   - the target issue is in the session's integration and on a team the integration can access;
    - the target issue is not the manager session's own issue (**no self-dispatch**);
    - for `mode = "new"`: no non-terminal child session of this manager already exists for the issue;
    - for `mode = "changes"`: a child session for the issue exists, belongs to this manager, and is terminal;
@@ -160,14 +160,14 @@ The action, in one transaction on the server:
      default 3);
    - for `mode = "changes"`, the child's `reviewRound` is below `routing.maxReviewRounds` (default 3).
 3. **Record the intent** — insert a `dispatch_intents`-shaped row. Rather than a new table, this is a Redis key
-   `dispatch:intent:<installationId>:<linearIssueId>` → `{ managerSessionId, workItemSeed }` with a 10-minute
+   `dispatch:intent:<integrationId>:<externalIssueId>` → `{ managerSessionId, workItemSeed }` with a 10-minute
    TTL, written **after commit**, and the authoritative copy is the `work_items` row inserted in step 6. The
    key exists only so that the webhook handler can recognise a `created` it did not expect (below).
-4. **After commit**, call Linear (through `ops/LinearOps.ts`, with the installation's token):
-   - `issueUpdate(id, { delegateId: appUserId })` if the issue's delegate is not already the app user;
+4. **After commit**, call Linear (through `ops/LinearOps.ts`, with the integration's token):
+   - `issueUpdate(id, { delegateId: <externalAppUserId> })` if the issue's delegate is not already the app user;
    - `agentSessionCreateOnIssue({ issueId })` for `mode = "new"`. For `mode = "changes"` the worker's existing
      Linear session is reused: no new session is created.
-5. **Upsert `agent_sessions`** by `linearSessionId` with `role = worker` (forced, bypassing `routing_rules`),
+5. **Upsert `agent_sessions`** by `externalSessionId` with `role = worker` (forced, bypassing `routing_rules`),
    `parentAgentSessionId = <manager session>`, `dispatchMode`, `reviewRound` (0 for new, previous + 1 for
    changes).
 6. **Insert a `work_items` row**: `kind = dispatch` (or `prompt` for `mode = "changes"`), `role = worker`,
@@ -190,18 +190,18 @@ Linear's docs say a session is created when the app is delegated an issue or men
 `agentSessionCreateOnIssue` *also* sends `AgentSessionEvent` / `created` to the app that called it is not stated.
 The handler must be correct either way:
 
-- `linear:process-event` upserts `agent_sessions` **by `linearSessionId`** — so a `created` for a session the
+- `triggers:process-event` upserts `agent_sessions` **by `externalSessionId`** — so a `created` for a session the
   dispatch already inserted finds the row, and does not insert a second.
 - If the row exists and already has a non-terminal work item, the event is recorded with
   `outcome = duplicate_of_dispatch` and nothing else happens. In particular, **no** second acknowledgement
   `thought` and **no** role selection.
-- If the row does not exist yet but `dispatch:intent:<installationId>:<linearIssueId>` does, the handler inserts
+- If the row does not exist yet but `dispatch:intent:<integrationId>:<externalIssueId>` does, the handler inserts
   the session **with the intent's role and parent** — the webhook won the race against step 5 above.
 - Only when neither exists is this an ordinary `created` from a human delegation.
 
 The `issueUpdate(delegateId)` in step 4 can likewise produce a delegation-triggered `created`. The same upsert
 covers it: Linear ties a session to an issue and app user, and the identifier the dispatch and the webhook agree on
-is `linearSessionId`.
+is `externalSessionId`.
 
 A test drives both orders against finear (which does send `created` on delegation) and asserts exactly one
 `agent_sessions` row, one work item, and one acknowledgement.
@@ -298,7 +298,7 @@ AIG principle 6 — *an agent cannot be held accountable* — is the reason thre
 | Parallel children per manager session | `manager.max_parallel_dispatch` | 3 |
 | Review rounds per child | `routing.maxReviewRounds` | 3 |
 | One non-terminal work item per session | `work_items` partial unique index from [phase 9](./phase-09-work-routing.md) | always |
-| Dispatch only into the installation's accessible teams | `daemon:dispatch` | always |
+| Dispatch only into the integration's accessible teams | `daemon:dispatch` | always |
 
 The parallel cap is checked under the manager session's row lock, so two dispatch calls racing from one turn
 cannot both pass at `cap - 1`. The test fires `cap * 4` concurrent dispatches (ToolExec's convention) and asserts
@@ -317,7 +317,7 @@ exactly `cap` succeed.
 
 ### 2. Default routing rules — `backend/ops/RoutingOps.ts`
 
-`seedDefaultRoutingRules(tx, projectId)` inserts the five rules above (rule 4 disabled) when a Linear installation
+`seedDefaultRoutingRules(tx, projectId)` inserts the five rules above (rule 4 disabled) when a Linear integration
 is first connected. It is called from `linear:callback`'s transaction, and is idempotent: it does nothing if the
 project already has rules. `ops/RoutingOps.ts` `selectRole` (from phase 9) needs no change.
 
@@ -325,7 +325,7 @@ project already has rules. `ops/RoutingOps.ts` `selectRole` (from phase 9) needs
 
 - `assertCanDispatch(tx, managerSession, target, mode)` — every guard in the table, each a
   `TypedError(CONNECTION_ACTION_PARAM_VALIDATION)` with a sentence the model can act on.
-- `dispatchIntentKey(installationId, linearIssueId)` and `writeDispatchIntent` / `readDispatchIntent`.
+- `dispatchIntentKey(integrationId, externalIssueId)` and `writeDispatchIntent` / `readDispatchIntent`.
 - `buildReviewPayload(tx, childSession)` — the review payload, from the child's last `response`/`error` activity,
   `plan`, and `externalUrls`.
 - `enqueueReviewIfChild(tx, workItem)` — called by `daemon:complete`; inserts the review item when the session has a
@@ -341,13 +341,13 @@ that **delegates work to the app on a person's issue**. The [audit plan](./phase
 closed list of unaudited writers gains `daemon:*` with this exception named.
 
 Inputs: `{ issueId: string (uuid or identifier), instructions?: string (≤ 8 KB), agentPreference?: string,
-mode: "new" | "changes" = "new" }`. Response: `{ dispatch: { agentSessionId, linearSessionId, linearSessionUrl,
+mode: "new" | "changes" = "new" }`. Response: `{ dispatch: { agentSessionId, externalSessionId, externalSessionUrl,
 issueIdentifier, mode, reviewRound } }`.
 
 ### 5. Webhook dedupe — `backend/actions/linear/linear-process-event.ts`
 
 The `created` branch from [phase 7](./phase-07-webhook-ingress-and-session-mirror.md) becomes: upsert by
-`linearSessionId` → if a non-terminal work item exists, `outcome = duplicate_of_dispatch` → else consult the
+`externalSessionId` → if a non-terminal work item exists, `outcome = duplicate_of_dispatch` → else consult the
 dispatch intent → else ordinary routing. The acknowledgement `thought` is enqueued only on the branch that inserted
 the work item.
 
@@ -359,7 +359,7 @@ mid-turn does not show "Reviewing" while it is still doing something else.
 
 ### 7. Issue-state guard — `backend/actions/daemon/daemon-linear-set-issue-state.ts`
 
-Look up the target state's `type` (cached per team from `linear:catalog` data). Refuse `completed` / `canceled`
+Look up the target state's `type` (cached per team from `integration:catalog` data). Refuse `completed` / `canceled`
 types for workers always and for managers unless `manager.canCompleteIssues`. Refuse any issue other than the
 session's own for workers; managers may set state on issues they created or dispatched.
 

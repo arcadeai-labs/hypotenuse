@@ -1,24 +1,24 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { api } from "keryx";
 import { decryptSecret } from "../../ops/CryptoOps";
-import {
-  type LinearInstallation,
-  linearInstallations,
-} from "../../schema/linear_installations";
+import { type Integration, integrations } from "../../schema/integrations";
 
 /**
- * A project's installation row, read straight from Postgres.
+ * A project's Linear integration row, read straight from Postgres.
  * @param projectId - The project.
  * @returns The row; throws when there is none.
  */
-export async function installationRow(
-  projectId: number,
-): Promise<LinearInstallation> {
+export async function integrationRow(projectId: number): Promise<Integration> {
   const [row] = await api.db.db
     .select()
-    .from(linearInstallations)
-    .where(eq(linearInstallations.projectId, projectId));
-  if (!row) throw new Error(`project ${projectId} has no installation`);
+    .from(integrations)
+    .where(
+      and(
+        eq(integrations.projectId, projectId),
+        eq(integrations.type, "linear"),
+      ),
+    );
+  if (!row) throw new Error(`project ${projectId} has no Linear integration`);
   return row;
 }
 
@@ -29,7 +29,7 @@ export async function installationRow(
  * @returns The plaintext access token.
  */
 export async function appToken(projectId: number): Promise<string> {
-  const row = await installationRow(projectId);
+  const row = await integrationRow(projectId);
   if (!row.accessTokenEncrypted) throw new Error("no access token");
   return decryptSecret(row.accessTokenEncrypted);
 }
@@ -40,13 +40,13 @@ export async function appToken(projectId: number): Promise<string> {
  * @returns The plaintext refresh token.
  */
 export async function refreshTokenOf(projectId: number): Promise<string> {
-  const row = await installationRow(projectId);
+  const row = await integrationRow(projectId);
   if (!row.refreshTokenEncrypted) throw new Error("no refresh token");
   return decryptSecret(row.refreshTokenEncrypted);
 }
 
 /**
- * Put an installation's access-token expiry where a test wants it: the way
+ * Put an integration's access-token expiry where a test wants it: the way
  * these suites control time, rather than waiting a day.
  * @param projectId - The project.
  * @param expiresAt - The new expiry.
@@ -56,7 +56,12 @@ export async function setTokenExpiry(
   expiresAt: Date,
 ): Promise<void> {
   await api.db.db
-    .update(linearInstallations)
+    .update(integrations)
     .set({ accessTokenExpiresAt: expiresAt })
-    .where(eq(linearInstallations.projectId, projectId));
+    .where(
+      and(
+        eq(integrations.projectId, projectId),
+        eq(integrations.type, "linear"),
+      ),
+    );
 }

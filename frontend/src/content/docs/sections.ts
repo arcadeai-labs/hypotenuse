@@ -1,4 +1,5 @@
 import accounts from "./accounts.md?raw";
+import agentSessions from "./agent-sessions.md?raw";
 import audit from "./audit.md?raw";
 import cli from "./cli.md?raw";
 import connectingLinear from "./connecting-linear.md?raw";
@@ -31,6 +32,11 @@ export const DOCS_SECTIONS: DocsSection[] = [
     slug: "connecting-linear",
     title: "Connecting Linear",
     markdown: connectingLinear,
+  },
+  {
+    slug: "agent-sessions",
+    title: "Agent sessions",
+    markdown: agentSessions,
   },
   { slug: "members", title: "Members and tags", markdown: members },
   { slug: "audit", title: "Audit log", markdown: audit },

@@ -51,6 +51,7 @@ All shared values live on the **`hypotenuse-shared`** env group, which both back
 | `LINEAR_CLIENT_ID` | group, dashboard | from the Linear OAuth app |
 | `LINEAR_CLIENT_SECRET` | group, dashboard | from the Linear OAuth app |
 | `LINEAR_WEBHOOK_SECRET` | group, dashboard | the app's webhook signing secret |
+| `LINEAR_WEBHOOK_SECRET_PREVIOUS` | group, dashboard | only while rotating the webhook secret (below); unset otherwise |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM` | group, dashboard | optional; without `SMTP_HOST`, mail is logged, not sent |
 | `FRONTEND_URL` | group | `https://www.hypotenuse.cloud` — the worker writes it into e-mail and Linear `externalUrls`; the api answers it as `/api/status` `dashboardUrl`, which `hypotenuse login` opens, and as the device flow's `/cli/activate` URL |
 | `NODE_ENV`, `LOG_LEVEL`, `LOG_FORMAT` | group | `production`, `info`, `json` |
@@ -65,7 +66,11 @@ All shared values live on the **`hypotenuse-shared`** env group, which both back
 | `VITE_API_URL` | frontend build arg | `https://api.hypotenuse.cloud` |
 
 `LINEAR_API_URL` and `LINEAR_OAUTH_URL` are **not** set in production; they default to `https://api.linear.app`
-and `https://linear.app`, and exist so tests can point the server at finear.
+and `https://linear.app`, and exist so tests can point the server at finear. The webhook and outbox tuning keys
+in `backend/.env.example` (`LINEAR_WEBHOOK_MAX_BODY_BYTES`, `LINEAR_WEBHOOK_TOLERANCE_MS`,
+`LINEAR_EVENT_RETENTION_DAYS`, `LINEAR_REQUESTS_PER_HOUR`, `LINEAR_BUCKET_BURST`, `LINEAR_BUCKET_RESERVE`,
+`LINEAR_DELIVER_MAX_ATTEMPTS`) are not set either; their defaults are Linear's documented limits.
+`LINEAR_REQUESTS_PER_HOUR` is the one to raise if Linear grants a workspace a higher limit.
 
 ## Rehearse locally
 
@@ -185,7 +190,7 @@ curl -s https://api.hypotenuse.cloud/.well-known/oauth-authorization-server | jq
 curl -s -o /dev/null -w '%{http_code}\n' -X POST https://api.hypotenuse.cloud/api/webhooks/linear -d '{}'
 ```
 
-Then, in the browser: sign up → Settings → **Linear** → *Connect* → approve as a Linear workspace admin →
+Then, in the browser: sign up → Settings → **Integrations** → **Linear** → *Connect* → approve as a Linear workspace admin →
 the connection shows the workspace name and the teams granted. In Linear, delegate a test issue to
 `@hypotenuse`: within ten seconds the agent session shows an acknowledgement thought, and — with no runner
 registered — ends with an error saying no runner is available. That one round trip proves the webhook URL, the
@@ -206,7 +211,7 @@ edited after the fact, because `hypotenuse upgrade` trusts npm's `latest`.
 
 | Secret | How | Effect |
 |---|---|---|
-| `LINEAR_WEBHOOK_SECRET` | Linear app settings → rotate webhook secret; paste into `hypotenuse-shared`; restart api | **Rotation is immediate in Linear.** Deliveries between the rotation and the restart fail verification and are retried by Linear (1 min, 1 h, 6 h), so a prompt restart loses nothing |
+| `LINEAR_WEBHOOK_SECRET` | copy the current value into `LINEAR_WEBHOOK_SECRET_PREVIOUS`; rotate in Linear app settings; paste the new one into `LINEAR_WEBHOOK_SECRET`; restart api; a day later, delete `LINEAR_WEBHOOK_SECRET_PREVIOUS` and restart | **Rotation is immediate in Linear.** While both are set, a delivery signed with either verifies, so nothing in flight is refused. Without the overlap, deliveries between the rotation and the restart fail verification and are retried by Linear (1 min, 1 h, 6 h) |
 | `LINEAR_CLIENT_SECRET` | Linear app settings → rotate secret; paste; restart api and worker | Existing per-workspace access and refresh tokens keep working; only the next refresh and new installs use the new secret |
 | `SECRETS_ENCRYPTION_KEY` | do not, without a re-encryption migration | Every stored Linear token becomes undecryptable; every workspace would have to reconnect |
 | A runner token | `hypotenuse runner revoke <id>` or Settings → Runners | That daemon is disconnected at once; register again to replace it |

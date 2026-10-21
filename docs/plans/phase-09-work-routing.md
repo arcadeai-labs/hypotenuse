@@ -34,18 +34,18 @@ laptop lid closing mid-turn costs time, never a turn.
 
 **In:**
 
-- `work_items`, `routing_rules`, `linear_identities` tables; the `routing` section of project settings.
+- `work_items`, `routing_rules`, `external_identities` tables; the `routing` section of project settings.
 - `RoutingOps`: role selection, repository selection, eligibility, ranking.
 - The `select` elicitation for repository choice, and parsing the person's answer from the next prompt.
-- Issuer preference via `linear_identities` (explicit link, or e-mail match to a project member).
+- Issuer preference via `external_identities` (explicit link, or e-mail match to a project member).
 - Sticky follow-ups and the `stickyTimeout` fallback.
 - `work:route` (offers), `work:reap` (gains lease expiry), `sessions:keepalive`.
 - `daemon:claim`, `daemon:events`, `daemon:complete`; `daemon:heartbeat` starts returning `offers` and `cancels`
   and renewing leases.
-- Cancellation: the Linear `stop` signal, delegate removal, installation revoke, runner revoke, and
+- Cancellation: the Linear `stop` signal, delegate removal, integration revoke, runner revoke, and
   `agent-session:cancel` from the dashboard or CLI.
 - Prompts that arrive during a running turn are queued (merged) behind it.
-- `routing-rule:*`, `linear-identity:*`, `agent-session:cancel` actions; `hypotenuse routing`, `identity`, and
+- `routing-rule:*`, `external-identity:*`, `agent-session:cancel` actions; `hypotenuse routing`, `identity`, and
   `session cancel` commands.
 - `protocol/src/{work,events,complete}.ts`.
 
@@ -80,7 +80,7 @@ or a manager review.
 | `offeredToRunnerId`, `offerExpiresAt` | current offer |
 | `runnerId`, `claimedAt`, `leaseExpiresAt` | current claim |
 | `agentId` | the runner's agent for this role, recorded when the item is offered; counted against `limits.agents` |
-| `cancelRequestedAt`, `cancelReason` | `stop`, `delegate_removed`, `installation_revoked`, `runner_revoked`, `dashboard`, `superseded` |
+| `cancelRequestedAt`, `cancelReason` | `stop`, `delegate_removed`, `integration_revoked`, `runner_revoked`, `dashboard`, `superseded` |
 | `attempts` | claims that ended without completion (lease lapses) |
 | `outcome` jsonb | from `daemon:complete`: `{ outcome, error?, acpSessionId?, branch? }` |
 | `createdAt`, `updatedAt`, `finishedAt` | |
@@ -126,7 +126,7 @@ previous turn's result, and what keeps two runners from editing one worktree.
 delegation, nothing — a delegation has no prompt, and `promptPrefix` rules simply do not match it. A matched
 prefix is stripped before the text reaches the agent.
 
-**Seeded rules.** When an installation is created, two rules are inserted at positions 0 and 1:
+**Seeded rules.** When an integration is created, two rules are inserted at positions 0 and 1:
 `{ promptPrefix: "/manage" } → manager` and `{ promptPrefix: "/work" } → worker`. Admins can edit, disable, or
 delete them; they are seeded rather than hard-coded so the whole decision is visible in one list.
 **The fallthrough is `worker`.** The session's first activity names the decision —
@@ -193,23 +193,23 @@ the one decision where a wrong guess costs a whole turn in the wrong codebase.
 2. **The issuer's runners.** `preferredUserId`'s runners next, least-loaded first.
 3. **Everyone else**, least-loaded (lowest used / `maxParallelJobs`) first, ties broken by longest-idle.
 
-### Who the issuer is: `linear_identities`
+### Who the issuer is: `external_identities`
 
 | Column | Notes |
 |---|---|
-| `id`, `installationId`, `userId` | |
-| `linearUserId`, `linearName`, `linearEmail` | |
+| `id`, `type`, `integrationId`, `userId` | `type` is the trigger type (`linear`); `userId` is always the Hypotenuse user |
+| `externalUserId`, `externalName`, `externalEmail` | the person in the trigger system (a Linear user's id, name, e-mail) |
 | `linkedVia` | `email` \| `oauth` \| `admin` |
-| unique `(installationId, linearUserId)` | one Hypotenuse user per Linear user per workspace |
+| unique `(integrationId, externalUserId)` | one Hypotenuse user per trigger-system user per workspace |
 
-Resolution, in `RoutingOps.resolveIssuer(session)`: an existing row for `creatorLinearUserId`; else a project
+Resolution, in `RoutingOps.resolveIssuer(session)`: an existing row for `creatorExternalUserId`; else a project
 member whose e-mail equals `creatorEmail` (case-insensitive) — recorded as `linkedVia = email` so it is visible
 and removable; else none. `creator` is null when an automation or another agent started the session, and then
 there is no issuer.
 
 The e-mail match is a **preference**, never an authorization: it only reorders runners that are already eligible
 in the same project. That is why an unverified e-mail is acceptable here and would not be anywhere else.
-`linear-identity:link` lets a member prove their Linear account with a Linear **user** OAuth round-trip
+`external-identity:link` lets a member prove their Linear account with a Linear **user** OAuth round-trip
 (`actor=user`, scope `read`, `viewer { id email name }`, token discarded immediately) — `linkedVia = oauth` — and
 lets an admin link anyone (`admin`).
 
@@ -306,7 +306,7 @@ Queued items behind a cancelled turn are cancelled too (`superseded`) — Linear
 the agent to re-engage only on a clear new signal, which is the next prompt.
 
 Other cancel sources: `Issue` delegate removed (a person dismissed the session) and `OAuthApp revoked` cancel every
-non-terminal item for the issue/installation; `runner:revoke` cancels nothing but returns its items to `queued`
+non-terminal item for the issue/integration; `runner:revoke` cancels nothing but returns its items to `queued`
 (the *work* is still wanted); `agent-session:cancel` behaves like `stop`.
 
 ### Keeping sessions alive
@@ -339,9 +339,9 @@ sends its own keepalives during long turns ([phase 12](./phase-12-worktrees-and-
 | `routing-rule:edit` | `POST /routing-rule/:id` | admin | yes | yes | `routing edit` |
 | `routing-rule:delete` | `DELETE /routing-rule/:id` | admin | yes | yes | `routing remove` |
 | `routing-rule:reorder` | `POST /routing-rules/order` | admin | yes | yes | `routing reorder` |
-| `linear-identity:list` | `GET /linear-identities` | member | read | yes | `identity list` |
-| `linear-identity:link` | `PUT /linear-identity` | member (self, via Linear user OAuth) / admin (anyone) | yes | self-link no (browser hop); admin link yes | `identity link` |
-| `linear-identity:unlink` | `DELETE /linear-identity/:id` | self or admin | yes | yes | `identity unlink` |
+| `external-identity:list` | `GET /external-identities` | member | read | yes | `identity list` |
+| `external-identity:link` | `PUT /external-identity` | member (self, via Linear user OAuth) / admin (anyone) | yes | self-link no (browser hop); admin link yes | `identity link` |
+| `external-identity:unlink` | `DELETE /external-identity/:id` | self or admin | yes | yes | `identity unlink` |
 | `agent-session:cancel` | `POST /agent-session/:id/cancel` | member | yes — a person's decision | yes | `session cancel` |
 | `daemon:claim`, `daemon:events`, `daemon:complete` | `POST /daemon/*` | runner token | no (machine half) | never | — |
 | `work:route`, `work:reap`, `sessions:keepalive` | — | task | no | never | — |
@@ -354,7 +354,7 @@ sends its own keepalives during long turns ([phase 12](./phase-12-worktrees-and-
 `CompleteRequest`. Heartbeat's `Offer` = `{ workItemId, agentSessionId, kind, role, offerExpiresAt }`; `Cancel` =
 `{ workItemId, reason }`.
 
-### 2. Schema — `backend/schema/{work_items,routing_rules,linear_identities}.ts`; `agent_sessions.pendingRepositoryChoice`
+### 2. Schema — `backend/schema/{work_items,routing_rules,external_identities}.ts`; `agent_sessions.pendingRepositoryChoice`
 
 ### 3. Ops — `backend/ops/{RoutingOps,WorkItemOps,IdentityOps}.ts`
 
@@ -368,7 +368,7 @@ sends its own keepalives during long turns ([phase 12](./phase-12-worktrees-and-
 `created` → ack (*"On it — finding a runner for ENG-123."*) → role → repository → work item → `work:route`.
 `prompted` → as above. `stop` → cancel.
 
-### 5. Actions — `backend/actions/daemon/{daemon-claim,daemon-events,daemon-complete}.ts`, `backend/actions/work/{work-route,work-reap}.ts`, `backend/actions/agent-session/{agent-session-cancel,sessions-keepalive}.ts`, `backend/actions/routing-rule/*.ts`, `backend/actions/linear-identity/*.ts`
+### 5. Actions — `backend/actions/daemon/{daemon-claim,daemon-events,daemon-complete}.ts`, `backend/actions/work/{work-route,work-reap}.ts`, `backend/actions/agent-session/{agent-session-cancel,sessions-keepalive}.ts`, `backend/actions/routing-rule/*.ts`, `backend/actions/external-identity/*.ts`
 
 `daemon:heartbeat` gains `offers`, `cancels`, and lease renewal. `routing` joins the task queue list after `linear`.
 
@@ -378,7 +378,7 @@ Insert the two prefix rules on first install.
 
 ### 7. CLI — `cli/src/commands/{routing,identity,session}.ts`
 
-`routing add --role manager --label PRD --name "PRDs"` (labels and teams validated against `linear:catalog`);
+`routing add --role manager --label PRD --name "PRDs"` (labels and teams validated against `integration:catalog`);
 `identity link` opens the browser; `session cancel <id>`.
 
 ### 8. Frontend — routing rules list and form in `frontend/src/components/settings/sections/Routing.tsx`; identities in `Account`
@@ -407,7 +407,7 @@ with given capabilities, holds a socket, claims, posts events, and completes —
 | `stop.test.ts` | queued → cancelled + response; running → cancel frame + heartbeat cancel + daemon's final response; no daemon answer → server response after `stopGraceMs`; events after cancel limited to response/error; queued items superseded |
 | `queue-timeout.test.ts` | each unplaceable reason produces its own error text |
 | `keepalive.test.ts` | a waiting session older than 25 min gets an ephemeral thought; an `awaitingInput` session does not |
-| `routing-rule-actions.test.ts`, `linear-identity-actions.test.ts` | CRUD + list + reorder; RBAC; audit rows |
+| `routing-rule-actions.test.ts`, `external-identity-actions.test.ts` | CRUD + list + reorder; RBAC; audit rows |
 
 ## Verification
 
@@ -426,7 +426,7 @@ psql hypotenuse -c "select w.id, s.issue_identifier, w.kind, w.role, w.status, r
 
 ## Definition of done
 
-- [ ] `work_items` with the one-active-turn partial unique index; `routing_rules`; `linear_identities`
+- [ ] `work_items` with the one-active-turn partial unique index; `routing_rules`; `external_identities`
 - [ ] Role selection by ordered rules with seeded prefixes, default worker, decision named in the session
 - [ ] Repository selection: pin → single → `issueRepositorySuggestions` ≥ threshold → `select` elicitation → answer parsing
 - [ ] Eligibility as one query; capacity counted server-side
@@ -435,7 +435,7 @@ psql hypotenuse -c "select w.id, s.issue_identifier, w.kind, w.role, w.status, r
 - [ ] `daemon:events` validated, idempotent by `eventId`, stop-filtered; `daemon:complete` never leaves a session hanging
 - [ ] Follow-ups merged; stop and every other cancel source handled within `stopGraceMs`
 - [ ] Queue timeout explains why; keepalive only for sessions waiting on Hypotenuse
-- [ ] `routing-rule:*`, `linear-identity:*`, `agent-session:cancel` with CLI commands, settings UI, and user docs
+- [ ] `routing-rule:*`, `external-identity:*`, `agent-session:cancel` with CLI commands, settings UI, and user docs
 - [ ] Phase 7's interim "no runner" ending removed
 
 ## Learnings from the build

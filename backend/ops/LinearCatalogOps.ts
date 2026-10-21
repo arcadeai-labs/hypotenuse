@@ -1,5 +1,5 @@
 import { api, config } from "keryx";
-import type { LinearInstallation } from "../schema/linear_installations";
+import type { Integration } from "../schema/integrations";
 import { linearRequest } from "./LinearOps";
 import {
   ListLabels,
@@ -14,7 +14,7 @@ import {
  * ever holds a Linear token to fill a dropdown.
  */
 
-/** What `linear:catalog` answers. */
+/** What `integration:catalog` answers. */
 export interface LinearCatalog {
   teams: {
     id: string;
@@ -29,9 +29,9 @@ export interface LinearCatalog {
 /** The most pages any one list is read to, so a huge workspace cannot loop forever. */
 const MAX_PAGES = 20;
 
-/** The Redis key one installation's catalog is cached under. */
-export const catalogKey = (installationId: number) =>
-  `linear:catalog:${installationId}`;
+/** The Redis key one integration's catalog is cached under. */
+export const catalogKey = (integrationId: number) =>
+  `linear:catalog:${integrationId}`;
 
 /**
  * Read every page of one connection.
@@ -54,17 +54,15 @@ async function readAll<N>(
 
 /**
  * Read the catalog straight from Linear.
- * @param installation - The installation to read as.
+ * @param integration - The integration to read as.
  * @returns Teams, projects, and labels the app user can see.
  */
-async function fetchCatalog(
-  installation: LinearInstallation,
-): Promise<LinearCatalog> {
+async function fetchCatalog(integration: Integration): Promise<LinearCatalog> {
   const idempotent = { idempotent: true };
   const [teams, projects, labels] = await Promise.all([
     readAll(async (after) => {
       const data = await linearRequest(
-        installation,
+        integration,
         ListTeams,
         { after },
         idempotent,
@@ -73,7 +71,7 @@ async function fetchCatalog(
     }),
     readAll(async (after) => {
       const data = await linearRequest(
-        installation,
+        integration,
         ListProjects,
         { after },
         idempotent,
@@ -82,7 +80,7 @@ async function fetchCatalog(
     }),
     readAll(async (after) => {
       const data = await linearRequest(
-        installation,
+        integration,
         ListLabels,
         { after },
         idempotent,
@@ -112,19 +110,19 @@ async function fetchCatalog(
 }
 
 /**
- * The installation's catalog, from Redis when it was read within
+ * The integration's catalog, from Redis when it was read within
  * `catalogTtlMs`, else from Linear (and then cached).
- * @param installation - The installation to read as.
+ * @param integration - The integration to read as.
  * @returns The catalog.
  */
 export async function loadCatalog(
-  installation: LinearInstallation,
+  integration: Integration,
 ): Promise<LinearCatalog> {
-  const cached = await api.redis.redis.get(catalogKey(installation.id));
+  const cached = await api.redis.redis.get(catalogKey(integration.id));
   if (cached) return JSON.parse(cached) as LinearCatalog;
-  const catalog = await fetchCatalog(installation);
+  const catalog = await fetchCatalog(integration);
   await api.redis.redis.set(
-    catalogKey(installation.id),
+    catalogKey(integration.id),
     JSON.stringify(catalog),
     "PX",
     config.linear.catalogTtlMs,

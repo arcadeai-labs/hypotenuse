@@ -4,12 +4,12 @@ import { api, config, ErrorType, TypedError } from "keryx";
 // type-checks this file (the frontend reaches it through the status action).
 import type {} from "../config/linear";
 import {
-  type LinearInstallation,
-  type LinearRateLimitSnapshot,
-  linearInstallations,
-} from "../schema/linear_installations";
+  type Integration,
+  integrations,
+  type RateLimitSnapshot,
+} from "../schema/integrations";
 import { decryptSecret } from "./CryptoOps";
-import { refreshInstallationTokens } from "./LinearOAuthOps";
+import { refreshIntegrationTokens } from "./LinearOAuthOps";
 import type { LinearOperation } from "./linear/operations";
 
 /**
@@ -78,16 +78,16 @@ export class LinearUnavailableError extends Error {
 }
 
 /**
- * The installation cannot act in Linear: it was disconnected, its refresh was
+ * The integration cannot act in Linear: it was disconnected, its refresh was
  * refused, or it holds no token. Nothing retries this; an admin reconnects.
  */
-export class LinearInstallationUnavailableError extends Error {
+export class LinearIntegrationUnavailableError extends Error {
   /**
    * @param message - Why.
    */
   constructor(message: string) {
     super(message);
-    this.name = "LinearInstallationUnavailableError";
+    this.name = "LinearIntegrationUnavailableError";
   }
 }
 
@@ -184,8 +184,8 @@ function intHeader(headers: Headers, name: string): number | null {
  */
 export function parseRateLimitHeaders(
   headers: Headers,
-): LinearRateLimitSnapshot | null {
-  const snapshot: LinearRateLimitSnapshot = {
+): RateLimitSnapshot | null {
+  const snapshot: RateLimitSnapshot = {
     requestsLimit: intHeader(headers, "x-ratelimit-requests-limit"),
     requestsRemaining: intHeader(headers, "x-ratelimit-requests-remaining"),
     requestsResetAt: intHeader(headers, "x-ratelimit-requests-reset"),
@@ -201,33 +201,33 @@ export function parseRateLimitHeaders(
   return seen ? snapshot : null;
 }
 
-/** The Redis hash holding an installation's last-seen rate-limit headers. */
-export function rateLimitKey(installationId: number): string {
-  return `linear:ratelimit:${installationId}`;
+/** The Redis hash holding an integration's last-seen rate-limit headers. */
+export function rateLimitKey(integrationId: number): string {
+  return `linear:ratelimit:${integrationId}`;
 }
 
-/** At most one `rateLimit` column write per installation per this long. */
+/** At most one `rateLimit` column write per integration per this long. */
 const RATE_LIMIT_WRITE_INTERVAL_MS = 10_000;
 
 /**
- * Record what a response said about the installation's budget: always into
+ * Record what a response said about the integration's budget: always into
  * the Redis hash the outbox's token bucket reads, and into the row at most once
  * per {@link RATE_LIMIT_WRITE_INTERVAL_MS} so a busy session is not an UPDATE
  * per activity.
- * @param installationId - The installation the request ran as.
+ * @param integrationId - The integration the request ran as.
  * @param snapshot - The parsed headers.
  */
 export async function recordRateLimit(
-  installationId: number,
-  snapshot: LinearRateLimitSnapshot,
+  integrationId: number,
+  snapshot: RateLimitSnapshot,
 ): Promise<void> {
   const fields: Record<string, string> = {};
   for (const [key, value] of Object.entries(snapshot)) {
     if (value !== null) fields[key] = String(value);
   }
-  await api.redis.redis.hset(rateLimitKey(installationId), fields);
+  await api.redis.redis.hset(rateLimitKey(integrationId), fields);
   const claimed = await api.redis.redis.set(
-    `${rateLimitKey(installationId)}:written`,
+    `${rateLimitKey(integrationId)}:written`,
     "1",
     "PX",
     RATE_LIMIT_WRITE_INTERVAL_MS,
@@ -235,9 +235,9 @@ export async function recordRateLimit(
   );
   if (claimed === "OK") {
     await api.db.db
-      .update(linearInstallations)
+      .update(integrations)
       .set({ rateLimit: snapshot })
-      .where(eq(linearInstallations.id, installationId));
+      .where(eq(integrations.id, integrationId));
   }
 }
 
@@ -251,7 +251,7 @@ interface GraphQLReply<T> {
 
 /**
  * POST one GraphQL document with a bearer token and classify the answer. No
- * refresh and no retry: {@link linearRequest} adds those for installations, and
+ * refresh and no retry: {@link linearRequest} adds those for integrations, and
  * the install callback calls this directly with a token no row holds yet.
  * @param accessToken - The OAuth access token.
  * @param op - The operation.
@@ -331,24 +331,24 @@ export interface LinearRequestOptions {
 }
 
 /**
- * The installation's access token, decrypted.
- * @param installation - The row.
+ * The integration's access token, decrypted.
+ * @param integration - The row.
  * @returns The plaintext token.
- * @throws {LinearInstallationUnavailableError} When the row cannot act.
+ * @throws {LinearIntegrationUnavailableError} When the row cannot act.
  */
-function accessTokenOf(installation: LinearInstallation): string {
-  if (installation.status !== "active" || !installation.accessTokenEncrypted) {
-    throw new LinearInstallationUnavailableError(
-      installation.status === "revoked"
+function accessTokenOf(integration: Integration): string {
+  if (integration.status !== "active" || !integration.accessTokenEncrypted) {
+    throw new LinearIntegrationUnavailableError(
+      integration.status === "revoked"
         ? "This Linear workspace was disconnected"
         : "This Linear connection needs an admin to reconnect it",
     );
   }
-  return decryptSecret(installation.accessTokenEncrypted);
+  return decryptSecret(integration.accessTokenEncrypted);
 }
 
 /**
- * Run one GraphQL operation as the installation's app user.
+ * Run one GraphQL operation as the integration's app user.
  *
  * - A 401 refreshes the tokens once, through the same row-locked refresh the
  *   clock uses, and retries once with the new token.
@@ -357,9 +357,9 @@ function accessTokenOf(installation: LinearInstallation): string {
  * - An {@link LinearRequestOptions.idempotent} operation is retried once after
  *   {@link LinearUnavailableError}; nothing ever sleeps here, so a request
  *   waiting on Linear waits at most two deadlines.
- * - Logs the operation, installation, duration, and complexity — never the
+ * - Logs the operation, integration, duration, and complexity — never the
  *   variables, which can carry issue content.
- * @param installation - The installation to act as.
+ * @param integration - The integration to act as.
  * @param op - The operation.
  * @param variables - Its variables.
  * @param options - Retry behaviour.
@@ -367,16 +367,16 @@ function accessTokenOf(installation: LinearInstallation): string {
  * @throws {LinearRateLimitedError} When Linear says `RATELIMITED`.
  * @throws {LinearGraphQLError} On any other GraphQL error.
  * @throws {LinearUnavailableError} When Linear stayed unreachable.
- * @throws {LinearInstallationUnavailableError} When the installation cannot act.
+ * @throws {LinearIntegrationUnavailableError} When the integration cannot act.
  */
 export async function linearRequest<T, V>(
-  installation: LinearInstallation,
+  integration: Integration,
   op: LinearOperation<T, V>,
   variables: V,
   options: LinearRequestOptions = {},
 ): Promise<T> {
   const started = Date.now();
-  let token = accessTokenOf(installation);
+  let token = accessTokenOf(integration);
   let refreshed = false;
   let retried = false;
 
@@ -387,7 +387,7 @@ export async function linearRequest<T, V>(
     } catch (e) {
       if (e instanceof LinearRateLimitedError) {
         const limits = parseRateLimitHeaders(e.headers);
-        if (limits) await recordRateLimit(installation.id, limits);
+        if (limits) await recordRateLimit(integration.id, limits);
       }
       if (e instanceof LinearUnavailableError && options.idempotent) {
         if (!retried) {
@@ -397,7 +397,7 @@ export async function linearRequest<T, V>(
       }
       api.logger.warn("linear request failed", {
         operation: op.name,
-        installationId: installation.id,
+        integrationId: integration.id,
         durationMs: Date.now() - started,
         error: e instanceof Error ? e.name : "unknown",
       });
@@ -406,12 +406,12 @@ export async function linearRequest<T, V>(
 
     if (reply.status === 401) {
       if (refreshed) {
-        throw new LinearInstallationUnavailableError(
+        throw new LinearIntegrationUnavailableError(
           "Linear refused a freshly refreshed token",
         );
       }
       refreshed = true;
-      const row = await refreshInstallationTokens(installation.id, {
+      const row = await refreshIntegrationTokens(integration.id, {
         rejectedAccessToken: token,
       });
       token = accessTokenOf(row);
@@ -419,10 +419,10 @@ export async function linearRequest<T, V>(
     }
 
     const limits = parseRateLimitHeaders(reply.headers);
-    if (limits) await recordRateLimit(installation.id, limits);
+    if (limits) await recordRateLimit(integration.id, limits);
     api.logger.info("linear request", {
       operation: op.name,
-      installationId: installation.id,
+      integrationId: integration.id,
       durationMs: Date.now() - started,
       complexity: limits?.lastComplexity ?? null,
     });
@@ -433,7 +433,7 @@ export async function linearRequest<T, V>(
 /**
  * Translate a Linear failure into the typed error an action answers with: a
  * rate limit becomes the caller's own 429, an unreachable Linear or a
- * disconnected installation a clear refusal. Anything else is rethrown.
+ * disconnected integration a clear refusal. Anything else is rethrown.
  * @param e - What a Linear call threw.
  * @returns The typed error to throw.
  */
@@ -445,7 +445,7 @@ export function linearErrorToTypedError(e: unknown): unknown {
       type: ErrorType.CONNECTION_RATE_LIMITED,
     });
   }
-  if (e instanceof LinearInstallationUnavailableError) {
+  if (e instanceof LinearIntegrationUnavailableError) {
     return new TypedError({
       message: e.message,
       type: ErrorType.CONNECTION_ACTION_NOT_FOUND,
@@ -459,57 +459,3 @@ export function linearErrorToTypedError(e: unknown): unknown {
   }
   return e;
 }
-
-/**
- * A project's installation, whatever its status.
- * @param projectId - The project.
- * @returns The row, or null when the project never connected Linear.
- */
-export async function getInstallationForProject(
-  projectId: number,
-): Promise<LinearInstallation | null> {
-  const [row] = await api.db.db
-    .select()
-    .from(linearInstallations)
-    .where(eq(linearInstallations.projectId, projectId))
-    .limit(1);
-  return row ?? null;
-}
-
-/**
- * An installation as every API answers it. There is no field either token, or
- * either ciphertext, fits in.
- * @param row - The row.
- * @returns The safe view, timestamps as epoch ms.
- */
-export function serializeLinearInstallation(row: LinearInstallation) {
-  return {
-    id: row.id,
-    projectId: row.projectId,
-    organizationId: row.organizationId,
-    organizationName: row.organizationName,
-    urlKey: row.urlKey,
-    appUserId: row.appUserId,
-    appUserName: row.appUserName,
-    appUserCapabilities: row.appUserCapabilities,
-    scopes: row.scopes,
-    status: row.status,
-    accessTokenLastFour: row.accessTokenLastFour,
-    accessTokenExpiresAt: row.accessTokenExpiresAt?.getTime() ?? null,
-    connectedAt: row.connectedAt.getTime(),
-    lastRefreshedAt: row.lastRefreshedAt?.getTime() ?? null,
-    refreshFailedAt: row.refreshFailedAt?.getTime() ?? null,
-    refreshError: row.refreshError,
-    teamIds: row.teamIds,
-    canAccessAllPublicTeams: row.canAccessAllPublicTeams,
-    rateLimit: row.rateLimit,
-    installedByUserId: row.installedByUserId,
-    createdAt: row.createdAt.getTime(),
-    updatedAt: row.updatedAt.getTime(),
-  };
-}
-
-/** {@link serializeLinearInstallation}'s output. */
-export type SerializedLinearInstallation = ReturnType<
-  typeof serializeLinearInstallation
->;

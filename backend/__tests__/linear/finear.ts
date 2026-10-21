@@ -300,7 +300,7 @@ export function useFinear() {
   }
 
   /**
-   * Drive `linear:connect` and finear's consent screen, and answer the URL
+   * Drive `integration:connect` and finear's consent screen, and answer the URL
    * Linear would send the browser back to — without following it, so a test
    * can follow it as whoever it likes.
    * @param projectId - The project being connected.
@@ -315,7 +315,7 @@ export function useFinear() {
     options: { decision?: "allow" | "deny"; fixture?: FinearFixture } = {},
   ): Promise<string> {
     const connect = await fetch(
-      `${serverUrl()}/api/linear/connect?projectId=${projectId}`,
+      `${serverUrl()}/api/integration/connect?projectId=${projectId}&type=linear`,
       { headers: cookieHeader(sessionId) },
     );
     const started = (await connect.json()) as {
@@ -323,7 +323,7 @@ export function useFinear() {
       error?: unknown;
     };
     if (!started.authorizeUrl) {
-      throw new Error(`linear:connect failed: ${JSON.stringify(started)}`);
+      throw new Error(`integration:connect failed: ${JSON.stringify(started)}`);
     }
     return consent(started.authorizeUrl, options);
   }
@@ -333,7 +333,7 @@ export function useFinear() {
    * chosen fixture admin with every team offered. finear's consent is an HTML
    * form, so this scrapes it: the fragility lives in this one function.
    * Ported from `approveFixtureConsent` in finear's `examples/agent.ts`.
-   * @param authorizeUrl - The URL `linear:connect` answered.
+   * @param authorizeUrl - The URL `integration:connect` answered.
    * @param options - As {@link authorize}.
    * @returns The callback URL.
    */
@@ -416,6 +416,37 @@ export function useFinear() {
     return callback(await authorize(projectId, sessionId, options), sessionId);
   }
 
+  /**
+   * Call one of finear's `/__test/*` control routes directly (not through the
+   * proxy, so the request log stays the server's own traffic).
+   * @param path - The route, e.g. `/__test/agents/delegate`.
+   * @param body - The JSON body, or undefined for a GET.
+   * @returns The parsed answer; throws on a non-2xx.
+   */
+  async function control<T = Record<string, unknown>>(
+    path: string,
+    body?: Record<string, unknown>,
+  ): Promise<T> {
+    const res = await fetch(
+      `${running().url.toString().replace(/\/$/, "")}${path}`,
+      {
+        method: body === undefined ? "GET" : "POST",
+        headers: {
+          Authorization: `Bearer ${controlToken}`,
+          ...(body === undefined ? {} : { "Content-Type": "application/json" }),
+        },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      },
+    );
+    const answer = (await res.json()) as T;
+    if (!res.ok) {
+      throw new Error(
+        `finear ${path} answered ${res.status}: ${JSON.stringify(answer)}`,
+      );
+    }
+    return answer;
+  }
+
   return {
     /** finear's own base URL (not the proxy). */
     finearUrl: () => running().url.toString().replace(/\/$/, ""),
@@ -447,6 +478,9 @@ export function useFinear() {
     advance: (ms: number) => running().advance(ms),
     /** Reset finear to its fixtures; every OAuth token becomes invalid. */
     reset: () => running().reset(),
+    control,
+    /** finear's virtual clock, epoch ms. */
+    now: async () => (await control<{ now: number }>("/__test/clock")).now,
   };
 }
 

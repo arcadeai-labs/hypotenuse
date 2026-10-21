@@ -285,7 +285,7 @@ ENG-123 to In Progress: …"). It does **not** fail the claim: the work is more 
 | `Issue` webhook moving the issue to a `completed` or `canceled` state type | every live work item for sessions on that issue |
 | `PermissionChange` removing the issue's team | every live work item on that team |
 
-Each of these is handled in `linear:process-event` ([phase 7](./phase-07-webhook-ingress-and-session-mirror.md))
+Each of these is handled in `triggers:process-event` ([phase 7](./phase-07-webhook-ingress-and-session-mirror.md))
 by a `cancelWorkForIssue(issueId, reason)` op added here.
 
 ## Steps

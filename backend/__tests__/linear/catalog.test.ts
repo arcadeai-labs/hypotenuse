@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { type ActionResponse, api } from "keryx";
-import type { LinearCatalogView } from "../../actions/linear/linear-catalog";
+import type { IntegrationCatalog } from "../../actions/integration/integration-catalog";
 import { catalogKey } from "../../ops/LinearCatalogOps";
 import {
   buildTestUniverse,
@@ -9,7 +9,7 @@ import {
   type TestUniverse,
 } from "../setup";
 import { FINEAR_FIXTURES, FINEAR_PRIMARY_KEY, useFinear } from "./finear";
-import { installationRow } from "./helpers";
+import { integrationRow } from "./helpers";
 
 let universe: TestUniverse;
 beforeAll(async () => {
@@ -53,26 +53,29 @@ beforeAll(async () => {
 }, HOOK_TIMEOUT);
 
 /**
- * `linear:catalog` as someone.
+ * `integration:catalog` as someone.
  * @param project - The Hypotenuse project.
  * @param sessionId - Who asks.
  * @returns The response.
  */
 const catalog = (project: number, sessionId: string) =>
-  fetch(`${universe.url}/api/linear/catalog?projectId=${project}`, {
-    headers: cookieHeader(sessionId),
-  });
+  fetch(
+    `${universe.url}/api/integration/catalog?projectId=${project}&type=linear`,
+    {
+      headers: cookieHeader(sessionId),
+    },
+  );
 
 /** GraphQL requests the server has sent since the log was cleared. */
 const graphqlSent = () =>
   linear.requests().filter((r) => r.path === "/graphql").length;
 
-describe("linear:catalog", () => {
+describe("integration:catalog", () => {
   test("answers the teams with their states, projects, and labels the app can see", async () => {
     linear.clearRequests();
     const res = await catalog(universe.projectId, universe.toad.sessionId);
     expect(res.status).toBe(200);
-    const body = (await res.json()) as ActionResponse<LinearCatalogView>;
+    const body = (await res.json()) as ActionResponse<IntegrationCatalog>;
 
     expect(body.teams).toEqual([
       {
@@ -122,7 +125,7 @@ describe("linear:catalog", () => {
     ).toBe(200);
     expect(graphqlSent()).toBe(0);
 
-    const { id } = await installationRow(universe.projectId);
+    const { id } = await integrationRow(universe.projectId);
     // EXPIRE 0 is the TTL running out, not a wait.
     await api.redis.redis.expire(catalogKey(id), 0);
     expect(

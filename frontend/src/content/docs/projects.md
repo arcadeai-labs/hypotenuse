@@ -1,7 +1,7 @@
 # Projects
 
 A **project** is your team's home in Hypotenuse, and the boundary for everything in it. Its members, their tags,
-its invitations, its audit log, and later its Linear connection, runners, routing rules, and agent sessions all
+its invitations, its audit log, its integrations (the Linear connection first), and later its runners, routing rules, and agent sessions all
 belong to exactly one project.
 
 A project connects **at most one Linear workspace**. If your company has two workspaces, make two projects.
@@ -21,6 +21,7 @@ becomes its admin.
 | Section | What it holds | Who can change it |
 |---|---|---|
 | General | The project's name | Admins |
+| Integrations | The systems that start agent work — today Linear ([Connecting Linear](/docs/connecting-linear)) | Admins connect and disconnect |
 | MCP endpoint | The URL to point an MCP client at | — (read only) |
 | Members | Who belongs, and their tags | Admins |
 | Tags | The project's tags | Admins |

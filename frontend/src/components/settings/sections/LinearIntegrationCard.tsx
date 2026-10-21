@@ -1,5 +1,5 @@
-import type { LinearConnect } from "@backend/actions/linear/linear-connect";
-import type { LinearInstallationView } from "@backend/actions/linear/linear-installation";
+import type { IntegrationConnect } from "@backend/actions/integration/integration-connect";
+import type { IntegrationView } from "@backend/actions/integration/integration-view";
 import type { LinearCallbackError } from "@backend/ops/LinearOAuthOps";
 import type { ActionResponse } from "keryx";
 import { useCallback, useEffect, useState } from "react";
@@ -21,11 +21,11 @@ import SectionCard from "../../sections/SectionCard";
 import { useSectionSave } from "../../sections/useSectionSave";
 import { useProjectSettings } from "../context";
 
-/** What `linear:installation` answers. */
-type InstallationResponse = ActionResponse<LinearInstallationView>;
+/** What `integration:view` answers for `type=linear`. */
+type IntegrationResponse = ActionResponse<IntegrationView>;
 
-/** The installation as the server serializes it. */
-type Installation = NonNullable<InstallationResponse["installation"]>;
+/** The Linear integration as the server serializes it. */
+type Integration = NonNullable<IntegrationResponse["integration"]>;
 
 /**
  * What each `linear:callback` refusal means to the person who just came back
@@ -73,13 +73,13 @@ function when(ms: number | null): string {
 /**
  * The connection's health as a glyph and a word: shape carries the state, so
  * colour is never the only cue.
- * @param props.status - The installation's status, or null when never connected.
+ * @param props.status - The integration's status, or null when never connected.
  * @returns The status mark.
  */
 function ConnectionStatus({
   status,
 }: {
-  status: Installation["status"] | null;
+  status: Integration["status"] | null;
 }) {
   if (status === "active") {
     return (
@@ -103,34 +103,36 @@ function ConnectionStatus({
 }
 
 /**
- * The project's connection to a Linear workspace: which workspace, as which
- * app user, how healthy the tokens are, and the Connect / Disconnect controls.
+ * The project's Linear integration: which workspace, as which app user, how
+ * healthy the tokens are, and the Connect / Disconnect controls. One card in
+ * Settings → Integrations.
  *
- * Every member may read it (`linear:installation` is member-level); connecting
+ * Every member may read it (`integration:view` is member-level); connecting
  * and disconnecting are gated per control through `may()`. Connect sends the
  * browser to Linear's consent screen, and Linear sends it back to this page with
- * `?connected=1` or `?error=<code>`, which is read once on mount and then
- * stripped from the URL so a reload does not repeat the message.
- * @returns The rendered section.
+ * `?type=linear&connected=1` or `?type=linear&error=<code>`, which is read once
+ * on mount and then stripped from the URL so a reload does not repeat the
+ * message. A verdict for another type is left for that type's card.
+ * @returns The rendered card.
  */
-export default function LinearSection() {
+export default function LinearIntegrationCard() {
   const { projectId, may } = useProjectSettings();
   const { projects, setActiveProject } = useAuth();
   const { busy, error, notice, setError, setNotice, save } = useSectionSave();
-  const [data, setData] = useState<InstallationResponse | null>(null);
+  const [data, setData] = useState<IntegrationResponse | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const { loading, begin, done } = useFirstLoad();
   const [searchParams, setSearchParams] = useSearchParams();
-  const mayConnect = may("linear:connect");
-  const mayDisconnect = may("linear:disconnect");
+  const mayConnect = may("integration:connect");
+  const mayDisconnect = may("integration:disconnect");
 
   const load = useCallback(async () => {
     begin();
     try {
       setData(
-        await apiFetch<InstallationResponse>(
-          `/linear/installation?projectId=${projectId}`,
+        await apiFetch<IntegrationResponse>(
+          `/integration?projectId=${projectId}&type=linear`,
         ),
       );
     } catch (err) {
@@ -155,6 +157,7 @@ export default function LinearSection() {
     const connected = searchParams.get("connected");
     const failure = searchParams.get("error");
     if (!connected && !failure) return;
+    if (searchParams.get("type") !== "linear") return;
     const named = Number(searchParams.get("projectId"));
     if (named && named !== projectId && projects.some((p) => p.id === named)) {
       setActiveProject(named);
@@ -166,6 +169,7 @@ export default function LinearSection() {
     next.delete("connected");
     next.delete("error");
     next.delete("projectId");
+    next.delete("type");
     setSearchParams(next, { replace: true });
   }, [
     searchParams,
@@ -182,9 +186,9 @@ export default function LinearSection() {
     setConnecting(true);
     setError(null);
     try {
-      const { authorizeUrl } = await apiFetch<ActionResponse<LinearConnect>>(
-        `/linear/connect?projectId=${projectId}`,
-      );
+      const { authorizeUrl } = await apiFetch<
+        ActionResponse<IntegrationConnect>
+      >(`/integration/connect?projectId=${projectId}&type=linear`);
       window.location.assign(authorizeUrl);
     } catch (err) {
       setError(
@@ -199,18 +203,18 @@ export default function LinearSection() {
     setConfirming(false);
     const ok = await save(
       () =>
-        apiFetch("/linear/installation", {
+        apiFetch("/integration", {
           method: "DELETE",
-          body: JSON.stringify({ projectId }),
+          body: JSON.stringify({ projectId, type: "linear" }),
         }),
       "Disconnected. @hypotenuse was removed from the Linear workspace.",
     );
     if (ok) await load();
   }
 
-  const installation =
-    data?.installation && data.installation.status !== "revoked"
-      ? data.installation
+  const integration =
+    data?.integration && data.integration.status !== "revoked"
+      ? data.integration
       : null;
   const configured = data?.configured ?? true;
 
@@ -227,7 +231,7 @@ export default function LinearSection() {
         onClick={onConnect}
         data-testid="linear-connect"
       >
-        {installation ? "Reconnect Linear" : "Connect Linear"}
+        {integration ? "Reconnect Linear" : "Connect Linear"}
       </Button>
       {!configured && (
         <span className="text-muted" data-testid="linear-not-configured">
@@ -256,7 +260,7 @@ export default function LinearSection() {
         </>
       }
     >
-      {!installation ? (
+      {!integration ? (
         <div
           className="d-flex flex-column gap-3"
           data-testid="linear-disconnected"
@@ -269,53 +273,53 @@ export default function LinearSection() {
           className="d-flex flex-column gap-3"
           data-testid="linear-connected"
         >
-          {installation.status === "error" && (
+          {integration.status === "error" && (
             <Alert
               variant="danger"
               className="mb-0"
               data-testid="linear-refresh-error"
             >
-              {installation.refreshError ??
+              {integration.refreshError ??
                 "Linear stopped accepting this connection."}{" "}
               {mayConnect
                 ? "Reconnect to bring @hypotenuse back."
                 : "A project admin must reconnect it."}
             </Alert>
           )}
-          {installation.status === "active" && installation.refreshError && (
+          {integration.status === "active" && integration.refreshError && (
             <Alert
               variant="warning"
               className="mb-0"
               data-testid="linear-refresh-warning"
             >
-              {installation.refreshError}
+              {integration.refreshError}
             </Alert>
           )}
 
           <dl className="ui-properties-list" data-testid="linear-properties">
             <Property label="Status">
-              <ConnectionStatus status={installation.status} />
+              <ConnectionStatus status={integration.status} />
             </Property>
             <Property label="Workspace">
               <a
-                href={`https://linear.app/${installation.urlKey}`}
+                href={`https://linear.app/${integration.workspaceUrlKey}`}
                 target="_blank"
                 rel="noreferrer"
                 data-testid="linear-workspace"
               >
-                {installation.organizationName}
+                {integration.workspaceName}
               </a>
               <span className="text-muted">
-                linear.app/{installation.urlKey}
+                linear.app/{integration.workspaceUrlKey}
               </span>
             </Property>
             <Property label="App user">
               <span data-testid="linear-app-user">
-                @{installation.appUserName}
+                @{integration.appUserName}
               </span>
             </Property>
             <Property label="Scopes">
-              {installation.scopes.map((scope) => (
+              {integration.scopes.map((scope) => (
                 <Badge key={scope} bg="secondary">
                   {scope}
                 </Badge>
@@ -323,38 +327,39 @@ export default function LinearSection() {
             </Property>
             <Property label="Teams">
               <span data-testid="linear-teams">
-                {installation.teamIds.length === 1
+                {integration.details.teamIds.length === 1
                   ? "1 team"
-                  : `${installation.teamIds.length} teams`}
-                {installation.canAccessAllPublicTeams && ", every public team"}
+                  : `${integration.details.teamIds.length} teams`}
+                {integration.details.canAccessAllPublicTeams &&
+                  ", every public team"}
               </span>
             </Property>
             <Property label="Token expires">
-              {when(installation.accessTokenExpiresAt)}
+              {when(integration.accessTokenExpiresAt)}
             </Property>
             <Property label="Last refreshed">
-              {when(installation.lastRefreshedAt)}
+              {when(integration.lastRefreshedAt)}
             </Property>
-            {installation.rateLimit && (
+            {integration.rateLimit && (
               <Property label="Rate limit">
                 <span data-testid="linear-rate-limit">
-                  {installation.rateLimit.requestsRemaining !== null
-                    ? `${installation.rateLimit.requestsRemaining.toLocaleString()}${
-                        installation.rateLimit.requestsLimit !== null
-                          ? ` of ${installation.rateLimit.requestsLimit.toLocaleString()}`
+                  {integration.rateLimit.requestsRemaining !== null
+                    ? `${integration.rateLimit.requestsRemaining.toLocaleString()}${
+                        integration.rateLimit.requestsLimit !== null
+                          ? ` of ${integration.rateLimit.requestsLimit.toLocaleString()}`
                           : ""
                       } requests left`
                     : "—"}
-                  {installation.rateLimit.complexityRemaining !== null &&
-                    ` · ${installation.rateLimit.complexityRemaining.toLocaleString()} complexity`}
-                  {` · seen ${when(installation.rateLimit.observedAt)}`}
+                  {integration.rateLimit.complexityRemaining !== null &&
+                    ` · ${integration.rateLimit.complexityRemaining.toLocaleString()} complexity`}
+                  {` · seen ${when(integration.rateLimit.observedAt)}`}
                 </span>
               </Property>
             )}
           </dl>
 
           <div className="d-flex gap-2 flex-wrap">
-            {installation.status === "error" && mayConnect && connectControl}
+            {integration.status === "error" && mayConnect && connectControl}
             {mayDisconnect && (
               <Button
                 variant="outline-danger"
@@ -379,7 +384,7 @@ export default function LinearSection() {
         </Modal.Header>
         <Modal.Body>
           This revokes Hypotenuse's access to{" "}
-          <strong>{installation?.organizationName}</strong> at once:{" "}
+          <strong>{integration?.workspaceName}</strong> at once:{" "}
           <code>@hypotenuse</code> is removed from the workspace and stops
           answering there. Connecting again needs a Linear workspace admin.
         </Modal.Body>

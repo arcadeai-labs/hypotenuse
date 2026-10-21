@@ -34,7 +34,7 @@ describe("the finear harness", () => {
       universe.projectId,
       universe.peach.sessionId,
     );
-    expect(landed.pathname).toBe("/settings/linear");
+    expect(landed.pathname).toBe("/settings/integrations");
     expect(landed.searchParams.get("connected")).toBe("1");
   });
 

@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import {
   type ActionParams,
   api,
@@ -13,18 +13,16 @@ import {
   type TxHandle,
 } from "../../classes/AuditedAction";
 import { AdminMiddleware } from "../../middleware/rbac";
+import { serializeIntegration } from "../../ops/IntegrationOps";
 import { catalogKey } from "../../ops/LinearCatalogOps";
-import { revokeInstallationTokens } from "../../ops/LinearOAuthOps";
-import {
-  LinearUnavailableError,
-  rateLimitKey,
-  serializeLinearInstallation,
-} from "../../ops/LinearOps";
-import { linearInstallations } from "../../schema/linear_installations";
+import { revokeIntegrationTokens } from "../../ops/LinearOAuthOps";
+import { LinearUnavailableError, rateLimitKey } from "../../ops/LinearOps";
+import { integrations, TRIGGER_TYPES } from "../../schema/integrations";
 
 /**
- * `linear:disconnect` — revoke the project's Linear tokens at Linear and forget
- * them. Revoking an `actor=app` token uninstalls the app from the workspace,
+ * `integration:disconnect` — revoke the project's tokens for one trigger type
+ * at that system and forget them. For `linear`: revoking an `actor=app` token
+ * uninstalls the app from the workspace. Revoking an `actor=app` token uninstalls the app from the workspace,
  * so `@hypotenuse` stops answering there at once.
  *
  * The row is kept, `revoked` with both token columns nulled, so whatever points
@@ -32,47 +30,53 @@ import { linearInstallations } from "../../schema/linear_installations";
  * workspace is then free to connect to another project. If Linear cannot be
  * reached nothing is forgotten, so trying again can still revoke.
  */
-export class LinearDisconnect extends AuditedAction {
-  name = "linear:disconnect";
+export class IntegrationDisconnect extends AuditedAction {
+  name = "integration:disconnect";
   description =
-    "Disconnect the project from its Linear workspace: revokes both of the app's tokens at Linear (uninstalling @hypotenuse there) and forgets them. Requires the admin tag on the project.";
+    "Disconnect the project from its workspace in one trigger system (today: linear): revokes both of the app's tokens there (uninstalling @hypotenuse) and forgets them. Requires the admin tag on the project.";
   middleware = [AdminMiddleware()];
-  web = { route: "/linear/installation", method: HTTP_METHOD.DELETE };
+  web = { route: "/integration", method: HTTP_METHOD.DELETE };
   inputs = z.object({
     projectId: z.coerce
       .number()
       .int()
       .positive()
-      .describe("The project to disconnect from Linear"),
+      .describe("The project to disconnect"),
+    type: z.enum(TRIGGER_TYPES).describe("The trigger system, e.g. linear"),
   });
 
   /**
    * @param tx - The transaction the update and its audit row share.
-   * @param params - The project.
+   * @param params - The project and type.
    * @param connection - The admin's connection.
-   * @returns The installation, now `revoked`.
+   * @returns The integration, now `revoked`.
    * @throws {TypedError} `CONNECTION_ACTION_NOT_FOUND` when nothing is
    *   connected; `CONNECTION_SERVER_ERROR` when Linear could not be reached.
    */
   async runWithAudit(
     tx: TxHandle,
-    params: ActionParams<LinearDisconnect>,
+    params: ActionParams<IntegrationDisconnect>,
     connection: AuditedConnection,
   ) {
     const [existing] = await tx
       .select()
-      .from(linearInstallations)
-      .where(eq(linearInstallations.projectId, params.projectId))
+      .from(integrations)
+      .where(
+        and(
+          eq(integrations.projectId, params.projectId),
+          eq(integrations.type, params.type),
+        ),
+      )
       .for("update");
     if (!existing || existing.status === "revoked") {
       throw new TypedError({
-        message: "This project is not connected to Linear",
+        message: `This project has no ${params.type} integration`,
         type: ErrorType.CONNECTION_ACTION_NOT_FOUND,
       });
     }
 
     try {
-      await revokeInstallationTokens(existing);
+      await revokeIntegrationTokens(existing);
     } catch (e) {
       if (e instanceof LinearUnavailableError) {
         throw new TypedError({
@@ -84,7 +88,7 @@ export class LinearDisconnect extends AuditedAction {
     }
 
     const [row] = await tx
-      .update(linearInstallations)
+      .update(integrations)
       .set({
         status: "revoked",
         accessTokenEncrypted: null,
@@ -94,28 +98,28 @@ export class LinearDisconnect extends AuditedAction {
         refreshError: null,
         refreshFailedAt: null,
       })
-      .where(eq(linearInstallations.id, existing.id))
+      .where(eq(integrations.id, existing.id))
       .returning();
 
-    const serialized = serializeLinearInstallation(row);
-    connection.metadata.auditBefore = serializeLinearInstallation(existing);
+    const serialized = serializeIntegration(row);
+    connection.metadata.auditBefore = serializeIntegration(existing);
     connection.metadata.auditAfter = serialized;
-    connection.metadata.auditTargetType = "linear-installation";
-    connection.metadata.auditTargetPath = existing.urlKey;
-    return { installation: serialized };
+    connection.metadata.auditTargetType = "integration";
+    connection.metadata.auditTargetPath = `${existing.type}:${existing.workspaceUrlKey}`;
+    return { integration: serialized };
   }
 
   /**
-   * Drop what Redis caches for the installation.
-   * @param result - The disconnected installation.
+   * Drop what Redis caches for the integration.
+   * @param result - The disconnected integration.
    */
   async afterCommit(result: unknown) {
-    const { installation } = result as {
-      installation: { id: number };
+    const { integration } = result as {
+      integration: { id: number };
     };
     await api.redis.redis.del(
-      catalogKey(installation.id),
-      rateLimitKey(installation.id),
+      catalogKey(integration.id),
+      rateLimitKey(integration.id),
     );
   }
 }

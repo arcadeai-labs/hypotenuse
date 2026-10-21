@@ -10,7 +10,7 @@ const namespace = "linearApp";
  * every Connect click with a refusal, which looks healthy until somebody tries
  * Linear. A failed boot says what is wrong where an operator looks. Elsewhere a
  * missing app only logs: development and CI run without one, and
- * `linear:installation` answers `configured: false` so the dashboard can say
+ * `integration:view` answers `configured: false` so the dashboard can say
  * why Connect is off.
  *
  * Server mode only, so `bun keryx.ts linear:manifest-url` — which an operator

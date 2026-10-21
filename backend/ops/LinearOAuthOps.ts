@@ -3,14 +3,11 @@ import { api, config } from "keryx";
 // Type-only: brings the `config.linear` augmentation into every program that
 // type-checks this file.
 import type {} from "../config/linear";
-import {
-  type LinearInstallation,
-  linearInstallations,
-} from "../schema/linear_installations";
+import { type Integration, integrations } from "../schema/integrations";
 import { s256Challenge, sha256Hex } from "./CliTokenOps";
 import { decryptSecret, encryptSecret, lastFourOf } from "./CryptoOps";
 import {
-  LinearInstallationUnavailableError,
+  LinearIntegrationUnavailableError,
   LinearUnavailableError,
   linearCallbackUrl,
   linearFetch,
@@ -25,7 +22,7 @@ import { enqueueNotification } from "./NotificationOps";
  * Linear's `actor=app` access tokens last 24 hours and its refresh tokens
  * **rotate**: each refresh spends the old refresh token and answers a new pair.
  * A refresh whose response is lost can be replayed for 30 minutes and answers
- * the same new pair. {@link refreshInstallationTokens} is built around both
+ * the same new pair. {@link refreshIntegrationTokens} is built around both
  * facts.
  */
 
@@ -91,8 +88,8 @@ function randomUrlSafe(bytes: number): string {
 const stateKey = (state: string) => `linear:oauth:state:${sha256Hex(state)}`;
 
 /** Redis key recording a refresh that was sent but has not committed. */
-export const inflightRefreshKey = (installationId: number) =>
-  `linear:refresh:inflight:${installationId}`;
+export const inflightRefreshKey = (integrationId: number) =>
+  `linear:refresh:inflight:${integrationId}`;
 
 /** How long Linear honours a replayed refresh token. */
 export const REFRESH_REPLAY_GRACE_MS = 30 * 60 * 1000;
@@ -245,7 +242,7 @@ export function tokenColumns(grant: LinearTokenGrant) {
   };
 }
 
-/** Options for {@link refreshInstallationTokens}. */
+/** Options for {@link refreshIntegrationTokens}. */
 export interface RefreshOptions {
   /**
    * The access token Linear just refused with a 401. If the row no longer holds
@@ -257,7 +254,7 @@ export interface RefreshOptions {
 }
 
 /**
- * Refresh an installation's tokens — the one function the refresh clock and an
+ * Refresh an integration's tokens — the one function the refresh clock and an
  * inline 401 both call.
  *
  * 1. **Row lock.** `SELECT … FOR UPDATE` serializes every refresher across
@@ -282,29 +279,29 @@ export interface RefreshOptions {
  * Any other refusal (a rotated client secret, say) is reported on
  * `refreshError` but leaves the row `active`: fixing the deployment's
  * configuration should recover every workspace without anyone reconnecting.
- * @param installationId - The installation.
+ * @param integrationId - The integration.
  * @param options - Why this refresh is happening.
  * @returns The row after the attempt.
  * @throws {LinearUnavailableError} When Linear did not answer (the tokens are unchanged).
- * @throws {LinearInstallationUnavailableError} When the row no longer exists.
+ * @throws {LinearIntegrationUnavailableError} When the row no longer exists.
  */
-export async function refreshInstallationTokens(
-  installationId: number,
+export async function refreshIntegrationTokens(
+  integrationId: number,
   options: RefreshOptions = {},
-): Promise<LinearInstallation> {
+): Promise<Integration> {
   let transient: Error | null = null;
   let settled = false;
-  let refused: LinearInstallation | null = null;
+  let refused: Integration | null = null;
 
   const row = await api.db.db.transaction(async (tx) => {
     const [current] = await tx
       .select()
-      .from(linearInstallations)
-      .where(eq(linearInstallations.id, installationId))
+      .from(integrations)
+      .where(eq(integrations.id, integrationId))
       .for("update");
     if (!current) {
-      throw new LinearInstallationUnavailableError(
-        "This Linear installation no longer exists",
+      throw new LinearIntegrationUnavailableError(
+        "This Linear integration no longer exists",
       );
     }
     if (current.status !== "active" || !current.refreshTokenEncrypted) {
@@ -324,7 +321,7 @@ export async function refreshInstallationTokens(
       return current;
     }
 
-    const key = inflightRefreshKey(installationId);
+    const key = inflightRefreshKey(integrationId);
     const previous = await api.redis.redis.get(key);
     if (!previous) {
       await api.redis.redis.set(
@@ -336,7 +333,7 @@ export async function refreshInstallationTokens(
     } else {
       api.logger.warn(
         "replaying a Linear refresh whose response never committed",
-        { installationId, startedAt: JSON.parse(previous).startedAt },
+        { integrationId, startedAt: JSON.parse(previous).startedAt },
       );
     }
 
@@ -350,7 +347,7 @@ export async function refreshInstallationTokens(
       if (e instanceof LinearGrantRefusedError && e.code === "invalid_grant") {
         settled = true;
         const [updated] = await tx
-          .update(linearInstallations)
+          .update(integrations)
           .set({
             status: "error",
             refreshFailedAt: new Date(),
@@ -358,14 +355,14 @@ export async function refreshInstallationTokens(
               ? "Linear refused to replay a refresh whose response was lost. An admin must reconnect Linear."
               : "Linear refused the refresh token: the app was uninstalled or its access revoked in Linear. An admin must reconnect Linear.",
           })
-          .where(eq(linearInstallations.id, installationId))
+          .where(eq(integrations.id, integrationId))
           .returning();
         await enqueueNotification(tx, {
           projectId: current.projectId,
           userIds: await getAdminUserIds(tx, current.projectId),
           template: "linear-refresh-failed",
-          payload: { organizationName: current.organizationName },
-          linkPath: "/settings/linear",
+          payload: { workspaceName: current.workspaceName },
+          linkPath: "/settings/integrations",
         });
         refused = updated;
         return updated;
@@ -374,19 +371,19 @@ export async function refreshInstallationTokens(
       // refresher's success. The tokens are left exactly as they were.
       transient = e instanceof Error ? e : new Error(String(e));
       const [noted] = await tx
-        .update(linearInstallations)
+        .update(integrations)
         .set({
           refreshFailedAt: new Date(),
           refreshError: `The last refresh failed and will be retried: ${transient.message}`,
         })
-        .where(eq(linearInstallations.id, installationId))
+        .where(eq(integrations.id, integrationId))
         .returning();
       return noted;
     }
 
     settled = true;
     const [updated] = await tx
-      .update(linearInstallations)
+      .update(integrations)
       .set({
         ...tokenColumns(grant),
         scopes: grant.scopes.length > 0 ? grant.scopes : current.scopes,
@@ -394,15 +391,15 @@ export async function refreshInstallationTokens(
         refreshFailedAt: null,
         refreshError: null,
       })
-      .where(eq(linearInstallations.id, installationId))
+      .where(eq(integrations.id, integrationId))
       .returning();
     return updated;
   });
 
-  if (settled) await api.redis.redis.del(inflightRefreshKey(installationId));
+  if (settled) await api.redis.redis.del(inflightRefreshKey(integrationId));
   if (refused) {
-    api.logger.warn("a Linear installation's refresh was refused", {
-      installationId,
+    api.logger.warn("a Linear integration's refresh was refused", {
+      integrationId,
     });
   }
   if (transient) {
@@ -442,21 +439,21 @@ export async function revokeToken(
 }
 
 /**
- * Revoke both of an installation's tokens at Linear.
- * @param installation - The row (its tokens are read, not changed).
+ * Revoke both of an integration's tokens at Linear.
+ * @param integration - The row (its tokens are read, not changed).
  */
-export async function revokeInstallationTokens(
-  installation: LinearInstallation,
+export async function revokeIntegrationTokens(
+  integration: Integration,
 ): Promise<void> {
-  if (installation.accessTokenEncrypted) {
+  if (integration.accessTokenEncrypted) {
     await revokeToken(
-      decryptSecret(installation.accessTokenEncrypted),
+      decryptSecret(integration.accessTokenEncrypted),
       "access_token",
     );
   }
-  if (installation.refreshTokenEncrypted) {
+  if (integration.refreshTokenEncrypted) {
     await revokeToken(
-      decryptSecret(installation.refreshTokenEncrypted),
+      decryptSecret(integration.refreshTokenEncrypted),
       "refresh_token",
     );
   }
@@ -464,7 +461,7 @@ export async function revokeInstallationTokens(
 
 /**
  * Every way `linear:callback` can refuse, as the short code it puts on the
- * dashboard redirect (`/settings/linear?error=<code>`):
+ * dashboard redirect (`/settings/integrations?type=linear&error=<code>`):
  *
  * | Code | Means |
  * |---|---|
