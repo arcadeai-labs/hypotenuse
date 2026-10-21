@@ -18,6 +18,7 @@ bun run --cwd frontend theme:check   # fail if any output is stale (part of fron
 | `design/tokens.json` | the CLI palette, embedded into the compiled binary |
 | `backend/theme/hypotenuse-theme.ts` | Keryx's OAuth authorize page (`WEB_SERVER_THEME`), light plus a `prefers-color-scheme` block |
 | `design/mark.svg`, `frontend/public/favicon{,-dark}.svg` | the `◢` mark, in each theme's colors |
+| `backend/assets/favicon.ico`, `backend/assets/favicon{,-dark}.svg` | the API origin's icon — MCP clients and favicon services ask the server's origin for `/favicon.ico`; the ICO is the light mark rasterized at 16–64 px |
 | `backend/templates/lion.svg` | the mark on the OAuth page, painted from that page's own variables |
 
 **Never edit a generated file.** Change an input in `tokens.ts` and rebuild. `frontend/src/__tests__/tokens.test.ts`

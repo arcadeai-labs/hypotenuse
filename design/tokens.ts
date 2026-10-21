@@ -11,11 +11,13 @@
  *   frontend/src/styles/_tokens.generated.scss   CSS custom properties per theme
  *   design/tokens.json                            hex values, read by the CLI palette
  *   backend/theme/hypotenuse-theme.ts             the Keryx OAuth page's `--keryx-*` theme
+ *   backend/assets/favicon{.ico,.svg,-dark.svg}   the API origin's icon, for MCP clients
  *
  * No dependencies: the LCH → sRGB conversion and WCAG contrast are below.
  */
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { deflateSync } from "node:zlib";
 
 /** A CIE LCH color: lightness 0–100, chroma ≥ 0, hue in degrees. */
 export interface Lch {
@@ -441,6 +443,114 @@ export function renderMark(t: ThemeTokens | "inline"): string {
 `;
 }
 
+/** The pixel sizes packed into `favicon.ico`. */
+export const ICO_SIZES = [16, 32, 48, 64] as const;
+
+/**
+ * Rasterize the mark — the same two shapes {@link renderMark} draws in its
+ * 32-unit viewBox — at one pixel size, 8×8 supersampled for anti-aliasing.
+ * @param t - One theme's tokens.
+ * @param size - Width and height in pixels.
+ * @returns Straight-alpha RGBA bytes, row-major.
+ */
+export function rasterizeMark(t: ThemeTokens, size: number): Uint8Array {
+  const rgb = (hex: string) => [1, 3, 5].map((i) => Number.parseInt(hex.slice(i, i + 2), 16));
+  const fill = rgb(t["text-primary"]);
+  const stroke = rgb(t.accent);
+  const SS = 8;
+  const out = new Uint8Array(size * size * 4);
+  for (let py = 0; py < size; py++) {
+    for (let px = 0; px < size; px++) {
+      const sum = [0, 0, 0, 0];
+      for (let sy = 0; sy < SS; sy++) {
+        for (let sx = 0; sx < SS; sx++) {
+          const x = ((px + (sx + 0.5) / SS) * 32) / size;
+          const y = ((py + (sy + 0.5) / SS) * 32) / size;
+          // The stroke runs (28,4)→(4,28), 3 wide with round caps.
+          const u = Math.max(0, Math.min(1, (28 - x + (y - 4)) / 48));
+          const inStroke = Math.hypot(x - (28 - 24 * u), y - (4 + 24 * u)) <= 1.5;
+          const inFill = x <= 28 && y <= 28 && x + y >= 32;
+          const c = inStroke ? stroke : inFill ? fill : null;
+          if (!c) continue;
+          for (let i = 0; i < 3; i++) sum[i] += c[i];
+          sum[3]++;
+        }
+      }
+      const o = (py * size + px) * 4;
+      if (sum[3] === 0) continue;
+      for (let i = 0; i < 3; i++) out[o + i] = Math.round(sum[i] / sum[3]);
+      out[o + 3] = Math.round((sum[3] / (SS * SS)) * 255);
+    }
+  }
+  return out;
+}
+
+/** CRC-32 (the PNG chunk checksum) of `bytes`. */
+function crc32(bytes: Uint8Array): number {
+  let c = ~0;
+  for (const b of bytes) {
+    c ^= b;
+    for (let k = 0; k < 8; k++) c = (c >>> 1) ^ (0xedb88320 & -(c & 1));
+  }
+  return ~c >>> 0;
+}
+
+/**
+ * Encode RGBA pixels as a PNG: one IHDR, one IDAT, no filtering.
+ * @param rgba - Straight-alpha RGBA bytes.
+ * @param size - Width and height in pixels.
+ * @returns PNG bytes.
+ */
+export function encodePng(rgba: Uint8Array, size: number): Buffer {
+  const chunk = (type: string, data: Buffer) => {
+    const body = Buffer.concat([Buffer.from(type, "latin1"), data]);
+    const len = Buffer.alloc(4);
+    len.writeUInt32BE(data.length);
+    const crc = Buffer.alloc(4);
+    crc.writeUInt32BE(crc32(body));
+    return Buffer.concat([len, body, crc]);
+  };
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(size, 0);
+  ihdr.writeUInt32BE(size, 4);
+  ihdr.set([8, 6, 0, 0, 0], 8); // 8-bit RGBA, no interlace
+  const raw = Buffer.alloc(size * (size * 4 + 1));
+  for (let y = 0; y < size; y++) raw.set(rgba.subarray(y * size * 4, (y + 1) * size * 4), y * (size * 4 + 1) + 1);
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    chunk("IHDR", ihdr),
+    chunk("IDAT", deflateSync(raw, { level: 9 })),
+    chunk("IEND", Buffer.alloc(0)),
+  ]);
+}
+
+/**
+ * Render `favicon.ico` for the API origin: the light mark as PNG entries at
+ * each of {@link ICO_SIZES}. MCP clients and favicon services look for
+ * `/favicon.ico` on the server's origin, and few of them read SVG.
+ * @param themes - Generated tokens.
+ * @returns ICO bytes.
+ */
+export function renderFaviconIco(themes: Record<"light" | "dark", ThemeTokens>): Buffer {
+  const pngs = ICO_SIZES.map((size) => encodePng(rasterizeMark(themes.light, size), size));
+  const header = Buffer.alloc(6 + 16 * pngs.length);
+  header.writeUInt16LE(1, 2); // type: icon
+  header.writeUInt16LE(pngs.length, 4);
+  let offset = header.length;
+  pngs.forEach((png, i) => {
+    const e = 6 + 16 * i;
+    const size = ICO_SIZES[i];
+    header.writeUInt8(size % 256, e); // 0 means 256
+    header.writeUInt8(size % 256, e + 1);
+    header.writeUInt16LE(1, e + 4); // color planes
+    header.writeUInt16LE(32, e + 6); // bits per pixel
+    header.writeUInt32LE(png.length, e + 8);
+    header.writeUInt32LE(offset, e + 12);
+    offset += png.length;
+  });
+  return Buffer.concat([header, ...pngs]);
+}
+
 /** Where each output lives, and how to render it. */
 export const OUTPUTS = [
   { path: "frontend/src/styles/_tokens.generated.scss", render: renderScss },
@@ -450,13 +560,20 @@ export const OUTPUTS = [
   { path: "design/mark.svg", render: (themes) => renderMark(themes.light) },
   { path: "frontend/public/favicon.svg", render: (themes) => renderMark(themes.light) },
   { path: "frontend/public/favicon-dark.svg", render: (themes) => renderMark(themes.dark) },
+  // The API origin's static root, for MCP clients and anything else that asks it for an icon.
+  { path: "backend/assets/favicon.svg", render: (themes) => renderMark(themes.light) },
+  { path: "backend/assets/favicon-dark.svg", render: (themes) => renderMark(themes.dark) },
+  { path: "backend/assets/favicon.ico", render: renderFaviconIco },
   // Keryx resolves the OAuth page's artwork partial by the fixed name `lion.svg`.
   {
     path: "backend/templates/lion.svg",
     render: () =>
       `<!-- The Hypotenuse mark. ${HEADER} Keryx resolves this partial by the fixed name lion.svg. -->\n${renderMark("inline")}`,
   },
-] as const;
+] as const satisfies ReadonlyArray<{
+  path: string;
+  render: (themes: Record<"light" | "dark", ThemeTokens>) => string | Uint8Array;
+}>;
 
 if (import.meta.main) {
   const mode = process.argv.includes("--check") ? "check" : "write";
@@ -469,11 +586,11 @@ if (import.meta.main) {
       writeFileSync(full, next);
       console.log(`wrote ${path}`);
     } else {
-      let current = "";
+      let current: Buffer = Buffer.alloc(0);
       try {
-        current = readFileSync(full, "utf8");
+        current = readFileSync(full);
       } catch {}
-      if (current !== next) {
+      if (!current.equals(Buffer.from(next))) {
         console.error(`${path} is stale — run \`bun run --cwd frontend theme:build\``);
         stale++;
       }

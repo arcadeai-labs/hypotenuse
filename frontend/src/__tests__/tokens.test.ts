@@ -18,10 +18,13 @@ describe("design tokens", () => {
   test("every generated file equals a fresh generation", () => {
     const themes = generateAll();
     for (const { path, render } of OUTPUTS) {
-      expect({ path, body: readFileSync(join(ROOT, path), "utf8") }).toEqual({
-        path,
-        body: render(themes),
-      });
+      const next = render(themes);
+      // Text compares as text so a failure shows a readable diff; the ICO as bytes.
+      const body =
+        typeof next === "string"
+          ? readFileSync(join(ROOT, path), "utf8")
+          : readFileSync(join(ROOT, path));
+      expect({ path, body }).toEqual({ path, body: next });
     }
   });
 
