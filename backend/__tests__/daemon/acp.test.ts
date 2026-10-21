@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { join } from "node:path";
 import { eq } from "drizzle-orm";
 import { api } from "keryx";
 import { agentSessions } from "../../schema/agent_sessions";
@@ -275,7 +276,7 @@ describe("acp host end to end", () => {
     const last = (await outbound(session.id)).at(-1);
     expect(last?.contentType).toBe("response");
     expect((last?.content as { body: string }).body).toStartWith(
-      "Stopped at your request. Changes so far are in `",
+      "Stopped at your request. Changes so far are on branch `hypotenuse/eng-",
     );
   }, 60_000);
 
@@ -293,19 +294,27 @@ describe("acp host end to end", () => {
       agentSessionId: number;
       state: string;
       pid: number | null;
+      worktree: string | null;
     }[];
     const row = rows.find((r) => r.agentSessionId === session.id);
     expect(row?.state).toBe("running");
     expect(row?.pid).toBeGreaterThan(0);
+    expect(row?.worktree).toStartWith(join(home.root, "worktrees", "web", "ENG-"));
 
-    const kill = await home.run(["agents", "kill", String(session.id)]);
+    const kill = await home.run([
+      "agents",
+      "kill",
+      String(session.id),
+      "--reason",
+      "wrong approach",
+    ]);
     expect(kill.code).toBe(0);
     await itemReaches(session.id, "cancelled");
     expect(alive(row?.pid as number)).toBe(false);
     const last = (await outbound(session.id)).at(-1);
     expect(last?.contentType).toBe("error");
     expect((last?.content as { body: string }).body).toStartWith(
-      "Cancelled from runner acp-laptop (`hypotenuse agents kill`).",
+      "Cancelled from runner acp-laptop (`hypotenuse agents kill`): wrong approach.",
     );
   }, 60_000);
 

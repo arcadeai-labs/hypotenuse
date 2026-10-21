@@ -125,6 +125,8 @@ export interface StopContext {
   cwd: string;
   /** The branch, if any. */
   branch: string | null;
+  /** What the person who stopped it said (`agents kill --reason`). */
+  note?: string | null;
   /** The turn timeout (for `timeout`) or idle timeout (for `idle`), ms. */
   timeoutMs: number;
   /** Whether the turn was waiting on a person when it stopped. */
@@ -151,7 +153,9 @@ export function stopActivity(ctx: StopContext): EventInput | null {
   const changes =
     ctx.changedFiles === null
       ? ""
-      : ` (${ctx.changedFiles} file${ctx.changedFiles === 1 ? "" : "s"} changed, not pushed)`;
+      : ctx.changedFiles === 0
+        ? " (nothing uncommitted)"
+        : ` (${ctx.changedFiles} file${ctx.changedFiles === 1 ? "" : "s"} changed, not committed)`;
   const where = ctx.branch
     ? `on branch \`${ctx.branch}\` in \`${ctx.cwd}\`${changes}`
     : `in \`${ctx.cwd}\` on runner ${ctx.runnerName}${changes}`;
@@ -164,7 +168,7 @@ export function stopActivity(ctx: StopContext): EventInput | null {
     case "kill":
       return {
         type: "error",
-        body: `Cancelled from runner ${ctx.runnerName} (\`hypotenuse agents kill\`). Changes so far are ${where}.`,
+        body: `Cancelled from runner ${ctx.runnerName} (\`hypotenuse agents kill\`)${ctx.note ? `: ${ctx.note.trim()}` : ""}. Changes so far are ${where}.`,
       };
     case "dashboard":
       return {

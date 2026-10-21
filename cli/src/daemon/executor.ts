@@ -8,6 +8,7 @@ import type {
   WorkAssignment,
 } from "../../../protocol/src/index";
 import type { Config } from "../config/schema";
+import type { Workspace } from "../worktree/manager";
 import type { EventInput } from "./event-sink";
 import type { DaemonLog } from "./log";
 
@@ -61,6 +62,28 @@ export interface TurnContext {
   agentAvailability(available: boolean, error?: string): void;
   /** The turn's state as heartbeats report it. */
   setState(state: "starting" | "running"): void;
+  /**
+   * Where the turn works: the session's worktree (created, fetched, and set
+   * up, or reused), a person's checkout, or a scratch directory. Absent in
+   * harnesses that do not manage worktrees; the turn then works in
+   * `<state dir>/workspaces/<agentSessionId>`.
+   * @throws {WorkspaceError} When it cannot be prepared; its body is the turn's error.
+   */
+  prepareWorkspace?(io: WorkspaceIo): Promise<Workspace>;
+  /** Pull request URLs already linked to the session. */
+  pullRequests?: readonly string[];
+  /** Remember a pull request linked to the session. */
+  recordPullRequest?(url: string): void;
+  /** What a person said when they stopped the turn (`agents kill --reason`). */
+  stopNote?(): string | null;
+}
+
+/** What preparing a workspace needs from the turn. */
+export interface WorkspaceIo {
+  /** A line for the session log. */
+  output(line: string): void;
+  /** The per-session environment for setup commands, given the branch. */
+  env(branch: string | null): Record<string, string>;
 }
 
 /** How a turn ended. */

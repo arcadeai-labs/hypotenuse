@@ -1,0 +1,29 @@
+{
+  "turns": [
+    [
+      {
+        "shell": "printf 'roundHalfEven\\n' > fix.txt && git add fix.txt && git -c user.name=Agent -c user.email=agent@example.com commit -q -m 'Fix rounding' && git push -q -u origin HEAD 2>&1 && echo https://github.com/acme/web/pull/7"
+      },
+      {
+        "update": {
+          "sessionUpdate": "agent_message_chunk",
+          "content": {
+            "type": "text",
+            "text": "Fixed the rounding and opened https://github.com/acme/web/pull/7 (see also https://github.com/other/lib/pull/1)."
+          }
+        }
+      },
+      { "stop": "end_turn" }
+    ],
+    [
+      { "shell": "git rev-parse --abbrev-ref HEAD && ls" },
+      {
+        "update": {
+          "sessionUpdate": "agent_message_chunk",
+          "content": { "type": "text", "text": "Still on the same branch." }
+        }
+      },
+      { "stop": "end_turn" }
+    ]
+  ]
+}

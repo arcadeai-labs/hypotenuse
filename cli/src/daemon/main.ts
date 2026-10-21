@@ -45,6 +45,7 @@ import type { Config } from "../config/schema";
 import { credentialsPath } from "../paths";
 import { machineId } from "../runner/machine";
 import { onSignal, register, setHardTimeout } from "../shutdown";
+import type { CleanupOptions } from "../worktree/cleanup";
 import {
   ControlServer,
   INVALID_PARAMS,
@@ -138,6 +139,33 @@ export function resolveDaemonRunner(
     );
   }
   return { origin, runner };
+}
+
+/**
+ * `worktrees.cleanup`'s params, checked.
+ * @param params - As sent.
+ * @returns The cleanup options.
+ * @throws {RpcError} On a wrong type.
+ */
+export function cleanupParams(params: Record<string, unknown>): CleanupOptions {
+  const flag = (name: string) => {
+    const value = params[name];
+    if (value !== undefined && typeof value !== "boolean")
+      throw new RpcError(INVALID_PARAMS, `${name} is a boolean`);
+    return value === true;
+  };
+  const older = params.olderThanMs;
+  if (
+    older !== undefined &&
+    (typeof older !== "number" || !Number.isFinite(older) || older < 0)
+  )
+    throw new RpcError(INVALID_PARAMS, "olderThanMs is a duration in ms");
+  return {
+    dryRun: flag("dryRun"),
+    all: flag("all"),
+    force: flag("force"),
+    ...(older !== undefined ? { olderThanMs: older as number } : {}),
+  };
 }
 
 /** The file a revoked runner leaves in the state directory. */
@@ -353,22 +381,11 @@ export async function runDaemon(options: DaemonOptions): Promise<void> {
           ),
         };
       },
-      "worktrees.list": () =>
-        state.worktrees().map((w) => ({
-          path: w.path,
-          repository: w.repository,
-          branch: w.branch,
-          state: w.state,
-          agentSessionId: w.agentSessionId,
-          lastUsedAt: w.lastUsedAt,
-        })),
-      "worktrees.cleanup": () => ({
-        removed: [],
-        kept: state.worktrees().map((w) => ({
-          path: w.path,
-          reason: "this daemon does not remove worktrees yet",
-        })),
-      }),
+      "worktrees.list": () => supervisor.worktreesList(),
+      "worktrees.cleanup": async (params) => {
+        const report = await supervisor.cleaner.run(cleanupParams(params));
+        return report;
+      },
       drain: (params) =>
         supervisor.drain({
           timeoutMs:

@@ -161,7 +161,7 @@ export interface ResolvedRepository {
  * @returns The remote, or null when there is no origin.
  */
 export function originOf(machine: MachineEnv, path: string): string | null {
-  const result = machine.git(["remote", "get-url", "origin"], path);
+  const result = machine.git(["config", "--get", "remote.origin.url"], path);
   const url = result.stdout.trim();
   return result.code === 0 && url ? normalizeRemote(url) : null;
 }

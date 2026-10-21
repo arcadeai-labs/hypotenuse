@@ -22,7 +22,10 @@
  *    `cancelled`, `stop_grace` for the agent to wind down, then SIGTERM and
  *    SIGKILL to its process group, then the final activity for the reason.
  *
- * Until worktrees exist, a session works in `<state dir>/workspaces/<id>`.
+ * Before any of it, the turn's **workspace** is prepared — the session's
+ * worktree (fetched, created, and set up, or reused by a follow-up), a
+ * person's checkout, or a scratch directory — and handed back at the end.
+ * A harness without a worktree manager works in `<state dir>/workspaces/<id>`.
  */
 import { mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -36,6 +39,7 @@ import type {
   TurnContext,
   TurnResult,
 } from "../daemon/executor";
+import { type Workspace, WorkspaceError } from "../worktree/manager";
 import {
   AcpConnection,
   AcpError,
@@ -62,9 +66,14 @@ import {
   sessionLogPath,
   stopActivity,
 } from "./lifecycle";
-import { TurnMapper } from "./mapping";
+import { type MapperOptions, TurnMapper } from "./mapping";
 import { automaticOption, decide } from "./permissions";
-import { resolveAgentLaunch, sessionVariables } from "./presets";
+import { PrDetector } from "./pr-detect";
+import {
+  resolveAgentLaunch,
+  sessionEnvironment,
+  sessionVariables,
+} from "./presets";
 import { buildPrompt } from "./prompt";
 
 /** Consecutive non-ACP stdout lines that fail a turn. */
@@ -150,9 +159,11 @@ class Turn {
   private readonly now: () => number;
   private readonly role: RoleConfig | undefined;
   private readonly agentId: string;
-  private readonly cwd: string;
-  private readonly branch: string | null = null;
+  private cwd: string;
+  private branch: string | null = null;
+  private workspace: Workspace | null = null;
   private readonly log: SessionLog;
+  private readonly mapperOptions: MapperOptions;
   private readonly mapper: TurnMapper;
   private readonly questions: QuestionQueue;
   private conn: AcpConnection | null = null;
@@ -189,19 +200,23 @@ class Turn {
       "workspaces",
       String(assignment.agentSessionId),
     );
-    mkdirSync(this.cwd, { recursive: true, mode: 0o700 });
     this.log = new SessionLog(
       sessionLogPath(ctx.stateDir, assignment.agentSessionId),
       ctx.config.log.level === "trace",
     );
-    this.mapper = new TurnMapper({
+    this.mapperOptions = {
       cwd: this.cwd,
       now: this.now,
       onUnknown: (kind) =>
         ctx.log.debug(`ignoring an unknown session update kind: ${kind}`, {
           session: assignment.agentSessionId,
         }),
-    });
+      onPullRequest: (url) => {
+        this.log.note(`pull request ${url}`);
+        ctx.recordPullRequest?.(url);
+      },
+    };
+    this.mapper = new TurnMapper(this.mapperOptions);
     this.questions = new QuestionQueue({
       post: (event) => this.emit(event),
       waiting: (waiting) => {
@@ -273,6 +288,7 @@ class Turn {
         body: `Starting ${this.agentId} in ${this.where}…`,
         ephemeral: true,
       });
+      await this.prepare();
       await this.start();
       timer = setInterval(() => this.tick(), this.options.tickMs ?? TICK_MS);
       return await this.prompt();
@@ -293,7 +309,52 @@ class Turn {
     } finally {
       clearInterval(timer);
       await this.shutdown();
+      await this.workspace?.release().catch((error: unknown) =>
+        ctx.log.warn(`releasing the workspace failed: ${errorMessage(error)}`, {
+          session: ctx.assignment.agentSessionId,
+        }),
+      );
     }
+  }
+
+  /**
+   * Prepare where the turn works, and point everything that reads paths at
+   * it: the mapper, the file-system confinement, and pull request detection.
+   * @throws {TurnFailure} When the workspace cannot be prepared.
+   */
+  private async prepare(): Promise<void> {
+    const { ctx } = this;
+    const { assignment } = ctx;
+    if (ctx.prepareWorkspace) {
+      try {
+        this.workspace = await ctx.prepareWorkspace({
+          output: (line) => this.log.note(line),
+          env: (branch) =>
+            sessionEnvironment(ctx.env, sessionVariables(assignment, branch)),
+        });
+      } catch (error) {
+        if (error instanceof WorkspaceError) throw new TurnFailure(error.body);
+        throw error;
+      }
+      this.cwd = this.workspace.cwd;
+      this.branch = this.workspace.branch;
+    } else {
+      mkdirSync(this.cwd, { recursive: true, mode: 0o700 });
+    }
+    if (this.endReason) throw new TurnFailure("stopped");
+    this.mapperOptions.cwd = this.cwd;
+    const remote = this.workspace?.repository?.remote ?? null;
+    if (remote) {
+      this.mapperOptions.pullRequests = new PrDetector(
+        remote,
+        this.workspace?.repositoryConfig?.pr_url_patterns ?? [],
+        ctx.pullRequests ?? [],
+      );
+    }
+    this.fs = new ConfinedFs([
+      this.cwd,
+      ...(this.role?.additional_directories ?? []),
+    ]);
   }
 
   /**
@@ -790,6 +851,7 @@ class Turn {
       runnerName: this.ctx.runnerName,
       cwd: this.cwd,
       branch: this.branch,
+      note: this.ctx.stopNote?.() ?? null,
       timeoutMs:
         reason === "idle"
           ? timeouts.idle_timeout

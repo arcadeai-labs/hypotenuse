@@ -12,6 +12,12 @@
  * nothing. The server does the counting that routing depends on; the checks
  * here are the guard for a race (an offer that arrived just before a reload
  * lowered a limit), not the routing decision.
+ *
+ * It also owns the worktrees: a turn's workspace comes from the
+ * {@link WorktreeManager}, a finished turn's worktree is offered to cleanup at
+ * once, every worktree is swept every 30 minutes, and while the disk guard is
+ * tripped the daemon claims nothing and heartbeats `draining`, so routing
+ * sends the work elsewhere.
  */
 import { hostname } from "node:os";
 import {
@@ -29,6 +35,16 @@ import type { MachineEnv, ResolvedRepository } from "../config/machine";
 import type { Config } from "../config/schema";
 import { platform } from "../runner/machine";
 import {
+  type CleanupOptions,
+  type CleanupReport,
+  SWEEP_INTERVAL_MS,
+  WorktreeCleaner,
+} from "../worktree/cleanup";
+import { formatBytes, type StatFs } from "../worktree/disk";
+import { listWorktrees, type WorktreeListing } from "../worktree/list";
+import { KeyedMutex } from "../worktree/lock";
+import { WorktreeManager } from "../worktree/manager";
+import {
   buildCapabilities,
   buildLimits,
   daemonRepositories,
@@ -44,7 +60,7 @@ import type {
 } from "./executor";
 import type { DaemonLog } from "./log";
 import { ServerLink } from "./server-link";
-import type { LocalSession, StateDb } from "./state";
+import type { LocalSession, LocalWorktree, StateDb } from "./state";
 
 /** A turn running in a slot. */
 export interface Slot {
@@ -66,7 +82,14 @@ export interface Slot {
   delivered: Set<number>;
   /** Answer activity ids the turn took as answers. */
   consumed: number[];
+  /** The type of the last event that answered the session this turn. */
+  lastAnswer: string | null;
+  /** What `agents kill --reason` said. */
+  killNote: string | null;
 }
+
+/** Events that answer a session. */
+const ANSWER_TYPES = new Set(["response", "error", "elicitation"]);
 
 /** The outcome of a config reload. */
 export interface ReloadResult {
@@ -108,6 +131,10 @@ export interface SupervisorOptions {
   requestExit: (exit: ExitRequest) => void;
   /** Open the wake-up socket (off in a few unit tests). */
   useSocket?: boolean;
+  /** `statfs`, for the disk guard (tests run out of disk with it). */
+  statfs?: StatFs;
+  /** How often every worktree is swept (default 30 minutes). */
+  sweepIntervalMs?: number;
 }
 
 /** The daemon's slots and the loop around them. */
@@ -129,6 +156,12 @@ export class Supervisor {
     { available: boolean; error?: string }
   >();
   private readonly startedAt = Date.now();
+  /** Creates and reuses where turns work. */
+  readonly worktrees: WorktreeManager;
+  /** Applies the cleanup policies and safety rules. */
+  readonly cleaner: WorktreeCleaner;
+  private sweepTimer: ReturnType<typeof setInterval> | null = null;
+  private diskWasLow = false;
 
   /**
    * @param options - The daemon's parts.
@@ -137,6 +170,21 @@ export class Supervisor {
     this.config = options.config;
     this.repositories = daemonRepositories(this.config, options.machine);
     this.capabilities = this.buildCapabilities();
+    const mutex = new KeyedMutex();
+    this.cleaner = new WorktreeCleaner(options.state, () => this.config, {
+      mutex,
+      inUse: (wt) => this.worktreeInUse(wt),
+      repositories: () => this.repositories,
+      log: (line) => options.log.info(line),
+    });
+    this.worktrees = new WorktreeManager(options.state, {
+      mutex,
+      statfs: options.statfs,
+      env: options.env,
+      freeSpace: async () => {
+        await this.cleanup({});
+      },
+    });
     this.sink = new EventSink(options.state, options.api, options.log, {
       onCancelRequested: (id) => this.stop(id, "stop"),
       onNotYours: (id) => this.silence(id),
@@ -172,9 +220,74 @@ export class Supervisor {
         },
       );
     }
+    // A worktree a previous process left `active` has no turn in it now.
+    for (const wt of this.options.state.worktrees({ live: true })) {
+      if (wt.state === "active")
+        this.options.state.updateWorktree(wt.id, { state: "idle" });
+    }
     this.link.start();
     this.sink.kick(true);
+    this.sweepTimer = setInterval(
+      () => void this.cleanup({}),
+      this.options.sweepIntervalMs ?? SWEEP_INTERVAL_MS,
+    );
+    this.sweepTimer.unref?.();
     return interrupted;
+  }
+
+  /**
+   * Whether a turn holds a worktree (cleanup's rule 1).
+   * @param wt - The worktree.
+   * @returns True when it is in use.
+   */
+  private worktreeInUse(wt: LocalWorktree): boolean {
+    if (wt.state === "active") return true;
+    return [...this.slots.values()].some(
+      (slot) => slot.agentSessionId === wt.agentSessionId,
+    );
+  }
+
+  /**
+   * Run cleanup, logging rather than throwing.
+   * @param options - What to clean up.
+   * @returns The report, or null when it failed.
+   */
+  async cleanup(options: CleanupOptions): Promise<CleanupReport | null> {
+    try {
+      return await this.cleaner.run(options);
+    } catch (error) {
+      this.options.log.warn(
+        `worktree cleanup failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      return null;
+    }
+  }
+
+  /**
+   * The control socket's `worktrees.list`.
+   * @returns One row per live worktree.
+   */
+  worktreesList(): Promise<WorktreeListing[]> {
+    return listWorktrees(this.options.state, this.cleaner);
+  }
+
+  /**
+   * Whether the disk guard is tripped: too little space for a new worktree.
+   * Logged when it changes.
+   * @returns True while space is short.
+   */
+  private diskLow(): boolean {
+    const { free, enough } = this.worktrees.diskStatus(this.config);
+    if (!enough !== this.diskWasLow) {
+      this.diskWasLow = !enough;
+      if (enough)
+        this.options.log.info("disk space recovered; claiming work again");
+      else
+        this.options.log.warn(
+          `only ${formatBytes(free ?? 0)} free under ${this.config.sessions.worktree_root} (sessions.min_free_disk is ${formatBytes(this.config.sessions.min_free_disk)}); claiming nothing until space recovers`,
+        );
+    }
+    return !enough;
   }
 
   /**
@@ -229,7 +342,7 @@ export class Supervisor {
       daemonVersion: pkg.version,
       platform: platform(),
       hostname: hostname().trim().slice(0, 256) || "unknown",
-      draining: this.draining || this.claimsHalted,
+      draining: this.draining || this.claimsHalted || this.diskLow(),
       machineId: this.options.machineId,
       limits: buildLimits(this.config),
       active: this.active(),
@@ -274,7 +387,7 @@ export class Supervisor {
     for (const cancel of answer.cancels)
       this.stop(cancel.workItemId, cancel.reason as Cancel["reason"]);
     for (const reply of answer.answers ?? []) this.deliver(reply);
-    if (this.draining || this.claimsHalted) return;
+    if (this.draining || this.claimsHalted || this.diskWasLow) return;
     // A claim repeated for an item this runner already holds answers the same
     // assignment, so a claim whose answer was lost is retried, offered or not.
     const retries = [...this.lostClaims.values()];
@@ -425,6 +538,8 @@ export class Supervisor {
       onReply: null,
       delivered: new Set(),
       consumed: [],
+      lastAnswer: null,
+      killNote: null,
     };
     this.slots.set(assignment.workItemId, slot);
     log.info(
@@ -444,6 +559,7 @@ export class Supervisor {
       stopReason: () => slot.reason,
       emit: (event) => {
         if (slot.silent) return;
+        if (ANSWER_TYPES.has(event.type)) slot.lastAnswer = event.type;
         this.options.state.setSessionState(slot.agentSessionId, "running");
         if (slot.state === "starting") slot.state = "running";
         this.sink.emit(
@@ -469,6 +585,23 @@ export class Supervisor {
       setState: (next) => {
         if (slot.state !== "cancelling") slot.state = next;
       },
+      prepareWorkspace: (io) =>
+        this.worktrees.acquire({
+          assignment,
+          config: ctx.config,
+          repositories: this.repositories,
+          runnerName: ctx.runnerName,
+          env: io.env,
+          emit: ctx.emit,
+          output: io.output,
+          signal: slot.controller.signal,
+        }),
+      pullRequests:
+        this.options.state.session(assignment.agentSessionId)?.pullRequests ??
+        [],
+      recordPullRequest: (url) =>
+        this.options.state.addPullRequest(slot.agentSessionId, url),
+      stopNote: () => slot.killNote,
     };
     slot.done = this.runTurn(slot, ctx);
   }
@@ -516,6 +649,7 @@ export class Supervisor {
           state: result.outcome === "cancelled" ? "cancelling" : "running",
         },
       });
+      this.options.state.recordTurnEnd(slot.agentSessionId, slot.lastAnswer);
       this.options.state.setSessionState(
         slot.agentSessionId,
         result.outcome === "completed"
@@ -539,6 +673,12 @@ export class Supervisor {
       },
     );
     this.link.beatNow();
+    // The worktree this turn used may be done with (`on-complete` with no
+    // grace); the half-hourly sweep catches everything else.
+    const worktreeId = this.options.state.session(
+      slot.agentSessionId,
+    )?.worktreeId;
+    if (worktreeId) await this.cleanup({ only: [worktreeId] });
   }
 
   /**
@@ -589,8 +729,9 @@ export class Supervisor {
         String(slot.agentSessionId) === String(target) ||
         (slot.issueIdentifier !== null &&
           slot.issueIdentifier.toLowerCase() === String(target).toLowerCase());
-      if (matches && this.stop(slot.workItemId, "kill"))
-        killed.push(slot.workItemId);
+      if (!matches) continue;
+      if (!slot.reason && reason) slot.killNote = reason;
+      if (this.stop(slot.workItemId, "kill")) killed.push(slot.workItemId);
     }
     if (killed.length)
       this.options.log.info(`killed ${killed.length} turn(s)`, {
@@ -818,13 +959,17 @@ export class Supervisor {
         pid: s.pid,
         startedAt: slot?.startedAt ?? s.updatedAt,
         lastEventAt: s.lastEventAt,
-        worktree: null as string | null,
+        worktree: s.worktreeId
+          ? (this.options.state.worktree(s.worktreeId)?.path ?? null)
+          : null,
       };
     });
   }
 
   /** Stop the link and the sink (the last steps of shutdown). */
   close(): void {
+    if (this.sweepTimer) clearInterval(this.sweepTimer);
+    this.sweepTimer = null;
     this.link.stop();
     this.sink.close();
   }

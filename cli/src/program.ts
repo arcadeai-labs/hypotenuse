@@ -23,6 +23,7 @@ import { registerServiceCommands } from "./commands/service";
 import { registerSessionCommands } from "./commands/session";
 import { registerTagCommands } from "./commands/tag";
 import { registerUpgradeCommand } from "./commands/upgrade";
+import { registerWorktreesCommands } from "./commands/worktrees";
 import { banner } from "./output/theme";
 
 /** Global options that take a value, for finding the command word in raw argv. */
@@ -82,6 +83,7 @@ export function buildProgram(): Command {
   registerConfigCommands(program);
   registerDaemonCommands(program);
   registerAgentsCommands(program);
+  registerWorktreesCommands(program);
   registerServiceCommands(program);
   registerDoctorCommand(program);
   registerCheckUpdateCommand(program);

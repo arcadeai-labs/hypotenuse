@@ -75,7 +75,7 @@ function machine(
         );
       if (args.join(" ") === "rev-parse --git-common-dir")
         return ok(clone.worktreeOf ? `${clone.worktreeOf}/.git` : ".git");
-      if (args[0] === "remote")
+      if (args.join(" ") === "config --get remote.origin.url")
         return clone.origin ? ok(`${clone.origin}\n`) : fail();
       if (args[0] === "symbolic-ref")
         return clone.head ? ok(`origin/${clone.head}\n`) : fail();
