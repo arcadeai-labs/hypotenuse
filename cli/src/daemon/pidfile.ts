@@ -82,6 +82,17 @@ export function processArgs(pid: number): string[] | null {
         .split("\0")
         .filter(Boolean);
     }
+    if (process.platform === "win32") {
+      const out = Bun.spawnSync([
+        "powershell",
+        "-NoProfile",
+        "-Command",
+        `(Get-CimInstance Win32_Process -Filter "ProcessId=${pid}").CommandLine`,
+      ])
+        .stdout.toString()
+        .trim();
+      return out ? out.split(/\s+/).map((a) => a.replace(/^"|"$/g, "")) : null;
+    }
     const out = Bun.spawnSync(["ps", "-o", "args=", "-p", String(pid)])
       .stdout.toString()
       .trim();
@@ -103,7 +114,9 @@ export const realProbe: ProcessProbe = {
   },
   isDaemon(pid) {
     const args = processArgs(pid);
-    return args !== null && looksLikeDaemon(args);
+    // A live pid whose command line cannot be read is treated as a daemon:
+    // calling it stale would let a second daemon take the lock.
+    return args === null || looksLikeDaemon(args);
   },
   answers: (socketPath) => socketAnswers(socketPath),
 };

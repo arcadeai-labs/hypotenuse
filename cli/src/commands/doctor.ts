@@ -17,6 +17,7 @@
  */
 import { existsSync, statfsSync, statSync } from "node:fs";
 import { hostname } from "node:os";
+import { dirname } from "node:path";
 import type { Command } from "commander";
 import { PROTOCOL_HEADER, PROTOCOL_VERSION } from "../../../protocol/src/index";
 import pkg from "../../package.json";
@@ -372,8 +373,9 @@ export async function runDoctor(
 
   // Disk.
   let probePath = config.sessions.worktree_root;
-  while (!existsSync(probePath) && probePath !== "/")
-    probePath = probePath.replace(/\/[^/]+\/?$/, "") || "/";
+  // Walk up to the nearest directory that exists; dirname() stops at any root.
+  while (!existsSync(probePath) && dirname(probePath) !== probePath)
+    probePath = dirname(probePath);
   try {
     const fs = statfsSync(probePath);
     const free = fs.bavail * fs.bsize;

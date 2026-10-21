@@ -500,8 +500,9 @@ export class Supervisor {
     this.link.beatNow();
     let cancelled = 0;
     const stopAll = () => {
+      // Count each turn once: a second pass finds it already stopping.
       for (const slot of this.slots.values())
-        if (this.stop(slot.workItemId, "drain")) cancelled++;
+        if (!slot.reason && this.stop(slot.workItemId, "drain")) cancelled++;
     };
     if (options.cancel) stopAll();
     if (!(await this.waitIdle(options.timeoutMs))) {
