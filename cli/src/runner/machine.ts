@@ -36,9 +36,17 @@ export function defaultRunnerName(host: string = hostname()): string {
  * The OS's own machine identifier: `/etc/machine-id` on Linux, the
  * `IOPlatformUUID` on macOS, `MachineGuid` on Windows. Falls back to the host
  * name, which is stable enough to catch the common accident.
+ * `HYPOTENUSE_MACHINE_ID` replaces it — for containers built from one image,
+ * which share `/etc/machine-id`, and for tests that run several runners on one
+ * machine.
+ * @param env - Environment variables.
  * @returns The raw identifier.
  */
-export function rawMachineId(): string {
+export function rawMachineId(
+  env: Record<string, string | undefined> = process.env,
+): string {
+  if (env.HYPOTENUSE_MACHINE_ID?.trim())
+    return env.HYPOTENUSE_MACHINE_ID.trim();
   try {
     if (process.platform === "linux") {
       for (const path of ["/etc/machine-id", "/var/lib/dbus/machine-id"]) {

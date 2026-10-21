@@ -34,7 +34,8 @@
       "!**/dist",
       "!**/playwright-report",
       "!**/test-results",
-      "!**/bun.lockb"
+      "!**/bun.lockb",
+      "!public/schemas"
     ]
   }
 }

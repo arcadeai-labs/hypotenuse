@@ -23,6 +23,9 @@ and is unique among the project's runners.
 Any member can register their own runners, and a person can have several. `hypotenuse runner list`,
 `hypotenuse runner view <name>`, and `hypotenuse runner revoke <name>` manage them from the terminal.
 
+Then write the machine's config and start [the daemon](/docs/daemon), which is what keeps the runner online and
+takes its work.
+
 ## What a runner can and cannot do
 
 A runner token is deliberately narrow:

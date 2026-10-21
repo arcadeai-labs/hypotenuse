@@ -1,0 +1,42 @@
+#:schema https://www.hypotenuse.cloud/schemas/config-v1.json
+# The hypotenuse daemon's config. Every key: https://www.hypotenuse.cloud/docs/config
+# Check it with `hypotenuse config validate`; apply edits with `hypotenuse daemon reload`.
+config_version = 1
+
+[server]
+{{server}}
+# project = "acme"               # slug or id; must be the project this machine's runner is in
+
+[runner]
+# name = "{{hostname}}"          # display only
+# max_parallel_jobs = {{jobs}}            # jobs (turns) at once on this machine
+roles = ["worker"]               # add "manager" to plan and dispatch work too
+
+[subscriptions]
+# teams = ["ENG"]                # only these Linear teams (empty: every team)
+# labels = ["frontend"]          # an issue needs one of these labels
+
+[agents.{{agent}}]
+preset = "{{agent}}"
+# max_parallel = 2               # jobs using this agent at once
+
+[roles.worker]
+agent = "{{agent}}"
+# prompt_file = "prompts/worker.md"   # relative to this file; the built-in template otherwise
+# permission_policy = "allow"         # or "ask" to approve tool calls from Linear
+
+# [roles.manager]
+# agent = "{{agent}}"
+# permission_policy = "ask"
+# max_parallel = 1
+
+{{repositories}}
+
+[sessions]
+# worktree_root = "~/.hypotenuse/worktrees"
+# turn_timeout = "60m"
+# idle_timeout = "15m"
+# keepalive_interval = "10m"     # must stay under Linear's 30m stale window
+
+[log]
+level = "info"

@@ -8,6 +8,9 @@ import pkg from "../package.json";
 import { registerAuditCommands } from "./commands/audit";
 import { registerAuthCommands } from "./commands/auth";
 import { registerCheckUpdateCommand } from "./commands/check-update";
+import { registerConfigCommands } from "./commands/config";
+import { registerDaemonCommands } from "./commands/daemon";
+import { registerDoctorCommand } from "./commands/doctor";
 import { registerIdentityCommands } from "./commands/identity";
 import { registerIntegrationCommands } from "./commands/integration";
 import { registerInviteCommands } from "./commands/invite";
@@ -15,13 +18,20 @@ import { registerMemberCommands } from "./commands/member";
 import { registerProjectCommands } from "./commands/project";
 import { registerRoutingCommands } from "./commands/routing";
 import { registerRunnerCommands } from "./commands/runner";
+import { registerServiceCommands } from "./commands/service";
 import { registerSessionCommands } from "./commands/session";
 import { registerTagCommands } from "./commands/tag";
 import { registerUpgradeCommand } from "./commands/upgrade";
 import { banner } from "./output/theme";
 
 /** Global options that take a value, for finding the command word in raw argv. */
-export const VALUE_OPTIONS = ["-c", "--config", "--url", "--project"];
+export const VALUE_OPTIONS = [
+  "-c",
+  "--config",
+  "--state-dir",
+  "--url",
+  "--project",
+];
 
 /**
  * Build the `hypotenuse` command-line program.
@@ -33,6 +43,10 @@ export function buildProgram(): Command {
     .description(pkg.description)
     .version(pkg.version, "-V, --version", "print the version")
     .option("-c, --config <path>", "the daemon config file")
+    .option(
+      "--state-dir <path>",
+      "the daemon's state directory (default: beside a -c config, else ~/.local/state/hypotenuse)",
+    )
     .option(
       "--url <origin>",
       "the Hypotenuse server (default: where you last logged in)",
@@ -64,6 +78,10 @@ export function buildProgram(): Command {
   registerRunnerCommands(program);
   registerRoutingCommands(program);
   registerIdentityCommands(program);
+  registerConfigCommands(program);
+  registerDaemonCommands(program);
+  registerServiceCommands(program);
+  registerDoctorCommand(program);
   registerCheckUpdateCommand(program);
   registerUpgradeCommand(program);
   return program;

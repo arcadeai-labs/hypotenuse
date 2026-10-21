@@ -16,13 +16,15 @@ import {
 } from "./api/credentials";
 import { resolveProjectId } from "./api/resolve";
 import { type ResolvedUrl, resolveServerUrl } from "./api/url";
+import { resolveConfigPath } from "./config/paths";
 import { logger } from "./output/logger";
 import { getMode } from "./output/tty";
-import { defaultConfigPath } from "./paths";
+import { ExitError } from "./shutdown";
 
 /** The program-wide options every command accepts. */
 export interface GlobalOptions {
   config?: string;
+  stateDir?: string;
   url?: string;
   project?: string;
   json?: boolean;
@@ -53,9 +55,9 @@ export class CliContext {
     return credentialsPathFor(this.env);
   }
 
-  /** The daemon config file path (`-c/--config`, else the default). */
+  /** The daemon config file path (`-c/--config`, `HYPOTENUSE_CONFIG`, else the default). */
   get configPath(): string {
-    return this.options.config ?? defaultConfigPath(this.env);
+    return resolveConfigPath(this.options.config, this.env);
   }
 
   /** The parsed credentials file, read once. */
@@ -171,6 +173,11 @@ export async function runCommand(
     ctx = contextFor(command);
     await fn(ctx);
   } catch (error) {
+    if (error instanceof ExitError) {
+      if (error.message) logger.error(error.message);
+      process.exitCode = error.code;
+      return;
+    }
     const message = error instanceof Error ? error.message : String(error);
     logger.error(message);
     if (

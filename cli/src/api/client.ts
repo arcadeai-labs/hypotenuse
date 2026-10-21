@@ -18,10 +18,24 @@ export class ApiError extends Error {
     message: string,
     readonly status: number,
     readonly type?: string,
+    readonly detail: Record<string, unknown> = {},
+    readonly retryAfterMs?: number,
   ) {
     super(message);
     this.name = "ApiError";
   }
+}
+
+/**
+ * Parse a `Retry-After` header: seconds, or an HTTP date.
+ * @param value - The header.
+ * @returns Milliseconds to wait, or undefined.
+ */
+export function parseRetryAfter(value: string | null): number | undefined {
+  if (!value) return undefined;
+  if (/^\d+$/.test(value.trim())) return Number(value.trim()) * 1000;
+  const at = Date.parse(value);
+  return Number.isNaN(at) ? undefined : Math.max(0, at - Date.now());
 }
 
 /** One request. */
@@ -34,6 +48,8 @@ export interface RequestOptions {
   anonymous?: boolean;
   /** Extra request headers, e.g. the runner protocol version. */
   headers?: Record<string, string>;
+  /** Abort the request after this long. */
+  timeoutMs?: number;
 }
 
 /** A client bound to one server and, optionally, one bearer token. */
@@ -62,6 +78,22 @@ export class ApiClient {
     path: string,
     options: RequestOptions = {},
   ): Promise<T> {
+    return (await this.exchange<T>(method, path, options)).body;
+  }
+
+  /**
+   * Call an action and keep the response headers (`daemon:connect`'s cookie).
+   * @param method - `GET`, `PUT`, `POST`, or `DELETE`.
+   * @param path - The route under `/api`, starting with `/`.
+   * @param options - Query, body, and whether to send the token.
+   * @returns The parsed JSON body and the response headers.
+   * @throws {ApiError} On an error envelope or a non-2xx status.
+   */
+  async exchange<T = unknown>(
+    method: string,
+    path: string,
+    options: RequestOptions = {},
+  ): Promise<{ body: T; headers: Headers }> {
     const url = new URL(`${this.origin}/api${path}`);
     for (const [key, value] of Object.entries(options.query ?? {})) {
       if (value !== undefined) url.searchParams.set(key, String(value));
@@ -87,6 +119,9 @@ export class ApiClient {
         headers,
         body:
           options.body === undefined ? undefined : JSON.stringify(options.body),
+        signal: options.timeoutMs
+          ? AbortSignal.timeout(options.timeoutMs)
+          : undefined,
       });
     } catch (error) {
       throw new ApiError(
@@ -108,22 +143,28 @@ export class ApiClient {
     const envelope = payload as {
       error?: { message?: string; type?: string } | string;
     } | null;
+    const retryAfter = parseRetryAfter(response.headers.get("retry-after"));
     if (envelope?.error) {
       const error = envelope.error;
       throw typeof error === "string"
-        ? new ApiError(error, response.status)
+        ? new ApiError(error, response.status, undefined, {}, retryAfter)
         : new ApiError(
             error.message || `HTTP ${response.status}`,
             response.status,
             error.type,
+            error as Record<string, unknown>,
+            retryAfter,
           );
     }
     if (!response.ok) {
       throw new ApiError(
         `HTTP ${response.status} ${response.statusText}`,
         response.status,
+        undefined,
+        {},
+        retryAfter,
       );
     }
-    return payload as T;
+    return { body: payload as T, headers: response.headers };
   }
 }

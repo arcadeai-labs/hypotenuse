@@ -1,9 +1,10 @@
 /**
  * Signal-safe shutdown, from mcpx. Anything that must be closed on the way out
- * — a loopback listener now, the daemon's agent processes later — registers a
- * {@link Closeable}; a signal closes them all, bounded by an 8-second hard
- * timeout, and exits with the conventional code (SIGINT 130, SIGTERM 143,
- * SIGHUP 129).
+ * — a loopback listener, the daemon and its turns — registers a
+ * {@link Closeable}; a signal closes them all, bounded by a hard timeout (8
+ * seconds unless the daemon raises it to cover its drain), and exits with the
+ * conventional code (SIGINT 130, SIGTERM 143, SIGHUP 129). A process may take
+ * a signal over instead: the daemon makes SIGHUP a config reload.
  */
 import { logger } from "./output/logger";
 
@@ -28,9 +29,36 @@ export class ExitError extends Error {
 }
 
 const registry = new Set<Closeable>();
+const overrides = new Map<NodeJS.Signals, () => void>();
 let shuttingDown = false;
 let installed = false;
-const HARD_TIMEOUT_MS = 8000;
+let hardTimeoutMs = 8000;
+
+/**
+ * Raise (or lower) how long closing may take before the process exits anyway.
+ * @param ms - The bound.
+ */
+export function setHardTimeout(ms: number): void {
+  hardTimeoutMs = ms;
+}
+
+/**
+ * Handle a signal instead of shutting down on it.
+ * @param signal - The signal (the daemon takes SIGHUP for reload).
+ * @param handler - What to do.
+ */
+export function onSignal(signal: NodeJS.Signals, handler: () => void): void {
+  overrides.set(signal, handler);
+}
+
+/**
+ * Close everything registered and exit, as a signal would.
+ * @param exitCode - The code to exit with.
+ * @returns Never; the process exits.
+ */
+export function shutdown(exitCode: number): Promise<never> {
+  return runShutdown(exitCode);
+}
 
 /**
  * Register something to close on shutdown.
@@ -58,9 +86,7 @@ async function runShutdown(exitCode: number): Promise<never> {
   const closeAll = Promise.allSettled([...registry].map((c) => c.close()));
   await Promise.race([
     closeAll,
-    new Promise<void>((resolve) =>
-      setTimeout(resolve, HARD_TIMEOUT_MS).unref(),
-    ),
+    new Promise<void>((resolve) => setTimeout(resolve, hardTimeoutMs).unref()),
   ]);
   process.exit(exitCode);
 }
@@ -69,9 +95,15 @@ async function runShutdown(exitCode: number): Promise<never> {
 export function installSignalHandlers(): void {
   if (installed) return;
   installed = true;
-  process.on("SIGINT", () => void runShutdown(130));
-  process.on("SIGTERM", () => void runShutdown(143));
-  process.on("SIGHUP", () => void runShutdown(129));
+  const on = (signal: NodeJS.Signals, code: number) =>
+    process.on(signal, () => {
+      const override = overrides.get(signal);
+      if (override) override();
+      else void runShutdown(code);
+    });
+  on("SIGINT", 130);
+  on("SIGTERM", 143);
+  on("SIGHUP", 129);
   process.on("uncaughtException", (err) => {
     logger.error(`uncaught exception: ${err?.stack ?? String(err)}`);
     void runShutdown(1);

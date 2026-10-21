@@ -16,7 +16,7 @@ and MCP servers is in [phase 11](./plans/phase-11-acp-agent-host.md),
 |---|---|---|
 | Config file | `~/.config/hypotenuse/config.toml` | `-c / --config <path>`, then `HYPOTENUSE_CONFIG` |
 | Credentials, keyed by server URL: the operator's CLI sign-in (`hypotenuse login`), the selected project (`project use`), and the runner id and token | `~/.config/hypotenuse/credentials.json` (directory `0700`, file `0600`, written atomically) | follows `$XDG_CONFIG_HOME` |
-| State database | `~/.local/state/hypotenuse/state.db` | `--state-dir`; follows `$XDG_STATE_HOME`; a `-c` config puts state in `<config dir>/.hypotenuse-state/` |
+| State database | `~/.local/state/hypotenuse/state.db` | `--state-dir`; follows `$XDG_STATE_HOME`; a config anywhere but the default path (`-c` or `HYPOTENUSE_CONFIG`) puts state in `<config dir>/.hypotenuse-state/` |
 | Control socket | `~/.local/state/hypotenuse/daemon.sock` (`0600`) | with the state directory |
 | Daemon log | `~/.local/state/hypotenuse/daemon.log` | `[log] file` |
 | Per-session agent logs | `~/.local/state/hypotenuse/sessions/<agentSessionId>.log` | with the state directory |
@@ -41,7 +41,8 @@ of a generated file points editors at that schema:
 
 ## Format and conventions
 
-- **TOML**, parsed with `Bun.TOML.parse`. Unknown keys are **errors**, so a typo can't silently do nothing.
+- **TOML**, parsed with smol-toml (a syntax error names its line and column). Unknown keys are **errors**, so a
+  typo can't silently do nothing; a near key is suggested.
 - **Durations** are strings with a unit: `"45s"`, `"10m"`, `"2h"`, `"7d"`.
 - **Sizes** are strings with a unit: `"500MB"`, `"2GB"`.
 - **Paths** expand `~` and `$VAR`. A relative path resolves against the **config file's directory**.
@@ -61,8 +62,8 @@ of a generated file points editors at that schema:
 
 | Key | Type | Default | Rules |
 |---|---|---|---|
-| `url` | string (URL) | the only server in `credentials.json` | required if `credentials.json` has zero or several servers; overridden by `--url` / `HYPOTENUSE_URL` |
-| `project` | string | the registered runner's project | slug or numeric id; must match the project the runner token belongs to (`config validate --online` checks); overridden by `--project` |
+| `url` | string (URL) | the only server in `credentials.json` with a runner | required if `credentials.json` has runners on zero or several servers; overridden by `--url` / `HYPOTENUSE_URL` |
+| `project` | string | the registered runner's project | slug or numeric id; must match the project the runner token belongs to (the daemon refuses a mismatched id at start; `config validate --online` checks a slug too); overridden by `--project` |
 
 ## `[runner]`
 
@@ -279,7 +280,8 @@ that have it, matched by normalized `remote`.
 | `BROWSER` | the command `hypotenuse login` opens the approval page with; `none` opens nothing (the URL is printed either way) |
 | `HYPOTENUSE_LOG_LEVEL` | log level (after `-v`) |
 | `HYPOTENUSE_NO_UPDATE_CHECK` | `1` disables the once-a-day update notice (never shown for `daemon`, `mcp`, `upgrade`, `check-update`, under `--json`, or when stderr is not a terminal) |
-| `HYPOTENUSE_SERVICE` | set by `hypotenuse service install`'s unit; makes the daemon exit (and let the service manager restart it) instead of re-execing after an upgrade |
+| `HYPOTENUSE_SERVICE` | set by `hypotenuse service install`'s unit; makes the daemon exit with code 75 (for the service manager to restart it) instead of re-executing itself after an upgrade |
+| `HYPOTENUSE_MACHINE_ID` | replaces the OS machine id the one-daemon-per-machine rule is keyed on — for containers built from one image, which share `/etc/machine-id` |
 | `XDG_CONFIG_HOME`, `XDG_STATE_HOME` | move the config and state directories |
 | `NO_COLOR`, `FORCE_COLOR` | CLI output color |
 
@@ -373,9 +375,9 @@ level = "info"
 
 ```
 $ hypotenuse config validate
-✗ roles.worker.agent: unknown agent "codx" (did you mean "codex"?)
-✗ repositories[1].path: ~/code/api-old is not a git repository
-✗ sessions.keepalive_interval: 45m is longer than Linear's 30m stale window
+✕ roles.worker.agent: unknown agent "codx" (did you mean "codex"?)
+✕ repositories[1].path: ~/code/api-old is not a git repository
+✕ sessions.keepalive_interval: 45m is longer than Linear's 30m stale window
 ! repositories[0].base_branch: "trunk" not found on origin (github.com/acme/web)
 ! agents.claude.max_parallel: 4 is not below runner.max_parallel_jobs (3); it has no effect
 ! roles.worker.extra_mcp_servers[0].env.SENTRY_AUTH_TOKEN: $SENTRY_AUTH_TOKEN is not set in this environment
@@ -383,4 +385,14 @@ $ hypotenuse config validate
 ```
 
 Exit codes: `0` valid (warnings allowed), `1` errors, `2` the file could not be read or parsed (with line and
-column). `--json` prints `{ valid, errors: [{ path, message, hint? }], warnings: [...] }`.
+column). `--json` prints `{ valid, path, errors: [{ path, message, hint?, line?, column? }], warnings: [...] }`.
+
+## The daemon's exit codes
+
+| Code | Means | A service manager |
+|---|---|---|
+| `0` | stopped (`daemon stop`), or re-executed itself after an upgrade | leaves it stopped |
+| `130`, `143` | SIGINT, SIGTERM | leaves it stopped |
+| `75` | exiting after an upgrade under a service, to be restarted on the new version | restarts it |
+| `78` | something a restart cannot fix: an invalid config, no runner, a revoked runner, another runner on this machine | systemd does not restart it (`RestartPreventExitStatus=78`); launchd does, at most every 10 seconds — a revoked runner then exits again before making any request |
+| `1` | anything else, a crash included | restarts it |

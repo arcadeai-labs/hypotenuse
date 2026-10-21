@@ -25,6 +25,8 @@ COPY protocol/ protocol/
 COPY backend/ backend/
 # The design tokens: the e2e specs and generated styles read design/tokens.json.
 COPY design/ design/
+# The config reference: the public docs' Config file page is rendered from it.
+COPY docs/CONFIG.md docs/CONFIG.md
 COPY frontend/ frontend/
 
 RUN bun run --cwd frontend build

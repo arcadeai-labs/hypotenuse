@@ -3,5 +3,6 @@ export * from "./complete";
 export * from "./connect";
 export * from "./events";
 export * from "./heartbeat";
+export * from "./remote";
 export * from "./version";
 export * from "./work";

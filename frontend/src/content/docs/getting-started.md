@@ -31,7 +31,7 @@ with tags. They see the invitation the next time they sign in, and accepting it 
 ## What comes next
 
 A project connects to one Linear workspace from **Settings → Integrations**, and the machines that take its work
-register as [runners](/docs/runners) with `hypotenuse runner register`.
+register as [runners](/docs/runners) with `hypotenuse runner register` and run [the daemon](/docs/daemon).
 
 Read on: [accounts](/docs/accounts), [projects](/docs/projects), [runners](/docs/runners),
 [members](/docs/members), and the [audit log](/docs/audit).

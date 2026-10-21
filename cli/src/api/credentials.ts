@@ -13,8 +13,11 @@
  */
 import {
   chmodSync,
+  closeSync,
   existsSync,
+  fsyncSync,
   mkdirSync,
+  openSync,
   readFileSync,
   renameSync,
   statSync,
@@ -143,6 +146,13 @@ export function saveCredentials(
     mode: 0o600,
   });
   chmodSync(temp, 0o600);
+  // Durable before the rename, so a crash leaves the old file or the new one.
+  const fd = openSync(temp, "r+");
+  try {
+    fsyncSync(fd);
+  } finally {
+    closeSync(fd);
+  }
   renameSync(temp, path);
 }
 

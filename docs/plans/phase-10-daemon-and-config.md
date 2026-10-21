@@ -633,27 +633,27 @@ bun run --cwd cli hypotenuse daemon stop
 
 ## Definition of done
 
-- [ ] `ConfigSchema` with strict objects, described leaves, duration/path transforms, `config_version = 1`
-- [ ] `config validate` reports TOML-pathed errors for all three passes, suggests near names, and exits 0/1/2;
+- [x] `ConfigSchema` with strict objects, described leaves, duration/path transforms, `config_version = 1`
+- [x] `config validate` reports TOML-pathed errors for all three passes, suggests near names, and exits 0/1/2;
       `--online` checks status, credentials, project, and subscriptions
-- [ ] `config init`, `config schema`, and `config path` work, and the template is embedded in compiled binaries
-- [ ] `CONFIG.md` and the schema are asserted equal by `docs-parity.test.ts`
-- [ ] `credentials.json` written atomically at `0600`; the daemon refuses a readable file
-- [ ] `daemon start` background and foreground, ready pipe, pidfile with stale detection, `stop`, `restart`,
+- [x] `config init`, `config schema`, and `config path` work, and the template is embedded in compiled binaries
+- [x] `CONFIG.md` and the schema are asserted equal by `docs-parity.test.ts`
+- [x] `credentials.json` written atomically at `0600`; the daemon refuses a readable file
+- [x] `daemon start` background and foreground, ready pipe, pidfile with stale detection, `stop`, `restart`,
       `status`, `logs`, `reload`
-- [ ] Supervisor slots, claim path, cancel routing, drain, recovery of interrupted sessions
-- [ ] Parallelism at three levels (`max_parallel_jobs`, role and agent `max_parallel`) reported as `limits`; one daemon per machine via the fixed-path lock and `machineId`
-- [ ] ServerLink: 15 s heartbeat, one-subscription socket, jittered backoff, 401 = revoked, clock-skew warning
-- [ ] EventSink: durable before return, per-session `seq`, ephemeral supersession, ordered completion, server
+- [x] Supervisor slots, claim path, cancel routing, drain, recovery of interrupted sessions
+- [x] Parallelism at three levels (`max_parallel_jobs`, role and agent `max_parallel`) reported as `limits`; one daemon per machine via the fixed-path lock and `machineId`
+- [x] ServerLink: 15 s heartbeat, one-subscription socket, jittered backoff, 401 = revoked, clock-skew warning
+- [x] EventSink: durable before return, per-session `seq`, ephemeral supersession, ordered completion, server
       dedupe on `eventId`
-- [ ] Control socket at `0600` with every method in the table, and a `not running` exit of 3
-- [ ] `service install|uninstall|status` for launchd and systemd with a captured `PATH`; the Windows recipe
+- [x] Control socket at `0600` with every method in the table, and a `not running` exit of 3
+- [x] `service install|uninstall|status` for launchd and systemd with a captured `PATH`; the Windows recipe
       documented
-- [ ] `doctor` with every check in the table
-- [ ] `upgrade` drains and restarts a running daemon
-- [ ] User docs: `/docs/runner` (install, register, config, service) and `/docs/config` (rendered from
+- [x] `doctor` with every check in the table
+- [x] `upgrade` drains and restarts a running daemon
+- [x] User docs: `/docs/runner` (install, register, config, service) and `/docs/config` (rendered from
       `CONFIG.md`'s content)
-- [ ] Every test above passes twice in a row
+- [x] Every test above passes twice in a row
 
 ## Commands
 
@@ -671,4 +671,81 @@ sqlite3 ~/.local/state/hypotenuse/state.db 'select count(*), agent_session_id fr
 
 ## Learnings from the build
 
-_Nothing yet — this phase has not been built._
+**Built.** Everything in the Definition of done, at CLI 0.6.0, with the departures below. The daemon claims, runs,
+and completes real work against the real server — `backend/__tests__/daemon/` drives the loop, an outage, a
+revocation, a drain, and a `kill -9` with the actual process — but its slots run the null executor, which answers
+each turn with a note that no agent host is installed. Nothing has run under a real launchd or systemd yet: the
+units are rendered and tested as text, and the compiled binary was checked by hand to start itself, embed its
+templates, and print its unit.
+
+### Where the pieces live
+
+- **Config:** `cli/src/config/` — `schema.ts` (zod, built per file by `buildConfigSchema` because paths resolve
+  against the file's directory), `loader.ts` (TOML → schema → TOML-pathed issues), `validate.ts` (passes 2 and 3
+  over a `MachineEnv`, plus `--online`), `check.ts` (all three, as every caller runs them), `machine.ts`,
+  `resolve.ts` (preset shorthand, repository names), `introspect.ts` (allowed keys for "did you mean", leaf keys for
+  the parity test), `presets.ts`, `paths.ts`, `durations.ts`, `suggest.ts`, `template.toml`.
+- **Daemon:** `cli/src/daemon/` — `main.ts` (startup order, the control-socket methods, reload, restart,
+  shutdown), `supervisor.ts`, `server-link.ts`, `event-sink.ts`, `state.ts`, `control-socket.ts` /
+  `control-client.ts`, `pidfile.ts`, `capabilities.ts`, `daemon-api.ts`, `backoff.ts`, `log.ts`, `self.ts`,
+  `executor.ts` (the `SessionExecutor` seam), `null-executor.ts`, `acp-probe.ts`, `units/`.
+- **Commands:** `config`, `daemon`, `service`, `doctor` in `cli/src/commands/`, and the drain-and-restart step in
+  `upgrade.ts`.
+- **The credentials file stayed in `cli/src/api/credentials.ts`** (phase 8's learnings); this phase added the
+  `fsync` before the rename.
+- **`normalizeRemote` moved to `protocol/src/remote.ts`**, so the daemon and the server compare remotes with one
+  function.
+
+### Where the build departs from the plan
+
+| Plan | Built | Why |
+|---|---|---|
+| TOML via `Bun.TOML.parse`, with "Bun's line and column" | **smol-toml** | Bun's parse error carries a line and column that do not point at the error (always `2:16` here). A syntax error that cannot say where it is fails the point of `validate` |
+| `--online` reads unknown team keys from "the heartbeat's echo" | **`daemon:heartbeat` with `dryRun: true`** — additive in `protocol/`, no version bump | the same action, writing nothing, answering `runner { id, name, projectId, projectSlug }` and `unknownSubscriptions` (from the integration's cached catalog, `null` when there is none). The slug is how `server.project` is checked |
+| Draining reports `maxParallelJobs: 0` | **`draining: true`** | the protocol already had the field, and `RunnerLimits.maxParallelJobs` is at least 1 |
+| `seq` per session | **per claim** (per work item) | the protocol says so, and the server rejects a batch that goes backwards per item; the counter lives in `local_sessions.next_seq`, reset by each claim |
+| Recovery queues a `status` event "so the server knows" | **marked `interrupted` locally, nothing sent** | no `status` state means "interrupted", and completing it would end a turn the server should re-offer. The interrupted turn is simply not in the next heartbeat's `active`, so its lease lapses and the server re-offers it to this sticky runner |
+| `pending_completions.payload` is the request | **`{ request, active }`** | until a completion lands, heartbeats keep reporting its item in `active` (so the lease holds while the last events flush), and need its role and agent to do so |
+| A service manager restarts the daemon after an upgrade when it "exits 0" | **exit 75** | `KeepAlive { SuccessfulExit: false }` and `Restart=on-failure` both restart only a *failed* exit. Conditions a restart cannot fix exit **78**, and the systemd unit sets `RestartPreventExitStatus=78` |
+| `TimeoutStopSec=11min (drain)` | **1min** | SIGTERM is a 10-second-grace drain (then the cancel path), not a ten-minute one; the ten minutes belong to `daemon stop` and `upgrade`, which drain over the socket first |
+| launchd's stdout/stderr "to the log" | **`<state dir>/service.log`** | the foreground daemon writes its own log and echoes to stderr; sharing the file would double every line |
+| `/docs/runner` | **`/docs/daemon`** beside the existing `/docs/runners` | two pages one letter apart would be read as one |
+| `/docs/config` "rendered from `CONFIG.md`" | **a short `config.md` plus `docs/CONFIG.md` from `## Files and locations` on**, links made absolute | one source for the reference; the frontend image copies `docs/CONFIG.md` (`.dockerignore` exception, `buildFilter` row, a blueprint test) |
+| — | **`HYPOTENUSE_MACHINE_ID`** | containers built from one image share `/etc/machine-id`, and the daemon suites run several runners on one machine |
+| — | **A revoked runner leaves `revoked.json`** (the token's sha256) in its state directory | restarted by a service manager, it would otherwise heartbeat a dead token forever; now it refuses before any request until the machine is registered again |
+| — | **`--state-dir` is a global option** | `config path`, `daemon status`, and `service install` need it as much as `daemon start` |
+| The control socket is a named pipe on Windows | **not built**: a Unix socket everywhere, untested on Windows | the daemon runs only in the foreground there; making `daemon status` reach it is part of the Windows service plan |
+| `worktrees.cleanup`, `agents`/`worktrees` commands | **methods answer from `state.db`; no commands** | worktrees are the next phase's; the methods exist so their shape is fixed |
+
+### Decisions the plan left open
+
+| Question | Answer |
+|---|---|
+| A claim whose answer was lost (network error, 5xx) | retried on the next heartbeat, offered or not — the server answers a repeated claim with the same assignment |
+| `daemon stop` with nothing running | exit 3, like every command that needs the daemon; a stale lock is removed on the way |
+| `daemon status` against a live daemon that does not answer | not "not running": the lock's *hung* or *starting* message, exit 1 |
+| Who `runner.name` is | the name the null executor (and later the agent) uses for this machine; `daemon status` shows the **registered** name from `credentials.json`, which is what the dashboard shows |
+| A `restart` request from a terminal-foreground daemon | it re-executes itself in the background (`--detached-child`) and exits 0; the lock is released before the new process takes it |
+| What the null executor does while held open | an ephemeral thought each second, so the offline queue's supersession is exercised by a real turn |
+| `doctor --agent`'s handshake before the ACP host exists | one JSON-RPC `initialize` over stdio, read line by line; the scripted fake ACP agent (`cli/__tests__/fixtures/`) answers it |
+
+### Traps found while building
+
+- **A `bun run` CLI whose control-socket call timed out never exited.** The rejected promise left a connected
+  socket, and the event loop with it — `daemon status` against a wedged daemon hung forever. Close the connection
+  on every outcome; the same held for `doctor --agent`, whose `Bun.sleep` timeout kept a 60-second timer alive
+  (use a `setTimeout` you clear).
+- **Ending a Bun socket inside its own `data` handler fires `close` synchronously**, before the reply was
+  resolved; settle first, then end.
+- **A proxy that forwards `fetch()`'s response must drop `content-encoding` and `content-length`**: the body is
+  already decoded, and the client's own decompression fails (`ZlibError`). That failure is also how the lost-claim
+  path was found.
+- **Zod 4's `.default()` on a transformed schema skips the transform** (the default is the output); durations and
+  paths use `.prefault()`. Its `invalid_value` issue does not carry the input, so "did you mean" reads the raw TOML
+  at the issue's path.
+- **`bun build` rewrites `node:child_process` to `child_process`** in the npm bundle; `package.test.ts` lists it with
+  the other Node built-ins.
+- **A Unix socket path is limited to about 100 bytes**, so the daemon suites make their homes with short
+  `mkdtemp` prefixes.
+- **Biome would reformat the published JSON Schema**, which is generated; `frontend/biome.json` skips
+  `public/schemas`, and a CLI test asserts the file equals `hypotenuse config schema`.

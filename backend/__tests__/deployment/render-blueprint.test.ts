@@ -275,6 +275,17 @@ describe("render.yaml", () => {
     }
   });
 
+  test("the frontend image carries docs/CONFIG.md, which its Config file page renders", () => {
+    const frontend = service("hypotenuse-frontend");
+    expect("buildFilter" in frontend && frontend.buildFilter.paths).toContain(
+      "docs/CONFIG.md",
+    );
+    expect(readRepoFile("frontend/Dockerfile")).toContain(
+      "COPY docs/CONFIG.md docs/CONFIG.md",
+    );
+    expect(readRepoFile(".dockerignore")).toContain("!docs/CONFIG.md");
+  });
+
   test("nothing on Render rebuilds for a CLI-only change", () => {
     for (const s of blueprint.services) {
       if (!("buildFilter" in s)) continue;

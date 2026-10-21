@@ -34,8 +34,23 @@ export const HeartbeatRequest = z.strictObject({
   limits: RunnerLimits,
   active: z.array(ActiveItem).max(1000),
   capabilities: RunnerCapabilities,
+  dryRun: z
+    .boolean()
+    .optional()
+    .describe(
+      "Validate and answer without recording anything: no presence, no capabilities, no leases, no offers",
+    ),
 });
 export type HeartbeatRequest = z.infer<typeof HeartbeatRequest>;
+
+/** Who the token is, answered to a dry run. */
+export const DryRunRunner = z.looseObject({
+  id: z.number().int().positive(),
+  name: z.string(),
+  projectId: z.number().int().positive(),
+  projectSlug: z.string(),
+});
+export type DryRunRunner = z.infer<typeof DryRunRunner>;
 
 /** The kinds of work an offer can be for. */
 export const OFFER_KINDS = [
@@ -82,5 +97,15 @@ export const HeartbeatResponse = z.looseObject({
   offers: z.array(Offer),
   cancels: z.array(Cancel),
   unknownActive: z.array(z.number().int().positive()),
+  runner: DryRunRunner.optional().describe(
+    "A dry run only: the runner the token is",
+  ),
+  unknownSubscriptions: z
+    .looseObject({ teams: z.array(z.string()) })
+    .nullable()
+    .optional()
+    .describe(
+      "A dry run only: subscribed team keys the project's Linear connection cannot see; null when it could not be asked",
+    ),
 });
 export type HeartbeatResponse = z.infer<typeof HeartbeatResponse>;
