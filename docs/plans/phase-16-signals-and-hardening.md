@@ -32,7 +32,7 @@ docs line by line ([`LINEAR_COVERAGE.md`](../LINEAR_COVERAGE.md) is the checklis
 - **Disengagement** (AIG #5): stop, unassign, undelegate, dismissal, issue completed/canceled by a person — each ends
   work and none is followed by re-engagement without a new delegation or prompt.
 - **Keepalive and stale recovery.**
-- **Rate limiting**: the per-installation request bucket, complexity tracking from response headers, `RATELIMITED`
+- **Rate limiting**: the per-integration request bucket, complexity tracking from response headers, `RATELIMITED`
   backoff, and outbox prioritization under pressure.
 - **Webhook robustness**: duplicates, retries (1 m / 1 h / 6 h), replays outside ±60 s, bad signatures, oversized
   bodies, unknown `type`s and `action`s.
@@ -57,7 +57,7 @@ final `response` or `error` saying it stopped and what state it is in. The schem
 
 End to end:
 
-1. `webhooks:linear` verifies and records; `linear:process-event` records the inbound `prompt` activity with its
+1. `webhooks:linear` verifies and records; `triggers:process-event` records the inbound `prompt` activity with its
    `signal`, and in the same transaction marks the session's live work item `cancelRequestedAt = now()`. No new work
    item is created for a stop prompt, and its body (if any) is not sent to the agent as a prompt.
 2. **Every outbound activity for that session still `pending` in the outbox is marked `superseded`** — except
@@ -163,11 +163,11 @@ runner after reassignment, can still be matched.
 ### `AppUserNotification`
 
 Inbox notifications are not the work trigger — agent sessions are — but each has a decided handling, because "we
-ignore it" is a decision too and it should be visible in `linear_events.outcome`:
+ignore it" is a decision too and it should be visible in `trigger_events.outcome`:
 
 | `action` | Handling | Outcome |
 |---|---|---|
-| `issueMention` | Linear creates an agent session for a mention by itself; the notification is informational. If no session exists for the issue within 30 s (checked by a delayed `linear:process-event` re-run), record `mention_without_session` — the dashboard surfaces it, because it usually means the app lost `app:mentionable` | `noted` / `mention_without_session` |
+| `issueMention` | Linear creates an agent session for a mention by itself; the notification is informational. If no session exists for the issue within 30 s (checked by a delayed `triggers:process-event` re-run), record `mention_without_session` — the dashboard surfaces it, because it usually means the app lost `app:mentionable` | `noted` / `mention_without_session` |
 | `issueCommentMention` | same as `issueMention` | same |
 | `issueAssignedToYou` | Hypotenuse works by **delegation**. If an issue is *assigned* to the app user (possible through the API or old workflows), record `assigned_not_delegated` and surface it in the dashboard with the explanation; do not start work — the person did not use the agent flow | `assigned_not_delegated` |
 | `issueUnassignedFromYou` | cancel any live work on that issue as a disengagement ("Unassigned — stopping."); the work item ends `cancelled` | `disengaged` |
@@ -217,7 +217,7 @@ points per query; `actor=app` installs get dynamic increases by seat count. Over
 with `extensions.code: "RATELIMITED"`. Headers: `X-RateLimit-Requests-{Limit,Remaining,Reset}`,
 `X-RateLimit-Complexity-{Limit,Remaining,Reset}`, `X-Complexity`, and `X-RateLimit-Endpoint-*`.
 
-- **The bucket.** `ops/LinearRateOps.ts` keeps, per installation, Linear's own last-reported `Remaining` and `Reset`
+- **The bucket.** `ops/LinearRateOps.ts` keeps, per integration, Linear's own last-reported `Remaining` and `Reset`
   for both requests and complexity (Redis hash, updated from every response's headers) and a local token bucket
   seeded from them. Every call through `ops/LinearOps.ts` takes a token first. The bucket script lives in
   `backend/lua/linear-token-bucket.lua` (ToolExec's convention: Lua is a file, loaded at boot).
@@ -225,7 +225,7 @@ with `extensions.code: "RATELIMITED"`. Headers: `X-RateLimit-Requests-{Limit,Rem
   `elicitation`, acknowledgement `thought` (the 10-second one), `agentSessionUpdate` (plan / URLs), persisted
   `action`, ephemeral `thought` / `action`. Ephemeral rows older than the newest ephemeral row for the same session are
   `superseded` without being sent — Linear would replace them anyway.
-- **Backoff.** `RATELIMITED` sets the installation's bucket empty until the reported reset, and the row's
+- **Backoff.** `RATELIMITED` sets the integration's bucket empty until the reported reset, and the row's
   `nextAttemptAt` to that reset; the outbox retries. A daemon proxy call (`daemon:linear-*`) that hits an empty bucket
   returns 429 with `Retry-After`, which the stdio MCP server surfaces to the model as a tool error naming the wait.
 - **Complexity.** Queries are written with explicit `first:` limits so `X-Complexity` stays small; a test asserts
@@ -236,16 +236,16 @@ with `extensions.code: "RATELIMITED"`. Headers: `X-RateLimit-Requests-{Limit,Rem
 
 | Case | Behaviour | Test |
 |---|---|---|
-| same `Linear-Delivery` twice | second insert conflicts on `linear_events.deliveryId`; 200, `outcome = duplicate`, no side effect | yes |
+| same `Linear-Delivery` twice | second insert conflicts on `trigger_events.deliveryId`; 200, `outcome = duplicate`, no side effect | yes |
 | Linear retry after our 5xx | same delivery id; processed once on the retry | yes |
 | `webhookTimestamp` outside ±60 s | 401, no row (replay) | yes, with an injected clock |
 | bad / missing `Linear-Signature` | 401, no row; the body is never parsed | yes |
 | body over `WEBHOOK_MAX_BODY_BYTES` (1 MiB) | 413 before reading further | yes |
 | unknown `type` | 200, recorded, `outcome = ignored` | yes |
 | `AgentSessionEvent` with unknown `action` | 200, recorded, `outcome = ignored`; never a 500 (Linear retries a 500, and an unknown action will not get better) | yes |
-| `organizationId` with no installation | 200, recorded with null installation, `outcome = no_installation` | yes |
+| `organizationId` matching no live Linear integration | 200, recorded with null `integrationId`, `outcome = unknown_integration` | yes |
 | slow processing | the HTTP answer never waits on processing; p99 of the handler < 500 ms in the test suite | yes |
-| `prompted` arriving before its `created` was processed | `linear:process-event` jobs for one `agentSession.id` are serialized (Redis lock on the session id); a `prompted` that finds no session row re-enqueues itself with a short delay, up to a bound | yes |
+| `prompted` arriving before its `created` was processed | `triggers:process-event` jobs for one `agentSession.id` are serialized (Redis lock on the session id); a `prompted` that finds no session row re-enqueues itself with a short delay, up to a bound | yes |
 
 The ±60 s window uses the **signed body's** `webhookTimestamp` (the SDK's choice, and the header is not covered by the
 signature). The clock is injectable (`config.linear.clock` in tests) because finear's virtual clock otherwise fails
@@ -254,23 +254,23 @@ verification on retried deliveries — a gap recorded in [`LINEAR_COVERAGE.md`](
 ### Token refresh under concurrency
 
 Linear access tokens last 24 h; refresh tokens rotate on use; a lost refresh response can be replayed for 30 minutes.
-Two workers refreshing the same installation at once would each present the same refresh token; the second would get
+Two workers refreshing the same integration at once would each present the same refresh token; the second would get
 the replayed response (within the grace) — correct, but only by luck of timing.
 
-- `linear:refresh-tokens` refreshes installations within 30 minutes of expiry, each under a transaction-scoped
-  Postgres advisory lock on the installation id, re-reading the row after taking the lock (another worker may have
+- `integrations:refresh-tokens` refreshes integrations within 30 minutes of expiry, each under a transaction-scoped
+  Postgres advisory lock on the integration id, re-reading the row after taking the lock (another worker may have
   just refreshed it).
 - An on-demand refresh (a call that gets 401) takes the same lock.
 - The new token pair is written in the same transaction as the lock; a crash after Linear answered and before commit
   is covered by the 30-minute replay grace on the next attempt.
-- A refresh that fails with `invalid_grant` marks the installation `error`, notifies admins, and stops outbox delivery
+- A refresh that fails with `invalid_grant` marks the integration `error`, notifies admins, and stops outbox delivery
   for it (rows stay `pending`, not `failed`, so reconnecting resumes them).
 
 ### Security review checklist
 
 | Item | Where | Test |
 |---|---|---|
-| Linear tokens never returned by any action | `serializeLinearInstallation` has no token field | a test walks every action's response for each fixture and asserts no value equals a token plaintext |
+| Linear tokens never returned by any action | `serializeIntegration` has no token field | a test walks every action's response for each fixture and asserts no value equals a token plaintext |
 | `SENSITIVE_KEYS` includes `accessToken`, `refreshToken`, `token`, `runnerToken`, `code`, `client_secret` | `ops/AuditOps.ts` | audit rows for `runner:register` and `linear:callback` contain none |
 | Every outbound fetch of a person-supplied URL goes through `assertPublicUrl` | `auth` pass-through URLs; any URL in an MCP tool argument the server fetches | network-guard tests |
 | Runner tokens stored as sha256, compared in constant time | `RunnerTokenMiddleware` | yes |
@@ -298,12 +298,12 @@ Linear's [Agent Interaction Guidelines](https://linear.app/developers/aig), each
 
 ## Steps
 
-### 1. Schema — `backend/schema/{work_items,agent_sessions,linear_events}.ts`
+### 1. Schema — `backend/schema/{work_items,agent_sessions,trigger_events}.ts`
 
 - `work_items.cancelRequestedAt`, `cancelledBy` (nullable user id), `cancelReason` (`stop` | `dashboard` |
   `undelegated` | `unassigned` | `issue_closed` | `revoked` | `superseded`).
 - `agent_sessions.pendingElicitation` (jsonb), `disengagedAt`.
-- `linear_events.outcome` gains the values in the tables above (plain `text`, documented in the schema file).
+- `trigger_events.outcome` gains the values in the tables above (plain `text`, documented in the schema file).
 
 ### 2. Ops — `backend/ops/{SignalOps,ElicitationOps,DisengageOps,LinearRateOps}.ts`, `backend/lua/linear-token-bucket.lua`
 
@@ -352,7 +352,7 @@ Public provider instructions also live in `frontend/src/content/docs/install-a-r
 - `backend/__tests__/linear/rate-limit.test.ts` — bucket from headers; `RATELIMITED` backoff; priority order under
   pressure; ephemeral supersession; daemon proxy 429.
 - `backend/__tests__/linear/token-refresh.test.ts` — `cap * 4` concurrent refreshes → one Linear refresh call; crash
-  between Linear's answer and commit → replay within grace succeeds; `invalid_grant` → installation `error`.
+  between Linear's answer and commit → replay within grace succeeds; `invalid_grant` → integration `error`.
 - `backend/__tests__/security/*.test.ts` — the checklist rows.
 - `cli/__tests__/acp/stop.test.ts`, `auth.test.ts` — the fake ACP agent ignoring cancel → killed after grace; auth
   required → `auth` elicitation; resume after "done".

@@ -9,10 +9,10 @@ import {
   agentActivities,
 } from "../../schema/agent_activities";
 import { type AgentSession, agentSessions } from "../../schema/agent_sessions";
-import { type LinearEvent, linearEvents } from "../../schema/linear_events";
+import { type TriggerEvent, triggerEvents } from "../../schema/trigger_events";
 import { runAction } from "../setup";
 import { FINEAR_FIXTURES, FINEAR_PRIMARY_KEY, type useFinear } from "./finear";
-import { installationRow } from "./helpers";
+import { integrationRow } from "./helpers";
 
 /**
  * Helpers for the suites that drive agent sessions end to end: a person in
@@ -47,14 +47,14 @@ export async function waitFor<T>(
 
 /**
  * Run the processing and delivery jobs until there is nothing left to do —
- * what the `linear` queue's worker would do, but in this process and in a
+ * what the `triggers` queue's worker would do, but in this process and in a
  * known order.
  * @param rounds - The most passes to make.
  */
 export async function settle(rounds = 10): Promise<void> {
   for (let i = 0; i < rounds; i++) {
     const processed = await runAction<{ processed: number }>(
-      "linear:process-pending",
+      "triggers:process-pending",
       { graceMs: 0 },
     );
     const delivered = await runAction<{ sent: number; failed: number }>(
@@ -122,29 +122,29 @@ export async function delegate(
  * @returns The event row.
  */
 export async function recordedEvent(
-  check: (event: LinearEvent) => boolean,
-): Promise<LinearEvent> {
+  check: (event: TriggerEvent) => boolean,
+): Promise<TriggerEvent> {
   return waitFor(async () => {
     const rows = await api.db.db
       .select()
-      .from(linearEvents)
-      .orderBy(asc(linearEvents.id));
+      .from(triggerEvents)
+      .orderBy(asc(triggerEvents.id));
     return rows.find(check);
   });
 }
 
 /**
  * The mirror row for a Linear session.
- * @param linearSessionId - Linear's id.
+ * @param externalSessionId - Linear's id.
  * @returns The row, or undefined.
  */
 export async function sessionRow(
-  linearSessionId: string,
+  externalSessionId: string,
 ): Promise<AgentSession | undefined> {
   const [row] = await api.db.db
     .select()
     .from(agentSessions)
-    .where(eq(agentSessions.linearSessionId, linearSessionId));
+    .where(eq(agentSessions.externalSessionId, externalSessionId));
   return row;
 }
 
@@ -181,23 +181,23 @@ export async function mirroredQuietly(
   title: string,
 ): Promise<AgentSession> {
   const issue = await createIssue(linear, title);
-  const linearSessionId = await delegate(linear, issue.id, appUserId);
+  const externalSessionId = await delegate(linear, issue.id, appUserId);
   const event = await recordedEvent(
     (e) =>
       (e.payload as { agentSession?: { id?: string } }).agentSession?.id ===
-      linearSessionId,
+      externalSessionId,
   );
   await api.db.db
-    .update(linearEvents)
+    .update(triggerEvents)
     .set({ processedAt: new Date(), outcome: "handled" })
-    .where(eq(linearEvents.id, event.id));
-  const installation = await installationRow(projectId);
+    .where(eq(triggerEvents.id, event.id));
+  const integration = await integrationRow(projectId);
   return api.db.db.transaction(
     async (tx) =>
       (
         await upsertFromWebhook(
           tx,
-          installation,
+          integration,
           event.payload as unknown as AgentSessionEventPayload,
         )
       ).session,
@@ -217,13 +217,13 @@ export interface FinearActivity {
  * A session's status and activities as finear holds them, read as the app.
  * @param linear - The harness.
  * @param token - The app's access token.
- * @param linearSessionId - Linear's id.
+ * @param externalSessionId - Linear's id.
  * @returns Status and activities, oldest first.
  */
 export async function finearSession(
   linear: Finear,
   token: string,
-  linearSessionId: string,
+  externalSessionId: string,
 ): Promise<{ status: string; activities: FinearActivity[] }> {
   const reply = await linear.graphql<{
     agentSession: {
@@ -233,7 +233,7 @@ export async function finearSession(
   }>(
     `Bearer ${token}`,
     `query($id: String!) { agentSession(id: $id) { status activities(first: 100) { nodes { id createdAt ephemeral signal content { __typename ... on AgentActivityThoughtContent { body } ... on AgentActivityResponseContent { body } ... on AgentActivityErrorContent { body } ... on AgentActivityPromptContent { body } ... on AgentActivityElicitationContent { body } } } } } }`,
-    { id: linearSessionId },
+    { id: externalSessionId },
   );
   if (!reply.data) throw new Error(JSON.stringify(reply.errors));
   return {

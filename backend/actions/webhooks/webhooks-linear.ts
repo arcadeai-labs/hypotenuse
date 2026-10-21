@@ -1,13 +1,10 @@
 import { createHash } from "node:crypto";
 import { type Action, api, type Connection, config, HTTP_METHOD } from "keryx";
 import { z } from "zod";
-import {
-  checkTimestamp,
-  installationForOrganization,
-  verifySignature,
-} from "../../ops/LinearWebhookOps";
+import { liveIntegrationForWorkspace } from "../../ops/IntegrationOps";
+import { checkTimestamp, verifySignature } from "../../ops/LinearWebhookOps";
 import { rawRequestOf, readCappedBody } from "../../ops/RawRequestOps";
-import { linearEvents } from "../../schema/linear_events";
+import { triggerEvents } from "../../schema/trigger_events";
 
 /**
  * Every refusal of an unverified delivery answers exactly these bytes, so a
@@ -43,16 +40,16 @@ function reply(status: number, body: string): Response {
  *    401, byte for byte.
  * 4. **Dedupe** on `Linear-Delivery`, constant across Linear's retries: a
  *    retry answers 200 and does nothing.
- * 5. **Route** by `organizationId` to a live installation. None — never
+ * 5. **Route** by `organizationId` to a live Linear integration. None — never
  *    connected, or disconnected — still answers 200, recorded as
- *    `unknown_installation`: this one webhook serves every workspace, and
+ *    `unknown_integration`: this one webhook serves every workspace, and
  *    Linear disables a webhook that keeps failing.
- * 6. **Record and answer 200**, then enqueue `linear:process-event`. Nothing
+ * 6. **Record and answer 200**, then enqueue `triggers:process-event`. Nothing
  *    here calls Linear or does the work; the row is the delivery, and the
- *    `linear:process-pending` clock finds it if the enqueue is lost.
+ *    `triggers:process-pending` clock finds it if the enqueue is lost.
  *
  * Machine ingress: not audited (the decision was a person's, in Linear, and
- * the row in `linear_events` is the record), never an MCP tool. Logs carry
+ * the row in `trigger_events` is the record), never an MCP tool. Logs carry
  * the delivery id and the reason, never the body.
  *
  * **No rate-limit middleware.** Every workspace's deliveries come from Linear's
@@ -145,24 +142,28 @@ export class WebhooksLinear implements Action {
       });
     }
 
-    const installation = await installationForOrganization(
+    const integration = await liveIntegrationForWorkspace(
+      "linear",
       payload.organizationId,
     );
     const [inserted] = await api.db.db
-      .insert(linearEvents)
+      .insert(triggerEvents)
       .values({
+        type: "linear",
         deliveryId,
-        installationId: installation?.id ?? null,
+        integrationId: integration?.id ?? null,
         eventType,
         action: typeof payload.action === "string" ? payload.action : "",
         webhookTimestamp: new Date(payload.webhookTimestamp as number),
         payload,
-        ...(installation
+        ...(integration
           ? {}
-          : { outcome: "unknown_installation", processedAt: new Date() }),
+          : { outcome: "unknown_integration", processedAt: new Date() }),
       })
-      .onConflictDoNothing({ target: linearEvents.deliveryId })
-      .returning({ id: linearEvents.id });
+      .onConflictDoNothing({
+        target: [triggerEvents.type, triggerEvents.deliveryId],
+      })
+      .returning({ id: triggerEvents.id });
 
     if (!inserted) {
       api.logger.info("a Linear webhook retry, already recorded", {
@@ -171,9 +172,9 @@ export class WebhooksLinear implements Action {
       return reply(200, JSON.stringify({ ok: true }));
     }
 
-    if (installation) {
+    if (integration) {
       try {
-        await api.actions.enqueue("linear:process-event", {
+        await api.actions.enqueue("triggers:process-event", {
           eventId: inserted.id,
         });
       } catch (e) {

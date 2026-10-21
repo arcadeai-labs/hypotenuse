@@ -17,7 +17,7 @@ import {
 } from "../setup";
 
 /**
- * `hypotenuse linear`, spawned from source against the booted server and an
+ * `hypotenuse integration`, spawned from source against the booted server and an
  * in-process finear. The Linear admin's browser is the harness's scripted
  * consent; everything the CLI does is real HTTP.
  */
@@ -55,7 +55,7 @@ async function signIn(user: TestUser): Promise<string> {
     token: string;
     cliToken: { id: number; device: string };
   };
-  const home = mkdtempSync(join(tmpdir(), "hyp-cli-linear-"));
+  const home = mkdtempSync(join(tmpdir(), "hyp-cli-integration-"));
   mkdirSync(join(home, "hypotenuse"), { recursive: true, mode: 0o700 });
   writeFileSync(
     join(home, "hypotenuse", "credentials.json"),
@@ -132,29 +132,47 @@ async function run(who: string, args: string[]) {
 }
 
 /**
- * `linear:installation` over HTTP, for comparing with what the CLI printed.
+ * `integration:view` over HTTP, for comparing with what the CLI printed.
  * @returns The response body.
  */
-async function installationOverHttp() {
+async function integrationOverHttp() {
   const res = await fetch(
-    `${url}/api/linear/installation?projectId=${universe.projectId}`,
+    `${url}/api/integration?projectId=${universe.projectId}&type=linear`,
     { headers: cookieHeader(universe.peach.sessionId) },
   );
   return res.json();
 }
 
-describe("hypotenuse linear", () => {
-  test("status before connecting says so", async () => {
-    const human = await run("peach", ["linear", "status"]);
+describe("hypotenuse integration", () => {
+  test("list and view before connecting say so", async () => {
+    const human = await run("peach", ["integration", "view", "linear"]);
     expect(human.code).toBe(0);
     expect(human.stdout).toContain("Not connected to Linear");
 
-    const json = await run("peach", ["--json", "linear", "status"]);
+    const json = await run("peach", [
+      "--json",
+      "integration",
+      "view",
+      "linear",
+    ]);
     expect(json.code).toBe(0);
     expect(JSON.parse(json.stdout)).toEqual({
-      installation: null,
+      integration: null,
       configured: true,
     });
+
+    const list = await run("peach", ["--json", "integration", "list"]);
+    expect(list.code).toBe(0);
+    expect(JSON.parse(list.stdout)).toMatchObject({
+      integrations: [],
+      types: [{ type: "linear", configured: true }],
+    });
+    const table = await run("peach", ["integration", "list"]);
+    expect(table.stdout).toContain("not connected");
+
+    const unknown = await run("peach", ["integration", "view", "jira"]);
+    expect(unknown.code).toBe(1);
+    expect(unknown.stderr).toContain("Unknown integration type: jira");
   });
 
   test("connect prints an actor=app consent URL, and finishes once a Linear admin approves", async () => {
@@ -164,8 +182,9 @@ describe("hypotenuse linear", () => {
         "run",
         CLI,
         "--json",
-        "linear",
+        "integration",
         "connect",
+        "linear",
         "--no-browser",
         "--timeout",
         "30",
@@ -201,54 +220,82 @@ describe("hypotenuse linear", () => {
     const stdout = await new Response(proc.stdout).text();
     expect(await proc.exited).toBe(0);
     const body = JSON.parse(stdout);
-    expect(body.installation).toMatchObject({
+    expect(body.integration).toMatchObject({
+      type: "linear",
       status: "active",
-      organizationName: "Workspace 1",
-      urlKey: "eng",
+      workspaceName: "Workspace 1",
+      workspaceUrlKey: "eng",
     });
   }, 40_000);
 
-  test("status shows the workspace, and --json is the action's answer with no token in it", async () => {
-    const human = await run("peach", ["linear", "status"]);
+  test("view and list show the workspace, and --json is the action's answer with no token in it", async () => {
+    const human = await run("peach", ["integration", "view", "linear"]);
     expect(human.code).toBe(0);
-    expect(human.stdout).toContain("Workspace 1 (eng)");
+    expect(human.stdout).toContain("Linear: Workspace 1 (eng)");
     expect(human.stdout).toContain("Hypotenuse");
 
-    const json = await run("peach", ["--json", "linear", "status"]);
+    const json = await run("peach", [
+      "--json",
+      "integration",
+      "view",
+      "linear",
+    ]);
     expect(json.code).toBe(0);
-    expect(JSON.parse(json.stdout)).toEqual(await installationOverHttp());
+    expect(JSON.parse(json.stdout)).toEqual(await integrationOverHttp());
+
+    const list = await run("peach", ["integration", "list"]);
+    expect(list.code).toBe(0);
+    expect(list.stdout).toContain("Workspace 1 (eng)");
+    expect(list.stdout).toContain("active");
     expect(json.stdout).not.toContain(await appToken(universe.projectId));
   });
 
   test("a member without the admin tag is refused connect and disconnect", async () => {
-    const connect = await run("mario", ["linear", "connect", "--no-browser"]);
+    const connect = await run("mario", [
+      "integration",
+      "connect",
+      "linear",
+      "--no-browser",
+    ]);
     expect(connect.code).toBe(1);
     expect(connect.stderr).toContain("admin");
-    const disconnect = await run("mario", ["linear", "disconnect", "--yes"]);
+    const disconnect = await run("mario", [
+      "integration",
+      "disconnect",
+      "linear",
+      "--yes",
+    ]);
     expect(disconnect.code).toBe(1);
     expect(disconnect.stderr).toContain("admin");
     // And a member can still read the connection.
-    expect((await run("mario", ["linear", "status"])).code).toBe(0);
+    expect((await run("mario", ["integration", "view", "linear"])).code).toBe(
+      0,
+    );
   });
 
   test("disconnect asks for --yes off a terminal, then revokes", async () => {
     const token = await appToken(universe.projectId);
-    const unconfirmed = await run("peach", ["linear", "disconnect"]);
+    const unconfirmed = await run("peach", [
+      "integration",
+      "disconnect",
+      "linear",
+    ]);
     expect(unconfirmed.code).toBe(1);
     expect(unconfirmed.stderr).toContain("--yes");
 
     const done = await run("peach", [
       "--json",
-      "linear",
+      "integration",
       "disconnect",
+      "linear",
       "--yes",
     ]);
     expect(done.code).toBe(0);
-    expect(JSON.parse(done.stdout).installation.status).toBe("revoked");
+    expect(JSON.parse(done.stdout).integration.status).toBe("revoked");
 
     const viewer = await linear.graphql(`Bearer ${token}`, "{ viewer { id } }");
     expect(viewer.errors?.length ?? 0).toBeGreaterThan(0);
-    const after = await run("peach", ["linear", "status"]);
+    const after = await run("peach", ["integration", "view", "linear"]);
     expect(after.stdout).toContain("Not connected to Linear");
   });
 });

@@ -47,8 +47,9 @@ const EXPECTED_LEVELS: Record<string, RbacLevel> = {
   "project:settings-view": "member",
   "membership:list": "member",
   "tag:list": "member",
-  "linear:installation": "member",
-  "linear:catalog": "member",
+  "integration:view": "member",
+  "integration:list": "member",
+  "integration:catalog": "member",
   "agent-session:list": "member",
   "agent-session:view": "member",
   "agent-session:activities": "member",
@@ -67,9 +68,10 @@ const EXPECTED_LEVELS: Record<string, RbacLevel> = {
   "invite:create": "admin",
   "invite:list": "admin",
   "audit:list": "admin",
-  // Connecting and disconnecting Linear attach or detach a whole workspace.
-  "linear:connect": "admin",
-  "linear:disconnect": "admin",
+  // Connecting and disconnecting an integration attach or detach a whole
+  // workspace.
+  "integration:connect": "admin",
+  "integration:disconnect": "admin",
 
   // Not project-scoped: session-scoped, public, or a clock. `none` is correct
   // rather than an omission.
@@ -102,13 +104,13 @@ const EXPECTED_LEVELS: Record<string, RbacLevel> = {
   // The browser hop is bound to the session that started it, not to a
   // projectId param; it re-checks admin itself before writing.
   "linear:callback": "none",
-  "linear:refresh-tokens": "none",
+  "integrations:refresh-tokens": "none",
   "linear:manifest-url": "none",
   // Machine ingress: Linear is the caller, and the signature is the gate.
   "webhooks:linear": "none",
-  "linear:process-event": "none",
-  "linear:process-pending": "none",
-  "linear-events:sweep": "none",
+  "triggers:process-event": "none",
+  "triggers:process-pending": "none",
+  "trigger-events:sweep": "none",
   "activities:deliver": "none",
   "activities:deliver-due": "none",
 };
@@ -119,9 +121,9 @@ const CLOCKS = [
   "notifications:sweep",
   "invites:sweep",
   "audit:sweep",
-  "linear:refresh-tokens",
-  "linear:process-pending",
-  "linear-events:sweep",
+  "integrations:refresh-tokens",
+  "triggers:process-pending",
+  "trigger-events:sweep",
   "activities:deliver-due",
 ];
 
@@ -265,10 +267,11 @@ describe("MCP publish policy", () => {
         "invite:list",
         "invite:list-pending",
         "invite:reject",
-        "linear:catalog",
-        "linear:connect",
-        "linear:disconnect",
-        "linear:installation",
+        "integration:catalog",
+        "integration:connect",
+        "integration:disconnect",
+        "integration:list",
+        "integration:view",
         "me:view",
         "membership:create",
         "membership:delete",

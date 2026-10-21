@@ -18,11 +18,11 @@ describe("task processors under test", () => {
 });
 
 describe("queue priority", () => {
-  test("workers drain the linear queue first, and every queue an action names", () => {
+  test("workers drain the triggers queue first, and every queue an action names", () => {
     // Webhook processing and the activity outbox are what a person in Linear
     // waits on; anything else queued must not delay an acknowledgement.
     const queues = config.tasks.queues as string[];
-    expect(queues[0]).toBe("linear");
+    expect(queues[0]).toBe("triggers");
     const named = new Set(
       api.actions.actions
         .map((a) => a.task?.queue)

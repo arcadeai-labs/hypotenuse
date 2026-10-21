@@ -1,5 +1,6 @@
 /**
- * `hypotenuse session` — the selected project's Linear agent sessions
+ * `hypotenuse session` — the selected project's agent sessions, from every
+ * trigger type (Linear today)
  * (`agent-session:list`, `agent-session:view`, `agent-session:activities`):
  * every time `@hypotenuse` was delegated an issue or mentioned, and the
  * conversation that followed.
@@ -18,8 +19,10 @@ import { table } from "../output/theme";
 /** A session as `agent-session:list` and `agent-session:view` serialize it. */
 export interface AgentSession {
   id: number;
-  linearSessionId: string;
-  linearUrl: string | null;
+  /** The trigger type: `linear`. */
+  type: string;
+  externalSessionId: string;
+  externalUrl: string | null;
   issueIdentifier: string | null;
   issueTitle: string | null;
   issueUrl: string | null;
@@ -100,7 +103,8 @@ export function describeSession(
     `ended      ${when(session.endedAt)}`,
   ];
   if (session.summary) lines.push(`summary    ${session.summary}`);
-  if (session.linearUrl) lines.push(`linear     ${session.linearUrl}`);
+  if (session.externalUrl)
+    lines.push(`${session.type.padEnd(10)} ${session.externalUrl}`);
   for (const link of session.externalUrls) {
     lines.push(`link       ${link.label}: ${link.url}`);
   }
@@ -137,7 +141,9 @@ export function describeSession(
 export function registerSessionCommands(program: Command): void {
   const session = program
     .command("session")
-    .description("The selected project's Linear agent sessions");
+    .description(
+      "The selected project's agent sessions (each delegation or mention of @hypotenuse)",
+    );
 
   withPaging(
     session
@@ -148,6 +154,7 @@ export function registerSessionCommands(program: Command): void {
         "only this status: pending, active, awaitingInput, error, complete, stale, stopping",
       )
       .option("--role <role>", "only this role: manager or worker")
+      .option("--type <type>", "only this trigger type, e.g. linear")
       .option(
         "--issue <identifier>",
         "only sessions on this issue, e.g. ENG-123",
@@ -157,6 +164,7 @@ export function registerSessionCommands(program: Command): void {
       const opts = this.opts() as {
         status?: string;
         role?: string;
+        type?: string;
         issue?: string;
       };
       const projectId = await ctx.projectId();
@@ -168,6 +176,7 @@ export function registerSessionCommands(program: Command): void {
           projectId,
           status: opts.status,
           role: opts.role,
+          type: opts.type,
           issueIdentifier: opts.issue,
           ...pageQuery(this),
         },
@@ -179,6 +188,7 @@ export function registerSessionCommands(program: Command): void {
           table(
             result.agentSessions.map((s) => ({
               id: s.id,
+              type: s.type,
               issue: s.issueIdentifier ?? "-",
               title: s.issueTitle ?? "",
               status: s.status,
@@ -188,6 +198,7 @@ export function registerSessionCommands(program: Command): void {
             })),
             [
               { key: "id" },
+              { key: "type" },
               { key: "issue" },
               { key: "title", maxWidth: 40 },
               { key: "status" },

@@ -76,8 +76,9 @@ describe("describeSession", () => {
   test("the session's fields, then its activities in order", () => {
     const session: AgentSession = {
       id: 7,
-      linearSessionId: "s",
-      linearUrl: "https://linear.app/agent-session/s",
+      type: "linear",
+      externalSessionId: "s",
+      externalUrl: "https://linear.app/agent-session/s",
       issueIdentifier: "ENG-1",
       issueTitle: "Fix it",
       issueUrl: null,
@@ -105,5 +106,6 @@ describe("describeSession", () => {
     expect(text).toContain("origin     delegation by Human 1");
     expect(text.indexOf("Received.")).toBeLessThan(text.indexOf("No runner"));
     expect(text).toContain("pending");
+    expect(text).toContain("linear     https://linear.app/agent-session/s");
   });
 });

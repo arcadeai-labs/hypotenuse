@@ -438,6 +438,23 @@ cd backend && bun keryx.ts linear:refresh-tokens
 
 ## Learnings from the build
 
+### Renamed since: triggers are typed
+
+So that a trigger system other than Linear can be added, the data model and the generic API carry a trigger
+`type` (today only `linear`) and keep each system's ids in `external*` columns; `user_id` keeps meaning a
+Hypotenuse user. What this section calls by its old name is now:
+
+| Was | Now |
+|---|---|
+| `linear_installations` (`organizationId`, `organizationName`, `urlKey`, `appUserId`, `installedByUserId`) | `integrations` with `type` (`externalWorkspaceId`, `workspaceName`, `workspaceUrlKey`, `externalAppUserId`, `connectedByUserId`); `appUserCapabilities`, `teamIds`, `canAccessAllPublicTeams` in `details` |
+| `linear:installation`, `linear:connect`, `linear:disconnect`, `linear:catalog` | `integration:view`, `integration:connect`, `integration:disconnect`, `integration:catalog` (each takes `type`), plus `integration:list` |
+| `linear:refresh-tokens` | `integrations:refresh-tokens` |
+| Settings → Linear (`/settings/linear`) | Settings → Integrations → Linear (`/settings/integrations?type=linear`) |
+| `hypotenuse linear status|connect|disconnect` | `hypotenuse integration list|view|connect|disconnect <type>` |
+
+`linear:callback`, `linear:manifest-url`, `webhooks:linear`, and `ops/LinearOps.ts` are Linear's own and keep
+their names. Migration `0003` copies `linear_installations` into `integrations` (ids kept) and `0004` drops it.
+
 ### What is built
 
 All eleven Definition of done items. The backend gained `linear_installations` (one migration), `LinearOps` (the

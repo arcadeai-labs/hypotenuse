@@ -54,15 +54,15 @@ and that is where to read before changing something load-bearing, and where to w
    `connection.metadata.auditBefore` / `auditAfter` from `serializeX()` output. A new secret-bearing param means
    adding its key to `SENSITIVE_KEYS` in the same commit. The unaudited writers are a closed list, argued in
    [`phase-04-users-tenancy-and-audit.md`](./docs/plans/phase-04-users-tenancy-and-audit.md): reads, sweeps,
-   `session:create` / `session:destroy`, `webhooks:linear` and `linear:process-event` (machine ingress, recorded in
-   `linear_events`), `cli-auth:device` / `cli-auth:exchange` and a CLI token's sliding-expiry touch (the CLI's
+   `session:create` / `session:destroy`, `webhooks:linear` and `triggers:process-event` (machine ingress, recorded in
+   `trigger_events`), `cli-auth:device` / `cli-auth:exchange` and a CLI token's sliding-expiry touch (the CLI's
    sign-in ingress — the person's `cli-auth:approve` / `cli-auth:activate` is the audited decision), the outbox and
    clocks, and the daemon half (`daemon:*`, recorded in `agent_activities` and
    `work_items`). The audited thing is always **the decision a person made** — connecting Linear, registering or
    revoking a runner, editing a routing rule, cancelling a session.
 7. **Linear credentials never leave the server.** No action returns a Linear access token, refresh token, client
    secret, or webhook secret, and no serializer has a field one fits in. The daemon, the coding agent, and its MCP
-   tools reach Linear only through `daemon:linear-*` actions, which re-derive their scope (installation, issue,
+   tools reach Linear only through `daemon:linear-*` actions, which re-derive their scope (integration, issue,
    role) from the agent session row on every call. That list is closed and asserted by name.
 8. **Daemon actions and human actions are disjoint.** Runner-token actions live in `DAEMON_ONLY_ACTION_NAMES`
    (`daemon:*`) — do **not** filter by prefix alone, because the human ledger (`runner:list`, `runner:revoke`) is a
@@ -191,7 +191,7 @@ export class RunnerRegister extends AuditedAction {
 - **Anything a client must decide with, the server decides** (`standing`, `reserved`, a runner's `online`).
 - **`ops/*.ts`** hold pure logic and `serializeX()` functions, which strip secrets and emit epoch-ms timestamps.
 - **`secret(z.string())`** marks a credential-bearing input for redaction.
-- **Side effects belong in `afterCommit`** — enqueueing `linear:process-event`, pinging `runner:<id>`, broadcasting
+- **Side effects belong in `afterCommit`** — enqueueing `triggers:process-event`, pinging `runner:<id>`, broadcasting
   to dashboard channels.
 - **Clocks are task-only — never a `web` route.**
 - **Machine ingress answers fast and works later.** `webhooks:linear` verifies, records, answers 200, and enqueues;
@@ -203,9 +203,16 @@ export class RunnerRegister extends AuditedAction {
 
 ## Schema conventions
 
-`serial` primary keys; **every timestamp column is `timestamp(..., { withTimezone: true })`**. Linear ids are `text`
-(UUIDs), never coerced. Every table that mirrors a Linear object carries the Linear id under a unique index so a
-replayed webhook is an upsert, not a duplicate.
+`serial` primary keys; **every timestamp column is `timestamp(..., { withTimezone: true })`**.
+
+**Triggers are typed; Linear is the first.** Every row that mirrors something in a trigger system carries `type`
+(`TRIGGER_TYPES` in `schema/integrations.ts`) and keeps that system's ids in `external*` columns —
+`externalSessionId`, `externalIssueId`, `creatorExternalUserId`, `externalUserId` — never `linear*`. `user_id` /
+`userId` always means a Hypotenuse user. External ids are `text`, never coerced, and every mirroring table carries
+`(type, external id)` under a unique index so a replayed webhook is an upsert, not a duplicate. A project's
+connection to a trigger system is an `integrations` row (one per project and type), reached through the generic
+`integration:*` actions; what only one type has lives in its `details`. Linear's own endpoints keep Linear's name
+(`webhooks:linear`, `linear:callback`, `linear:manifest-url`, the GraphQL client in `ops/LinearOps.ts`).
 
 ## Tenancy and RBAC
 
@@ -289,7 +296,7 @@ open http://localhost:3000/style-guide        # every primitive and fixture surf
 cd backend && bun run test                    # fetches finear, then real server + finear
 cd backend && bun test path/to/file.test.ts   # one file (after a first `bun run finear:fetch`)
 cd backend && bun keryx.ts linear:manifest-url  # the pre-filled Linear app-creation link (APPLICATION_URL must be public HTTPS)
-cd backend && bun keryx.ts linear:refresh-tokens # run the token refresh clock once
+cd backend && bun keryx.ts integrations:refresh-tokens # run the token refresh clock once
 cd cli && bun test                            # CLI + daemon unit tests
 bun run --cwd cli hypotenuse --help
 bun run --cwd cli hypotenuse config validate -c ./examples/config.toml

@@ -38,7 +38,7 @@ Companion references:
    ┌──────────────────────────┐   ┌────────────────────────────────────────────┐
    │ Postgres                 │   │ Redis                                      │
    │ the source of truth for  │   │ sessions, rate limits, node-resque queues, │
-   │ installations, sessions, │   │ WebSocket pub/sub, the Linear token bucket │
+   │ integrations, sessions,  │   │ WebSocket pub/sub, the Linear token bucket │
    │ activities, work, runners│   │                                            │
    └──────────────────────────┘   └────────────────────────────────────────────┘
             ▲                                   ▲
@@ -79,13 +79,13 @@ Three deployable things, one repository:
 ## Trust boundaries and credentials
 
 **Linear credentials never leave the server.** The daemon, the coding agent, and the agent's MCP tools all
-reach Linear through server actions that are scoped to one session's issue and one installation, and that are
+reach Linear through server actions that are scoped to one session's issue and one integration, and that are
 a closed allowlist. A compromised laptop can act on the issues it was handed work for, for as long as its
 runner token lives — not on the workspace.
 
 | Credential | Lives | Minted by | Scope | Revoked by |
 |---|---|---|---|---|
-| Linear access + refresh token (`actor=app`) | `linear_installations`, AES-256-GCM via `ops/CryptoOps.ts` | Linear OAuth callback | the workspace's teams the admin granted | `linear:disconnect`, `OAuthApp revoked` webhook |
+| Linear access + refresh token (`actor=app`) | `integrations`, AES-256-GCM via `ops/CryptoOps.ts` | Linear OAuth callback | the workspace's teams the admin granted | `integration:disconnect`, `OAuthApp revoked` webhook |
 | Linear webhook signing secret | env `LINEAR_WEBHOOK_SECRET` | Linear app settings | verifies every inbound delivery | rotate in Linear + env |
 | Linear OAuth client secret | env `LINEAR_CLIENT_SECRET` | Linear app settings | token exchange and refresh | rotate in Linear + env |
 | Human session | Redis (`__session` cookie) | `session:create`; Keryx OAuth for human MCP clients | the person's memberships | `session:destroy`, TTL |
@@ -100,19 +100,29 @@ person whose credentials those are, which is the point of a local runner.
 
 ## Linear, from the server's side
 
+**Linear is the first trigger type, not the only one the model allows.** Everything that mirrors a trigger system
+is typed: an `integrations` row (a project's connection to one workspace of one type), each `trigger_events`
+delivery, each `agent_sessions` row, each `external_identities` link, and each runner subscription carries
+`type = linear`, and keeps the trigger's own ids in `external*` columns (`externalWorkspaceId`,
+`externalSessionId`, `externalIssueId`, `externalUserId`, …). `user_id` always means a Hypotenuse user. The human
+API is generic too (`integration:list|view|connect|disconnect|catalog`, `type` as an input). What stays Linear's
+own is what talks to Linear: `webhooks:linear`, `linear:callback`, `linear:manifest-url`, the GraphQL client, the
+`daemon:linear-*` proxy, and the `linear_*` agent tools. A second trigger type adds its own ingress and client, and
+reuses the tables.
+
 One Linear OAuth application per Hypotenuse deployment, configured by env (`LINEAR_CLIENT_ID`,
 `LINEAR_CLIENT_SECRET`, `LINEAR_WEBHOOK_SECRET`). A project admin connects **one Linear workspace** to **one
 Hypotenuse project** with `actor=app` and scopes `read,write,app:assignable,app:mentionable,issues:create,
-comments:create`. The app user's id (`viewer.id`) is unique per workspace and stored as `appUserId`.
+comments:create`. The app user's id (`viewer.id`) is unique per workspace and stored as the integration's `externalAppUserId`.
 
-Every webhook arrives at one endpoint, `POST /api/webhooks/linear`, and is identified to an installation by
-`organizationId`. The handler caps the body (5 MiB, 413 beyond), verifies `Linear-Signature` (HMAC-SHA256 of the
+Every Linear webhook arrives at one endpoint, `POST /api/webhooks/linear`, and is identified to a `linear`
+integration by its `organizationId` (the integration's `externalWorkspaceId`). The handler caps the body (5 MiB, 413 beyond), verifies `Linear-Signature` (HMAC-SHA256 of the
 raw body, constant time; `LINEAR_WEBHOOK_SECRET_PREVIOUS` also verifies during a rotation), checks the signed
-body's `webhookTimestamp` is within ±60 s, deduplicates on `Linear-Delivery`, inserts a `linear_events` row,
-answers 200 well inside Linear's 5-second budget, and enqueues `linear:process-event`. A bad signature and a stale
-timestamp are the same 401, byte for byte. A verified delivery for no live installation is still answered 200
-and recorded `unknown_installation`: one webhook serves every workspace, and Linear disables a webhook that keeps
-failing. The row is the delivery; the `linear:process-pending` clock processes any row whose job was lost.
+body's `webhookTimestamp` is within ±60 s, deduplicates on `Linear-Delivery`, inserts a `trigger_events` row,
+answers 200 well inside Linear's 5-second budget, and enqueues `triggers:process-event`. A bad signature and a stale
+timestamp are the same 401, byte for byte. A verified delivery for no live integration is still answered 200
+and recorded `unknown_integration`: one webhook serves every workspace, and Linear disables a webhook that keeps
+failing. The row is the delivery; the `triggers:process-pending` clock processes any row whose job was lost.
 
 What each event does:
 
@@ -120,8 +130,8 @@ What each event does:
 |---|---|
 | `AgentSessionEvent` / `created` | upsert `agent_sessions`; enqueue an immediate acknowledgement `thought` (Linear marks a session unresponsive after 10 s without one); select a role and repository; insert a `work_items` row; ping eligible runners |
 | `AgentSessionEvent` / `prompted` | record the inbound `prompt` activity; if `signal = stop`, cancel the live work item; otherwise insert a follow-up work item sticky to the session's runner |
-| `PermissionChange` / `teamAccessChanged` | update the installation's team access; cancel sessions on teams it lost |
-| `OAuthApp` / `revoked` | mark the installation revoked; cancel every live session; notify project admins |
+| `PermissionChange` / `teamAccessChanged` | update the integration's team access; cancel sessions on teams it lost |
+| `OAuthApp` / `revoked` | mark the integration revoked; cancel every live session; notify project admins |
 | `Issue` / `update` with `delegateId` removed | cancel live work for that issue (a dismissed session removes the delegate) |
 | `AppUserNotification` / * | recorded and surfaced in the dashboard; no work is started (sessions are the work trigger) |
 | anything else | recorded, `outcome = ignored` |
@@ -135,7 +145,7 @@ delegate is recorded on the session (`delegateRemovedAt`).
 `direction = outbound`), drained by `activities:deliver`. Rows get a per-session `seq` under the session's row
 lock; each session is sent in `seq` order by one process at a time (a Redis lease), and sessions in parallel.
 Each row carries a client-generated UUID passed as `agentActivityCreate(input.id)`, so a retried send is
-idempotent and Linear's "already exists" counts as sent. A per-installation token bucket in Redis
+idempotent and Linear's "already exists" counts as sent. A per-integration token bucket in Redis
 (`backend/lua/linear-token-bucket.lua`) keeps the deployment inside Linear's 5,000 requests/hour per app user,
 pulled down to Linear's own `X-RateLimit-Requests-Remaining` when that is lower, with the last 10 tokens reserved
 for acknowledgements and stop answers. A still-pending ephemeral activity is superseded by the next one, and a
@@ -172,7 +182,7 @@ runners:
    runner is offline, the session gets a visible "waiting for <runner>" thought, and after
    `routing.stickyTimeout` the work is re-offered to others as a fresh worktree with history replayed.
 2. **The issuer's runners next.** The session's Linear `creator` is mapped to a Hypotenuse user through
-   `linear_identities` (an explicit link, or a verified e-mail match), and that user's runners are offered the
+   `external_identities` (an explicit link, or a verified e-mail match), and that user's runners are offered the
    work first.
 3. **Then anyone eligible**, least-loaded first.
 
@@ -267,7 +277,7 @@ For each claimed work item it:
 per-turn nonce, and the daemon forwards each call to `daemon:linear-*` with the runner token it keeps to itself.
 The agent's process tree therefore never sees the runner token in argv or env. The server re-derives every
 permission from the session
-row: which installation, which issue, which role. The two tool sets:
+row: which integration, which issue, which role. The two tool sets:
 
 | Worker | Manager (adds) |
 |---|---|
@@ -279,13 +289,13 @@ row: which installation, which issue, which role. The two tool sets:
 |---|---|
 | `users`, `projects`, `project_memberships`, `tags`, `user_tags`, `project_invites`, `audit_logs`, `notifications`, `project_settings` | ported from ToolExec: tenancy, RBAC, audit, notifications, and one settings row per project whose columns arrive with the features that read them (routing timeouts, thresholds) |
 | `cli_tokens` | one per signed-in `hypotenuse` CLI: owner, device name, token sha256 and last four, last use, sliding expiry, revocation. The sign-in hand-offs themselves (one-time and device codes) live in Redis, by hash |
-| `linear_installations` | one per project: workspace id, name, and URL key; the app user's id, name, and capabilities; sealed tokens, expiry, refresh error; when an admin last completed the install; scopes, team access, status; the last-seen rate-limit headers. Live workspace ids are unique; a disconnected row is kept `revoked` with its tokens nulled. The install's `state` and PKCE verifier live in Redis for ten minutes |
-| `linear_events` | every verified webhook delivery, deduplicated on `deliveryId`, with its processing outcome |
-| `linear_identities` | Linear user ⇄ Hypotenuse user links, per installation |
-| `agent_sessions` | the mirror of each Linear agent session: issue, role, repository, sticky runner, parent (manager) session, plan, external URLs, status |
+| `integrations` | one per project and trigger `type`: the external workspace id, name, and URL key; the app user's external id, name, and capabilities (in the per-type `details`, with team access); sealed tokens, expiry, refresh error; when an admin last completed the install; scopes, team access, status; the last-seen rate-limit headers. Live workspace ids are unique; a disconnected row is kept `revoked` with its tokens nulled. The install's `state` and PKCE verifier live in Redis for ten minutes |
+| `trigger_events` | every verified webhook delivery of any trigger type, deduplicated on `(type, deliveryId)`, with its processing outcome |
+| `external_identities` | trigger-system user (`externalUserId`) ⇄ Hypotenuse user (`userId`) links, per integration |
+| `agent_sessions` | the mirror of each agent session, typed (`type`, `externalSessionId`): issue, role, repository, sticky runner, parent (manager) session, plan, external URLs, status |
 | `agent_activities` | inbound prompts and the outbound outbox, with client UUIDs, delivery status, and attempts |
 | `runners` | registered daemons: owner, token hash, machine id, last heartbeat, parallel-job limits, roles, agents, repositories |
-| `runner_subscriptions` | the Linear teams, projects, and labels each runner accepts, replaced on every heartbeat |
+| `runner_subscriptions` | the teams, projects, and labels (per trigger `type`) each runner accepts, replaced on every heartbeat |
 | `work_items` | one per turn: kind, role, status, offered/claimed runner, lease, attempts |
 | `routing_rules` | a project's ordered role-selection rules |
 
@@ -308,16 +318,16 @@ costs latency, never correctness.
 
 | Task | Every | Does |
 |---|---|---|
-| `linear:process-event` | enqueued per delivery; `linear:process-pending` every 5 s for a lost job | the event table above |
+| `triggers:process-event` | enqueued per delivery; `triggers:process-pending` every 5 s for a lost job | the event table above |
 | `activities:deliver` | enqueued per session; `activities:deliver-due` every 1 s | drains the outbound outbox under the token bucket |
 | `work:route` | enqueued + 5 s | offers queued work; expires work with no eligible runner after `routing.queueTimeout` |
 | `work:reap` | 15 s | returns work with expired leases to `queued`; marks runners offline after `runners.offlineAfter` |
 | `sessions:keepalive` | 60 s | a server-side keepalive `thought` for sessions whose runner is waiting on a person or reconnecting |
-| `linear:refresh-tokens` | 5 min | refreshes access tokens within 30 minutes of expiry under a row lock (refresh tokens rotate; a lost response is replayed inside Linear's 30-minute grace; `invalid_grant` marks the installation `error` and notifies its admins). A 401 anywhere refreshes inline through the same function |
+| `integrations:refresh-tokens` | 5 min | refreshes access tokens within 30 minutes of expiry under a row lock (refresh tokens rotate; a lost response is replayed inside Linear's 30-minute grace; `invalid_grant` marks the integration `error` and notifies its admins). A 401 anywhere refreshes inline through the same function |
 | `notifications:dispatch` | 30 s | delivers queued notifications: a ping on the project channel, and the e-mail (logged when `SMTP_HOST` is empty) |
-| `linear-events:sweep`, `audit:sweep`, `notifications:sweep`, `invites:sweep` | daily | retention |
+| `trigger-events:sweep`, `audit:sweep`, `notifications:sweep`, `invites:sweep` | daily | retention |
 
-Linear's jobs — processing a delivery, sending an outbox — run on the `linear` queue, which workers drain before
+Trigger jobs — processing a delivery, sending an outbox — run on the `triggers` queue, which workers drain before
 `orchestrator` and `default`, so nothing else queued delays an acknowledgement.
 
 ## Where the detail lives

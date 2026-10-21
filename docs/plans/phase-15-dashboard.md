@@ -6,9 +6,9 @@
 > session, revoke a runner, edit routing rules and test them, and link their Linear identity. All of it live,
 > without polling.
 
-> **Status: planned, not built.** The actions this phase draws already exist by now — `linear:*`
+> **Status: planned, not built.** The actions this phase draws already exist by now — `integration:*`
 > ([phase 6](./phase-06-linear-connection.md)), `agent-session:*` ([phase 7](./phase-07-webhook-ingress-and-session-mirror.md)),
-> `runner:*` ([phase 8](./phase-08-runners.md)), `routing-rule:*` and `linear-identity:*`
+> `runner:*` ([phase 8](./phase-08-runners.md)), `routing-rule:*` and `external-identity:*`
 > ([phase 9](./phase-09-work-routing.md)). Some earlier phases ship a minimal page alongside their actions; this
 > phase is where the dashboard becomes a product: one navigation, live channels, the session page, the routing
 > editor with a preview, CLI parity, and the public user docs.
@@ -29,12 +29,13 @@ content-free socket frames. This plan does not restate them; it says what Hypote
 
 **In:**
 
-- Navigation: **Home**, **Sessions**, **Runners**, **Routing**, and under **Project**: Settings (with a **Linear**
-  section), Members, Invites, Identities, Audit.
+- Navigation: **Home**, **Sessions**, **Runners**, **Routing**, and under **Project**: Settings (with an
+  **Integrations** section, `/settings/integrations`), Members, Invites, Identities, Audit.
 - **Project home**: connection health, runners online/busy, sessions by status over a window, the queue (work items
   waiting and why).
-- **Linear settings section**: connect / reconnect / disconnect, org name, app user, scopes, team access, token
-  expiry, last webhook received, recent delivery outcomes.
+- **Integrations settings section**: one card per trigger type the deployment knows (`integration:list` `types`;
+  Linear today) — connect / reconnect / disconnect, workspace name, app user, scopes, team access, token expiry, last
+  webhook received, recent delivery outcomes (`trigger_events`, filtered by `type`).
 - **Runners page**: live list (status, owner, jobs used/total with per-role and per-agent limits when set, roles, agents, repositories, version, platform,
   last heartbeat); register (shows the token once and the exact `hypotenuse runner register` / config snippet),
   edit name, drain, revoke.
@@ -46,7 +47,7 @@ content-free socket frames. This plan does not restate them; it says what Hypote
 - **Identities page**: my linked Linear user; admins see and manage all links.
 - Two content-free channels, `project:<projectId>:sessions` and `project:<projectId>:runners`.
 - **CLI parity** (rule 13 of [`AGENTS.md`](../../AGENTS.md)): `session list/view/cancel`, `runner list/view/revoke`,
-  `routing list/add/edit/remove/reorder`, `identity list/link/unlink`, `linear status/connect/disconnect`.
+  `routing list/add/edit/remove/reorder`, `identity list/link/unlink`, `integration list/view/connect/disconnect`.
 - **User docs** under `frontend/src/content/docs/`: getting started, connect Linear, install a runner, the config
   file, roles, routing, security.
 - Playwright specs for each page.
@@ -76,12 +77,12 @@ content, the client re-reads over HTTP, a reconnect hydrates, and a publish neve
 
 **Why the session frame may carry an id here.** ToolExec's runs-list channel deliberately omitted run ids because
 some runs were readable only by some members. Hypotenuse has no per-session read restriction inside a project — every
-member can read every session, because every member can read the Linear issue it is attached to (the installation
+member can read every session, because every member can read the Linear issue it is attached to (the integration
 is workspace-wide). If a future change introduces per-session visibility, the id comes out of the frame in the same
 commit; a test asserts the frame's key set is exactly `{event}` or `{event, id}` so that change is noticed.
 
 **Publishers.** `ops/SessionChannelOps.ts` `broadcastSessionUpdate(projectId, agentSessionId?)` is called after commit
-by: `linear:process-event` (session created, prompt, stop), `activities:deliver` (an activity sent — throttled to one
+by: `triggers:process-event` (session created, prompt, stop), `activities:deliver` (an activity sent — throttled to one
 frame per session per second, coalesced in Redis with `SET NX PX 1000`), `daemon:events`, `daemon:complete`,
 `daemon:dispatch`, `agent-session:cancel`, `work:route` and `work:reap` (work item state changes).
 `ops/RunnerChannelOps.ts` `broadcastRunnersUpdate(projectId)` is called by `daemon:heartbeat` **only when the
@@ -158,7 +159,7 @@ command (`hypotenuse routing preview ENG-123`).
 
 ### Identities
 
-`linear_identities` links a Linear user to a Hypotenuse user per installation; it is how "prefer the issuer's
+`external_identities` links a Linear user to a Hypotenuse user per integration; it is how "prefer the issuer's
 runner" finds the issuer ([phase 9](./phase-09-work-routing.md)). The page shows:
 
 - for everyone: "Your Linear identity" — linked user, how (`email` match or `oauth`), and **Link** / **Unlink**;
@@ -193,13 +194,13 @@ hypotenuse runner list [--json]            # status, owner, capacity, version
 hypotenuse runner view <id> | revoke <id>
 hypotenuse routing list | add | edit | remove | reorder | preview <ENG-123> [--prompt "/manage ..."]
 hypotenuse identity list | link | unlink
-hypotenuse linear status | connect | disconnect
+hypotenuse integration list | view <type> | connect <type> | disconnect <type>
 hypotenuse project overview
 ```
 
 `session view --follow` re-reads activities on an interval (ToolExec's product CLI also polls; the operator CLI is
 not where a socket earns its keep). `session view` accepts an issue identifier and resolves the most recent session on
-it. `linear connect` prints the authorize URL and opens a browser; the callback lands in the dashboard.
+it. `integration connect linear` prints the authorize URL and opens a browser; the callback lands in the dashboard.
 
 ### User docs
 
@@ -243,7 +244,7 @@ reads it from the cancel payload on its next heartbeat or claim). When no work i
 
 - `HomePage.tsx` (project home), `SessionsPage.tsx`, `SessionPage.tsx`, `RunnersPage.tsx`, `RoutingPage.tsx`,
   `IdentitiesPage.tsx`.
-- `components/settings/sections/Linear.tsx` registered in the settings section list (next to General, Members, Tags,
+- `components/settings/sections/Integrations.tsx` (a card per trigger type) registered in the settings section list (next to General, Members, Tags,
   Mcp, DangerZone).
 - `components/session/` — `ActivityTranscript.tsx`, `PlanChecklist.tsx`, `WorkItemTimeline.tsx`,
   `SessionHeader.tsx`; transcript pure passes in `utils/transcript.ts` (group ephemeral chains, collapse long results)
@@ -254,7 +255,7 @@ reads it from the cancel payload on its next heartbeat or claim). When no work i
 - All types via `ActionResponse<…>` from `@backend/*`; all gating via `can()`; all live updates via
   `LiveSocketContext` subscriptions keyed on the page's subject.
 
-### 5. CLI — `cli/src/commands/{session,runner,routing,identity,linear,project}.ts`
+### 5. CLI — `cli/src/commands/{session,runner,routing,identity,integration,project}.ts`
 
 The commands above, each a thin client over `cli/src/api/client.ts`, `--json` everywhere, tables otherwise. Spawn
 tests in `backend/__tests__/cli/cli.test.ts` drive each against a real server (ToolExec's pattern).
@@ -277,7 +278,7 @@ The seven pages. Screenshots captured from a seeded app by `frontend/scripts/cap
 - `frontend/src/__tests__/transcript.test.ts` — the pure passes.
 - Playwright: `e2e/sessions.spec.ts` (list → page → transcript renders; a new activity arrives live; cancel),
   `e2e/runners.spec.ts` (register shows token once; revoke flips the row live), `e2e/routing.spec.ts` (reorder
-  persists; preview shows reasons), `e2e/linear-settings.spec.ts` (connected state against finear),
+  persists; preview shows reasons), `e2e/integrations-settings.spec.ts` (the Linear card's connected state against finear),
   `e2e/identities.spec.ts`, `e2e/docs.spec.ts` (every docs page renders, no broken links).
 
 ## Verification

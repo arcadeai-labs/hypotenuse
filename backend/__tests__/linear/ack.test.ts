@@ -4,7 +4,7 @@ import { bucketKey } from "../../ops/LinearBucketOps";
 import { ACK_BODY, NO_RUNNER_BODY } from "../../ops/LinearWebhookOps";
 import { buildTestUniverse, HOOK_TIMEOUT, type TestUniverse } from "../setup";
 import { useFinear } from "./finear";
-import { appToken, installationRow } from "./helpers";
+import { appToken, integrationRow } from "./helpers";
 import {
   activityRows,
   createIssue,
@@ -17,8 +17,8 @@ import {
 
 /**
  * The acknowledgement Linear requires within ten seconds of `created`,
- * measured through a real Resque worker: webhook → `linear:process-event` on
- * the `linear` queue → `activities:deliver` → finear. Every other suite drives
+ * measured through a real Resque worker: webhook → `triggers:process-event` on
+ * the `triggers` queue → `activities:deliver` → finear. Every other suite drives
  * jobs in-process; this one is the latency of the path as deployed.
  */
 
@@ -42,30 +42,30 @@ const linear = useFinear();
 
 let token: string;
 let appUserId: string;
-let installationId: number;
+let integrationId: number;
 beforeAll(async () => {
   await linear.install(universe.projectId, universe.peach.sessionId);
-  const row = await installationRow(universe.projectId);
-  appUserId = row.appUserId;
-  installationId = row.id;
+  const row = await integrationRow(universe.projectId);
+  appUserId = row.externalAppUserId;
+  integrationId = row.id;
   token = await appToken(universe.projectId);
   // One worker, on the queue Linear's work runs on.
   config.tasks.taskProcessors = 1;
-  config.tasks.queues = ["linear"];
+  config.tasks.queues = ["triggers"];
   await api.resque.startWorkers();
 }, HOOK_TIMEOUT);
 
 describe("the acknowledgement", () => {
   test("LC-BP-01 a delegation is acknowledged in finear within 3 s of the webhook arriving", async () => {
     const issue = await createIssue(linear, "Acknowledge me");
-    const linearSessionId = await delegate(linear, issue.id, appUserId);
+    const externalSessionId = await delegate(linear, issue.id, appUserId);
     const event = await recordedEvent(
       (e) =>
         (e.payload as { agentSession?: { id?: string } }).agentSession?.id ===
-        linearSessionId,
+        externalSessionId,
     );
     const finear = await waitFor(async () => {
-      const seen = await finearSession(linear, token, linearSessionId);
+      const seen = await finearSession(linear, token, externalSessionId);
       return seen.activities.length >= 2 ? seen : undefined;
     }, 10_000);
 
@@ -81,19 +81,19 @@ describe("the acknowledgement", () => {
 
   test("LC-BP-01 the acknowledgement spends the reserve when the bucket is otherwise empty", async () => {
     // Five tokens: below the ten kept back, so only an acknowledgement goes.
-    await api.redis.redis.hset(bucketKey(installationId), {
+    await api.redis.redis.hset(bucketKey(integrationId), {
       tokens: "5",
       ts: String(Date.now()),
     });
     const issue = await createIssue(linear, "Busy workspace");
-    const linearSessionId = await delegate(linear, issue.id, appUserId);
+    const externalSessionId = await delegate(linear, issue.id, appUserId);
     const finear = await waitFor(async () => {
-      const seen = await finearSession(linear, token, linearSessionId);
+      const seen = await finearSession(linear, token, externalSessionId);
       return seen.activities.length >= 1 ? seen : undefined;
     }, 10_000);
     expect(finear.activities.map((a) => a.content.body)).toEqual([ACK_BODY]);
 
-    const session = await sessionRow(linearSessionId);
+    const session = await sessionRow(externalSessionId);
     // finear records the activity a moment before the worker records it
     // sent, and the worker then tries the next row and defers it.
     const rows = await waitFor(async () => {

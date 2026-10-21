@@ -300,7 +300,7 @@ export function useFinear() {
   }
 
   /**
-   * Drive `linear:connect` and finear's consent screen, and answer the URL
+   * Drive `integration:connect` and finear's consent screen, and answer the URL
    * Linear would send the browser back to — without following it, so a test
    * can follow it as whoever it likes.
    * @param projectId - The project being connected.
@@ -315,7 +315,7 @@ export function useFinear() {
     options: { decision?: "allow" | "deny"; fixture?: FinearFixture } = {},
   ): Promise<string> {
     const connect = await fetch(
-      `${serverUrl()}/api/linear/connect?projectId=${projectId}`,
+      `${serverUrl()}/api/integration/connect?projectId=${projectId}&type=linear`,
       { headers: cookieHeader(sessionId) },
     );
     const started = (await connect.json()) as {
@@ -323,7 +323,7 @@ export function useFinear() {
       error?: unknown;
     };
     if (!started.authorizeUrl) {
-      throw new Error(`linear:connect failed: ${JSON.stringify(started)}`);
+      throw new Error(`integration:connect failed: ${JSON.stringify(started)}`);
     }
     return consent(started.authorizeUrl, options);
   }
@@ -333,7 +333,7 @@ export function useFinear() {
    * chosen fixture admin with every team offered. finear's consent is an HTML
    * form, so this scrapes it: the fragility lives in this one function.
    * Ported from `approveFixtureConsent` in finear's `examples/agent.ts`.
-   * @param authorizeUrl - The URL `linear:connect` answered.
+   * @param authorizeUrl - The URL `integration:connect` answered.
    * @param options - As {@link authorize}.
    * @returns The callback URL.
    */

@@ -3,9 +3,9 @@ import { type Action, type ActionParams, api } from "keryx";
 import { z } from "zod";
 import {
   afterProcessing,
-  processLinearEvent,
-} from "../../ops/LinearWebhookOps";
-import { linearEvents } from "../../schema/linear_events";
+  processTriggerEvent,
+} from "../../ops/TriggerEventOps";
+import { triggerEvents } from "../../schema/trigger_events";
 
 /** A delivery younger than this is left to the job its webhook enqueued. */
 const GRACE_MS = 2000;
@@ -14,17 +14,17 @@ const GRACE_MS = 2000;
 const BATCH = 100;
 
 /**
- * `linear:process-pending` — the clock behind the webhook's enqueue. Every
+ * `triggers:process-pending` — the clock behind the webhook's enqueue. Every
  * five seconds, process any recorded delivery still unprocessed: the job for
  * it was lost (Redis restarted, a worker died mid-job), and the row is the
  * delivery. Task-only, unaudited, never an MCP tool.
  */
-export class LinearProcessPending implements Action {
-  name = "linear:process-pending";
+export class TriggersProcessPending implements Action {
+  name = "triggers:process-pending";
   description =
-    "Process Linear webhook deliveries whose processing job was lost. Runs automatically every few seconds; not exposed over HTTP.";
+    "Process trigger webhook deliveries whose processing job was lost. Runs automatically every few seconds; not exposed over HTTP.";
   mcp = { tool: false };
-  task = { queue: "linear", frequency: 5000 };
+  task = { queue: "triggers", frequency: 5000 };
   inputs = z.object({
     graceMs: z.coerce
       .number()
@@ -38,22 +38,22 @@ export class LinearProcessPending implements Action {
    * @param params - The grace period.
    * @returns How many deliveries this tick processed.
    */
-  async run(params: ActionParams<LinearProcessPending>) {
+  async run(params: ActionParams<TriggersProcessPending>) {
     const due = await api.db.db
-      .select({ id: linearEvents.id })
-      .from(linearEvents)
+      .select({ id: triggerEvents.id })
+      .from(triggerEvents)
       .where(
         and(
-          isNull(linearEvents.processedAt),
-          lt(linearEvents.receivedAt, new Date(Date.now() - params.graceMs)),
+          isNull(triggerEvents.processedAt),
+          lt(triggerEvents.receivedAt, new Date(Date.now() - params.graceMs)),
         ),
       )
-      .orderBy(asc(linearEvents.id))
+      .orderBy(asc(triggerEvents.id))
       .limit(BATCH);
 
     let processed = 0;
     for (const { id } of due) {
-      const result = await processLinearEvent(id);
+      const result = await processTriggerEvent(id);
       if (!result) continue;
       processed++;
       await afterProcessing(result);

@@ -42,7 +42,7 @@ export const ACTIVITY_CONTENT_TYPES = [
 export type ActivityContentType = (typeof ACTIVITY_CONTENT_TYPES)[number];
 
 /**
- * Who goes first when an installation's request budget is short. `ack` may
+ * Who goes first when an integration's request budget is short. `ack` may
  * spend the reserved tokens; `bulk` (ephemeral chatter) yields the most.
  */
 export const ACTIVITY_PRIORITIES = ["ack", "normal", "bulk"] as const;
@@ -110,12 +110,12 @@ export const agentActivities = pgTable(
     > | null>(),
     /** Generated at enqueue; `agentActivityCreate`'s `id`, so sending twice is harmless. */
     clientActivityId: uuid("client_activity_id").notNull(),
-    /** Linear's id: the client id once sent, or the inbound activity's id. */
-    linearActivityId: text("linear_activity_id"),
-    /** Inbound only: the thread comment Linear mirrored the prompt into. */
-    sourceCommentId: text("source_comment_id"),
-    /** Inbound only: the person who typed it. */
-    linearUserId: text("linear_user_id"),
+    /** The trigger's id: the client id once sent, or the inbound activity's id. */
+    externalActivityId: text("external_activity_id"),
+    /** Inbound only: the thread comment the trigger mirrored the prompt into. */
+    externalSourceCommentId: text("external_source_comment_id"),
+    /** Inbound only: the person who typed it, in the trigger system. */
+    externalUserId: text("external_user_id"),
     priority: text("priority")
       .$type<ActivityPriority>()
       .notNull()

@@ -19,7 +19,7 @@ export class ActivitiesDeliverDue implements Action {
   description =
     "Send every agent session's due activities to Linear. Runs automatically every second; not exposed over HTTP.";
   mcp = { tool: false };
-  task = { queue: "linear", frequency: 1000 };
+  task = { queue: "triggers", frequency: 1000 };
   inputs = z.object({});
 
   /**

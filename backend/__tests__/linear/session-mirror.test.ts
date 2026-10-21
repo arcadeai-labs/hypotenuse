@@ -14,7 +14,7 @@ import {
   type TestUniverse,
 } from "../setup";
 import { useFinear } from "./finear";
-import { appToken, installationRow } from "./helpers";
+import { appToken, integrationRow } from "./helpers";
 import {
   finearSession,
   mirroredQuietly,
@@ -43,7 +43,7 @@ let token: string;
 let appUserId: string;
 beforeAll(async () => {
   await linear.install(universe.projectId, universe.peach.sessionId);
-  appUserId = (await installationRow(universe.projectId)).appUserId;
+  appUserId = (await integrationRow(universe.projectId)).externalAppUserId;
   token = await appToken(universe.projectId);
 }, HOOK_TIMEOUT);
 
@@ -68,8 +68,8 @@ async function after(
  * @returns The status.
  */
 async function agreed(session: AgentSession): Promise<string> {
-  const mirror = (await sessionRow(session.linearSessionId))?.status;
-  const finear = (await finearSession(linear, token, session.linearSessionId))
+  const mirror = (await sessionRow(session.externalSessionId))?.status;
+  const finear = (await finearSession(linear, token, session.externalSessionId))
     .status;
   expect(String(mirror)).toBe(finear);
   return String(mirror);
@@ -83,7 +83,7 @@ async function agreed(session: AgentSession): Promise<string> {
  */
 async function personPrompts(session: AgentSession, body: string) {
   await linear.control("/__test/agents/prompt", {
-    sessionId: session.linearSessionId,
+    sessionId: session.externalSessionId,
     body,
   });
   await recordedEvent(
@@ -92,7 +92,7 @@ async function personPrompts(session: AgentSession, body: string) {
       (e.payload as { agentActivity?: { content?: { body?: string } } })
         .agentActivity?.content?.body === body,
   );
-  await runAction("linear:process-pending", { graceMs: 0 });
+  await runAction("triggers:process-pending", { graceMs: 0 });
 }
 
 describe("the session mirror", () => {
@@ -124,10 +124,12 @@ describe("the session mirror", () => {
     // …and the interim reply it was answered with is now waiting to go.
     await deliverSession(session.id);
     expect(await agreed(session)).toBe("error");
-    expect((await sessionRow(session.linearSessionId))?.endedAt).not.toBeNull();
+    expect(
+      (await sessionRow(session.externalSessionId))?.endedAt,
+    ).not.toBeNull();
 
     await personPrompts(session, "please finish");
-    expect((await sessionRow(session.linearSessionId))?.endedAt).toBeNull();
+    expect((await sessionRow(session.externalSessionId))?.endedAt).toBeNull();
     // Replace the queued interim error with a real answer.
     const { failPending } = await import("../../ops/ActivityOutboxOps");
     await failPending(api.db.db, { agentSessionId: session.id }, "test");

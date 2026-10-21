@@ -92,13 +92,14 @@ a project.
 | Column | Notes |
 |---|---|
 | `id`, `runnerId` FK cascade | |
+| `type` | the trigger type the subscription is for — `linear` today, the same `type` as `integrations` and `agent_sessions` |
 | `kind` | `team` \| `project` \| `label` |
 | `value` | team **key** (`ENG`), project **id**, or label **name** (lowercased) — what a person writes in a config file |
-| unique `(runnerId, kind, value)` | |
+| unique `(runnerId, type, kind, value)` | |
 
-**Empty means everything.** A runner with no `team` rows accepts every team the installation can see; likewise
+**Empty means everything.** A runner with no `team` rows accepts every team the integration can see; likewise
 projects and labels. Kinds intersect: `teams = ["ENG"]`, `labels = ["frontend"]` accepts ENG issues labelled
-`frontend`. The daemon validates team keys against `linear:catalog` at startup and warns on unknown ones rather
+`frontend`. The daemon validates team keys against `integration:catalog` at startup and warns on unknown ones rather
 than refusing — a team can be renamed under a running fleet.
 
 ### The runner token
@@ -140,7 +141,7 @@ hook (`backend/initializers/daemonPolicy.ts`), ported from ToolExec's `mcpAgentT
 - refuses **every other action** to a connection authenticated by a runner token.
 
 The second half is the important one. A runner token carries its owner's identity, and without the hook it
-would pass `ProjectMemberMiddleware` for `runner:register`, `linear:disconnect` (if the owner is an admin),
+would pass `ProjectMemberMiddleware` for `runner:register`, `integration:disconnect` (if the owner is an admin),
 `routing-rule:edit`, and anything else the owner can do. The daemon never needs a human action; if it ever
 does, the action is duplicated as a `daemon:*` twin, as ToolExec duplicates `sandbox:*` twins.
 

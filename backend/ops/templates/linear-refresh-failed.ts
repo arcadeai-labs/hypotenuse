@@ -1,18 +1,18 @@
 import { escapeHtml, layout, type NotificationTemplate } from "./types";
 
 /**
- * Linear refused an installation's refresh token, so the agent can no longer
+ * Linear refused an integration's refresh token, so the agent can no longer
  * act in that workspace until an admin reconnects it. Sent to the project's
- * admins by `refreshInstallationTokens`.
- * @param payload - `{ organizationName }`.
+ * admins by `refreshIntegrationTokens`.
+ * @param payload - `{ workspaceName }`.
  * @param appUrl - The frontend's origin.
  * @returns Both renderings.
  */
 export const linearRefreshFailed: NotificationTemplate = (payload, appUrl) => {
-  const workspace = String(payload.organizationName ?? "your Linear workspace");
+  const workspace = String(payload.workspaceName ?? "your Linear workspace");
   const title = `Reconnect Linear: ${workspace}`;
-  const body = `Linear stopped accepting Hypotenuse's credentials for ${workspace}, so @hypotenuse cannot answer there until an admin reconnects it in Settings → Linear.`;
-  const url = `${appUrl}/settings/linear`;
+  const body = `Linear stopped accepting Hypotenuse's credentials for ${workspace}, so @hypotenuse cannot answer there until an admin reconnects it in Settings → Integrations.`;
+  const url = `${appUrl}/settings/integrations`;
   return {
     title,
     body,

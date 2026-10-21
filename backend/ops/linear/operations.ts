@@ -68,7 +68,7 @@ export const GetViewer = operation<{ viewer: LinearViewer }>(
 }`,
 );
 
-/** The workspace an installation lives in. */
+/** The workspace an integration lives in. */
 export interface LinearOrganization {
   id: string;
   name: string;

@@ -20,7 +20,7 @@ import { rateLimitKey } from "../../ops/LinearOps";
 import { LINEAR_OPERATIONS } from "../../ops/linear/operations";
 import { agentActivities } from "../../schema/agent_activities";
 import type { AgentSession } from "../../schema/agent_sessions";
-import { linearInstallations } from "../../schema/linear_installations";
+import { integrations } from "../../schema/integrations";
 import {
   buildTestUniverse,
   HOOK_TIMEOUT,
@@ -28,7 +28,7 @@ import {
   type TestUniverse,
 } from "../setup";
 import { useFinear } from "./finear";
-import { appToken, installationRow } from "./helpers";
+import { appToken, integrationRow } from "./helpers";
 import {
   activityRows,
   finearSession,
@@ -54,13 +54,13 @@ afterAll(async () => {
 const linear = useFinear();
 
 let token: string;
-let installationId: number;
+let integrationId: number;
 let appUserId: string;
 beforeAll(async () => {
   await linear.install(universe.projectId, universe.peach.sessionId);
-  const row = await installationRow(universe.projectId);
-  installationId = row.id;
-  appUserId = row.appUserId;
+  const row = await integrationRow(universe.projectId);
+  integrationId = row.id;
+  appUserId = row.externalAppUserId;
   token = await appToken(universe.projectId);
 }, HOOK_TIMEOUT);
 
@@ -71,8 +71,8 @@ beforeAll(() => {
 beforeEach(async () => {
   config.linear.bucketBurst = burst;
   await api.redis.redis.del(
-    bucketKey(installationId),
-    rateLimitKey(installationId),
+    bucketKey(integrationId),
+    rateLimitKey(integrationId),
   );
   linear.clearRequests();
 });
@@ -132,7 +132,7 @@ describe("ordering", () => {
       const finear = await finearSession(
         linear,
         token,
-        session.linearSessionId,
+        session.externalSessionId,
       );
       expect(finear.activities.map((a) => a.content.body)).toEqual(
         Array.from({ length: 10 }, (_, n) => `${session.id}:${n}`),
@@ -171,12 +171,16 @@ describe("idempotency", () => {
     await deliverSession(session.id);
 
     expect(sent("CreateAgentActivity")).toBe(2);
-    const finear = await finearSession(linear, token, session.linearSessionId);
+    const finear = await finearSession(
+      linear,
+      token,
+      session.externalSessionId,
+    );
     expect(finear.activities.map((a) => a.content.body)).toEqual(["said once"]);
     const [row] = await activityRows(session.id);
     expect(row).toMatchObject({
       deliveryStatus: "sent",
-      linearActivityId: row.clientActivityId,
+      externalActivityId: row.clientActivityId,
     });
   });
 
@@ -204,7 +208,11 @@ describe("idempotency", () => {
     expect((await deliverSession(session.id)).sent).toBe(1);
     [row] = await activityRows(session.id);
     expect(row.deliveryStatus).toBe("sent");
-    const finear = await finearSession(linear, token, session.linearSessionId);
+    const finear = await finearSession(
+      linear,
+      token,
+      session.externalSessionId,
+    );
     expect(finear.activities).toHaveLength(1);
   });
 
@@ -260,9 +268,13 @@ describe("superseding", () => {
       [true, "bulk", "superseded"],
       [false, "normal", "sent"],
     ]);
-    const finear = await finearSession(linear, token, session.linearSessionId);
+    const finear = await finearSession(
+      linear,
+      token,
+      session.externalSessionId,
+    );
     expect(finear.activities.map((a) => a.content.body)).toEqual(["Done."]);
-    expect((await sessionRow(session.linearSessionId))?.status).toBe(
+    expect((await sessionRow(session.externalSessionId))?.status).toBe(
       "complete",
     );
   });
@@ -274,7 +286,11 @@ describe("superseding", () => {
       { ephemeral: true },
     ]);
     await deliverSession(session.id);
-    const finear = await finearSession(linear, token, session.linearSessionId);
+    const finear = await finearSession(
+      linear,
+      token,
+      session.externalSessionId,
+    );
     expect(finear.activities).toEqual([
       expect.objectContaining({ ephemeral: true }),
     ]);
@@ -328,7 +344,7 @@ describe("superseding", () => {
       ],
     ]);
     expect(sent("UpdateAgentSession")).toBe(2);
-    const mirror = await sessionRow(session.linearSessionId);
+    const mirror = await sessionRow(session.externalSessionId);
     expect(mirror).toMatchObject({
       summary: "Fixing the flaky test",
       plan: [
@@ -438,7 +454,7 @@ describe("validation", () => {
     expect(rows[1].attempts).toBe(1);
   });
 
-  test("an installation that cannot act fails every pending row", async () => {
+  test("an integration that cannot act fails every pending row", async () => {
     const session = await quietSession("Unavailable");
     await enqueue(
       session,
@@ -446,21 +462,21 @@ describe("validation", () => {
       [{ type: "thought", body: "b" }],
     );
     await api.db.db
-      .update(linearInstallations)
+      .update(integrations)
       .set({ status: "error" })
-      .where(eq(linearInstallations.id, installationId));
+      .where(eq(integrations.id, integrationId));
     try {
       await deliverSession(session.id);
     } finally {
       await api.db.db
-        .update(linearInstallations)
+        .update(integrations)
         .set({ status: "active" })
-        .where(eq(linearInstallations.id, installationId));
+        .where(eq(integrations.id, integrationId));
     }
     const rows = await activityRows(session.id);
     expect(rows.map((r) => [r.deliveryStatus, r.lastError])).toEqual([
-      ["failed", "installation unavailable"],
-      ["failed", "installation unavailable"],
+      ["failed", "integration unavailable"],
+      ["failed", "integration unavailable"],
     ]);
     expect(sent("CreateAgentActivity")).toBe(0);
   });
@@ -470,7 +486,7 @@ describe("budget", () => {
   test("LC-RATE-01 an empty bucket defers the session's head without spending an attempt", async () => {
     const session = await quietSession("Empty bucket");
     await enqueue(session, [{ type: "thought", body: "waits" }]);
-    await api.redis.redis.hset(bucketKey(installationId), {
+    await api.redis.redis.hset(bucketKey(integrationId), {
       tokens: "0",
       ts: String(Date.now()),
     });
@@ -537,10 +553,14 @@ describe("the mirror", () => {
       },
     ]);
     await deliverSession(session.id);
-    expect((await sessionRow(session.linearSessionId))?.status).toBe(
+    expect((await sessionRow(session.externalSessionId))?.status).toBe(
       "awaitingInput",
     );
-    const finear = await finearSession(linear, token, session.linearSessionId);
+    const finear = await finearSession(
+      linear,
+      token,
+      session.externalSessionId,
+    );
     expect(finear).toMatchObject({
       status: "awaitingInput",
       activities: [expect.objectContaining({ signal: "select" })],

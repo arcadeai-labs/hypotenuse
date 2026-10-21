@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { eq } from "drizzle-orm";
 import { api, config } from "keryx";
 import { webhookClock } from "../../ops/LinearWebhookOps";
-import { linearEvents } from "../../schema/linear_events";
+import { triggerEvents } from "../../schema/trigger_events";
 import {
   buildTestUniverse,
   HOOK_TIMEOUT,
@@ -10,7 +10,7 @@ import {
   type TestUniverse,
 } from "../setup";
 import { useFinear } from "./finear";
-import { installationRow } from "./helpers";
+import { integrationRow } from "./helpers";
 import {
   agentSessionEvent,
   deliver,
@@ -47,8 +47,11 @@ const linear = useFinear();
 let target: Target;
 beforeAll(async () => {
   await linear.install(universe.projectId, universe.peach.sessionId);
-  const row = await installationRow(universe.projectId);
-  target = { organizationId: row.organizationId, appUserId: row.appUserId };
+  const row = await integrationRow(universe.projectId);
+  target = {
+    organizationId: row.externalWorkspaceId,
+    appUserId: row.externalAppUserId,
+  };
 }, HOOK_TIMEOUT);
 
 describe("webhook robustness", () => {
@@ -135,8 +138,8 @@ describe("webhook robustness", () => {
     await settle();
     const [row] = await api.db.db
       .select()
-      .from(linearEvents)
-      .where(eq(linearEvents.deliveryId, res.deliveryId!));
+      .from(triggerEvents)
+      .where(eq(triggerEvents.deliveryId, res.deliveryId!));
     expect(row).toMatchObject({ action: "archived", outcome: "ignored" });
   });
 
@@ -153,8 +156,8 @@ describe("webhook robustness", () => {
     await settle();
     const [row] = await api.db.db
       .select()
-      .from(linearEvents)
-      .where(eq(linearEvents.deliveryId, res.deliveryId!));
+      .from(triggerEvents)
+      .where(eq(triggerEvents.deliveryId, res.deliveryId!));
     expect(row.outcome).toBe("ignored");
   });
 
@@ -167,30 +170,30 @@ describe("webhook robustness", () => {
       }),
     );
     // As if Redis lost the job.
-    await api.resque.queue.delQueue("linear");
+    await api.resque.queue.delQueue("triggers");
     const [row] = await api.db.db
       .select()
-      .from(linearEvents)
-      .where(eq(linearEvents.deliveryId, res.deliveryId!));
+      .from(triggerEvents)
+      .where(eq(triggerEvents.deliveryId, res.deliveryId!));
     expect(row.processedAt).toBeNull();
 
     // Young deliveries are left to their own job…
     expect(
-      (await runAction<{ processed: number }>("linear:process-pending", {}))
+      (await runAction<{ processed: number }>("triggers:process-pending", {}))
         .processed,
     ).toBe(0);
     await api.db.db
-      .update(linearEvents)
+      .update(triggerEvents)
       .set({ receivedAt: new Date(Date.now() - 10_000) })
-      .where(eq(linearEvents.id, row.id));
+      .where(eq(triggerEvents.id, row.id));
     // …and old ones are the clock's.
     expect(
-      (await runAction<{ processed: number }>("linear:process-pending", {}))
+      (await runAction<{ processed: number }>("triggers:process-pending", {}))
         .processed,
     ).toBe(1);
     // Exactly once: the job, had it survived, finds nothing to do.
     expect(
-      await runAction("linear:process-event", { eventId: row.id }),
+      await runAction("triggers:process-event", { eventId: row.id }),
     ).toEqual({ outcome: "skipped" });
   });
 
@@ -202,20 +205,20 @@ describe("webhook robustness", () => {
       webhookTimestamp: Date.now(),
     });
     await api.db.db
-      .update(linearEvents)
+      .update(triggerEvents)
       .set({
         receivedAt: new Date(
           Date.now() -
             (config.linear.eventRetentionDays + 1) * 24 * 60 * 60 * 1000,
         ),
       })
-      .where(eq(linearEvents.deliveryId, res.deliveryId!));
-    const before = (await api.db.db.select().from(linearEvents)).length;
+      .where(eq(triggerEvents.deliveryId, res.deliveryId!));
+    const before = (await api.db.db.select().from(triggerEvents)).length;
     const { deleted } = await runAction<{ deleted: number }>(
-      "linear-events:sweep",
+      "trigger-events:sweep",
     );
     expect(deleted).toBe(1);
-    expect((await api.db.db.select().from(linearEvents)).length).toBe(
+    expect((await api.db.db.select().from(triggerEvents)).length).toBe(
       before - 1,
     );
   });
@@ -234,7 +237,7 @@ describe("webhook robustness", () => {
     config.linear.webhookSecret = "a-secret-linear-does-not-sign-with";
     let deliveryId: string;
     try {
-      const linearSessionId = await delegate(
+      const externalSessionId = await delegate(
         linear,
         issue.id,
         target.appUserId,
@@ -245,7 +248,7 @@ describe("webhook robustness", () => {
           deliveries: { id: string; envelope: string }[];
         }>("/__test/deliveries");
         const delivery = deliveries.find((d) =>
-          d.envelope.includes(linearSessionId),
+          d.envelope.includes(externalSessionId),
         );
         if (!delivery) return undefined;
         return (await attemptsOf(delivery.id)).length > 0
@@ -276,8 +279,8 @@ describe("webhook robustness", () => {
     expect(
       await api.db.db
         .select()
-        .from(linearEvents)
-        .where(eq(linearEvents.deliveryId, deliveryId)),
+        .from(triggerEvents)
+        .where(eq(triggerEvents.deliveryId, deliveryId)),
     ).toHaveLength(1);
 
     // Against the real clock, the accepted retry would have been a replay.

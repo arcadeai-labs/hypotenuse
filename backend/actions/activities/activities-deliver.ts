@@ -15,7 +15,7 @@ export class ActivitiesDeliver implements Action {
   description =
     "Send one agent session's pending activities to Linear in order. Enqueued by the outbox; not exposed over HTTP.";
   mcp = { tool: false };
-  task = { queue: "linear" };
+  task = { queue: "triggers" };
   inputs = z.object({
     agentSessionId: z.coerce
       .number()

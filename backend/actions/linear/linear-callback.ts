@@ -14,6 +14,7 @@ import {
   type AuditedConnection,
   type TxHandle,
 } from "../../classes/AuditedAction";
+import { serializeIntegration } from "../../ops/IntegrationOps";
 import {
   collectState,
   exchangeCode,
@@ -21,14 +22,14 @@ import {
   type LinearTokenGrant,
   tokenColumns,
 } from "../../ops/LinearOAuthOps";
-import { postGraphQL, serializeLinearInstallation } from "../../ops/LinearOps";
+import { postGraphQL } from "../../ops/LinearOps";
 import {
   GetInstallationIdentity,
   type LinearOrganization,
   type LinearViewer,
 } from "../../ops/linear/operations";
 import { getCallerTags, isAdmin } from "../../ops/MembershipOps";
-import { linearInstallations } from "../../schema/linear_installations";
+import { integrations } from "../../schema/integrations";
 
 /** A refusal that becomes `?error=<code>` on the dashboard redirect. */
 class CallbackRefusal extends TypedError {
@@ -66,11 +67,11 @@ const pending = new WeakMap<AuditedConnection, PreparedInstall>();
 /**
  * The dashboard page the browser lands on.
  * @param query - The query parameters to put on it.
- * @returns A 302 to `/settings/linear`.
+ * @returns A 302 to `/settings/integrations`.
  */
 function redirectToSettings(query: Record<string, string>): Response {
   const url = new URL(
-    `${config.cliAuth.appUrl.replace(/\/+$/, "")}/settings/linear`,
+    `${config.cliAuth.appUrl.replace(/\/+$/, "")}/settings/integrations`,
   );
   for (const [key, value] of Object.entries(query)) {
     url.searchParams.set(key, value);
@@ -99,10 +100,10 @@ function isUniqueViolation(e: unknown): boolean {
  * `linear:callback` — where Linear sends the admin's browser after the consent
  * screen. Takes the parked `state` (once), checks it belongs to the signed-in
  * person who started the install, exchanges the code with its PKCE verifier,
- * asks Linear who the app is and which workspace, and stores the installation.
+ * asks Linear who the app is and which workspace, and stores the integration.
  *
  * A browser hop: it never answers JSON. Every outcome is a 302 to the
- * dashboard's Settings → Linear, with `?connected=1` or `?error=<code>` (see
+ * dashboard's Settings → Integrations, with `?connected=1` or `?error=<code>` (see
  * `LINEAR_CALLBACK_ERRORS`). Never an MCP tool, never wrapped by the CLI.
  * Audited: attaching a workspace to a project is an admin's decision.
  *
@@ -122,7 +123,7 @@ export class LinearCallback extends AuditedAction {
       .describe("The authorization code Linear issued"),
     state: secret(z.string().max(256))
       .optional()
-      .describe("The state linear:connect parked"),
+      .describe("The state integration:connect parked"),
     error: z
       .string()
       .max(256)
@@ -151,12 +152,13 @@ export class LinearCallback extends AuditedAction {
       pending.set(connection, prepared);
       await super.run(params, connection);
       return redirectToSettings({
+        type: "linear",
         connected: "1",
         projectId: String(prepared.projectId),
       });
     } catch (e) {
       const code = e instanceof CallbackRefusal ? e.code : "exchange_failed";
-      return redirectToSettings({ error: code });
+      return redirectToSettings({ type: "linear", error: code });
     } finally {
       pending.delete(connection);
     }
@@ -207,12 +209,12 @@ export class LinearCallback extends AuditedAction {
   }
 
   /**
-   * Store the installation: a new row, or fresh tokens on the project's
+   * Store the Linear integration: a new row, or fresh tokens on the project's
    * existing one (same id, back to `active`).
    * @param tx - The transaction the write and its audit row share.
    * @param _params - Unused: everything comes from the prepared install.
    * @param connection - The browser's connection.
-   * @returns The stored installation.
+   * @returns The stored integration.
    * @throws {CallbackRefusal} `forbidden`, `workspace_taken`, or `workspace_changed`.
    */
   async runWithAudit(
@@ -230,41 +232,53 @@ export class LinearCallback extends AuditedAction {
 
     const [existing] = await tx
       .select()
-      .from(linearInstallations)
-      .where(eq(linearInstallations.projectId, projectId))
+      .from(integrations)
+      .where(
+        and(
+          eq(integrations.projectId, projectId),
+          eq(integrations.type, "linear"),
+        ),
+      )
       .for("update");
     if (
       existing &&
       existing.status !== "revoked" &&
-      existing.organizationId !== organization.id
+      existing.externalWorkspaceId !== organization.id
     ) {
       throw new CallbackRefusal("workspace_changed");
     }
 
     const [elsewhere] = await tx
-      .select({ id: linearInstallations.id })
-      .from(linearInstallations)
+      .select({ id: integrations.id })
+      .from(integrations)
       .where(
         and(
-          eq(linearInstallations.organizationId, organization.id),
-          ne(linearInstallations.status, "revoked"),
-          ne(linearInstallations.projectId, projectId),
+          eq(integrations.type, "linear"),
+          eq(integrations.externalWorkspaceId, organization.id),
+          ne(integrations.status, "revoked"),
+          ne(integrations.projectId, projectId),
         ),
       )
       .limit(1);
     if (elsewhere) throw new CallbackRefusal("workspace_taken");
 
     const values = {
-      organizationId: organization.id,
-      organizationName: organization.name,
-      urlKey: organization.urlKey,
-      appUserId: viewer.id,
+      externalWorkspaceId: organization.id,
+      workspaceName: organization.name,
+      workspaceUrlKey: organization.urlKey,
+      externalAppUserId: viewer.id,
       appUserName: viewer.displayName || viewer.name,
-      appUserCapabilities: {
-        app: viewer.app,
-        isAssignable: viewer.isAssignable,
-        isMentionable: viewer.isMentionable,
-        supportsAgentSessions: viewer.supportsAgentSessions,
+      details: {
+        appUserCapabilities: {
+          app: viewer.app,
+          isAssignable: viewer.isAssignable,
+          isMentionable: viewer.isMentionable,
+          supportsAgentSessions: viewer.supportsAgentSessions,
+        },
+        teamIds: install.teamIds,
+        // The consent screen offers teams, not this; a PermissionChange sets it.
+        canAccessAllPublicTeams:
+          existing?.details.canAccessAllPublicTeams ?? false,
       },
       oauthClientId: config.linear.clientId,
       scopes: grant.scopes,
@@ -273,23 +287,22 @@ export class LinearCallback extends AuditedAction {
       lastRefreshedAt: null,
       refreshFailedAt: null,
       refreshError: null,
-      teamIds: install.teamIds,
       status: "active" as const,
-      installedByUserId: install.userId,
+      connectedByUserId: install.userId,
       rateLimit: null,
     };
 
-    let row: typeof linearInstallations.$inferSelect;
+    let row: typeof integrations.$inferSelect;
     try {
       [row] = existing
         ? await tx
-            .update(linearInstallations)
+            .update(integrations)
             .set(values)
-            .where(eq(linearInstallations.id, existing.id))
+            .where(eq(integrations.id, existing.id))
             .returning()
         : await tx
-            .insert(linearInstallations)
-            .values({ projectId, ...values })
+            .insert(integrations)
+            .values({ projectId, type: "linear", ...values })
             .returning();
     } catch (e) {
       // Two projects finishing an install of the same workspace at once: the
@@ -298,18 +311,19 @@ export class LinearCallback extends AuditedAction {
       throw e;
     }
 
-    const serialized = serializeLinearInstallation(row);
+    const serialized = serializeIntegration(row);
     connection.metadata.auditBefore = existing
-      ? serializeLinearInstallation(existing)
+      ? serializeIntegration(existing)
       : undefined;
     connection.metadata.auditAfter = serialized;
     connection.metadata.auditProjectId = projectId;
-    connection.metadata.auditTargetType = "linear-installation";
-    connection.metadata.auditTargetPath = organization.urlKey;
+    connection.metadata.auditTargetType = "integration";
+    connection.metadata.auditTargetPath = `linear:${organization.urlKey}`;
     connection.metadata.auditMetadata = {
-      organizationId: organization.id,
+      type: "linear",
+      externalWorkspaceId: organization.id,
       reconnect: Boolean(existing),
     };
-    return { installation: serialized };
+    return { integration: serialized };
   }
 }

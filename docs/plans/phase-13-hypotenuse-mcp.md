@@ -117,7 +117,7 @@ Every `daemon:linear-*` action and `daemon:dispatch` runs these middlewares, in 
    1. requires the session's project to equal the runner's project;
    2. requires the session's **live work item** (status `claimed` or `running`) to be claimed by **this runner**,
       so a runner cannot act on a session it does not currently hold, including its own past sessions;
-   3. loads the `linear_installations` row, requires `status = active`, and attaches a `LinearClient` for it
+   3. loads the `integrations` row, requires `status = active`, and attaches a `LinearClient` for it
       ([phase 6](./phase-06-linear-connection.md)) to `connection.metadata`;
    4. requires the action to be in the role's allowlist (`WORKER_TOOLS` ⊂ `MANAGER_TOOLS`, defined in
       `backend/ops/DaemonToolPolicyOps.ts`).
@@ -129,8 +129,8 @@ After that, each action applies its **target rule**, checked against Linear data
 
 | Rule | Meaning |
 |---|---|
-| `session-issue` | the target issue id must equal `agent_sessions.linearIssueId` (identifiers are resolved to ids first) |
-| `readable` | the target must belong to a team the installation can access (`linear_installations.teamIds`, or all public teams when `canAccessAllPublicTeams`) |
+| `session-issue` | the target issue id must equal `agent_sessions.externalIssueId` (identifiers are resolved to ids first) |
+| `readable` | the target must belong to a team the integration can access (`integrations.details.teamIds`, or all public teams when `details.canAccessAllPublicTeams`) |
 | `managed` | manager only: the target issue is the session's issue, a descendant of it (by `parentId`, up to 5 levels), was created by this manager session (recorded in `work_items.payload.linearWrites`), or is in a team the session's issue belongs to |
 
 ### 4. The tools
@@ -195,9 +195,9 @@ for agents that use it. Caps:
 **Reads are cached per turn.** `cli/src/mcp/cache.ts` in the daemon (not the MCP process, which may be
 restarted by the agent) caches `get_issue`, `list_comments`, `get_project`, and `list_labels` results per
 `(workItemId, tool, input)` for 60 s. Any write through the same session invalidates the cache. Agents re-read
-the issue constantly, and each re-read spends the installation's shared 5,000-requests-per-hour budget.
+the issue constantly, and each re-read spends the integration's shared 5,000-requests-per-hour budget.
 
-Server-side, every `daemon:linear-*` call also spends from the per-installation token bucket shared with the
+Server-side, every `daemon:linear-*` call also spends from the per-integration token bucket shared with the
 activity outbox ([phase 7](./phase-07-webhook-ingress-and-session-mirror.md)). When the bucket is empty, a
 **read** waits up to 5 s, then fails with a tool error "Linear rate limit reached; try again shortly". A
 **write** is never dropped: it waits up to 30 s and then fails visibly.
@@ -266,7 +266,7 @@ name listed, and the `beforeAct` hook from [phase 8](./phase-08-runners.md) alre
 
 ### 2. Scope middleware — `backend/middleware/daemonSessionScope.ts`
 
-Session load, live-work-item ownership, installation and client attachment, role allowlist, and the uniform 403.
+Session load, live-work-item ownership, integration and client attachment, role allowlist, and the uniform 403.
 Target-rule helpers go in `backend/ops/DaemonScopeOps.ts`: `assertSessionIssue`, `assertReadable`, and
 `assertManaged`.
 

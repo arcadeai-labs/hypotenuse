@@ -22,11 +22,11 @@ export const LINEAR_SCOPES = [
  * - `apiUrl` — GraphQL (`/graphql`) and the OAuth token and revoke endpoints.
  * - `oauthUrl` — the authorize (consent) page, which Linear serves from its app
  *   origin rather than its API origin.
- * - `refreshWindowMs` — `linear:refresh-tokens` refreshes any installation whose
+ * - `refreshWindowMs` — `integrations:refresh-tokens` refreshes any integration whose
  *   access token expires within this long. Thirty minutes, so the five-minute
  *   clock gets six chances before a 24-hour token lapses.
  * - `stateTtlSeconds` — how long a parked `state` waits for its callback.
- * - `catalogTtlMs` — how long `linear:catalog` serves one installation's teams,
+ * - `catalogTtlMs` — how long `integration:catalog` serves one integration's teams,
  *   projects, and labels from Redis before asking Linear again.
  * - `requestTimeoutMs` — the deadline on every call to Linear. A request that
  *   waits on Linear must not wait forever.
@@ -40,8 +40,8 @@ export const LINEAR_SCOPES = [
  *   `@linear/sdk`'s own webhook client uses. Larger answers 413 unread.
  * - `webhookToleranceMs` — how far the signed `webhookTimestamp` may be from
  *   now before the delivery is refused as a replay.
- * - `eventRetentionDays` — how long `linear_events` rows live.
- * - `requestsPerHour` / `bucketBurst` / `bucketReserve` — the per-installation
+ * - `eventRetentionDays` — how long `trigger_events` rows live.
+ * - `requestsPerHour` / `bucketBurst` / `bucketReserve` — the per-integration
  *   token bucket the outbox spends: Linear's 5,000 requests an hour per app
  *   user, a burst of 60, and the last 10 tokens kept for acknowledgements.
  * - `deliverMaxAttempts` — how many times a retryable failure is retried before

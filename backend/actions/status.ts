@@ -32,7 +32,7 @@ export class Status implements Action {
         // exactly the race e2e global-setup and load balancers must not trust.
         // Move this to the newest migration's column when one is added.
         await api.db.db.execute(
-          sql`SELECT app_user_capabilities FROM linear_installations LIMIT 0`,
+          sql`SELECT external_user_id FROM agent_activities LIMIT 0`,
         );
         databaseHealthy = true;
       } catch {}

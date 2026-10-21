@@ -1,5 +1,8 @@
 # Connecting Linear
 
+Linear is the first kind of **integration** — a system that starts agent work — and it lives under
+**Settings → Integrations**. Other kinds may follow; each is connected the same way, on its own card.
+
 A Hypotenuse project connects to **one Linear workspace**. Once it is connected, the workspace has a new member,
 `@hypotenuse` — an app user, not a person — that people can delegate issues to or mention, and the agents your
 team runs pick that work up.
@@ -8,11 +11,11 @@ team runs pick that work up.
 
 Two people have to agree, and they may be the same person:
 
-- a **project admin** in Hypotenuse starts it, from **Settings → Linear → Connect Linear**;
+- a **project admin** in Hypotenuse starts it, from **Settings → Integrations → Linear → Connect Linear**;
 - a **Linear workspace admin** approves it on Linear's consent screen, and chooses which teams `@hypotenuse` can
   see.
 
-Members can open Settings → Linear and see what is connected, but the Connect and Disconnect buttons are for
+Members can open Settings → Integrations and see what is connected, but the Connect and Disconnect buttons are for
 admins. If the button is greyed out with "no Linear app configured", the deployment itself has not been set up
 with a Linear app yet; whoever runs your Hypotenuse server needs to do that first.
 
@@ -49,7 +52,7 @@ holds it — you may not be a member there. Someone who is needs to disconnect i
 
 ## When connecting does not work
 
-After Linear's consent screen you always land back on **Settings → Linear**, with a message saying what happened:
+After Linear's consent screen you always land back on **Settings → Integrations**, with a message saying what happened:
 
 | Message says | What happened | What to do |
 |---|---|---|
@@ -61,7 +64,7 @@ After Linear's consent screen you always land back on **Settings → Linear**, w
 | Already connected to another Hypotenuse project | See above | Disconnect it there first |
 | Connected to a different Linear workspace | This project already holds another workspace | Disconnect, then connect the new one |
 
-## What Settings → Linear shows
+## What the Linear card shows
 
 Once connected: the workspace and its address, the name `@hypotenuse` has there (Linear adds a number if it
 clashes with a member's name), the permissions granted, how many teams it can see, when its access token expires
@@ -97,9 +100,9 @@ Connecting, reconnecting, and disconnecting each appear in the project's [audit 
 The `hypotenuse` CLI does the same things:
 
 ```bash
-hypotenuse linear status        # what is connected, and how healthy it is
-hypotenuse linear connect       # opens Linear's consent screen in your browser, waits until it is connected
-hypotenuse linear disconnect    # asks first, unless you pass --yes
+hypotenuse integration view linear        # what is connected, and how healthy it is
+hypotenuse integration connect linear     # opens Linear's consent screen in your browser, waits until it is connected
+hypotenuse integration disconnect linear  # asks first, unless you pass --yes
 ```
 
 See [the CLI](/docs/cli) for signing it in and choosing a project.

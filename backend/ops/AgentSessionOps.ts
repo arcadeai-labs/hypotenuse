@@ -12,7 +12,7 @@ import {
   type AgentSessionStatus,
   agentSessions,
 } from "../schema/agent_sessions";
-import type { LinearInstallation } from "../schema/linear_installations";
+import type { Integration } from "../schema/integrations";
 import type { TxHandle } from "./ProjectOps";
 
 /**
@@ -146,20 +146,20 @@ export function statusColumns(status: AgentSessionStatus) {
 /**
  * Create or refresh a session's mirror row from an `AgentSessionEvent`.
  *
- * An upsert on `linearSessionId`, so a replayed `created` (or a `prompted` for
+ * An upsert on `externalSessionId`, so a replayed `created` (or a `prompted` for
  * a session whose `created` was lost) converges on one row. A row Hypotenuse
  * created itself before Linear's `created` arrived keeps `origin = proactive`.
  * Issue and creator fields are refreshed from every event that carries them;
  * the context fields (`promptContext`, `guidance`, `previousComments`) only
  * from `created`, the one event that sends them.
  * @param tx - The transaction.
- * @param installation - The installation the event routed to.
+ * @param integration - The integration the event routed to.
  * @param payload - The verified body.
  * @returns The row, and whether this call created it.
  */
 export async function upsertFromWebhook(
   tx: TxHandle,
-  installation: LinearInstallation,
+  integration: Integration,
   payload: AgentSessionEventPayload,
 ): Promise<{ session: AgentSession; created: boolean }> {
   const s = payload.agentSession;
@@ -171,11 +171,11 @@ export async function upsertFromWebhook(
   const isCreated = payload.action === "created";
 
   const issueFields = {
-    linearIssueId: issue?.id ?? s.issueId ?? "",
+    externalIssueId: issue?.id ?? s.issueId ?? "",
     issueIdentifier: issue?.identifier ?? null,
     issueTitle: issue?.title ?? null,
     issueUrl: issue?.url ?? null,
-    teamId: issue?.teamId ?? issue?.team?.id ?? null,
+    externalTeamId: issue?.teamId ?? issue?.team?.id ?? null,
     teamKey: issue?.team?.key ?? null,
   };
   const contextFields = isCreated
@@ -189,20 +189,26 @@ export async function upsertFromWebhook(
   const [existing] = await tx
     .select()
     .from(agentSessions)
-    .where(eq(agentSessions.linearSessionId, s.id))
+    .where(
+      and(
+        eq(agentSessions.type, integration.type),
+        eq(agentSessions.externalSessionId, s.id),
+      ),
+    )
     .for("update");
 
   if (existing) {
     const [updated] = await tx
       .update(agentSessions)
       .set({
-        ...(issueFields.linearIssueId ? issueFields : {}),
-        linearUrl: s.url ?? existing.linearUrl,
-        linearCommentId: commentId ?? existing.linearCommentId,
-        sourceCommentId: s.sourceCommentId ?? existing.sourceCommentId,
+        ...(issueFields.externalIssueId ? issueFields : {}),
+        externalUrl: s.url ?? existing.externalUrl,
+        externalCommentId: commentId ?? existing.externalCommentId,
+        externalSourceCommentId:
+          s.sourceCommentId ?? existing.externalSourceCommentId,
         ...(creator
           ? {
-              creatorLinearUserId: creator.id,
+              creatorExternalUserId: creator.id,
               creatorName: creator.name ?? null,
               creatorEmail: creator.email ?? null,
             }
@@ -218,14 +224,15 @@ export async function upsertFromWebhook(
   const [inserted] = await tx
     .insert(agentSessions)
     .values({
-      projectId: installation.projectId,
-      installationId: installation.id,
-      linearSessionId: s.id,
-      linearUrl: s.url ?? null,
+      projectId: integration.projectId,
+      type: integration.type,
+      integrationId: integration.id,
+      externalSessionId: s.id,
+      externalUrl: s.url ?? null,
       ...issueFields,
-      linearCommentId: commentId,
-      sourceCommentId: s.sourceCommentId ?? null,
-      creatorLinearUserId: creator?.id ?? null,
+      externalCommentId: commentId,
+      externalSourceCommentId: s.sourceCommentId ?? null,
+      creatorExternalUserId: creator?.id ?? null,
       creatorName: creator?.name ?? null,
       creatorEmail: creator?.email ?? null,
       origin,
@@ -274,18 +281,19 @@ export function serializeAgentSession(row: AgentSession) {
   return {
     id: row.id,
     projectId: row.projectId,
-    installationId: row.installationId,
-    linearSessionId: row.linearSessionId,
-    linearUrl: row.linearUrl,
-    linearIssueId: row.linearIssueId,
+    type: row.type,
+    integrationId: row.integrationId,
+    externalSessionId: row.externalSessionId,
+    externalUrl: row.externalUrl,
+    externalIssueId: row.externalIssueId,
     issueIdentifier: row.issueIdentifier,
     issueTitle: row.issueTitle,
     issueUrl: row.issueUrl,
-    teamId: row.teamId,
+    externalTeamId: row.externalTeamId,
     teamKey: row.teamKey,
-    linearCommentId: row.linearCommentId,
-    sourceCommentId: row.sourceCommentId,
-    creatorLinearUserId: row.creatorLinearUserId,
+    externalCommentId: row.externalCommentId,
+    externalSourceCommentId: row.externalSourceCommentId,
+    creatorExternalUserId: row.creatorExternalUserId,
     creatorName: row.creatorName,
     origin: row.origin,
     promptContext: row.promptContext,
@@ -328,9 +336,9 @@ export function serializeActivity(row: AgentActivity) {
     signal: row.signal,
     signalMetadata: row.signalMetadata,
     clientActivityId: row.clientActivityId,
-    linearActivityId: row.linearActivityId,
-    sourceCommentId: row.sourceCommentId,
-    linearUserId: row.linearUserId,
+    externalActivityId: row.externalActivityId,
+    externalSourceCommentId: row.externalSourceCommentId,
+    externalUserId: row.externalUserId,
     priority: row.priority,
     deliveryStatus: row.deliveryStatus,
     attempts: row.attempts,

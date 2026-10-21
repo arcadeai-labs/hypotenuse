@@ -374,13 +374,15 @@ psql hypotenuse -c "select s.issue_identifier, a.seq, a.direction, a.content_typ
 
 ### What is built
 
-All twelve Definition of done items. The backend gained three tables (`linear_events`, `agent_sessions`,
-`agent_activities`; one migration), two Lua scripts (`linear-token-bucket.lua`, `release-lock.lua`), five ops
-modules (`LinearWebhookOps`, `AgentSessionOps`, `ActivityOutboxOps`, `LinearBucketOps`, `LockOps`), nine actions
-(`webhooks:linear`, `linear:process-event`, `linear:process-pending`, `linear-events:sweep`,
+All twelve Definition of done items. The backend gained three tables (`trigger_events`, `agent_sessions`,
+`agent_activities`) and turned `linear_installations` into `integrations` (migrations `0003` and `0004`), two Lua
+scripts (`linear-token-bucket.lua`, `release-lock.lua`), seven ops modules (`TriggerEventOps`,
+`LinearWebhookOps`, `IntegrationOps`, `AgentSessionOps`, `ActivityOutboxOps`, `LinearBucketOps`, `LockOps`), the
+`integration:list` action beside the renamed `integration:*` ones, nine more actions
+(`webhooks:linear`, `triggers:process-event`, `triggers:process-pending`, `trigger-events:sweep`,
 `activities:deliver`, `activities:deliver-due`, `agent-session:list`, `agent-session:view`,
 `agent-session:activities`), and the `linear-revoked` notification. The CLI gained `hypotenuse session
-list|view` at 0.3.0, and the public docs an *Agent sessions* page. Nothing has been tried against a real Linear
+list|view` and `hypotenuse integration …` at 0.3.0, and the public docs an *Agent sessions* page. Nothing has been tried against a real Linear
 workspace yet: the staging check under Verification is still to do.
 
 ### Where the build departs from the plan
@@ -391,8 +393,8 @@ workspace yet: the staging check under Verification is still to do.
   The plan's `outbox-*` and `agent-session-*` files are folded into those. `inject.ts` signs what finear cannot
   send, typed with `@linear/sdk/webhooks`; `sessions.ts` holds `settle()`, which runs the processing and delivery
   jobs in-process until both report nothing to do.
-- **The two sweeps are their own clock actions**, `linear:process-pending` (5 s) and `activities:deliver-due`
-  (1 s), not `linear:process-event` and `activities:deliver` with a frequency. A Keryx clock gets the `JobLock`,
+- **The two sweeps are their own clock actions**, `triggers:process-pending` (5 s) and `activities:deliver-due`
+  (1 s), not `triggers:process-event` and `activities:deliver` with a frequency. A Keryx clock gets the `JobLock`,
   `QueueLock`, and `DelayQueueLock` plugins and re-enqueues itself after *every* run, a run enqueued with params
   included, so one action doing both would start a new recurrence per webhook.
 - **Per-session order is a Redis lease, not `DISTINCT ON … FOR UPDATE SKIP LOCKED`.** Postgres refuses `FOR
@@ -408,7 +410,7 @@ workspace yet: the staging check under Verification is still to do.
   and never answers a delivery.
 - **A delivery run starts no row after a third of its lease** (six request deadlines), so a slow Linear cannot let
   the lease lapse mid-send and a second sender in behind it; the clock picks the rest up a second later.
-- **Queue order is `["linear", "orchestrator", "default"]`.** The plan said `linear, routing, default`; the
+- **Queue order is `["triggers", "orchestrator", "default"]`.** The plan said `linear, routing, default`; the
   notification clocks already ran on `orchestrator`, and the old value was `*`. `tasks.test.ts` asserts every
   queue an action names is drained.
 - **`bulk` keeps twice the reserve.** The plan named the priority without saying what it does; ephemeral chatter
@@ -419,11 +421,11 @@ workspace yet: the staging check under Verification is still to do.
 - **The acknowledgement is sent once per session**: a `created` for a session that already has an outbound row
   (a replay, or a session Hypotenuse started) is mirrored and not acknowledged again.
 - **A failed event is processed**, `outcome = failed` with the error: a delivery that fails the same way every
-  time must not be retried every five seconds forever. An `unknown_installation` delivery is processed at
+  time must not be retried every five seconds forever. An `unknown_integration` delivery is processed at
   ingress and gets no job.
-- **Session events do not lock the installation row**; only `PermissionChange` and `OAuthApp` do. The token
+- **Session events do not lock the integration row**; only `PermissionChange` and `OAuthApp` do. The token
   refresh holds that row lock across its call to Linear, and every session event would wait on it.
-- **More than the plan's columns:** `agent_sessions.linearUrl` (Linear's page for the session) and
+- **More than the plan's columns:** `agent_sessions.externalUrl` (Linear's page for the session) and
   `delegateRemovedAt` (read by cancellation). `parentAgentSessionId` is left to the manager, which adds it;
   `runnerId` has no foreign key until runners exist. `creatorEmail` is stored and not serialized.
 - **`LINEAR_WEBHOOK_SECRET_PREVIOUS`** (LC-OAUTH-24): while set, a delivery signed with either secret verifies,
@@ -432,13 +434,20 @@ workspace yet: the staging check under Verification is still to do.
 - **The interim answers:** "Received." then "No runner is connected for this project yet." on `created`, the
   same error on `prompted`, and "Stopped. Nothing was running." (`ack` priority) on a stop. A team-access change
   marks sessions on removed teams `error` and fails their unsent rows; `OAuthApp` / `revoked` writes exactly what
-  `linear:disconnect` writes.
+  `integration:disconnect` writes.
 - **The outbox refuses at enqueue** what Linear would refuse: an ephemeral non-thought, a `prompt`, an empty
   body, `stop` or a signal off an elicitation, a summary that is not one line of 1–255 characters, a malformed
   plan, an empty update, and `externalLink` or a whole-list `externalUrls` (only `addedExternalUrls` /
   `removedExternalUrls` are written). `LinearAgentSessionUpdateInput` lost its `externalLink` field.
-- **Rule 13:** `hypotenuse session list` (`--status`, `--role`, `--issue`) and `session view <id>`; `--follow`
-  waits for the dashboard. The task actions and clocks are out of scope.
+- **Rule 13:** `hypotenuse session list` (`--type`, `--status`, `--role`, `--issue`) and `session view <id>`;
+  `--follow` waits for the dashboard. The task actions and clocks are out of scope.
+- **Triggers are typed.** Built first against Linear's names, then generalized in the same pull request so a
+  second trigger system can be added: `trigger_events`, `agent_sessions`, and `integrations` carry `type`, and
+  every id the trigger system owns is an `external*` column (`externalSessionId`, `externalIssueId`,
+  `externalTeamId`, `externalCommentId`, `externalSourceCommentId`, `creatorExternalUserId`, and on activities
+  `externalActivityId` and `externalUserId`); `user_id` keeps meaning a Hypotenuse user. Processing is
+  `TriggerEventOps.processTriggerEvent`, which hands a `linear` row to `LinearWebhookOps.handleLinearEvent`. The
+  jobs run on a `triggers` queue. See phase 6's learnings for the integration half of the rename.
 
 ### Traps found while building
 
@@ -450,7 +459,7 @@ workspace yet: the staging check under Verification is still to do.
   aligned to finear's, so that is the retry the test drives.
 - **finear answers a reused activity id with `CONFLICT`, "Agent activity ID already exists".** Linear does not
   document its wording, so the outbox counts either the code or "already exists" as sent.
-- **Redis outlives `clearDatabase`.** Ids restart in every file, so the next file's installation 1 inherited an
+- **Redis outlives `clearDatabase`.** Ids restart in every file, so the next file's integration 1 inherited an
   empty token bucket and its event 1 a queued job for someone else's. `buildTestUniverse()` now clears the
   `linear` queue and the `linear:*` / `activities:*` keys.
 - **A config snapshot taken at module load is a previous file's.** `Object.assign(config.linear, saved)` in a

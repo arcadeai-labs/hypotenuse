@@ -8,7 +8,7 @@ import {
   timestamp,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
-import { linearInstallations } from "./linear_installations";
+import { integrations, type TriggerType } from "./integrations";
 import { projects } from "./projects";
 
 /**
@@ -64,12 +64,14 @@ export interface AgentSessionExternalUrl {
 }
 
 /**
- * An `agent_session` mirrors one Linear agent session: the conversation
- * between a person and `@hypotenuse` on one issue.
+ * An `agent_session` mirrors one agent session in a trigger system — today a
+ * Linear agent session: the conversation between a person and `@hypotenuse`
+ * on one issue. `type` says which system; every id that system owns is in an
+ * `external*` column.
  *
- * - **Keyed by Linear's id** (`linearSessionId` unique), so a replayed
- *   `created` is an upsert and a session Hypotenuse started itself is found
- *   when Linear's `created` for it arrives.
+ * - **Keyed by the trigger's id** (`(type, externalSessionId)` unique), so a
+ *   replayed `created` is an upsert and a session Hypotenuse started itself is
+ *   found when Linear's `created` for it arrives.
  * - **The creator is null** when an automation or another agent started the
  *   session — a fact routing and issue hygiene both read.
  * - **`role`, `repository`, and `runnerId` are routing's**, null until routing
@@ -85,23 +87,25 @@ export const agentSessions = pgTable(
     projectId: integer("project_id")
       .notNull()
       .references(() => projects.id, { onDelete: "cascade" }),
-    installationId: integer("installation_id")
+    type: text("type").$type<TriggerType>().notNull(),
+    integrationId: integer("integration_id")
       .notNull()
-      .references(() => linearInstallations.id, { onDelete: "cascade" }),
-    linearSessionId: text("linear_session_id").notNull(),
-    /** Linear's own page for the session. */
-    linearUrl: text("linear_url"),
-    linearIssueId: text("linear_issue_id").notNull(),
+      .references(() => integrations.id, { onDelete: "cascade" }),
+    /** The session's id in the trigger system. */
+    externalSessionId: text("external_session_id").notNull(),
+    /** The trigger system's own page for the session. */
+    externalUrl: text("external_url"),
+    externalIssueId: text("external_issue_id").notNull(),
     issueIdentifier: text("issue_identifier"),
     issueTitle: text("issue_title"),
     issueUrl: text("issue_url"),
-    teamId: text("team_id"),
+    externalTeamId: text("external_team_id"),
     teamKey: text("team_key"),
     /** The thread's root comment, when a mention started the session. */
-    linearCommentId: text("linear_comment_id"),
+    externalCommentId: text("external_comment_id"),
     /** The comment that mentioned the agent (a child, for a mid-thread mention). */
-    sourceCommentId: text("source_comment_id"),
-    creatorLinearUserId: text("creator_linear_user_id"),
+    externalSourceCommentId: text("external_source_comment_id"),
+    creatorExternalUserId: text("creator_external_user_id"),
     creatorName: text("creator_name"),
     creatorEmail: text("creator_email"),
     origin: text("origin").$type<AgentSessionOrigin>().notNull(),
@@ -142,8 +146,9 @@ export const agentSessions = pgTable(
     endedAt: timestamp("ended_at", { withTimezone: true }),
   },
   (t) => ({
-    linearSessionIndex: uniqueIndex("agent_sessions_linear_session_idx").on(
-      t.linearSessionId,
+    externalSessionIndex: uniqueIndex("agent_sessions_external_session_idx").on(
+      t.type,
+      t.externalSessionId,
     ),
     // `agent-session:list` by project, filtered by status.
     projectStatusIndex: index("agent_sessions_project_status_idx").on(
@@ -151,7 +156,7 @@ export const agentSessions = pgTable(
       t.status,
     ),
     // Issue events find the sessions on an issue.
-    issueIndex: index("agent_sessions_issue_idx").on(t.linearIssueId),
+    issueIndex: index("agent_sessions_issue_idx").on(t.type, t.externalIssueId),
   }),
 );
 

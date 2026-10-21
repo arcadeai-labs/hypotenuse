@@ -1,10 +1,10 @@
--- One Linear installation's request budget: take a token, or say when one
+-- One Linear integration's request budget: take a token, or say when one
 -- will be free.
 --
 -- One script rather than a read and a write from TypeScript, because two
 -- workers checking and then decrementing would both spend the last token.
 --
--- KEYS[1]  the bucket hash, `linear:bucket:<installationId>`
+-- KEYS[1]  the bucket hash, `linear:bucket:<integrationId>`
 -- ARGV[1]  now, epoch ms
 -- ARGV[2]  refill rate, tokens per hour
 -- ARGV[3]  burst: the most tokens the bucket holds
@@ -56,7 +56,7 @@ redis.call(
   "ts", tostring(now),
   "observedAt", tostring(applied)
 )
--- An idle installation's bucket is full again within the hour; nothing is lost
+-- An idle integration's bucket is full again within the hour; nothing is lost
 -- by letting it expire.
 redis.call("PEXPIRE", key, 3600000)
 return { granted, wait }

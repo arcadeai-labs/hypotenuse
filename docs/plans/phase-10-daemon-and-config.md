@@ -170,8 +170,8 @@ session and nobody knows why.
 - `credentials.json` exists for this server and its runner token is accepted (`daemon:heartbeat` with
   `dryRun: true`, which validates and answers without marking the runner online).
 - The runner's project matches `server.project`.
-- Every `subscriptions.teams` key exists in the installation's catalog. This comes from the heartbeat
-  response's echo of unmatched subscription keys, so the daemon never needs `linear:catalog`, which is a human
+- Every `subscriptions.teams` key exists in the integration's catalog. This comes from the heartbeat
+  response's echo of unmatched subscription keys, so the daemon never needs `integration:catalog`, which is a human
   action.
 
 **Output.**
@@ -392,7 +392,7 @@ renewed by heartbeat, not computed locally), but agents that sign things (git co
 4. While the server is unreachable, events accumulate. Ephemeral events for a session (thoughts, in-progress
    actions) are **superseded locally**: a newer ephemeral event for the same session deletes older unsent
    ephemeral rows. Linear would replace them on arrival anyway, and replaying 400 stale thoughts after a train
-   tunnel would burn the installation's rate-limit budget.
+   tunnel would burn the integration's rate-limit budget.
 5. `daemon:complete` is itself queued behind its session's events. A turn is never reported finished before
    its last event lands.
 

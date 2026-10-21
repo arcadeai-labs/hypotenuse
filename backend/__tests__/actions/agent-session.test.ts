@@ -5,7 +5,7 @@ import type { AgentSessionList } from "../../actions/agent-session/agent-session
 import type { AgentSessionView } from "../../actions/agent-session/agent-session-view";
 import { ACK_BODY } from "../../ops/LinearWebhookOps";
 import { useFinear } from "../linear/finear";
-import { installationRow } from "../linear/helpers";
+import { integrationRow } from "../linear/helpers";
 import {
   createIssue,
   delegate,
@@ -41,17 +41,21 @@ const linear = useFinear();
 const sessionIds: number[] = [];
 beforeAll(async () => {
   await linear.install(universe.projectId, universe.peach.sessionId);
-  const { appUserId } = await installationRow(universe.projectId);
+  const { externalAppUserId } = await integrationRow(universe.projectId);
   for (const title of ["First", "Second", "Third"]) {
     const issue = await createIssue(linear, title);
-    const linearSessionId = await delegate(linear, issue.id, appUserId);
+    const externalSessionId = await delegate(
+      linear,
+      issue.id,
+      externalAppUserId,
+    );
     await recordedEvent(
       (e) =>
         (e.payload as { agentSession?: { id?: string } }).agentSession?.id ===
-        linearSessionId,
+        externalSessionId,
     );
     await settle();
-    sessionIds.push((await sessionRow(linearSessionId))!.id);
+    sessionIds.push((await sessionRow(externalSessionId))!.id);
   }
 }, HOOK_TIMEOUT);
 

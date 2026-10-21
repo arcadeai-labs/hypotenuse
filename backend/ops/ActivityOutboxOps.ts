@@ -13,15 +13,12 @@ import {
   type AgentSessionPlanStep,
   agentSessions,
 } from "../schema/agent_sessions";
-import {
-  type LinearInstallation,
-  linearInstallations,
-} from "../schema/linear_installations";
+import { type Integration, integrations } from "../schema/integrations";
 import { statusColumns, statusImpliedBy } from "./AgentSessionOps";
 import { takeLinearToken } from "./LinearBucketOps";
 import {
   LinearGraphQLError,
-  LinearInstallationUnavailableError,
+  LinearIntegrationUnavailableError,
   LinearRateLimitedError,
   linearRequest,
 } from "./LinearOps";
@@ -357,12 +354,12 @@ export async function enqueueSessionUpdate(
 
 /** A person's prompt (and its signal) from a `prompted` webhook. */
 export interface InboundPrompt {
-  linearActivityId: string;
+  externalActivityId: string;
   body: string;
   signal: ActivitySignal | null;
   signalMetadata: Record<string, unknown> | null;
-  sourceCommentId: string | null;
-  linearUserId: string | null;
+  externalSourceCommentId: string | null;
+  externalUserId: string | null;
 }
 
 /**
@@ -386,7 +383,7 @@ export async function recordInboundPrompt(
       and(
         eq(agentActivities.agentSessionId, agentSessionId),
         eq(agentActivities.direction, "inbound"),
-        eq(agentActivities.linearActivityId, prompt.linearActivityId),
+        eq(agentActivities.externalActivityId, prompt.externalActivityId),
       ),
     );
   if (existing) return { row: existing, created: false };
@@ -403,9 +400,9 @@ export async function recordInboundPrompt(
       signal: prompt.signal,
       signalMetadata: prompt.signalMetadata,
       clientActivityId: crypto.randomUUID(),
-      linearActivityId: prompt.linearActivityId,
-      sourceCommentId: prompt.sourceCommentId,
-      linearUserId: prompt.linearUserId,
+      externalActivityId: prompt.externalActivityId,
+      externalSourceCommentId: prompt.externalSourceCommentId,
+      externalUserId: prompt.externalUserId,
       deliveryStatus: "received",
     })
     .returning();
@@ -413,22 +410,22 @@ export async function recordInboundPrompt(
 }
 
 /**
- * Mark every pending outbound row of some sessions `failed` — the installation
+ * Mark every pending outbound row of some sessions `failed` — the integration
  * they would be sent as can no longer act.
  * @param db - A transaction or the shared handle.
- * @param where - Which sessions: one session, or every session of an installation.
+ * @param where - Which sessions: one session, or every session of an integration.
  * @param reason - The `lastError` to record.
  * @returns How many rows were failed.
  */
 export async function failPending(
   db: TxHandle | typeof api.db.db,
-  where: { agentSessionId: number } | { installationId: number },
+  where: { agentSessionId: number } | { integrationId: number },
   reason: string,
 ): Promise<number> {
   const sessions =
     "agentSessionId" in where
       ? sql`${agentActivities.agentSessionId} = ${where.agentSessionId}`
-      : sql`${agentActivities.agentSessionId} IN (SELECT ${agentSessions.id} FROM ${agentSessions} WHERE ${agentSessions.installationId} = ${where.installationId})`;
+      : sql`${agentActivities.agentSessionId} IN (SELECT ${agentSessions.id} FROM ${agentSessions} WHERE ${agentSessions.integrationId} = ${where.integrationId})`;
   const failed = await db
     .update(agentActivities)
     .set({ deliveryStatus: "failed", lastError: reason })
@@ -513,7 +510,7 @@ export function isDuplicateActivityError(e: LinearGraphQLError): boolean {
  * | `RATELIMITED` | waits for Linear's reset; no attempt counted | stop |
  * | Linear unreachable or 5xx | attempt counted; exponential backoff from 1 s to 5 min; `failed` after the last attempt | stop |
  * | any other GraphQL error (a validation error: our bug) | `failed` at once, logged | next row |
- * | installation revoked or in error | every pending row of the session `failed` | stop |
+ * | integration revoked or in error | every pending row of the session `failed` | stop |
  * @param agentSessionId - The session.
  * @returns What was done.
  */
@@ -539,11 +536,11 @@ export async function deliverSession(
         return run;
       }
       const [joined] = await api.db.db
-        .select({ session: agentSessions, installation: linearInstallations })
+        .select({ session: agentSessions, integration: integrations })
         .from(agentSessions)
         .innerJoin(
-          linearInstallations,
-          eq(linearInstallations.id, agentSessions.installationId),
+          integrations,
+          eq(integrations.id, agentSessions.integrationId),
         )
         .where(eq(agentSessions.id, agentSessionId));
       if (!joined) return run;
@@ -566,30 +563,30 @@ export async function deliverSession(
         return run;
       }
 
-      if (joined.installation.status !== "active") {
+      if (joined.integration.status !== "active") {
         run.failed += await failPending(
           api.db.db,
           { agentSessionId },
-          "installation unavailable",
+          "integration unavailable",
         );
         return run;
       }
 
-      const take = await takeLinearToken(joined.installation.id, head.priority);
+      const take = await takeLinearToken(joined.integration.id, head.priority);
       if (!take.granted) {
         await defer(head, Date.now() + take.waitMs, false, null);
         run.deferred = true;
         return run;
       }
 
-      const outcome = await send(joined.installation, joined.session, head);
+      const outcome = await send(joined.integration, joined.session, head);
       if (outcome === "sent") run.sent++;
       else if (outcome === "failed") run.failed++;
-      else if (outcome === "installation") {
+      else if (outcome === "integration") {
         run.failed += await failPending(
           api.db.db,
           { agentSessionId },
-          "installation unavailable",
+          "integration unavailable",
         );
         return run;
       } else {
@@ -605,17 +602,17 @@ export async function deliverSession(
 
 /**
  * Send one row and record what happened.
- * @param installation - The installation to act as.
+ * @param integration - The integration to act as.
  * @param session - The session.
  * @param row - The head row.
- * @returns `sent`, `failed` (this row only), `deferred`, or `installation`
- *   (the installation can no longer act).
+ * @returns `sent`, `failed` (this row only), `deferred`, or `integration`
+ *   (the integration can no longer act).
  */
 async function send(
-  installation: LinearInstallation,
+  integration: Integration,
   session: AgentSession,
   row: AgentActivity,
-): Promise<"sent" | "failed" | "deferred" | "installation"> {
+): Promise<"sent" | "failed" | "deferred" | "integration"> {
   const operation =
     row.kind === "activity"
       ? CreateAgentActivity.name
@@ -623,12 +620,12 @@ async function send(
   try {
     if (row.kind === "activity") {
       await linearRequest(
-        installation,
+        integration,
         CreateAgentActivity,
         {
           input: {
             id: row.clientActivityId,
-            agentSessionId: session.linearSessionId,
+            agentSessionId: session.externalSessionId,
             content: row.content,
             ...(row.ephemeral ? { ephemeral: true } : {}),
             ...(row.signal ? { signal: row.signal } : {}),
@@ -640,8 +637,8 @@ async function send(
         { idempotent: true },
       );
     } else {
-      await linearRequest(installation, UpdateAgentSession, {
-        id: session.linearSessionId,
+      await linearRequest(integration, UpdateAgentSession, {
+        id: session.externalSessionId,
         input: row.content as LinearAgentSessionUpdateInput,
       });
     }
@@ -660,8 +657,8 @@ async function send(
       await defer(row, e.resetAt ?? Date.now() + 60_000, false, e.message);
       return "deferred";
     }
-    if (e instanceof LinearInstallationUnavailableError) {
-      return "installation";
+    if (e instanceof LinearIntegrationUnavailableError) {
+      return "integration";
     }
     if (e instanceof LinearGraphQLError) {
       api.logger.error("Linear refused an outbound activity", {
@@ -752,7 +749,8 @@ async function markSent(row: AgentActivity): Promise<void> {
         deliveryStatus: "sent",
         sentAt: new Date(),
         attempts: row.attempts + 1,
-        linearActivityId: row.kind === "activity" ? row.clientActivityId : null,
+        externalActivityId:
+          row.kind === "activity" ? row.clientActivityId : null,
         lastError: null,
       })
       .where(eq(agentActivities.id, row.id));

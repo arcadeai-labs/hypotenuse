@@ -7,12 +7,12 @@ import {
   STOPPED_BODY,
 } from "../../ops/LinearWebhookOps";
 import { agentSessions } from "../../schema/agent_sessions";
-import { linearEvents } from "../../schema/linear_events";
-import { linearInstallations } from "../../schema/linear_installations";
+import { integrations } from "../../schema/integrations";
 import { notifications } from "../../schema/notifications";
+import { triggerEvents } from "../../schema/trigger_events";
 import { buildTestUniverse, HOOK_TIMEOUT, type TestUniverse } from "../setup";
 import { FINEAR_FIXTURES, FINEAR_PRIMARY_KEY, useFinear } from "./finear";
-import { appToken, installationRow } from "./helpers";
+import { appToken, integrationRow } from "./helpers";
 import {
   agentSessionEvent,
   appUserNotification,
@@ -32,7 +32,7 @@ import {
 } from "./sessions";
 
 /**
- * `linear:process-event`: what each kind of Linear webhook does once it is
+ * `triggers:process-event`: what each kind of Linear webhook does once it is
  * recorded. finear is the person and the workspace where it can be — delegating,
  * mentioning, prompting, stopping, commenting, un-delegating, uninstalling —
  * and a signed injected delivery where it cannot (permission changes,
@@ -55,8 +55,11 @@ let target: Target;
 let token: string;
 beforeAll(async () => {
   await linear.install(universe.projectId, universe.peach.sessionId);
-  const row = await installationRow(universe.projectId);
-  target = { organizationId: row.organizationId, appUserId: row.appUserId };
+  const row = await integrationRow(universe.projectId);
+  target = {
+    organizationId: row.externalWorkspaceId,
+    appUserId: row.externalAppUserId,
+  };
   token = await appToken(universe.projectId);
 }, HOOK_TIMEOUT);
 
@@ -67,40 +70,40 @@ beforeAll(async () => {
  */
 async function delegated(title: string) {
   const issue = await createIssue(linear, title);
-  const linearSessionId = await delegate(linear, issue.id, target.appUserId);
+  const externalSessionId = await delegate(linear, issue.id, target.appUserId);
   await recordedEvent(
     (e) =>
       e.action === "created" &&
       (e.payload as { agentSession?: { id?: string } }).agentSession?.id ===
-        linearSessionId,
+        externalSessionId,
   );
   await settle();
-  const session = await sessionRow(linearSessionId);
+  const session = await sessionRow(externalSessionId);
   if (!session) throw new Error("no mirror row");
-  return { issue, linearSessionId, session };
+  return { issue, externalSessionId, session };
 }
 
 describe("AgentSessionEvent created", () => {
   test("LC-WH-12 a delegation mirrors the session, acknowledges it, and answers with the interim error", async () => {
-    const { issue, linearSessionId, session } =
+    const { issue, externalSessionId, session } =
       await delegated("Delegated issue");
     expect(session).toMatchObject({
       projectId: universe.projectId,
-      linearIssueId: issue.id,
+      externalIssueId: issue.id,
       issueIdentifier: issue.identifier,
       issueTitle: "Delegated issue",
-      teamId: FINEAR_FIXTURES.primary.team,
+      externalTeamId: FINEAR_FIXTURES.primary.team,
       teamKey: "ENG",
       origin: "delegation",
-      creatorLinearUserId: FINEAR_FIXTURES.primary.user,
+      creatorExternalUserId: FINEAR_FIXTURES.primary.user,
       creatorName: "Human 1",
-      linearCommentId: null,
+      externalCommentId: null,
       promptContext: expect.stringContaining("Delegated issue"),
       status: "error",
     });
     expect(session.endedAt).not.toBeNull();
 
-    const finear = await finearSession(linear, token, linearSessionId);
+    const finear = await finearSession(linear, token, externalSessionId);
     expect(
       finear.activities.map((a) => [a.content.__typename, a.content.body]),
     ).toEqual([
@@ -151,24 +154,24 @@ describe("AgentSessionEvent created", () => {
       "/__test/agents/mention",
       { issueId: issue.id, appUserId: target.appUserId, commentId: childId },
     );
-    const linearSessionId = mentioned.entity.id;
+    const externalSessionId = mentioned.entity.id;
     await recordedEvent(
       (e) =>
         (e.payload as { agentSession?: { id?: string } }).agentSession?.id ===
-        linearSessionId,
+        externalSessionId,
     );
     await settle();
 
-    const session = await sessionRow(linearSessionId);
+    const session = await sessionRow(externalSessionId);
     expect(session).toMatchObject({
       origin: "mention",
-      linearCommentId: rootId,
-      sourceCommentId: childId,
+      externalCommentId: rootId,
+      externalSourceCommentId: childId,
     });
     expect(session?.previousComments).toEqual([
       expect.objectContaining({ id: rootId, body: "Root of the thread" }),
     ]);
-    const finear = await finearSession(linear, token, linearSessionId);
+    const finear = await finearSession(linear, token, externalSessionId);
     expect(finear.activities.map((a) => a.content.body)).toEqual([
       ACK_BODY,
       NO_RUNNER_BODY,
@@ -191,16 +194,20 @@ describe("AgentSessionEvent created", () => {
       },
     ];
     // A session finear knows, so the outbox has somewhere to write.
-    const linearSessionId = await delegate(linear, issue.id, target.appUserId);
+    const externalSessionId = await delegate(
+      linear,
+      issue.id,
+      target.appUserId,
+    );
     await recordedEvent(
       (e) =>
         (e.payload as { agentSession?: { id?: string } }).agentSession?.id ===
-        linearSessionId,
+        externalSessionId,
     );
     const payload = agentSessionEvent(target, {
       action: "created",
       agentSession: webhookSession({
-        id: linearSessionId,
+        id: externalSessionId,
         issueId: issue.id,
         issue: {
           id: issue.id,
@@ -217,7 +224,7 @@ describe("AgentSessionEvent created", () => {
     expect((await deliver(url, payload)).status).toBe(200);
     await settle();
 
-    const session = await sessionRow(linearSessionId);
+    const session = await sessionRow(externalSessionId);
     expect(session?.promptContext).toBe(promptContext);
     expect(session?.guidance).toEqual(guidance);
     const rows = await activityRows(session!.id);
@@ -227,16 +234,16 @@ describe("AgentSessionEvent created", () => {
 
 describe("AgentSessionEvent prompted", () => {
   test("LC-WH-13 a follow-up prompt is recorded inbound and answered with the interim error", async () => {
-    const { linearSessionId, session } = await delegated("Prompted issue");
+    const { externalSessionId, session } = await delegated("Prompted issue");
     await linear.control("/__test/agents/prompt", {
-      sessionId: linearSessionId,
+      sessionId: externalSessionId,
       body: "Use the main branch",
     });
     await recordedEvent(
       (e) =>
         e.action === "prompted" &&
         (e.payload as { agentSession?: { id?: string } }).agentSession?.id ===
-          linearSessionId,
+          externalSessionId,
     );
     await settle();
 
@@ -248,34 +255,36 @@ describe("AgentSessionEvent prompted", () => {
       content: { type: "prompt", body: "Use the main branch" },
       deliveryStatus: "received",
       signal: null,
-      linearUserId: FINEAR_FIXTURES.primary.user,
+      externalUserId: FINEAR_FIXTURES.primary.user,
     });
-    expect(inbound?.linearActivityId).toBeTruthy();
-    expect(inbound?.sourceCommentId).toBeTruthy();
+    expect(inbound?.externalActivityId).toBeTruthy();
+    expect(inbound?.externalSourceCommentId).toBeTruthy();
     expect(rows.at(-1)).toMatchObject({
       seq: 4,
       direction: "outbound",
       contentType: "error",
       deliveryStatus: "sent",
     });
-    expect((await sessionRow(linearSessionId))?.status).toBe("error");
+    expect((await sessionRow(externalSessionId))?.status).toBe("error");
   });
 
   test("LC-WH-13 a stop is recorded with its signal and answered with a response", async () => {
-    const { linearSessionId, session } = await delegated("Stopped issue");
+    const { externalSessionId, session } = await delegated("Stopped issue");
     // Reopen the session, so stopping has a turn to stop.
     await linear.control("/__test/agents/prompt", {
-      sessionId: linearSessionId,
+      sessionId: externalSessionId,
       body: "Try again",
     });
     await recordedEvent(
       (e) =>
         e.action === "prompted" &&
         (e.payload as { agentSession?: { id?: string } }).agentSession?.id ===
-          linearSessionId,
+          externalSessionId,
     );
     await settle();
-    await linear.control("/__test/agents/stop", { sessionId: linearSessionId });
+    await linear.control("/__test/agents/stop", {
+      sessionId: externalSessionId,
+    });
     await recordedEvent(
       (e) =>
         e.action === "prompted" &&
@@ -294,23 +303,23 @@ describe("AgentSessionEvent prompted", () => {
       priority: "ack",
       deliveryStatus: "sent",
     });
-    const finear = await finearSession(linear, token, linearSessionId);
+    const finear = await finearSession(linear, token, externalSessionId);
     expect(finear.status).toBe("complete");
-    expect((await sessionRow(linearSessionId))?.status).toBe("complete");
+    expect((await sessionRow(externalSessionId))?.status).toBe("complete");
   });
 
   test("LC-DIFF-01 the prompt body is read from content.body or, as the docs say, body", async () => {
-    const { linearSessionId, session } = await delegated("Two shapes");
+    const { externalSessionId, session } = await delegated("Two shapes");
     const prompted = (activity: Record<string, unknown>) =>
       agentSessionEvent(target, {
         action: "prompted",
         agentSession: webhookSession({
-          id: linearSessionId,
+          id: externalSessionId,
           status: "pending",
         }),
         agentActivity: {
           id: crypto.randomUUID(),
-          agentSessionId: linearSessionId,
+          agentSessionId: externalSessionId,
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
           userId: FINEAR_FIXTURES.primary.user,
@@ -339,9 +348,9 @@ describe("AgentSessionEvent prompted", () => {
 });
 
 describe("other events", () => {
-  test("LC-WH-20 LC-OAUTH-25 a team-access change updates the installation and ends sessions on removed teams", async () => {
+  test("LC-WH-20 LC-OAUTH-25 a team-access change updates the integration and ends sessions on removed teams", async () => {
     const { session } = await delegated("On a team about to be removed");
-    const before = await installationRow(universe.projectId);
+    const before = await integrationRow(universe.projectId);
     const added = FINEAR_FIXTURES.primary.privateTeam;
     const res = await deliver(
       url,
@@ -354,25 +363,22 @@ describe("other events", () => {
     expect(res.status).toBe(200);
     await settle();
 
-    const after = await installationRow(universe.projectId);
-    expect(after.teamIds).toContain(added);
-    expect(after.teamIds).not.toContain(FINEAR_FIXTURES.primary.team);
-    expect(after.canAccessAllPublicTeams).toBe(false);
-    expect((await sessionRow(session.linearSessionId))?.status).toBe("error");
+    const after = await integrationRow(universe.projectId);
+    expect(after.details.teamIds).toContain(added);
+    expect(after.details.teamIds).not.toContain(FINEAR_FIXTURES.primary.team);
+    expect(after.details.canAccessAllPublicTeams).toBe(false);
+    expect((await sessionRow(session.externalSessionId))?.status).toBe("error");
     const [event] = await api.db.db
       .select()
-      .from(linearEvents)
-      .where(eq(linearEvents.eventType, "PermissionChange"));
+      .from(triggerEvents)
+      .where(eq(triggerEvents.eventType, "PermissionChange"));
     expect(event.outcome).toBe("handled");
 
     // Put it back for the rest of the file.
     await api.db.db
-      .update(linearInstallations)
-      .set({
-        teamIds: before.teamIds,
-        canAccessAllPublicTeams: before.canAccessAllPublicTeams,
-      })
-      .where(eq(linearInstallations.id, before.id));
+      .update(integrations)
+      .set({ details: before.details })
+      .where(eq(integrations.id, before.id));
   });
 
   test("LC-WH-24 a comment is recorded and ignored", async () => {
@@ -386,8 +392,8 @@ describe("other events", () => {
     await settle();
     const [row] = await api.db.db
       .select()
-      .from(linearEvents)
-      .where(eq(linearEvents.id, event.id));
+      .from(triggerEvents)
+      .where(eq(triggerEvents.id, event.id));
     expect(row.outcome).toBe("ignored");
   });
 
@@ -403,7 +409,7 @@ describe("other events", () => {
       expect(res.status).toBe(200);
     }
     await settle();
-    const rows = await api.db.db.select().from(linearEvents);
+    const rows = await api.db.db.select().from(triggerEvents);
     for (const type of ["OAuthAuthorization", "Reaction"]) {
       expect(rows.find((r) => r.eventType === type)?.outcome).toBe("ignored");
     }
@@ -416,8 +422,8 @@ describe("other events", () => {
     await settle();
     const [row] = await api.db.db
       .select()
-      .from(linearEvents)
-      .where(eq(linearEvents.eventType, "AppUserNotification"));
+      .from(triggerEvents)
+      .where(eq(triggerEvents.eventType, "AppUserNotification"));
     expect(row.outcome).toBe("handled");
     expect(await api.db.db.select().from(agentSessions)).toHaveLength(
       sessionsBefore.length,
@@ -441,11 +447,11 @@ describe("other events", () => {
     );
     await settle();
     expect(
-      (await sessionRow(session.linearSessionId))?.delegateRemovedAt,
+      (await sessionRow(session.externalSessionId))?.delegateRemovedAt,
     ).not.toBeNull();
   });
 
-  test("LC-WH-21 uninstalling the app in Linear revokes the installation, fails its outbox, and tells the admins", async () => {
+  test("LC-WH-21 uninstalling the app in Linear revokes the integration, fails its outbox, and tells the admins", async () => {
     // A session with an unsent row, so there is something to fail.
     const { session } = await delegated("Before the uninstall");
     await api.db.db.transaction(async (tx) => {
@@ -467,14 +473,14 @@ describe("other events", () => {
     await recordedEvent((e) => e.eventType === "OAuthApp");
     await settle();
 
-    const row = await installationRow(universe.projectId);
+    const row = await integrationRow(universe.projectId);
     expect(row.status).toBe("revoked");
     expect(row.accessTokenEncrypted).toBeNull();
     expect(row.refreshTokenEncrypted).toBeNull();
     const rows = await activityRows(session.id);
     expect(rows.at(-1)).toMatchObject({
       deliveryStatus: "failed",
-      lastError: "installation unavailable",
+      lastError: "integration unavailable",
     });
     const sent = await api.db.db
       .select()
@@ -495,8 +501,8 @@ describe("other events", () => {
     expect(after.status).toBe(200);
     const [unknown] = await api.db.db
       .select()
-      .from(linearEvents)
-      .where(eq(linearEvents.deliveryId, after.deliveryId!));
-    expect(unknown.outcome).toBe("unknown_installation");
+      .from(triggerEvents)
+      .where(eq(triggerEvents.deliveryId, after.deliveryId!));
+    expect(unknown.outcome).toBe("unknown_integration");
   });
 });

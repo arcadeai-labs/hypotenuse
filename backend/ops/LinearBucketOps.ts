@@ -4,7 +4,7 @@ import { rateLimitKey } from "./LinearOps";
 import { runRedisScript } from "./RedisScriptOps";
 
 /**
- * The per-installation request budget the activity outbox spends before every
+ * The per-integration request budget the activity outbox spends before every
  * write to Linear (`backend/lua/linear-token-bucket.lua`).
  *
  * Linear allows an OAuth app 5,000 requests an hour per app user. The bucket
@@ -25,12 +25,12 @@ export interface BucketTake {
 }
 
 /**
- * The Redis key of an installation's bucket.
- * @param installationId - The installation.
+ * The Redis key of an integration's bucket.
+ * @param integrationId - The integration.
  * @returns `linear:bucket:<id>`.
  */
-export function bucketKey(installationId: number): string {
-  return `linear:bucket:${installationId}`;
+export function bucketKey(integrationId: number): string {
+  return `linear:bucket:${integrationId}`;
 }
 
 /**
@@ -81,19 +81,19 @@ export function currentObservation(
 }
 
 /**
- * Take one token from an installation's bucket.
- * @param installationId - The installation the request will run as.
+ * Take one token from an integration's bucket.
+ * @param integrationId - The integration the request will run as.
  * @param priority - The outbound row's priority.
  * @param now - The current time, epoch ms.
  * @returns Whether a token was granted, and how long to wait if not.
  */
 export async function takeLinearToken(
-  installationId: number,
+  integrationId: number,
   priority: ActivityPriority,
   now = Date.now(),
 ): Promise<BucketTake> {
   const [remaining, observedAt, resetAt] = await api.redis.redis.hmget(
-    rateLimitKey(installationId),
+    rateLimitKey(integrationId),
     "requestsRemaining",
     "observedAt",
     "requestsResetAt",
@@ -106,7 +106,7 @@ export async function takeLinearToken(
   );
   const reply = (await runRedisScript(
     "linear-token-bucket",
-    [bucketKey(installationId)],
+    [bucketKey(integrationId)],
     [
       now,
       config.linear.requestsPerHour,

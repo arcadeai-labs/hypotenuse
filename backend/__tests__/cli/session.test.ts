@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { api } from "keryx";
 import { ACK_BODY } from "../../ops/LinearWebhookOps";
 import { useFinear } from "../linear/finear";
-import { installationRow } from "../linear/helpers";
+import { integrationRow } from "../linear/helpers";
 import {
   createIssue,
   delegate,
@@ -103,17 +103,17 @@ let sessionId: number;
 let identifier: string;
 beforeAll(async () => {
   await linear.install(universe.projectId, universe.peach.sessionId);
-  const { appUserId } = await installationRow(universe.projectId);
+  const { externalAppUserId } = await integrationRow(universe.projectId);
   const issue = await createIssue(linear, "Seen from the terminal");
   identifier = issue.identifier;
-  const linearSessionId = await delegate(linear, issue.id, appUserId);
+  const externalSessionId = await delegate(linear, issue.id, externalAppUserId);
   await recordedEvent(
     (e) =>
       (e.payload as { agentSession?: { id?: string } }).agentSession?.id ===
-      linearSessionId,
+      externalSessionId,
   );
   await settle();
-  sessionId = (await sessionRow(linearSessionId))!.id;
+  sessionId = (await sessionRow(externalSessionId))!.id;
 }, HOOK_TIMEOUT);
 
 /**
@@ -150,12 +150,18 @@ describe("hypotenuse session", () => {
     const json = await run("luigi", ["--json", "session", "list"]);
     expect(json.code).toBe(0);
     const body = JSON.parse(json.stdout) as {
-      agentSessions: { id: number; issueIdentifier: string; status: string }[];
+      agentSessions: {
+        id: number;
+        type: string;
+        issueIdentifier: string;
+        status: string;
+      }[];
       pagination: { total: number };
     };
     expect(body.agentSessions).toEqual([
       expect.objectContaining({
         id: sessionId,
+        type: "linear",
         issueIdentifier: identifier,
         status: "error",
       }),
@@ -170,6 +176,15 @@ describe("hypotenuse session", () => {
       "active",
     ]);
     expect(JSON.parse(filtered.stdout).agentSessions).toEqual([]);
+
+    const byType = await run("luigi", [
+      "--json",
+      "session",
+      "list",
+      "--type",
+      "linear",
+    ]);
+    expect(JSON.parse(byType.stdout).agentSessions).toHaveLength(1);
 
     const human = await run("luigi", ["session", "list"]);
     expect(human.code).toBe(0);

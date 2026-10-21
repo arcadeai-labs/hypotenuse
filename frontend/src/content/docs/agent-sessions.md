@@ -3,7 +3,8 @@
 Every time someone **delegates** an issue to `@hypotenuse`, or **mentions** it in an issue or a comment, Linear
 opens an *agent session*: the conversation between that person and the agent, shown in the issue's activity.
 Hypotenuse keeps a copy of every session in the connected project, and of everything said in it, in both
-directions.
+directions. Each copy is marked with the integration it came from — today always `linear`, the first kind of
+[integration](/docs/connecting-linear).
 
 ## What you see in Linear
 
@@ -46,7 +47,7 @@ Hypotenuse wrote has reached Linear yet (`pending`, `sent`, `failed`, or `supers
 newer before it was sent). People outside the project cannot.
 
 ```bash
-hypotenuse session list                  # newest first; --status, --role, --issue ENG-123 to narrow
+hypotenuse session list                  # newest first; --type, --status, --role, --issue ENG-123 to narrow
 hypotenuse session view 42               # one session and its conversation, in order
 ```
 

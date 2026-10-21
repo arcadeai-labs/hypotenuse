@@ -5,10 +5,10 @@ export const configTasks = {
   // Order controls worker priority: workers drain queues left-to-right.
   // e.g. ["worker", "scheduler"] means "worker" jobs are processed before "scheduler" jobs.
   // Use ["*"] to process all queues with equal priority.
-  // `linear` first: webhook processing and the activity outbox are what a
+  // `triggers` first: webhook processing and the activity outbox are what a
   // person in Linear is waiting on, and Linear marks a session unresponsive
   // after ten seconds.
-  queues: ["linear", "orchestrator", "default"] as
+  queues: ["triggers", "orchestrator", "default"] as
     | string[]
     | (() => Promise<string[]>),
   // Or, rather than providing a static list of `queues`, you can define a method that returns the list of queues.

@@ -1,10 +1,10 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { eq } from "drizzle-orm";
 import { api, config } from "keryx";
-import { linearEvents } from "../../schema/linear_events";
+import { triggerEvents } from "../../schema/trigger_events";
 import { buildTestUniverse, HOOK_TIMEOUT, type TestUniverse } from "../setup";
 import { useFinear } from "./finear";
-import { installationRow } from "./helpers";
+import { integrationRow } from "./helpers";
 import {
   agentSessionEvent,
   deliver,
@@ -35,8 +35,11 @@ const linear = useFinear();
 let target: Target;
 beforeAll(async () => {
   await linear.install(universe.projectId, universe.peach.sessionId);
-  const row = await installationRow(universe.projectId);
-  target = { organizationId: row.organizationId, appUserId: row.appUserId };
+  const row = await integrationRow(universe.projectId);
+  target = {
+    organizationId: row.externalWorkspaceId,
+    appUserId: row.externalAppUserId,
+  };
 }, HOOK_TIMEOUT);
 
 /**
@@ -57,32 +60,37 @@ const created = () =>
 const rowsFor = (deliveryId: string) =>
   api.db.db
     .select()
-    .from(linearEvents)
-    .where(eq(linearEvents.deliveryId, deliveryId));
+    .from(triggerEvents)
+    .where(eq(triggerEvents.deliveryId, deliveryId));
 
 /**
- * How many `linear:process-event` jobs are queued for one event.
+ * How many `triggers:process-event` jobs are queued for one event.
  * @param eventId - The event row.
  * @returns The count.
  */
 async function processJobsFor(eventId: number): Promise<number> {
-  const jobs = (await api.resque.queue.queued("linear", 0, -1)) as {
+  const jobs = (await api.resque.queue.queued("triggers", 0, -1)) as {
     class: string;
     args: { eventId?: number }[];
   }[];
   return jobs.filter(
-    (j) => j.class === "linear:process-event" && j.args[0]?.eventId === eventId,
+    (j) =>
+      j.class === "triggers:process-event" && j.args[0]?.eventId === eventId,
   ).length;
 }
 
 describe("webhooks:linear", () => {
   test("LC-WH-01 LC-WH-04 a real Linear delivery is verified, recorded with its headers' delivery id, and answered 200", async () => {
     const issue = await createIssue(linear, "Ingress issue");
-    const linearSessionId = await delegate(linear, issue.id, target.appUserId);
+    const externalSessionId = await delegate(
+      linear,
+      issue.id,
+      target.appUserId,
+    );
     const event = await recordedEvent(
       (e) =>
         (e.payload as { agentSession?: { id?: string } }).agentSession?.id ===
-        linearSessionId,
+        externalSessionId,
     );
     expect(event).toMatchObject({
       eventType: "AgentSessionEvent",
@@ -95,7 +103,7 @@ describe("webhooks:linear", () => {
       deliveries: { id: string; resource_type: string; envelope: string }[];
     }>("/__test/deliveries");
     const delivery = deliveries.find((d) =>
-      d.envelope.includes(linearSessionId),
+      d.envelope.includes(externalSessionId),
     );
     expect(delivery?.id).toBe(event.deliveryId);
     const { attempts } = await linear.control<{
@@ -180,13 +188,13 @@ describe("webhooks:linear", () => {
     const first = await deliver(url, {}, { raw, deliveryId: null });
     const second = await deliver(url, {}, { raw, deliveryId: null });
     expect([first.status, second.status]).toEqual([200, 200]);
-    const rows = (await api.db.db.select().from(linearEvents)).filter((r) =>
+    const rows = (await api.db.db.select().from(triggerEvents)).filter((r) =>
       r.deliveryId.startsWith("sha256:"),
     );
     expect(rows).toHaveLength(1);
   });
 
-  test("a verified delivery for no connected workspace is answered 200 and recorded unknown_installation", async () => {
+  test("a verified delivery for no connected workspace is answered 200 and recorded unknown_integration", async () => {
     const res = await deliver(
       url,
       agentSessionEvent(
@@ -197,8 +205,8 @@ describe("webhooks:linear", () => {
     expect(res.status).toBe(200);
     const [row] = await rowsFor(res.deliveryId!);
     expect(row).toMatchObject({
-      installationId: null,
-      outcome: "unknown_installation",
+      integrationId: null,
+      outcome: "unknown_integration",
     });
     expect(row.processedAt).not.toBeNull();
     expect(await processJobsFor(row.id)).toBe(0);

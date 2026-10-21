@@ -69,7 +69,7 @@ signed-webhook injection above, which exercises *our* code, not a pretend Linear
 ```ts
 const e2e = useE2E({ runners: 1, agentScript: "plan-edit-pr" });
 // e2e.finear       — finear app (control API, LinearClient for "Human 1")
-// e2e.server       — backend URL; Peach's session cookie; the project with the installation
+// e2e.server       — backend URL; Peach's session cookie; the project with the integration
 // e2e.daemons[i]   — child process handle: stdout/stderr ring buffer, control-socket client, kill()
 // e2e.repo         — { origin: bare repo path, clone: path }
 // e2e.waitForActivities(sessionId, predicate, timeoutMs)
@@ -86,7 +86,7 @@ Boot order, and why:
    `LINEAR_API_URL` and `LINEAR_OAUTH_URL` pointing at finear and the injectable webhook clock aligned to finear's
    virtual clock.
 3. **Linear install**: the scripted consent flow (`approveFixtureConsent`, copied from finear's `examples/agent.ts`)
-   through the real `linear:connect` → finear authorize → `linear:callback`.
+   through the real `integration:connect` → finear authorize → `linear:callback`.
 4. **Git**: `git init --bare origin.git`; a clone with one commit on `main`; the clone's remote is the bare repo, so
    `git push` from a worktree works offline. A fake `gh` on `PATH` (a script that prints a PR URL for
    `gh pr create`) stands in for GitHub — the PR URL it prints is what the daemon must report.

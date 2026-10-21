@@ -24,8 +24,15 @@
     {
       "idx": 3,
       "version": "7",
-      "when": 1792542560460,
-      "tag": "0003_graceful_agent_zero",
+      "when": 1792554300229,
+      "tag": "0003_stale_beyonder",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1792554308904,
+      "tag": "0004_lean_owl",
       "breakpoints": true
     }
   ]

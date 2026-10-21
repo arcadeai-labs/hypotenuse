@@ -190,7 +190,7 @@ curl -s https://api.hypotenuse.cloud/.well-known/oauth-authorization-server | jq
 curl -s -o /dev/null -w '%{http_code}\n' -X POST https://api.hypotenuse.cloud/api/webhooks/linear -d '{}'
 ```
 
-Then, in the browser: sign up → Settings → **Linear** → *Connect* → approve as a Linear workspace admin →
+Then, in the browser: sign up → Settings → **Integrations** → **Linear** → *Connect* → approve as a Linear workspace admin →
 the connection shows the workspace name and the teams granted. In Linear, delegate a test issue to
 `@hypotenuse`: within ten seconds the agent session shows an acknowledgement thought, and — with no runner
 registered — ends with an error saying no runner is available. That one round trip proves the webhook URL, the

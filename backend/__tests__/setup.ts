@@ -301,12 +301,12 @@ export async function retryClearDatabase(): Promise<void> {
 /**
  * Forget what Redis holds per Linear installation — token buckets, rate-limit
  * snapshots, cached catalogs, outbox leases — and the jobs still queued on the
- * `linear` queue. Clearing the database restarts every id, so the next file's
+ * `triggers` queue. Clearing the database restarts every id, so the next file's
  * installation 1 would otherwise inherit the previous file's empty bucket, and
  * its event 1 a job queued for someone else's.
  */
 export async function clearLinearRedisState(): Promise<void> {
-  await api.resque.queue.delQueue("linear");
+  await api.resque.queue.delQueue("triggers");
   const redis = api.redis.redis;
   for (const pattern of ["linear:*", "activities:*"]) {
     let cursor = "0";

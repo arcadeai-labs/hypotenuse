@@ -1,43 +1,34 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { and, eq, inArray, isNull, ne, notInArray, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, notInArray, sql } from "drizzle-orm";
 import { api, config } from "keryx";
 import {
   ACTIVITY_SIGNALS,
   type ActivitySignal,
 } from "../schema/agent_activities";
 import { agentSessions } from "../schema/agent_sessions";
-import {
-  type LinearEvent,
-  type LinearEventOutcome,
-  linearEvents,
-} from "../schema/linear_events";
-import {
-  type LinearInstallation,
-  linearInstallations,
-} from "../schema/linear_installations";
+import { type Integration, integrations } from "../schema/integrations";
+import type { TriggerEvent } from "../schema/trigger_events";
 import {
   enqueueActivity,
   failPending,
   recordInboundPrompt,
-  scheduleDelivery,
 } from "./ActivityOutboxOps";
 import {
   type AgentSessionEventPayload,
   upsertFromWebhook,
   type WebhookAgentActivity,
 } from "./AgentSessionOps";
-import { catalogKey } from "./LinearCatalogOps";
-import { rateLimitKey } from "./LinearOps";
 import { getAdminUserIds } from "./MembershipOps";
 import { enqueueNotification } from "./NotificationOps";
 import type { TxHandle } from "./ProjectOps";
+import type { HandlerResult } from "./TriggerEventOps";
 
 /**
  * Linear's webhooks: verifying a delivery, and what each one does once it is
  * recorded.
  *
  * Ingress (`webhooks:linear`) only verifies and records; everything here that
- * changes state runs later, in `linear:process-event`, so the endpoint answers
+ * changes state runs later, in `triggers:process-event`, so the endpoint answers
  * well inside Linear's five seconds whatever the work costs.
  */
 
@@ -131,138 +122,38 @@ export function promptBody(
 }
 
 /**
- * The live installation a delivery belongs to, by workspace id. Revoked rows
- * never match: a disconnected workspace's deliveries are recorded and ignored.
- * @param organizationId - The body's `organizationId`.
- * @returns The installation, or null.
- */
-export async function installationForOrganization(
-  organizationId: unknown,
-): Promise<LinearInstallation | null> {
-  if (typeof organizationId !== "string" || !organizationId) return null;
-  const [row] = await api.db.db
-    .select()
-    .from(linearInstallations)
-    .where(
-      and(
-        eq(linearInstallations.organizationId, organizationId),
-        ne(linearInstallations.status, "revoked"),
-      ),
-    )
-    .limit(1);
-  return row ?? null;
-}
-
-/** What processing one event decided. */
-export interface ProcessResult {
-  outcome: LinearEventOutcome;
-  /** Sessions whose outbox gained rows. */
-  deliver: number[];
-  /** An installation that was just revoked, whose Redis state should go. */
-  revokedInstallationId?: number;
-}
-
-/** A handler's answer before it is written to the event row. */
-type HandlerResult = Omit<ProcessResult, "outcome"> & {
-  outcome: Exclude<LinearEventOutcome, "pending" | "failed">;
-};
-
-/**
- * Process one recorded delivery, once.
- *
- * The event row is taken `FOR UPDATE SKIP LOCKED` and only while unprocessed,
- * so the job and the sweep clock can both reach for it and exactly one does the
- * work. Everything the handler writes, and the outcome, commit together. A
- * handler that throws leaves the row `failed` with the error, and processed: a
- * delivery that fails the same way every time must not run every five seconds
- * forever.
- * @param eventId - The `linear_events` row.
- * @returns What was done, or null when the event was already processed (or
- *   another process holds it).
- */
-export async function processLinearEvent(
-  eventId: number,
-): Promise<ProcessResult | null> {
-  try {
-    return await api.db.db.transaction(async (tx) => {
-      const [event] = await tx
-        .select()
-        .from(linearEvents)
-        .where(
-          and(eq(linearEvents.id, eventId), isNull(linearEvents.processedAt)),
-        )
-        .for("update", { skipLocked: true });
-      if (!event) return null;
-
-      // Unlocked: only the handlers that change the installation lock it, so
-      // a token refresh holding the row does not stall every session event.
-      const installation = event.installationId
-        ? ((
-            await tx
-              .select()
-              .from(linearInstallations)
-              .where(eq(linearInstallations.id, event.installationId))
-          )[0] ?? null)
-        : null;
-
-      const result: HandlerResult =
-        installation && installation.status !== "revoked"
-          ? await dispatch(tx, event, installation)
-          : { outcome: "unknown_installation", deliver: [] };
-
-      await tx
-        .update(linearEvents)
-        .set({ processedAt: new Date(), outcome: result.outcome })
-        .where(eq(linearEvents.id, event.id));
-      return result;
-    });
-  } catch (e) {
-    const message = e instanceof Error ? e.message : String(e);
-    api.logger.error("processing a Linear webhook failed", {
-      eventId,
-      error: message,
-    });
-    await api.db.db
-      .update(linearEvents)
-      .set({ processedAt: new Date(), outcome: "failed", error: message })
-      .where(
-        and(eq(linearEvents.id, eventId), isNull(linearEvents.processedAt)),
-      );
-    return { outcome: "failed", deliver: [] };
-  }
-}
-
-/**
- * Route an event to its handler by `type` and `action`. Anything unrecognized
- * is `ignored` — Linear types `action` as a free string and adds values.
+ * Do what one recorded Linear delivery asks, routing by its event type and
+ * `action`. Anything unrecognized is `ignored` — Linear types `action` as a
+ * free string and adds values. Called by `processTriggerEvent` for
+ * `type = linear`, inside its transaction.
  * @param tx - The transaction.
  * @param event - The recorded delivery.
- * @param installation - Its installation.
+ * @param integration - Its integration.
  * @returns The handler's result.
  */
-async function dispatch(
+export async function handleLinearEvent(
   tx: TxHandle,
-  event: LinearEvent,
-  installation: LinearInstallation,
+  event: TriggerEvent,
+  integration: Integration,
 ): Promise<HandlerResult> {
   const payload = event.payload;
   switch (event.eventType) {
     case "AgentSessionEvent":
       return handleAgentSessionEvent(
         tx,
-        installation,
+        integration,
         payload as unknown as AgentSessionEventPayload,
       );
     case "PermissionChange":
       return event.action === "teamAccessChanged"
-        ? handlePermissionChange(tx, installation, payload)
+        ? handlePermissionChange(tx, integration, payload)
         : ignored(event);
     case "OAuthApp":
       return event.action === "revoked"
-        ? handleOAuthAppRevoked(tx, installation)
+        ? handleOAuthAppRevoked(tx, integration)
         : ignored(event);
     case "Issue":
-      return handleIssueEvent(tx, installation, payload);
+      return handleIssueEvent(tx, integration, payload);
     case "AppUserNotification":
       // Recorded for the dashboard. Sessions, not notifications, start work.
       return { outcome: "handled", deliver: [] };
@@ -277,7 +168,7 @@ async function dispatch(
  * @param event - The event.
  * @returns `ignored`.
  */
-function ignored(event: LinearEvent): HandlerResult {
+function ignored(event: TriggerEvent): HandlerResult {
   if (event.eventType === "AgentSessionEvent") {
     api.logger.warn("an AgentSessionEvent action Hypotenuse does not know", {
       deliveryId: event.deliveryId,
@@ -320,13 +211,13 @@ async function hasOutbound(
  * An event for another app user (never expected: one webhook per app) is
  * ignored rather than mirrored into the wrong project.
  * @param tx - The transaction.
- * @param installation - The installation.
+ * @param integration - The integration.
  * @param payload - The body.
  * @returns The result.
  */
 export async function handleAgentSessionEvent(
   tx: TxHandle,
-  installation: LinearInstallation,
+  integration: Integration,
   payload: AgentSessionEventPayload,
 ): Promise<HandlerResult> {
   if (payload.action !== "created" && payload.action !== "prompted") {
@@ -337,12 +228,12 @@ export async function handleAgentSessionEvent(
   }
   if (
     !payload.agentSession?.id ||
-    (payload.appUserId && payload.appUserId !== installation.appUserId)
+    (payload.appUserId && payload.appUserId !== integration.externalAppUserId)
   ) {
     return { outcome: "ignored", deliver: [] };
   }
 
-  const { session } = await upsertFromWebhook(tx, installation, payload);
+  const { session } = await upsertFromWebhook(tx, integration, payload);
 
   if (payload.action === "created") {
     if (await hasOutbound(tx, session.id)) {
@@ -369,12 +260,12 @@ export async function handleAgentSessionEvent(
     ? (activity.signal as ActivitySignal)
     : null;
   const recorded = await recordInboundPrompt(tx, session.id, {
-    linearActivityId: activity.id,
+    externalActivityId: activity.id,
     body: promptBody(activity),
     signal,
     signalMetadata: activity.signalMetadata ?? null,
-    sourceCommentId: activity.sourceCommentId ?? null,
-    linearUserId: activity.userId ?? activity.user?.id ?? null,
+    externalSourceCommentId: activity.sourceCommentId ?? null,
+    externalUserId: activity.userId ?? activity.user?.id ?? null,
   });
   if (!recorded.created) return { outcome: "handled", deliver: [] };
 
@@ -407,38 +298,41 @@ function strings(value: unknown): string[] {
 
 /**
  * `PermissionChange` / `teamAccessChanged`: a workspace admin changed which
- * teams `@hypotenuse` can see. The installation's team list follows; sessions
+ * teams `@hypotenuse` can see. The integration's team list follows; sessions
  * on a removed team are marked `error` here, and their unsent activities
  * failed, because the app can no longer write to them.
  * @param tx - The transaction.
- * @param installation - The installation.
+ * @param integration - The integration.
  * @param payload - The body.
  * @returns The result.
  */
 export async function handlePermissionChange(
   tx: TxHandle,
-  installation: LinearInstallation,
+  integration: Integration,
   payload: Record<string, unknown>,
 ): Promise<HandlerResult> {
   const added = strings(payload.addedTeamIds);
   const removed = new Set(strings(payload.removedTeamIds));
   const [current] = await tx
-    .select({ teamIds: linearInstallations.teamIds })
-    .from(linearInstallations)
-    .where(eq(linearInstallations.id, installation.id))
+    .select({ details: integrations.details })
+    .from(integrations)
+    .where(eq(integrations.id, integration.id))
     .for("update");
-  const teamIds = [...new Set([...current.teamIds, ...added])].filter(
+  const teamIds = [...new Set([...current.details.teamIds, ...added])].filter(
     (id) => !removed.has(id),
   );
   await tx
-    .update(linearInstallations)
+    .update(integrations)
     .set({
-      teamIds,
-      ...(typeof payload.canAccessAllPublicTeams === "boolean"
-        ? { canAccessAllPublicTeams: payload.canAccessAllPublicTeams }
-        : {}),
+      details: {
+        ...current.details,
+        teamIds,
+        ...(typeof payload.canAccessAllPublicTeams === "boolean"
+          ? { canAccessAllPublicTeams: payload.canAccessAllPublicTeams }
+          : {}),
+      },
     })
-    .where(eq(linearInstallations.id, installation.id));
+    .where(eq(integrations.id, integration.id));
 
   if (removed.size > 0) {
     const cut = await tx
@@ -446,8 +340,8 @@ export async function handlePermissionChange(
       .set({ status: "error", endedAt: new Date() })
       .where(
         and(
-          eq(agentSessions.installationId, installation.id),
-          inArray(agentSessions.teamId, [...removed]),
+          eq(agentSessions.integrationId, integration.id),
+          inArray(agentSessions.externalTeamId, [...removed]),
           notInArray(agentSessions.status, ["complete", "error"]),
         ),
       )
@@ -461,19 +355,19 @@ export async function handlePermissionChange(
 
 /**
  * `OAuthApp` / `revoked`: the app was uninstalled from the workspace in
- * Linear. The installation is `revoked` with its tokens forgotten — exactly
- * what `linear:disconnect` leaves — every unsent activity fails, and the
+ * Linear. The integration is `revoked` with its tokens forgotten — exactly
+ * what `integration:disconnect` leaves — every unsent activity fails, and the
  * project's admins are told.
  * @param tx - The transaction.
- * @param installation - The installation.
+ * @param integration - The integration.
  * @returns The result.
  */
 export async function handleOAuthAppRevoked(
   tx: TxHandle,
-  installation: LinearInstallation,
+  integration: Integration,
 ): Promise<HandlerResult> {
   await tx
-    .update(linearInstallations)
+    .update(integrations)
     .set({
       status: "revoked",
       accessTokenEncrypted: null,
@@ -483,23 +377,23 @@ export async function handleOAuthAppRevoked(
       refreshError: null,
       refreshFailedAt: null,
     })
-    .where(eq(linearInstallations.id, installation.id));
+    .where(eq(integrations.id, integration.id));
   await failPending(
     tx,
-    { installationId: installation.id },
-    "installation unavailable",
+    { integrationId: integration.id },
+    "integration unavailable",
   );
   await enqueueNotification(tx, {
-    projectId: installation.projectId,
-    userIds: await getAdminUserIds(tx, installation.projectId),
+    projectId: integration.projectId,
+    userIds: await getAdminUserIds(tx, integration.projectId),
     template: "linear-revoked",
-    payload: { organizationName: installation.organizationName },
-    linkPath: "/settings/linear",
+    payload: { workspaceName: integration.workspaceName },
+    linkPath: "/settings/integrations",
   });
   return {
     outcome: "handled",
     deliver: [],
-    revokedInstallationId: installation.id,
+    revokedIntegrationId: integration.id,
   };
 }
 
@@ -510,14 +404,14 @@ export async function handleOAuthAppRevoked(
  * `delegateRemovedAt`, which cancellation reads. Every other issue change is
  * `ignored`.
  * @param tx - The transaction.
- * @param installation - The installation.
+ * @param integration - The integration.
  * @param payload - The body: `data` is the issue now, `updatedFrom` the
  *   changed fields' previous values.
  * @returns The result.
  */
 export async function handleIssueEvent(
   tx: TxHandle,
-  installation: LinearInstallation,
+  integration: Integration,
   payload: Record<string, unknown>,
 ): Promise<HandlerResult> {
   const data = (payload.data ?? {}) as Record<string, unknown>;
@@ -528,8 +422,8 @@ export async function handleIssueEvent(
   const wasOurs =
     updatedFrom !== null &&
     "delegateId" in updatedFrom &&
-    updatedFrom.delegateId === installation.appUserId;
-  const isOurs = data.delegateId === installation.appUserId;
+    updatedFrom.delegateId === integration.externalAppUserId;
+  const isOurs = data.delegateId === integration.externalAppUserId;
   if (payload.action !== "update" || !wasOurs || isOurs) {
     return { outcome: "ignored", deliver: [] };
   }
@@ -540,25 +434,10 @@ export async function handleIssueEvent(
     .set({ delegateRemovedAt: new Date() })
     .where(
       and(
-        eq(agentSessions.installationId, installation.id),
-        eq(agentSessions.linearIssueId, data.id),
+        eq(agentSessions.integrationId, integration.id),
+        eq(agentSessions.externalIssueId, data.id),
         isNull(agentSessions.delegateRemovedAt),
       ),
     );
   return { outcome: "handled", deliver: [] };
-}
-
-/**
- * After an event commits: send what it enqueued, and drop what Redis caches
- * for an installation it revoked.
- * @param result - What processing did.
- */
-export async function afterProcessing(result: ProcessResult): Promise<void> {
-  await scheduleDelivery(result.deliver);
-  if (result.revokedInstallationId) {
-    await api.redis.redis.del(
-      catalogKey(result.revokedInstallationId),
-      rateLimitKey(result.revokedInstallationId),
-    );
-  }
 }

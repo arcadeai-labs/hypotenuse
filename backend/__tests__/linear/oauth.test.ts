@@ -1,8 +1,8 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { and, desc, eq } from "drizzle-orm";
 import { type ActionResponse, api } from "keryx";
-import type { LinearConnect } from "../../actions/linear/linear-connect";
-import type { LinearInstallationView } from "../../actions/linear/linear-installation";
+import type { IntegrationConnect } from "../../actions/integration/integration-connect";
+import type { IntegrationView } from "../../actions/integration/integration-view";
 import { LINEAR_SCOPES } from "../../config/linear";
 import { sha256Hex } from "../../ops/CliTokenOps";
 import { parseScopes } from "../../ops/LinearOAuthOps";
@@ -15,7 +15,7 @@ import {
   type TestUniverse,
 } from "../setup";
 import { FINEAR_FIXTURES, useFinear } from "./finear";
-import { appToken, installationRow, refreshTokenOf } from "./helpers";
+import { appToken, integrationRow, refreshTokenOf } from "./helpers";
 
 let universe: TestUniverse;
 let url: string;
@@ -30,15 +30,18 @@ afterAll(async () => {
 const linear = useFinear();
 
 /**
- * `linear:connect` as someone, answered raw.
+ * `integration:connect` as someone, answered raw.
  * @param projectId - The project.
  * @param sessionId - Who asks.
  * @returns Status and body.
  */
 async function connect(projectId: number, sessionId: string) {
-  const res = await fetch(`${url}/api/linear/connect?projectId=${projectId}`, {
-    headers: cookieHeader(sessionId),
-  });
+  const res = await fetch(
+    `${url}/api/integration/connect?projectId=${projectId}&type=linear`,
+    {
+      headers: cookieHeader(sessionId),
+    },
+  );
   return {
     status: res.status,
     body: (await res.json()) as Record<string, any>,
@@ -46,18 +49,18 @@ async function connect(projectId: number, sessionId: string) {
 }
 
 /**
- * `linear:installation` for a project.
+ * `integration:view` for a project.
  * @param projectId - The project.
  * @param sessionId - Who asks.
  * @returns The response body.
  */
-async function installation(projectId: number, sessionId: string) {
+async function integrationView(projectId: number, sessionId: string) {
   const res = await fetch(
-    `${url}/api/linear/installation?projectId=${projectId}`,
+    `${url}/api/integration?projectId=${projectId}&type=linear`,
     { headers: cookieHeader(sessionId) },
   );
   expect(res.status).toBe(200);
-  return (await res.json()) as ActionResponse<LinearInstallationView>;
+  return (await res.json()) as ActionResponse<IntegrationView>;
 }
 
 /**
@@ -70,14 +73,15 @@ async function tokenWorks(token: string): Promise<boolean> {
   return reply.status === 200 && !reply.errors;
 }
 
-describe("linear:connect", () => {
+describe("integration:connect", () => {
   test("LC-OAUTH-01 LC-OAUTH-02 LC-OAUTH-10 LC-OAUTH-11 LC-BP-09 an admin gets an actor=app authorize URL with PKCE and prompt=consent", async () => {
     const { status, body } = await connect(
       universe.projectId,
       universe.peach.sessionId,
     );
     expect(status).toBe(200);
-    const { authorizeUrl, expiresIn } = body as ActionResponse<LinearConnect>;
+    const { authorizeUrl, expiresIn } =
+      body as ActionResponse<IntegrationConnect>;
     expect(expiresIn).toBe(600);
     const authorize = new URL(authorizeUrl);
     expect(authorize.origin + authorize.pathname).toBe(
@@ -153,7 +157,7 @@ describe("linear:connect", () => {
 
   test("a signed-out caller is 401", async () => {
     const res = await fetch(
-      `${url}/api/linear/connect?projectId=${universe.projectId}`,
+      `${url}/api/integration/connect?projectId=${universe.projectId}&type=linear`,
     );
     expect(res.status).toBe(401);
   });
@@ -169,19 +173,19 @@ describe("linear:callback", () => {
     const landed = await linear.callback(callbackUrl, universe.peach.sessionId);
     expect(landed.searchParams.get("error")).toBe("denied");
     expect(
-      (await installation(universe.projectId, universe.peach.sessionId))
-        .installation,
+      (await integrationView(universe.projectId, universe.peach.sessionId))
+        .integration,
     ).toBeNull();
   });
 
-  test("LC-OAUTH-12 LC-OAUTH-19 LC-OAUTH-20 LC-DEL-06 LC-WH-08 the full flow stores an active installation as the app user", async () => {
+  test("LC-OAUTH-12 LC-OAUTH-19 LC-OAUTH-20 LC-DEL-06 LC-WH-08 the full flow stores an active integration as the app user", async () => {
     linear.clearRequests();
     const landed = await linear.install(
       universe.projectId,
       universe.peach.sessionId,
     );
     expect(landed.toString()).toBe(
-      `http://localhost:3000/settings/linear?connected=1&projectId=${universe.projectId}`,
+      `http://localhost:3000/settings/integrations?type=linear&connected=1&projectId=${universe.projectId}`,
     );
     const sentByServer = linear
       .requests()
@@ -193,31 +197,35 @@ describe("linear:callback", () => {
       `Bearer ${token}`,
       "{ viewer { id } }",
     );
-    const { installation: view, configured } = await installation(
+    const { integration: view, configured } = await integrationView(
       universe.projectId,
       universe.toad.sessionId,
     );
     expect(configured).toBe(true);
     expect(view).toMatchObject({
       projectId: universe.projectId,
-      organizationId: FINEAR_FIXTURES.primary.organization,
-      organizationName: "Workspace 1",
-      urlKey: "eng",
-      appUserId: viewer.data!.viewer.id,
+      type: "linear",
+      externalWorkspaceId: FINEAR_FIXTURES.primary.organization,
+      workspaceName: "Workspace 1",
+      workspaceUrlKey: "eng",
+      externalAppUserId: viewer.data!.viewer.id,
       appUserName: "Hypotenuse",
-      appUserCapabilities: {
-        app: true,
-        isAssignable: true,
-        isMentionable: true,
-        supportsAgentSessions: true,
+      details: {
+        appUserCapabilities: {
+          app: true,
+          isAssignable: true,
+          isMentionable: true,
+          supportsAgentSessions: true,
+        },
+        teamIds: [FINEAR_FIXTURES.primary.team],
+        canAccessAllPublicTeams: false,
       },
       status: "active",
-      teamIds: [FINEAR_FIXTURES.primary.team],
-      installedByUserId: universe.peach.userId,
+      connectedByUserId: universe.peach.userId,
       refreshError: null,
     });
     expect([...view!.scopes].sort()).toEqual([...LINEAR_SCOPES].sort());
-    expect(view!.appUserId).not.toBe(FINEAR_FIXTURES.primary.user);
+    expect(view!.externalAppUserId).not.toBe(FINEAR_FIXTURES.primary.user);
     expect(view!.accessTokenLastFour).toBe(token.slice(-4));
     // Linear's 24-hour token, give or take the request.
     expect(view!.accessTokenExpiresAt! - Date.now()).toBeGreaterThan(
@@ -230,29 +238,30 @@ describe("linear:callback", () => {
   });
 
   test("tokens are sealed at rest, and no API answer has a field one fits in", async () => {
-    const row = await installationRow(universe.projectId);
+    const row = await integrationRow(universe.projectId);
     const access = await appToken(universe.projectId);
     const refresh = await refreshTokenOf(universe.projectId);
     expect(JSON.stringify(row.accessTokenEncrypted)).not.toContain(access);
     expect(JSON.stringify(row.refreshTokenEncrypted)).not.toContain(refresh);
 
-    const body = await installation(
+    const body = await integrationView(
       universe.projectId,
       universe.peach.sessionId,
     );
     const text = JSON.stringify(body);
     expect(text).not.toContain(access);
     expect(text).not.toContain(refresh);
-    expect(Object.keys(body.installation!).sort()).toEqual(
+    expect(Object.keys(body.integration!).sort()).toEqual(
       [
         "id",
         "projectId",
-        "organizationId",
-        "organizationName",
-        "urlKey",
-        "appUserId",
+        "type",
+        "externalWorkspaceId",
+        "workspaceName",
+        "workspaceUrlKey",
+        "externalAppUserId",
         "appUserName",
-        "appUserCapabilities",
+        "details",
         "scopes",
         "status",
         "accessTokenLastFour",
@@ -261,10 +270,8 @@ describe("linear:callback", () => {
         "lastRefreshedAt",
         "refreshFailedAt",
         "refreshError",
-        "teamIds",
-        "canAccessAllPublicTeams",
         "rateLimit",
-        "installedByUserId",
+        "connectedByUserId",
         "createdAt",
         "updatedAt",
       ].sort(),
@@ -285,10 +292,11 @@ describe("linear:callback", () => {
       .limit(1);
     expect(row).toBeDefined();
     expect(row.userId).toBe(universe.peach.userId);
-    expect(row.targetType).toBe("linear-installation");
-    expect(row.targetPath).toBe("eng");
+    expect(row.targetType).toBe("integration");
+    expect(row.targetPath).toBe("linear:eng");
     expect(row.metadata).toEqual({
-      organizationId: FINEAR_FIXTURES.primary.organization,
+      type: "linear",
+      externalWorkspaceId: FINEAR_FIXTURES.primary.organization,
       reconnect: false,
     });
     const text = JSON.stringify(row);
@@ -309,7 +317,7 @@ describe("linear:callback", () => {
   });
 
   test("a callback lured into another person's browser attaches nothing, and burns the state", async () => {
-    const before = await installationRow(universe.projectId);
+    const before = await integrationRow(universe.projectId);
     const callbackUrl = await linear.authorize(
       universe.projectId,
       universe.peach.sessionId,
@@ -318,7 +326,7 @@ describe("linear:callback", () => {
     expect(lured.searchParams.get("error")).toBe("state_mismatch");
     const signedOut = await linear.callback(callbackUrl, null);
     expect(signedOut.searchParams.get("error")).toBe("state_expired");
-    const after = await installationRow(universe.projectId);
+    const after = await integrationRow(universe.projectId);
     expect(after.accessTokenEncrypted).toEqual(before.accessTokenEncrypted);
     expect(after.updatedAt).toEqual(before.updatedAt);
   });
@@ -336,15 +344,15 @@ describe("linear:callback", () => {
   });
 
   test("reconnecting replaces the tokens on the same row", async () => {
-    const before = await installationRow(universe.projectId);
+    const before = await integrationRow(universe.projectId);
     const landed = await linear.install(
       universe.projectId,
       universe.peach.sessionId,
     );
     expect(landed.searchParams.get("connected")).toBe("1");
-    const after = await installationRow(universe.projectId);
+    const after = await integrationRow(universe.projectId);
     expect(after.id).toBe(before.id);
-    expect(after.appUserId).toBe(before.appUserId);
+    expect(after.externalAppUserId).toBe(before.externalAppUserId);
     // Only a completed install moves connectedAt; a client waiting on a
     // connect watches it.
     expect(after.connectedAt.getTime()).toBeGreaterThan(
@@ -361,7 +369,7 @@ describe("linear:callback", () => {
       { fixture: "secondary" },
     );
     expect(landed.searchParams.get("error")).toBe("workspace_changed");
-    expect((await installationRow(universe.projectId)).organizationId).toBe(
+    expect((await integrationRow(universe.projectId)).externalWorkspaceId).toBe(
       FINEAR_FIXTURES.primary.organization,
     );
   });
@@ -374,13 +382,17 @@ describe("linear:callback", () => {
     );
     expect(landed.searchParams.get("error")).toBe("workspace_taken");
     // The redirect names the condition, never the other project.
-    expect([...landed.searchParams.keys()]).toEqual(["error"]);
+    expect([...landed.searchParams.keys()]).toEqual(["type", "error"]);
     expect(
-      (await installation(universe.bowser.projectId, universe.bowser.sessionId))
-        .installation,
+      (
+        await integrationView(
+          universe.bowser.projectId,
+          universe.bowser.sessionId,
+        )
+      ).integration,
     ).toBeNull();
     expect(await tokenWorks(token)).toBe(true);
-    expect((await installationRow(universe.projectId)).status).toBe("active");
+    expect((await integrationRow(universe.projectId)).status).toBe("active");
   });
 
   test("LC-OAUTH-17 granted scopes parse from a string or an array", () => {
@@ -395,33 +407,33 @@ describe("linear:callback", () => {
   });
 });
 
-describe("linear:installation", () => {
+describe("integration:view", () => {
   test("answers null for a project that never connected; an outsider is refused", async () => {
     const res = await fetch(
-      `${url}/api/linear/installation?projectId=${universe.toad.projectId}`,
+      `${url}/api/integration?projectId=${universe.toad.projectId}&type=linear`,
       { headers: cookieHeader(universe.toad.sessionId) },
     );
-    expect(await res.json()).toEqual({ installation: null, configured: true });
+    expect(await res.json()).toEqual({ integration: null, configured: true });
     const outsider = await fetch(
-      `${url}/api/linear/installation?projectId=${universe.projectId}`,
+      `${url}/api/integration?projectId=${universe.projectId}&type=linear`,
       { headers: cookieHeader(universe.bowser.sessionId) },
     );
     expect(outsider.status).toBe(403);
   });
 });
 
-describe("linear:disconnect", () => {
+describe("integration:disconnect", () => {
   /**
-   * `linear:disconnect` as someone.
+   * `integration:disconnect` as someone.
    * @param projectId - The project.
    * @param sessionId - Who asks.
    * @returns The response.
    */
   const disconnect = (projectId: number, sessionId: string) =>
-    fetch(`${url}/api/linear/installation`, {
+    fetch(`${url}/api/integration`, {
       method: "DELETE",
       headers: authHeaders(sessionId),
-      body: JSON.stringify({ projectId }),
+      body: JSON.stringify({ projectId, type: "linear" }),
     });
 
   test("a member without the admin tag is refused", async () => {
@@ -432,13 +444,13 @@ describe("linear:disconnect", () => {
 
   test("LC-OAUTH-16 revokes both tokens at Linear, forgets them, and frees the workspace", async () => {
     const access = await appToken(universe.projectId);
-    const before = await installationRow(universe.projectId);
+    const before = await integrationRow(universe.projectId);
     linear.clearRequests();
 
     const res = await disconnect(universe.projectId, universe.peach.sessionId);
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { installation: { status: string } };
-    expect(body.installation.status).toBe("revoked");
+    const body = (await res.json()) as { integration: { status: string } };
+    expect(body.integration.status).toBe("revoked");
 
     // Both were sent; the second one finds the install already revoked (400),
     // which is success.
@@ -447,7 +459,7 @@ describe("linear:disconnect", () => {
     ).toBe(2);
     expect(await tokenWorks(access)).toBe(false);
 
-    const row = await installationRow(universe.projectId);
+    const row = await integrationRow(universe.projectId);
     expect(row.id).toBe(before.id);
     expect(row.status).toBe("revoked");
     expect(row.accessTokenEncrypted).toBeNull();
@@ -460,9 +472,11 @@ describe("linear:disconnect", () => {
       universe.bowser.sessionId,
     );
     expect(landed.searchParams.get("connected")).toBe("1");
-    const moved = await installationRow(universe.bowser.projectId);
-    expect(moved.organizationId).toBe(FINEAR_FIXTURES.primary.organization);
-    expect(moved.appUserId).not.toBe(before.appUserId);
+    const moved = await integrationRow(universe.bowser.projectId);
+    expect(moved.externalWorkspaceId).toBe(
+      FINEAR_FIXTURES.primary.organization,
+    );
+    expect(moved.externalAppUserId).not.toBe(before.externalAppUserId);
   });
 
   test("disconnecting a project that is not connected is a 404", async () => {
@@ -472,7 +486,7 @@ describe("linear:disconnect", () => {
   });
 
   test("the revoked row can reconnect to a free workspace and keeps its id", async () => {
-    const before = await installationRow(universe.projectId);
+    const before = await integrationRow(universe.projectId);
     // Mario's project holds the secondary workspace; free it first.
     expect(
       (await disconnect(universe.mario.projectId, universe.mario.sessionId))
@@ -484,9 +498,11 @@ describe("linear:disconnect", () => {
       { fixture: "secondary" },
     );
     expect(landed.searchParams.get("connected")).toBe("1");
-    const after = await installationRow(universe.projectId);
+    const after = await integrationRow(universe.projectId);
     expect(after.id).toBe(before.id);
     expect(after.status).toBe("active");
-    expect(after.organizationId).toBe(FINEAR_FIXTURES.secondary.organization);
+    expect(after.externalWorkspaceId).toBe(
+      FINEAR_FIXTURES.secondary.organization,
+    );
   });
 });

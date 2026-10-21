@@ -8,8 +8,8 @@ import pkg from "../package.json";
 import { registerAuditCommands } from "./commands/audit";
 import { registerAuthCommands } from "./commands/auth";
 import { registerCheckUpdateCommand } from "./commands/check-update";
+import { registerIntegrationCommands } from "./commands/integration";
 import { registerInviteCommands } from "./commands/invite";
-import { registerLinearCommands } from "./commands/linear";
 import { registerMemberCommands } from "./commands/member";
 import { registerProjectCommands } from "./commands/project";
 import { registerSessionCommands } from "./commands/session";
@@ -56,7 +56,7 @@ export function buildProgram(): Command {
   registerInviteCommands(program);
   registerTagCommands(program);
   registerAuditCommands(program);
-  registerLinearCommands(program);
+  registerIntegrationCommands(program);
   registerSessionCommands(program);
   registerCheckUpdateCommand(program);
   registerUpgradeCommand(program);

@@ -4,10 +4,10 @@ import { api, config } from "keryx";
 import {
   inflightRefreshKey,
   REFRESH_REPLAY_GRACE_MS,
-  refreshInstallationTokens,
+  refreshIntegrationTokens,
 } from "../../ops/LinearOAuthOps";
 import {
-  LinearInstallationUnavailableError,
+  LinearIntegrationUnavailableError,
   LinearUnavailableError,
   linearRequest,
 } from "../../ops/LinearOps";
@@ -22,7 +22,7 @@ import {
 import { useFinear } from "./finear";
 import {
   appToken,
-  installationRow,
+  integrationRow,
   refreshTokenOf,
   setTokenExpiry,
 } from "./helpers";
@@ -65,27 +65,29 @@ async function tokenWorks(token: string): Promise<boolean> {
   return reply.status === 200 && !reply.errors;
 }
 
-describe("linear:refresh-tokens", () => {
+describe("integrations:refresh-tokens", () => {
   test("leaves a token far from expiry alone", async () => {
     linear.clearRequests();
-    const result = await runAction<{ due: number }>("linear:refresh-tokens");
+    const result = await runAction<{ due: number }>(
+      "integrations:refresh-tokens",
+    );
     expect(result.due).toBe(0);
     expect(refreshesSent()).toBe(0);
   });
 
-  test("LC-OAUTH-13 LC-OAUTH-14 rotates both tokens for an installation inside the window", async () => {
+  test("LC-OAUTH-13 LC-OAUTH-14 rotates both tokens for an integration inside the window", async () => {
     const access = await appToken(universe.projectId);
     const refresh = await refreshTokenOf(universe.projectId);
     await setTokenExpiry(universe.projectId, soon());
     linear.clearRequests();
 
     const result = await runAction<{ due: number; failed: number }>(
-      "linear:refresh-tokens",
+      "integrations:refresh-tokens",
     );
     expect(result).toEqual({ due: 1, failed: 0 });
     expect(refreshesSent()).toBe(1);
 
-    const row = await installationRow(universe.projectId);
+    const row = await integrationRow(universe.projectId);
     expect(row.status).toBe("active");
     expect(await appToken(universe.projectId)).not.toBe(access);
     expect(await refreshTokenOf(universe.projectId)).not.toBe(refresh);
@@ -100,12 +102,12 @@ describe("linear:refresh-tokens", () => {
 
   test("two refreshers at once call Linear once: the row lock serializes them", async () => {
     await setTokenExpiry(universe.projectId, soon());
-    const { id } = await installationRow(universe.projectId);
+    const { id } = await integrationRow(universe.projectId);
     linear.clearRequests();
 
     const [a, b] = await Promise.all([
-      refreshInstallationTokens(id),
-      refreshInstallationTokens(id),
+      refreshIntegrationTokens(id),
+      refreshIntegrationTokens(id),
     ]);
     expect(refreshesSent()).toBe(1);
     expect(a.accessTokenEncrypted).toEqual(b.accessTokenEncrypted);
@@ -114,7 +116,7 @@ describe("linear:refresh-tokens", () => {
 
   test("LC-OAUTH-15 a lost refresh response is replayed with the spent token inside the grace and ends active", async () => {
     await setTokenExpiry(universe.projectId, soon());
-    const { id } = await installationRow(universe.projectId);
+    const { id } = await integrationRow(universe.projectId);
     const spent = await refreshTokenOf(universe.projectId);
     linear.clearRequests();
     // finear rotates the tokens; the answer never reaches the server.
@@ -123,10 +125,10 @@ describe("linear:refresh-tokens", () => {
       match: (r) => r.grantType === "refresh_token",
     });
 
-    await expect(refreshInstallationTokens(id)).rejects.toBeInstanceOf(
+    await expect(refreshIntegrationTokens(id)).rejects.toBeInstanceOf(
       LinearUnavailableError,
     );
-    const lost = await installationRow(universe.projectId);
+    const lost = await integrationRow(universe.projectId);
     expect(lost.status).toBe("active");
     expect(lost.refreshError).toContain("will be retried");
     // Nothing committed: the row still holds the token Linear just spent.
@@ -136,12 +138,12 @@ describe("linear:refresh-tokens", () => {
     // Twenty minutes later, by finear's clock, the clock tries again.
     await linear.advance(20 * 60 * 1000);
     const result = await runAction<{ due: number; failed: number }>(
-      "linear:refresh-tokens",
+      "integrations:refresh-tokens",
     );
     expect(result).toEqual({ due: 1, failed: 0 });
     expect(refreshesSent()).toBe(2);
 
-    const recovered = await installationRow(universe.projectId);
+    const recovered = await integrationRow(universe.projectId);
     expect(recovered.status).toBe("active");
     expect(recovered.refreshError).toBeNull();
     expect(await refreshTokenOf(universe.projectId)).not.toBe(spent);
@@ -151,7 +153,7 @@ describe("linear:refresh-tokens", () => {
 
   test("a failed refresh cannot stamp its error over a concurrent refresher's success", async () => {
     await setTokenExpiry(universe.projectId, soon());
-    const { id, connectedAt } = await installationRow(universe.projectId);
+    const { id, connectedAt } = await integrationRow(universe.projectId);
     linear.clearRequests();
     // Whichever refresher takes the lock first loses its response; the second
     // then refreshes for real. The failure is recorded under the lock, so it is
@@ -161,15 +163,15 @@ describe("linear:refresh-tokens", () => {
       match: (r) => r.grantType === "refresh_token",
     });
     const [first, second] = await Promise.allSettled([
-      refreshInstallationTokens(id),
-      refreshInstallationTokens(id),
+      refreshIntegrationTokens(id),
+      refreshIntegrationTokens(id),
     ]);
     expect([first.status, second.status].sort()).toEqual([
       "fulfilled",
       "rejected",
     ]);
     expect(refreshesSent()).toBe(2);
-    const row = await installationRow(universe.projectId);
+    const row = await integrationRow(universe.projectId);
     expect(row.status).toBe("active");
     expect(row.refreshError).toBeNull();
     expect(row.refreshFailedAt).toBeNull();
@@ -179,7 +181,7 @@ describe("linear:refresh-tokens", () => {
   });
 
   test("a 401 refreshes inline once and retries the request", async () => {
-    const row = await installationRow(universe.projectId);
+    const row = await integrationRow(universe.projectId);
     // Something outside this server spent the refresh token, so the access
     // token the row holds is dead — but the spent token still replays.
     const spentAt = await fetch(`${linear.url()}/oauth/token`, {
@@ -198,7 +200,7 @@ describe("linear:refresh-tokens", () => {
     linear.clearRequests();
 
     const data = await linearRequest(row, GetViewer, {}, { idempotent: true });
-    expect(data.viewer.id).toBe(row.appUserId);
+    expect(data.viewer.id).toBe(row.externalAppUserId);
     expect(refreshesSent()).toBe(1);
     expect(
       linear.requests().filter((r) => r.operationName === "GetViewer").length,
@@ -206,24 +208,24 @@ describe("linear:refresh-tokens", () => {
     expect(await tokenWorks(await appToken(universe.projectId))).toBe(true);
   });
 
-  test("invalid_grant past the grace marks the installation error and tells the admins", async () => {
+  test("invalid_grant past the grace marks the integration error and tells the admins", async () => {
     await setTokenExpiry(universe.projectId, soon());
-    const { id } = await installationRow(universe.projectId);
+    const { id } = await integrationRow(universe.projectId);
     linear.fault({
       kind: "drop",
       match: (r) => r.grantType === "refresh_token",
     });
-    await expect(refreshInstallationTokens(id)).rejects.toBeInstanceOf(
+    await expect(refreshIntegrationTokens(id)).rejects.toBeInstanceOf(
       LinearUnavailableError,
     );
     // Past Linear's 30-minute replay grace.
     await linear.advance(REFRESH_REPLAY_GRACE_MS + 60 * 1000);
 
     const result = await runAction<{ due: number; failed: number }>(
-      "linear:refresh-tokens",
+      "integrations:refresh-tokens",
     );
     expect(result).toEqual({ due: 1, failed: 0 });
-    const row = await installationRow(universe.projectId);
+    const row = await integrationRow(universe.projectId);
     expect(row.status).toBe("error");
     expect(row.refreshError).toContain("reconnect");
     expect(row.refreshFailedAt).not.toBeNull();
@@ -244,10 +246,10 @@ describe("linear:refresh-tokens", () => {
     // Nothing more goes to Linear until an admin reconnects.
     linear.clearRequests();
     expect(
-      (await runAction<{ due: number }>("linear:refresh-tokens")).due,
+      (await runAction<{ due: number }>("integrations:refresh-tokens")).due,
     ).toBe(0);
     await expect(linearRequest(row, GetViewer, {})).rejects.toBeInstanceOf(
-      LinearInstallationUnavailableError,
+      LinearIntegrationUnavailableError,
     );
     expect(linear.requests()).toEqual([]);
 
@@ -257,7 +259,7 @@ describe("linear:refresh-tokens", () => {
       universe.peach.sessionId,
     );
     expect(landed.searchParams.get("connected")).toBe("1");
-    const reconnected = await installationRow(universe.projectId);
+    const reconnected = await integrationRow(universe.projectId);
     expect(reconnected.id).toBe(row.id);
     expect(reconnected.status).toBe("active");
     expect(reconnected.refreshError).toBeNull();

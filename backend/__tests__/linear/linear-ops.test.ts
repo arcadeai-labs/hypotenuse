@@ -21,10 +21,10 @@ import {
   UpdateAgentSession,
   UpdateIssue,
 } from "../../ops/linear/operations";
-import type { LinearInstallation } from "../../schema/linear_installations";
+import type { Integration } from "../../schema/integrations";
 import { buildTestUniverse, HOOK_TIMEOUT, type TestUniverse } from "../setup";
 import { FINEAR_FIXTURES, FINEAR_PRIMARY_KEY, useFinear } from "./finear";
-import { installationRow } from "./helpers";
+import { integrationRow } from "./helpers";
 
 let universe: TestUniverse;
 beforeAll(async () => {
@@ -36,7 +36,7 @@ afterAll(async () => {
 
 const linear = useFinear();
 
-let installation: LinearInstallation;
+let integration: Integration;
 let issue: { id: string; identifier: string };
 
 beforeAll(async () => {
@@ -45,7 +45,7 @@ beforeAll(async () => {
     universe.peach.sessionId,
   );
   expect(landed.searchParams.get("connected")).toBe("1");
-  installation = await installationRow(universe.projectId);
+  integration = await integrationRow(universe.projectId);
   const created = await linear.graphql<{
     issueCreate: { issue: { id: string; identifier: string } };
   }>(
@@ -73,7 +73,7 @@ const executed = new Set<string>();
  * @returns Its data.
  */
 async function run<T, V>(op: LinearOperation<T, V>, variables: V): Promise<T> {
-  const data = await linearRequest(installation, op, variables);
+  const data = await linearRequest(integration, op, variables);
   executed.add(op.name);
   return data;
 }
@@ -81,7 +81,7 @@ async function run<T, V>(op: LinearOperation<T, V>, variables: V): Promise<T> {
 describe("every Linear operation document executes against finear", () => {
   test("identity: viewer, organization, and the install query", async () => {
     const { viewer } = await run(GetViewer, {});
-    expect(viewer.id).toBe(installation.appUserId);
+    expect(viewer.id).toBe(integration.externalAppUserId);
     expect(viewer.app).toBe(true);
     const { organization } = await run(GetOrganization, {});
     expect(organization.id).toBe(FINEAR_FIXTURES.primary.organization);
@@ -180,7 +180,7 @@ describe("every Linear operation document executes against finear", () => {
 
   test("a GraphQL error is a LinearGraphQLError carrying Linear's message", async () => {
     await expect(
-      linearRequest(installation, GetIssue, { id: "ENG-999999" }),
+      linearRequest(integration, GetIssue, { id: "ENG-999999" }),
     ).rejects.toBeInstanceOf(LinearGraphQLError);
   });
 

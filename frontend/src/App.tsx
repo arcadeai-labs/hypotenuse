@@ -5,7 +5,7 @@ import ProtectedRoute from "./components/ProtectedRoute";
 import { DEFAULT_SETTINGS_SECTION } from "./components/settings/sections";
 import DangerZoneSection from "./components/settings/sections/DangerZoneSection";
 import GeneralSection from "./components/settings/sections/GeneralSection";
-import LinearSection from "./components/settings/sections/LinearSection";
+import IntegrationsSection from "./components/settings/sections/IntegrationsSection";
 import McpSection from "./components/settings/sections/McpSection";
 import MembersSection from "./components/settings/sections/MembersSection";
 import TagsSection from "./components/settings/sections/TagsSection";
@@ -95,7 +95,10 @@ export function App() {
                     element={<Navigate to={DEFAULT_SETTINGS_SECTION} replace />}
                   />
                   <Route path="general" element={<GeneralSection />} />
-                  <Route path="linear" element={<LinearSection />} />
+                  <Route
+                    path="integrations"
+                    element={<IntegrationsSection />}
+                  />
                   <Route path="mcp" element={<McpSection />} />
                   <Route path="members" element={<MembersSection />} />
                   <Route path="tags" element={<TagsSection />} />

@@ -39,7 +39,7 @@ Much of this is a port, and each port says so in its phase:
 | [12](./phase-12-worktrees-and-session-lifecycle.md) | Worktrees and session lifecycle | A worktree per session; setup commands; timeouts and keepalives; cleanup policies; PR links; issue state and delegate hygiene; `agents` / `worktrees` commands |
 | [13](./phase-13-hypotenuse-mcp.md) | Hypotenuse MCP | `hypotenuse mcp` stdio server; role-scoped Linear tools; the closed `daemon:linear-*` proxy |
 | [14](./phase-14-manager-and-dispatch.md) | Manager and dispatch | The manager role: PRDs, ticket breakdown, `hypotenuse_dispatch`, review turns, loop guards |
-| [15](./phase-15-dashboard.md) | Dashboard | Linear connection, runners, sessions and transcripts, routing rules, identities; live channels; CLI parity; user docs |
+| [15](./phase-15-dashboard.md) | Dashboard | Integrations (the Linear connection), runners, sessions and transcripts, routing rules, identities; live channels; CLI parity; user docs |
 | [16](./phase-16-signals-and-hardening.md) | Signals and hardening | Every signal (`stop`, `auth`, `select`, `continue`); `AppUserNotification`; rate-limit and replay hardening; the AIG checklist |
 | [17](./phase-17-conformance-and-e2e.md) | Conformance and end to end | Every `LINEAR_COVERAGE.md` row closed; the full daemon + finear + fake-agent suite; an optional nightly real-agent run |
 
@@ -84,6 +84,12 @@ and not the plan above it, is the live account (rule 14 in [`AGENTS.md`](../../A
 
 - **One Linear app, two roles.** The role (manager or worker) is chosen per session by a project's ordered routing
   rules, not by which app was mentioned.
+- **Triggers are typed; Linear is the first.** `integrations` (a project's connection to one workspace of one
+  trigger type), `trigger_events`, `agent_sessions`, external identities, and runner subscriptions carry `type`
+  (`linear` today) and keep the trigger system's ids in `external*` columns — `externalSessionId`,
+  `externalIssueId`, `externalUserId`. `user_id` always means a Hypotenuse user. The human API is generic
+  (`integration:*` with a `type` input, Settings → Integrations, `hypotenuse integration`); what talks to Linear
+  (`webhooks:linear`, `linear:callback`, the GraphQL client, `daemon:linear-*`) stays Linear's own.
 - **One Linear workspace per Hypotenuse project.** The deployment owns one Linear OAuth app. A project connects one
   workspace with `actor=app`, and runners subscribe to subsets of it: teams, projects, labels, repositories, roles,
   and agent kinds.

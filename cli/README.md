@@ -23,7 +23,7 @@ installs need [Bun](https://bun.sh) on the machine.
 hypotenuse login              # approve in the browser; --no-browser for SSH
 hypotenuse project use my-team
 hypotenuse member list
-hypotenuse linear connect      # a Linear workspace admin approves in the browser
+hypotenuse integration connect linear  # a Linear workspace admin approves in the browser
 hypotenuse --json audit list --since 7d | jq
 hypotenuse upgrade
 ```

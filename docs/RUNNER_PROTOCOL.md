@@ -127,8 +127,9 @@ Response: `{ "assignment": WorkAssignment | null }`.
   "assignment": {
     "workItemId": 813,
     "agentSessionId": 92,
-    "linearSessionId": "f6c1…",
-    "linearSessionUrl": "https://linear.app/acme/issue/ENG-123#agent-session-f6c1",
+    "type": "linear",
+    "externalSessionId": "f6c1…",
+    "externalSessionUrl": "https://linear.app/acme/issue/ENG-123#agent-session-f6c1",
     "dashboardUrl": "https://www.hypotenuse.cloud/sessions/92",
     "kind": "session_created",
     "role": "worker",
@@ -156,6 +157,7 @@ Response: `{ "assignment": WorkAssignment | null }`.
 | Field | Notes |
 |---|---|
 | `kind` | `session_created` \| `prompt` \| `dispatch` \| `review` |
+| `type`, `externalSessionId`, `externalSessionUrl` | the trigger the session came from (`linear` today) and the session's id and page there; the daemon never interprets them beyond display and logs |
 | `fresh` | true when the daemon must create a new worktree and cannot `session/load` an ACP session — first turn, or a sticky session moved to this runner |
 | `repository` | null for a manager working without one |
 | `guidance` | already ordered: nearest team first, then parent teams, then workspace |
@@ -287,7 +289,7 @@ any `daemon:events` response — so it is delivered as long as *any* request suc
    changes, what was in progress — as Linear's stop guidance requires;
 4. calls `daemon:complete` with `outcome: "cancelled"`.
 
-`reason` values: `stop` (a person pressed Stop in Linear), `dashboard`, `delegate_removed`, `installation_revoked`,
+`reason` values: `stop` (a person pressed Stop in Linear), `dashboard`, `delegate_removed`, `integration_revoked`,
 `superseded`.
 
 ## Error codes
