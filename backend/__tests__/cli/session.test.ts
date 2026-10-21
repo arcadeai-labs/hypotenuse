@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { api } from "keryx";
-import { ACK_BODY } from "../../ops/LinearWebhookOps";
+import { ackBody } from "../../ops/WorkItemOps";
 import { useFinear } from "../linear/finear";
 import { integrationRow } from "../linear/helpers";
 import {
@@ -163,7 +163,7 @@ describe("hypotenuse session", () => {
         id: sessionId,
         type: "linear",
         issueIdentifier: identifier,
-        status: "error",
+        status: "active",
       }),
     ]);
     expect(body.pagination.total).toBe(1);
@@ -173,7 +173,7 @@ describe("hypotenuse session", () => {
       "session",
       "list",
       "--status",
-      "active",
+      "error",
     ]);
     expect(JSON.parse(filtered.stdout).agentSessions).toEqual([]);
 
@@ -205,13 +205,13 @@ describe("hypotenuse session", () => {
       activities: { seq: number; content: { body?: string } }[];
     };
     expect(body.agentSession.id).toBe(sessionId);
-    expect(body.activities.map((a) => a.seq)).toEqual([1, 2]);
-    expect(body.activities[0].content.body).toBe(ACK_BODY);
+    expect(body.activities.map((a) => a.seq)).toEqual([1, 2, 3]);
+    expect(body.activities[0].content.body).toBe(ackBody(identifier));
 
     const human = await run("luigi", ["session", "view", String(sessionId)]);
     expect(human.code).toBe(0);
     expect(human.stdout).toContain(identifier);
-    expect(human.stdout).toContain(ACK_BODY);
+    expect(human.stdout).toContain(ackBody(identifier));
     expect(human.stdout).toContain("sent");
   });
 

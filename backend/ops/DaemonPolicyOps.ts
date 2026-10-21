@@ -25,6 +25,9 @@ import { config, ErrorType, TypedError } from "keryx";
 export const DAEMON_ONLY_ACTION_NAMES: ReadonlySet<string> = new Set([
   "daemon:connect",
   "daemon:heartbeat",
+  "daemon:claim",
+  "daemon:events",
+  "daemon:complete",
 ]);
 
 /** The prefix every daemon action's route sits under: `/daemon/…`. */

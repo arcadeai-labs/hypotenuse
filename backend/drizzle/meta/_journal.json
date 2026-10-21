@@ -41,6 +41,13 @@
       "when": 1792556441757,
       "tag": "0005_quick_chronomancer",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1792563812621,
+      "tag": "0006_sweet_black_bolt",
+      "breakpoints": true
     }
   ]
 }

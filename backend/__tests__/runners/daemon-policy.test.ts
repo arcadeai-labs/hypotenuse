@@ -77,6 +77,9 @@ const SUPERSET = {
   code: "code",
   codeVerifier: "a".repeat(43),
   deviceCode: "code",
+  role: "worker",
+  ids: [1],
+  externalUserId: "wall",
 };
 
 /**
@@ -85,9 +88,29 @@ const SUPERSET = {
  * @returns A valid body for it.
  */
 function daemonBody(name: string): unknown {
-  return name === "daemon:connect"
-    ? { machineId: heartbeatBody().machineId }
-    : heartbeatBody();
+  switch (name) {
+    case "daemon:connect":
+      return { machineId: heartbeatBody().machineId };
+    case "daemon:claim":
+      return {};
+    case "daemon:events":
+      return {
+        workItemId: 1,
+        events: [
+          {
+            eventId: crypto.randomUUID(),
+            seq: 1,
+            at: Date.now(),
+            type: "thought",
+            body: "wall",
+          },
+        ],
+      };
+    case "daemon:complete":
+      return { workItemId: 1, outcome: "completed" };
+    default:
+      return heartbeatBody();
+  }
 }
 
 /**

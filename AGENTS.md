@@ -241,8 +241,11 @@ The map is [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md). What follows is the
 
 - **Postgres is the source of truth; WebSocket frames are content-free pings.** A runner that misses a ping finds the
   work on its next heartbeat. A dashboard reconnect re-reads.
-- **One non-terminal work item per agent session.** A turn ends in exactly one place (`WorkItemOps.finishWorkItem`, reached from `daemon:complete`, cancellation, and lease expiry), which
-  releases the runner slot and settles the session's outbox.
+- **One turn under way per agent session** (a partial unique index over `offered`, `claimed`, `running`). A turn ends in exactly one place (`WorkItemOps.finishWorkItem`, reached from `daemon:complete`, cancellation, lease expiry, and the queue timeout), which
+  releases the runner slot and answers the session if the turn did not.
+- **Lock a session before its work items, and both before a runner row.** Cancellation starts from the session and
+  a daemon's writes from an item; any other order deadlocks a Stop against a running turn. Lock an item with
+  `WorkItemOps.lockItemWithSession`.
 - **A session is sticky to its runner** because its worktree lives there. Re-offering it elsewhere means a fresh
   worktree and replayed history, and is visible in the session as a thought.
 - **History comes from activities, not comments.** Comments can be edited; activities are frozen.
@@ -341,6 +344,10 @@ Lessons from building it, kept here so the next session starts with them.
 - **Keryx validates params before `beforeAct` hooks.** The principal hook — and with it the daemon/human wall —
   only sees a request whose params already passed the action's schema; a test sweeping the registry through the
   wall must send valid params.
+- **Keryx instantiates every exported function with a prototype under `actions/`**, not only classes. Helpers
+  shared by actions live in `ops/`.
+- **Keryx reports a schema failure by the param's first path segment.** When a caller must know which element of
+  an array was refused (`daemon:events`), validate the elements in the action.
 - **Signatures and footers** follow the repository owner's global rules for commits and PR text.
 
 ## Where the detail lives

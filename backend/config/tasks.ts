@@ -7,8 +7,9 @@ export const configTasks = {
   // Use ["*"] to process all queues with equal priority.
   // `triggers` first: webhook processing and the activity outbox are what a
   // person in Linear is waiting on, and Linear marks a session unresponsive
-  // after ten seconds.
-  queues: ["triggers", "orchestrator", "default"] as
+  // after ten seconds. `routing` next: placing work on runners, and the lease
+  // and keepalive clocks.
+  queues: ["triggers", "routing", "orchestrator", "default"] as
     | string[]
     | (() => Promise<string[]>),
   // Or, rather than providing a static list of `queues`, you can define a method that returns the list of queues.

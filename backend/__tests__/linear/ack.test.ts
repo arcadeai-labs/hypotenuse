@@ -1,7 +1,8 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { api, config } from "keryx";
+import { deliverSession, enqueueActivity } from "../../ops/ActivityOutboxOps";
 import { bucketKey } from "../../ops/LinearBucketOps";
-import { ACK_BODY, NO_RUNNER_BODY } from "../../ops/LinearWebhookOps";
+import { ackBody } from "../../ops/WorkItemOps";
 import { buildTestUniverse, HOOK_TIMEOUT, type TestUniverse } from "../setup";
 import { useFinear } from "./finear";
 import { appToken, integrationRow } from "./helpers";
@@ -66,15 +67,16 @@ describe("the acknowledgement", () => {
     );
     const finear = await waitFor(async () => {
       const seen = await finearSession(linear, token, externalSessionId);
-      return seen.activities.length >= 2 ? seen : undefined;
+      return seen.activities.length >= 1 ? seen : undefined;
     }, 10_000);
 
-    const [ack, ending] = finear.activities;
+    // The acknowledgement goes before routing even starts: routing runs on its
+    // own queue, which this worker does not drain.
+    const [ack] = finear.activities;
     expect(ack.content).toEqual({
       __typename: "AgentActivityThoughtContent",
-      body: ACK_BODY,
+      body: ackBody(issue.identifier),
     });
-    expect(ending.content.body).toBe(NO_RUNNER_BODY);
     const latency = Date.parse(ack.createdAt) - event.receivedAt.getTime();
     expect(latency).toBeLessThan(3000);
   });
@@ -91,18 +93,22 @@ describe("the acknowledgement", () => {
       const seen = await finearSession(linear, token, externalSessionId);
       return seen.activities.length >= 1 ? seen : undefined;
     }, 10_000);
-    expect(finear.activities.map((a) => a.content.body)).toEqual([ACK_BODY]);
+    expect(finear.activities.map((a) => a.content.body)).toEqual([
+      ackBody(issue.identifier),
+    ]);
 
     const session = await sessionRow(externalSessionId);
-    // finear records the activity a moment before the worker records it
-    // sent, and the worker then tries the next row and defers it.
-    const rows = await waitFor(async () => {
+    // finear records the activity a moment before the worker records it sent.
+    await waitFor(async () => {
       const seen = await activityRows(session!.id);
-      return seen[0]?.deliveryStatus === "sent" &&
-        seen[1]?.nextAttemptAt.getTime() > seen[1]?.createdAt.getTime()
-        ? seen
-        : undefined;
+      return seen[0]?.deliveryStatus === "sent" ? seen : undefined;
     });
+    // Ordinary chatter in the same session waits for the bucket to refill.
+    await api.db.db.transaction((tx) =>
+      enqueueActivity(tx, session!.id, { type: "thought", body: "Thinking" }),
+    );
+    await deliverSession(session!.id);
+    const rows = await activityRows(session!.id);
     expect(rows.map((r) => [r.priority, r.deliveryStatus])).toEqual([
       ["ack", "sent"],
       ["normal", "pending"],

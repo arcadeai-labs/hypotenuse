@@ -82,6 +82,11 @@ export interface EnqueueActivityOptions {
   signalMetadata?: Record<string, unknown>;
   /** Defaults to `bulk` for an ephemeral row and `normal` otherwise. */
   priority?: ActivityPriority;
+  /**
+   * The row's client id, when the caller has one — a daemon's `eventId`, so
+   * its resent batch is idempotent end to end. Generated otherwise.
+   */
+  clientActivityId?: string;
 }
 
 /** What {@link enqueueSessionUpdate} takes. */
@@ -272,7 +277,7 @@ export async function enqueueActivity(
       ephemeral: options.ephemeral ?? false,
       signal: options.signal ?? null,
       signalMetadata: options.signalMetadata ?? null,
-      clientActivityId: crypto.randomUUID(),
+      clientActivityId: options.clientActivityId ?? crypto.randomUUID(),
       priority: options.priority ?? (options.ephemeral ? "bulk" : "normal"),
       deliveryStatus: "pending",
     })
@@ -290,6 +295,7 @@ export async function enqueueActivity(
  * @param tx - The caller's transaction.
  * @param agentSessionId - The session.
  * @param input - The update.
+ * @param options - The row's client id, when the caller has one.
  * @returns The new row.
  * @throws {OutboxValidationError} When Linear would refuse it.
  */
@@ -297,6 +303,7 @@ export async function enqueueSessionUpdate(
   tx: TxHandle,
   agentSessionId: number,
   input: SessionUpdateInput,
+  options: { clientActivityId?: string } = {},
 ): Promise<AgentActivity> {
   validateSessionUpdate(input);
   const seq = await nextSeq(tx, agentSessionId);
@@ -344,7 +351,7 @@ export async function enqueueSessionUpdate(
       kind: "session_update",
       contentType: null,
       content,
-      clientActivityId: crypto.randomUUID(),
+      clientActivityId: options.clientActivityId ?? crypto.randomUUID(),
       priority: "normal",
       deliveryStatus: "pending",
     })

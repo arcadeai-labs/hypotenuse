@@ -192,7 +192,8 @@ export interface LinearIssue {
   url: string;
   team: { id: string; key: string };
   state: { id: string; name: string; type: string };
-  project: { id: string } | null;
+  project: { id: string; name: string } | null;
+  parent: { id: string; identifier: string } | null;
   labels: { nodes: { id: string; name: string }[] };
   delegate: { id: string } | null;
 }
@@ -200,7 +201,8 @@ export interface LinearIssue {
 const ISSUE_FIELDS = `id identifier title description url
     team { id key }
     state { id name type }
-    project { id }
+    project { id name }
+    parent { id identifier }
     labels(first: 50) { nodes { id name } }
     delegate { id }`;
 
@@ -211,6 +213,17 @@ export const GetIssue = operation<{ issue: LinearIssue }, { id: string }>(
   issue(id: $id) {
     ${ISSUE_FIELDS}
   }
+}`,
+);
+
+/** A comment's text: what a mention said. */
+export const GetComment = operation<
+  { comment: { id: string; body: string } },
+  { id: string }
+>(
+  "GetComment",
+  `query GetComment($id: String!) {
+  comment(id: $id) { id body }
 }`,
 );
 
@@ -451,6 +464,7 @@ export const LINEAR_OPERATIONS = [
   ListProjects,
   ListLabels,
   GetIssue,
+  GetComment,
   UpdateIssue,
   CreateComment,
   CreateAgentActivity,

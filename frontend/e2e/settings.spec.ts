@@ -16,6 +16,7 @@ test.describe("project settings", () => {
     for (const slug of [
       "general",
       "integrations",
+      "routing",
       "mcp",
       "members",
       "tags",

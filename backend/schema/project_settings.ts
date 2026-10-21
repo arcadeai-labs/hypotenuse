@@ -1,5 +1,6 @@
 import {
   integer,
+  jsonb,
   pgTable,
   serial,
   timestamp,
@@ -7,14 +8,32 @@ import {
 } from "drizzle-orm/pg-core";
 import { projects } from "./projects";
 
+/** Work routing's per-project timers and thresholds. */
+export interface RoutingSettings {
+  /** A turn no runner takes within this long expires, with an `error`. */
+  queueTimeoutMs: number;
+  /** How long a follow-up waits for the runner holding its worktree. `0` never waits. */
+  stickyTimeoutMs: number;
+  /** How long an offer stands before it goes to the next runner. */
+  offerTtlMs: number;
+  /** The confidence Linear's top repository suggestion needs to be taken. */
+  repositoryConfidence: number;
+  /** How long a stopped turn's runner has to confirm before the server answers. */
+  stopGraceMs: number;
+  /** How many review rounds a manager runs on one dispatch. */
+  maxReviewRounds: number;
+}
+
 /**
  * A project's settings — one row per project, inserted by the signup bootstrap
  * and by `project:create` alongside the project itself.
  *
- * It carries no setting yet. Each feature that needs one adds its own column by
- * migration (the routing rules, for instance) rather than this table guessing
- * them in advance; the row exists now so that those migrations alter a table
- * every project already has a row in.
+ * Each feature that needs a setting adds its own column by migration rather
+ * than this table guessing them in advance.
+ *
+ * - **`routing`** — work routing's timers and thresholds, sparse: a key that is
+ *   absent takes its default (`ROUTING_DEFAULTS` in `ops/ProjectSettingsOps.ts`),
+ *   so a default can change without rewriting every row.
  */
 export const projectSettings = pgTable(
   "project_settings",
@@ -23,6 +42,10 @@ export const projectSettings = pgTable(
     projectId: integer("project_id")
       .notNull()
       .references(() => projects.id, { onDelete: "cascade" }),
+    routing: jsonb("routing")
+      .$type<Partial<RoutingSettings>>()
+      .notNull()
+      .default({}),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

@@ -2,14 +2,15 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { eq } from "drizzle-orm";
 import { api } from "keryx";
 import {
-  ACK_BODY,
-  NO_RUNNER_BODY,
-  STOPPED_BODY,
-} from "../../ops/LinearWebhookOps";
+  ackBody,
+  QUEUED_BEHIND_BODY,
+  STOPPED_BEFORE_START_BODY,
+} from "../../ops/WorkItemOps";
 import { agentSessions } from "../../schema/agent_sessions";
 import { integrations } from "../../schema/integrations";
 import { notifications } from "../../schema/notifications";
 import { triggerEvents } from "../../schema/trigger_events";
+import { workItems } from "../../schema/work_items";
 import { buildTestUniverse, HOOK_TIMEOUT, type TestUniverse } from "../setup";
 import { FINEAR_FIXTURES, FINEAR_PRIMARY_KEY, useFinear } from "./finear";
 import { appToken, integrationRow } from "./helpers";
@@ -83,8 +84,29 @@ async function delegated(title: string) {
   return { issue, externalSessionId, session };
 }
 
+/** The thought a session gets when no rule matches it. */
+const DEFAULT_ROUTING =
+  "Routing as **worker** (no rule matched; worker is the default).";
+
+/** What a session waits on when no runner exists at all. */
+const NO_RUNNER =
+  "Waiting for a runner: No runner in this project takes worker work to ENG.";
+
+/**
+ * A session's work items, oldest first.
+ * @param agentSessionId - The session.
+ * @returns The rows.
+ */
+async function itemsOf(agentSessionId: number) {
+  return api.db.db
+    .select()
+    .from(workItems)
+    .where(eq(workItems.agentSessionId, agentSessionId))
+    .orderBy(workItems.id);
+}
+
 describe("AgentSessionEvent created", () => {
-  test("LC-WH-12 a delegation mirrors the session, acknowledges it, and answers with the interim error", async () => {
+  test("LC-WH-12 a delegation mirrors the session, acknowledges it, queues its first turn, and says why it waits", async () => {
     const { issue, externalSessionId, session } =
       await delegated("Delegated issue");
     expect(session).toMatchObject({
@@ -99,31 +121,57 @@ describe("AgentSessionEvent created", () => {
       creatorName: "Human 1",
       externalCommentId: null,
       promptContext: expect.stringContaining("Delegated issue"),
-      status: "error",
+      role: "worker",
+      repository: null,
+      instruction: null,
+      status: "active",
     });
-    expect(session.endedAt).not.toBeNull();
+    expect(session.endedAt).toBeNull();
+    expect(session.issueSnapshot).toMatchObject({
+      id: issue.id,
+      identifier: issue.identifier,
+      teamKey: "ENG",
+      labels: [],
+      parent: null,
+    });
 
     const finear = await finearSession(linear, token, externalSessionId);
     expect(
-      finear.activities.map((a) => [a.content.__typename, a.content.body]),
+      finear.activities.map((a) => [
+        a.content.__typename,
+        a.content.body,
+        a.ephemeral,
+      ]),
     ).toEqual([
-      ["AgentActivityThoughtContent", ACK_BODY],
-      ["AgentActivityErrorContent", NO_RUNNER_BODY],
+      ["AgentActivityThoughtContent", ackBody(issue.identifier), false],
+      ["AgentActivityThoughtContent", DEFAULT_ROUTING, false],
+      ["AgentActivityThoughtContent", NO_RUNNER, true],
     ]);
-    expect(finear.status).toBe("error");
+    expect(finear.status).toBe("active");
 
     const rows = await activityRows(session.id);
     expect(
       rows.map((r) => [r.seq, r.direction, r.contentType, r.priority]),
     ).toEqual([
       [1, "outbound", "thought", "ack"],
-      [2, "outbound", "error", "normal"],
+      [2, "outbound", "thought", "normal"],
+      [3, "outbound", "thought", "bulk"],
     ]);
     // Each row's client id is the id Linear holds.
     expect(finear.activities.map((a) => a.id)).toEqual(
       rows.map((r) => r.clientActivityId),
     );
     expect(rows.every((r) => r.deliveryStatus === "sent")).toBe(true);
+
+    const [item] = await itemsOf(session.id);
+    expect(item).toMatchObject({
+      kind: "session_created",
+      status: "queued",
+      role: "worker",
+      repositoryResolved: false,
+      preferredUserId: null,
+      waitingReason: NO_RUNNER,
+    });
   });
 
   test("LC-WH-12 a mention in a child comment is origin mention, threaded, with previousComments", async () => {
@@ -171,10 +219,12 @@ describe("AgentSessionEvent created", () => {
     expect(session?.previousComments).toEqual([
       expect.objectContaining({ id: rootId, body: "Root of the thread" }),
     ]);
+    expect(session?.instruction).toBe("@hypotenuse can you look?");
     const finear = await finearSession(linear, token, externalSessionId);
     expect(finear.activities.map((a) => a.content.body)).toEqual([
-      ACK_BODY,
-      NO_RUNNER_BODY,
+      ackBody(issue.identifier),
+      DEFAULT_ROUTING,
+      NO_RUNNER,
     ]);
   });
 
@@ -228,12 +278,18 @@ describe("AgentSessionEvent created", () => {
     expect(session?.promptContext).toBe(promptContext);
     expect(session?.guidance).toEqual(guidance);
     const rows = await activityRows(session!.id);
-    expect(rows.filter((r) => r.contentType === "thought")).toHaveLength(1);
+    expect(
+      rows.filter(
+        (r) =>
+          (r.content as { body?: string }).body === ackBody(issue.identifier),
+      ),
+    ).toHaveLength(1);
+    expect(await itemsOf(session!.id)).toHaveLength(1);
   });
 });
 
 describe("AgentSessionEvent prompted", () => {
-  test("LC-WH-13 a follow-up prompt is recorded inbound and answered with the interim error", async () => {
+  test("LC-WH-13 a follow-up prompt is recorded inbound and queued as the session's next turn", async () => {
     const { externalSessionId, session } = await delegated("Prompted issue");
     await linear.control("/__test/agents/prompt", {
       sessionId: externalSessionId,
@@ -250,7 +306,7 @@ describe("AgentSessionEvent prompted", () => {
     const rows = await activityRows(session.id);
     const inbound = rows.find((r) => r.direction === "inbound");
     expect(inbound).toMatchObject({
-      seq: 3,
+      seq: 4,
       contentType: "prompt",
       content: { type: "prompt", body: "Use the main branch" },
       deliveryStatus: "received",
@@ -259,18 +315,27 @@ describe("AgentSessionEvent prompted", () => {
     });
     expect(inbound?.externalActivityId).toBeTruthy();
     expect(inbound?.externalSourceCommentId).toBeTruthy();
+    // The first turn has not started, so this one waits behind it, and says so.
     expect(rows.at(-1)).toMatchObject({
-      seq: 4,
+      seq: 5,
       direction: "outbound",
-      contentType: "error",
+      contentType: "thought",
+      content: { type: "thought", body: QUEUED_BEHIND_BODY },
       deliveryStatus: "sent",
     });
-    expect((await sessionRow(externalSessionId))?.status).toBe("error");
+    const items = await itemsOf(session.id);
+    expect(items.map((i) => [i.kind, i.status, i.role])).toEqual([
+      ["session_created", "queued", "worker"],
+      ["prompt", "queued", "worker"],
+    ]);
+    expect(items[1].prompt).toEqual([
+      { activityId: inbound!.id, body: "Use the main branch" },
+    ]);
+    expect((await sessionRow(externalSessionId))?.status).toBe("active");
   });
 
-  test("LC-WH-13 a stop is recorded with its signal and answered with a response", async () => {
+  test("LC-WH-13 a stop is recorded with its signal and cancels the queued work, answering at once", async () => {
     const { externalSessionId, session } = await delegated("Stopped issue");
-    // Reopen the session, so stopping has a turn to stop.
     await linear.control("/__test/agents/prompt", {
       sessionId: externalSessionId,
       body: "Try again",
@@ -299,10 +364,16 @@ describe("AgentSessionEvent prompted", () => {
     expect(rows.at(-1)).toMatchObject({
       direction: "outbound",
       contentType: "response",
-      content: { type: "response", body: STOPPED_BODY },
+      content: { type: "response", body: STOPPED_BEFORE_START_BODY },
       priority: "ack",
       deliveryStatus: "sent",
     });
+    expect(
+      (await itemsOf(session.id)).map((i) => [i.status, i.cancelReason]),
+    ).toEqual([
+      ["cancelled", "stop"],
+      ["cancelled", "superseded"],
+    ]);
     const finear = await finearSession(linear, token, externalSessionId);
     expect(finear.status).toBe("complete");
     expect((await sessionRow(externalSessionId))?.status).toBe("complete");
@@ -368,6 +439,9 @@ describe("other events", () => {
     expect(after.details.teamIds).not.toContain(FINEAR_FIXTURES.primary.team);
     expect(after.details.canAccessAllPublicTeams).toBe(false);
     expect((await sessionRow(session.externalSessionId))?.status).toBe("error");
+    expect(
+      (await itemsOf(session.id)).map((i) => [i.status, i.cancelReason]),
+    ).toEqual([["cancelled", "integration_revoked"]]);
     const [event] = await api.db.db
       .select()
       .from(triggerEvents)
@@ -430,7 +504,7 @@ describe("other events", () => {
     );
   });
 
-  test("LC-WH-23 removing the app as delegate records it on the issue's sessions", async () => {
+  test("LC-WH-23 removing the app as delegate records it on the issue's sessions and quietly cancels their work", async () => {
     const { issue, session } = await delegated("Un-delegated issue");
     expect(session.delegateRemovedAt).toBeNull();
     await linear.graphql(
@@ -449,6 +523,13 @@ describe("other events", () => {
     expect(
       (await sessionRow(session.externalSessionId))?.delegateRemovedAt,
     ).not.toBeNull();
+    expect(
+      (await itemsOf(session.id)).map((i) => [i.status, i.cancelReason]),
+    ).toEqual([["cancelled", "delegate_removed"]]);
+    // A person disengaged: nothing more is said.
+    expect((await activityRows(session.id)).at(-1)?.contentType).toBe(
+      "thought",
+    );
   });
 
   test("LC-WH-21 uninstalling the app in Linear revokes the integration, fails its outbox, and tells the admins", async () => {
@@ -482,6 +563,9 @@ describe("other events", () => {
       deliveryStatus: "failed",
       lastError: "integration unavailable",
     });
+    expect(
+      (await itemsOf(session.id)).map((i) => [i.status, i.cancelReason]),
+    ).toEqual([["cancelled", "integration_revoked"]]);
     const sent = await api.db.db
       .select()
       .from(notifications)

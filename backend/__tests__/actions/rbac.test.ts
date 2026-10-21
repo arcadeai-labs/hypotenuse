@@ -53,6 +53,12 @@ const EXPECTED_LEVELS: Record<string, RbacLevel> = {
   "agent-session:list": "member",
   "agent-session:view": "member",
   "agent-session:activities": "member",
+  "routing-rule:list": "member",
+  "external-identity:list": "member",
+  // Cancelling a session's work is any member's call, as Stop in Linear is.
+  "agent-session:cancel": "member",
+  // Your own link or, for an admin, anyone's — decided inside the action.
+  "external-identity:unlink": "member",
   // Runners: any member registers their own and reads the fleet; editing and
   // revoking are owner-or-admin, decided inside the action on the row.
   "runner:register": "member",
@@ -79,6 +85,13 @@ const EXPECTED_LEVELS: Record<string, RbacLevel> = {
   // workspace.
   "integration:connect": "admin",
   "integration:disconnect": "admin",
+  // Which role answers a session, and how long work waits, are the project's.
+  "routing-rule:create": "admin",
+  "routing-rule:edit": "admin",
+  "routing-rule:delete": "admin",
+  "routing-rule:reorder": "admin",
+  "project:settings-edit": "admin",
+  "external-identity:link": "admin",
 
   // Not project-scoped: session-scoped, public, or a clock. `none` is correct
   // rather than an omission.
@@ -124,7 +137,12 @@ const EXPECTED_LEVELS: Record<string, RbacLevel> = {
   // project — no `projectId` param.
   "daemon:connect": "none",
   "daemon:heartbeat": "none",
+  "daemon:claim": "none",
+  "daemon:events": "none",
+  "daemon:complete": "none",
   "work:reap": "none",
+  "work:route": "none",
+  "sessions:keepalive": "none",
 };
 
 /** Every clock: task-only, never an HTTP route. */
@@ -138,6 +156,8 @@ const CLOCKS = [
   "trigger-events:sweep",
   "activities:deliver-due",
   "work:reap",
+  "work:route",
+  "sessions:keepalive",
 ];
 
 let universe: TestUniverse;
@@ -270,10 +290,14 @@ describe("MCP publish policy", () => {
     expect(published).toEqual(
       [
         "agent-session:activities",
+        "agent-session:cancel",
         "agent-session:list",
         "agent-session:view",
         "audit:list",
         "cli-token:list",
+        "external-identity:link",
+        "external-identity:list",
+        "external-identity:unlink",
         "cli-token:revoke",
         "invite:accept",
         "invite:create",
@@ -296,8 +320,14 @@ describe("MCP publish policy", () => {
         "project:delete",
         "project:edit",
         "project:list",
+        "project:settings-edit",
         "project:settings-view",
         "project:view",
+        "routing-rule:create",
+        "routing-rule:delete",
+        "routing-rule:edit",
+        "routing-rule:list",
+        "routing-rule:reorder",
         "runner:edit",
         "runner:list",
         "runner:revoke",

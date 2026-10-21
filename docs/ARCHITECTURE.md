@@ -136,10 +136,11 @@ What each event does:
 | `AppUserNotification` / * | recorded and surfaced in the dashboard; no work is started (sessions are the work trigger) |
 | anything else | recorded, `outcome = ignored` |
 
-Until work routing exists, nothing is routed: a `created` session is acknowledged ("Received.") and then answered
-with an `error` saying no runner is connected; a `prompted` one gets the same `error`; a `stop` is answered with a
-`response` that nothing was running; a team-access change marks sessions on removed teams `error`; a removed
-delegate is recorded on the session (`delegateRemovedAt`).
+The acknowledgement is *"On it — finding a runner for ENG-123."*; routing then names the role it chose, the
+repository, and — while no runner can take the turn — why it waits, so a session never looks unresponsive. A
+`stop` with nothing running is answered *"Stopped. Nothing was running."*; a team-access change marks sessions on
+removed teams `error` and cancels their work; a removed delegate is recorded on the session (`delegateRemovedAt`)
+and its work cancelled without a word, because the person disengaged.
 
 **Everything written to Linear goes through the activity outbox** (`agent_activities` rows with
 `direction = outbound`), drained by `activities:deliver`. Rows get a per-session `seq` under the session's row
@@ -157,7 +158,9 @@ fails the row at once (it is our bug).
 
 There is one Linear app user, `@hypotenuse`. **Which kind of agent answers is a routing decision, not an
 identity.** A project's ordered `routing_rules` pick `manager` or `worker` for each new session from the issue's
-labels, team, project, parent, and the first line of the prompt (`/manage`, `/work`). The default is `worker`.
+labels, team, project, parent, how the session started, and the start of the mention's text (`/manage`, `/work`,
+seeded as the first two rules when a project connects Linear). The default is `worker`, and the role is fixed for
+the session's life.
 
 - A **worker** implements one issue in one worktree and opens a pull request.
 - A **manager** owns the shape of a project: it writes PRDs (project descriptions and Linear documents), breaks
@@ -174,26 +177,29 @@ A **runner** is one registered daemon. It belongs to one project and one person 
 heartbeat reports what it can do: its parallel-job limits (machine, per role, per agent), roles, agent kinds, repositories (by remote), and Linear
 subscriptions (team keys, project ids, labels).
 
-A work item is **eligible** for a runner when the runner is online, not draining, has room at all three limits (machine, the role, and the agent it would use), serves the
-role, has the chosen repository (or the work needs none), and its subscriptions match the issue. Among eligible
-runners:
+A work item is **eligible** for a runner when the runner is online (not draining) and enabled, has room at all three limits (machine, the role, and the agent it would use — counted by the server over live work items, an offer included), serves the
+role with an available agent, has the chosen repository (or the work needs none), and its subscriptions match the issue. One SQL query
+(`RoutingOps.eligibleRunners`) decides it. Among eligible runners:
 
 1. **Sticky first.** A follow-up turn in a session goes to the runner that holds the session's worktree. If that
    runner is offline, the session gets a visible "waiting for <runner>" thought, and after
    `routing.stickyTimeout` the work is re-offered to others as a fresh worktree with history replayed.
 2. **The issuer's runners next.** The session's Linear `creator` is mapped to a Hypotenuse user through
-   `external_identities` (an explicit link, or a verified e-mail match), and that user's runners are offered the
-   work first.
+   `external_identities` (an admin's link, or an e-mail match to a project member, recorded so it is visible and
+   removable), and that user's runners are offered the work first. It is a preference, never an authorization.
 3. **Then anyone eligible**, least-loaded first.
 
 Offers are pings, not assignments: the server publishes a content-free `{ event: "work" }` on `runner:<id>`, and
-the daemon claims with `daemon:claim`, which takes the row with `SELECT … FOR UPDATE SKIP LOCKED`. A claim
-carries a lease; the daemon's heartbeat renews it; an expired lease returns the item to `queued`.
+the daemon claims with `daemon:claim`, which takes the row with `SELECT … FOR UPDATE SKIP LOCKED`. An offer not
+claimed within `routing.offerTtlMs` goes to the next runner. A claim carries a lease; the daemon's heartbeats and
+events renew it; an expired lease returns the item to `queued`, still sticky, and a fourth lapse fails it.
 
 **Repository choice.** Candidates are the union of every eligible runner's repositories. If there is more
 than one, the server asks Linear's `issueRepositorySuggestions`; above `routing.repositoryConfidence` the top
 suggestion wins, otherwise the session receives a `select` elicitation listing the candidates and the work waits
-for the person's answer.
+for the person's answer, which arrives as an ordinary prompt and is matched without a model (a value, a label,
+`owner/name`, or exactly one repository named in the text; two misses end the turn with an `error`). A rule may
+pin the repository instead, and a manager with no candidates works without one.
 
 ## State machines
 
@@ -208,8 +214,9 @@ for the person's answer.
 ```
 
 A work item is one **turn**: the session's creation, one follow-up prompt, a dispatch, or a manager review.
-Exactly one work item per session may be non-terminal at a time; a prompt that arrives while a turn is running
-is queued behind it (or, with `signal = stop`, cancels it).
+At most one work item per session may be under way (`offered`, `claimed`, `running`) at a time; a prompt that
+arrives meanwhile is queued behind it, merged with any follow-up already queued (or, with `signal = stop`, cancels
+it and supersedes what is queued). The queue and sticky timeouts count from when an item was last queued.
 
 ### `agent_sessions.status`
 
@@ -287,16 +294,16 @@ row: which integration, which issue, which role. The two tool sets:
 
 | Table | Holds |
 |---|---|
-| `users`, `projects`, `project_memberships`, `tags`, `user_tags`, `project_invites`, `audit_logs`, `notifications`, `project_settings` | ported from ToolExec: tenancy, RBAC, audit, notifications, and one settings row per project whose columns arrive with the features that read them (routing timeouts, thresholds) |
+| `users`, `projects`, `project_memberships`, `tags`, `user_tags`, `project_invites`, `audit_logs`, `notifications`, `project_settings` | ported from ToolExec: tenancy, RBAC, audit, notifications, and one settings row per project whose columns arrive with the features that read them (`routing`: the routing timers and thresholds, sparse over their defaults) |
 | `cli_tokens` | one per signed-in `hypotenuse` CLI: owner, device name, token sha256 and last four, last use, sliding expiry, revocation. The sign-in hand-offs themselves (one-time and device codes) live in Redis, by hash |
 | `integrations` | one per project and trigger `type`: the external workspace id, name, and URL key; the app user's external id, name, and capabilities (in the per-type `details`, with team access); sealed tokens, expiry, refresh error; when an admin last completed the install; scopes, team access, status; the last-seen rate-limit headers. Live workspace ids are unique; a disconnected row is kept `revoked` with its tokens nulled. The install's `state` and PKCE verifier live in Redis for ten minutes |
 | `trigger_events` | every verified webhook delivery of any trigger type, deduplicated on `(type, deliveryId)`, with its processing outcome |
 | `external_identities` | trigger-system user (`externalUserId`) ⇄ Hypotenuse user (`userId`) links, per integration |
-| `agent_sessions` | the mirror of each agent session, typed (`type`, `externalSessionId`): issue, role, repository, sticky runner, parent (manager) session, plan, external URLs, status |
+| `agent_sessions` | the mirror of each agent session, typed (`type`, `externalSessionId`): issue (and the snapshot routing read), role, the mention's instruction, repository, a pending repository question, sticky runner, plan, external URLs, status |
 | `agent_activities` | inbound prompts and the outbound outbox, with client UUIDs, delivery status, and attempts |
 | `runners` | registered daemons: owner, token sha256 and last four, status (`online`, `offline`, `draining`, `revoked`) and `enabled`, machine id, last heartbeat and connect, parallel-job limits, roles, agents, repositories, the hash of the last reported capabilities. A name is unique among a project's unrevoked runners; a machine id among its live (`online` or `draining`) ones. A revoked row is kept with its reason |
 | `runner_subscriptions` | the teams, projects, and labels (per trigger `type`) each runner accepts, replaced whenever a heartbeat's capability hash changes |
-| `work_items` | one per turn: kind, role, status, offered/claimed runner, lease, attempts |
+| `work_items` | one per turn: kind, role, repository, status, the merged follow-ups, issuer, offered/claimed runner and agent, lease, attempts, the cancel, the daemon's usage and state, the outcome |
 | `routing_rules` | a project's ordered role-selection rules |
 
 ## WebSocket channels
@@ -320,15 +327,16 @@ costs latency, never correctness.
 |---|---|---|
 | `triggers:process-event` | enqueued per delivery; `triggers:process-pending` every 5 s for a lost job | the event table above |
 | `activities:deliver` | enqueued per session; `activities:deliver-due` every 1 s | drains the outbound outbox under the token bucket |
-| `work:route` | enqueued + 5 s | offers queued work; expires work with no eligible runner after `routing.queueTimeout` |
-| `work:reap` | 15 s | marks runners `offline` after `runners.offlineAfterMs` (45 s) without a heartbeat; returns work with expired leases to `queued` once work items exist |
-| `sessions:keepalive` | 60 s | a server-side keepalive `thought` for sessions whose runner is waiting on a person or reconnecting |
+| `work:route` | enqueued + 5 s | lapses expired offers; prepares new sessions (reads the issue, chooses the role and repository); offers each session's next queued turn; expires work with no eligible runner after `routing.queueTimeoutMs` |
+| `work:reap` | 15 s | marks runners `offline` after `runners.offlineAfterMs` (45 s) without a heartbeat; returns claims with lapsed leases to `queued`; ends stopped turns whose runner did not confirm within `routing.stopGraceMs` |
+| `sessions:keepalive` | 60 s | an ephemeral `thought` for sessions waiting on Hypotenuse (a queued turn) that have been quiet for 25 minutes; never for one waiting on a person |
 | `integrations:refresh-tokens` | 5 min | refreshes access tokens within 30 minutes of expiry under a row lock (refresh tokens rotate; a lost response is replayed inside Linear's 30-minute grace; `invalid_grant` marks the integration `error` and notifies its admins). A 401 anywhere refreshes inline through the same function |
 | `notifications:dispatch` | 30 s | delivers queued notifications: a ping on the project channel, and the e-mail (logged when `SMTP_HOST` is empty) |
 | `trigger-events:sweep`, `audit:sweep`, `notifications:sweep`, `invites:sweep` | daily | retention |
 
 Trigger jobs — processing a delivery, sending an outbox — run on the `triggers` queue, which workers drain before
-`orchestrator` and `default`, so nothing else queued delays an acknowledgement.
+`routing`, `orchestrator`, and `default`, so nothing else queued delays an acknowledgement. The routing jobs and
+clocks run on `routing`, next.
 
 ## Where the detail lives
 

@@ -11,11 +11,13 @@ import {
   machineInUseResponse,
   publishRunnersChanged,
 } from "../../ops/RunnerOps";
+import { applyEffects, heartbeatWork, noEffects } from "../../ops/WorkItemOps";
 
 /**
- * `daemon:heartbeat` — liveness, capabilities, and (once work routing
- * exists) the daemon's offers and cancels. Every 15 s, and immediately on any
- * frame on the runner's channel.
+ * `daemon:heartbeat` — liveness, capabilities, and the daemon's work: the
+ * offers standing for it, the held turns it must cancel, and the leases of
+ * the turns it reports renewed. Every 15 s, and immediately on any frame on
+ * the runner's channel.
  *
  * Capabilities and subscriptions are rewritten only when their hash changes,
  * and the dashboard is told only when something it shows changed. A second
@@ -23,9 +25,11 @@ import {
  * including when two start at once, which the live-machine unique index
  * settles.
  *
- * `offers` and `cancels` are empty until work routing fills them; the wire
- * shape is already final. `unknownActive` echoes every item the daemon says
- * it holds, because the server holds no work items for it yet.
+ * `unknownActive` lists the items the daemon reports that the server no
+ * longer considers its own (a lapsed lease, a reassignment, a closed cancel);
+ * the daemon stops work on them without writing further. A heartbeat that
+ * changed what routing reads (presence, capacity, capabilities) runs a
+ * routing pass.
  *
  * Machine traffic: not audited, never MCP, never wrapped by the CLI.
  */
@@ -53,10 +57,23 @@ export class DaemonHeartbeat implements Action {
     const runner = connection.metadata.runner!;
 
     let result: HeartbeatResult;
+    let work: Awaited<ReturnType<typeof heartbeatWork>> = {
+      offers: [],
+      cancels: [],
+      unknownActive: [],
+    };
     try {
-      result = await api.db.db.transaction((tx) =>
-        applyHeartbeat(tx, runner.id, params),
-      );
+      result = await api.db.db.transaction(async (tx) => {
+        const applied = await applyHeartbeat(tx, runner.id, params);
+        if (!applied.conflict) {
+          work = await heartbeatWork(
+            tx,
+            runner.id,
+            params.active.map((item) => item.workItemId),
+          );
+        }
+        return applied;
+      });
     } catch (error) {
       if (!isMachineIndexViolation(error)) throw error;
       const conflict = await findMachineConflict(runner, params.machineId);
@@ -65,15 +82,16 @@ export class DaemonHeartbeat implements Action {
       );
     }
     if (result.conflict) return machineInUseResponse(result.conflict);
-    if (result.changed) await publishRunnersChanged(runner.projectId);
+    if (result.changed) {
+      await publishRunnersChanged(runner.projectId);
+      await applyEffects({ ...noEffects(), route: true });
+    }
 
     return {
       serverTime: Date.now(),
       heartbeatIntervalMs: config.runners.heartbeatIntervalMs,
       leaseMs: config.runners.leaseMs,
-      offers: [],
-      cancels: [],
-      unknownActive: params.active.map((item) => item.workItemId),
+      ...work,
     };
   }
 }

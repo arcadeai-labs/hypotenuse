@@ -2,6 +2,7 @@ import type { UserEdit } from "@backend/actions/user-edit";
 import type { ActionResponse } from "keryx";
 import { type FormEvent, useState } from "react";
 import { CliSignInsCard } from "../components/account/CliSignInsCard";
+import { LinkedIdentitiesCard } from "../components/account/LinkedIdentitiesCard";
 import LoadingLabel from "../components/LoadingLabel";
 import { useSeededDraft } from "../components/sections/useSeededDraft";
 import { PageHeader } from "../components/shell/PageHeader";
@@ -10,8 +11,9 @@ import { Alert, Button, Card, Form } from "../ui";
 import { apiFetch } from "../utils/client";
 
 /**
- * `/account` — edit your own name, email, or password through `user:edit`, and
- * see and revoke the `hypotenuse` CLIs signed in as you.
+ * `/account` — edit your own name, email, or password through `user:edit`;
+ * see and revoke the `hypotenuse` CLIs signed in as you; and see which Linear
+ * accounts routing treats as you in the selected project.
  * Only profile fields that actually changed are sent, so
  * submitting an untouched form does not re-hash a password or trip the
  * email-uniqueness check against yourself.
@@ -158,6 +160,8 @@ export default function AccountPage() {
       </Card>
 
       <CliSignInsCard />
+
+      <LinkedIdentitiesCard />
     </div>
   );
 }

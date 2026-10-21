@@ -66,9 +66,9 @@ Each phase ends in a reviewable, deployable state. **Phase 1 halts for review be
 - **The server half (6–9) and the daemon half (10–13) meet in the protocol.**
   [`../RUNNER_PROTOCOL.md`](../RUNNER_PROTOCOL.md) is written before either side ships. Phase 9's server endpoints are
   tested with a scripted HTTP client; phase 10's daemon is tested against the real server from phase 9.
-- **Until phase 9 lands, a session ends honestly.** Phase 7 acknowledges every session and, with no routing yet,
-  answers with an `error` saying no runner is connected. A Linear workspace connected to a half-built Hypotenuse never
-  shows an unresponsive agent.
+- **A session never looks unresponsive, however little is built.** Phase 7 acknowledged every session and, with no
+  routing yet, answered with an `error` saying no runner is connected. Phase 9 replaced that ending: a turn no runner
+  can take says why it waits, and expires with an `error` naming the reason.
 - **The manager (14) is built on the worker path (11–13)**, not beside it. A manager turn is a work item with a
   different role, prompt, and tool set. Dispatch makes worker work items, and review makes manager work items.
 - **Coverage is tracked from the first Linear phase.** Phases 6 onward each add rows to
@@ -77,7 +77,7 @@ Each phase ends in a reviewable, deployable state. **Phase 1 halts for review be
 
 ## Status
 
-**Phases 1–8 are built** (phase 2 is not yet deployed, the CLI has not had its first release, and no real
+**Phases 1–9 are built** (phase 2 is not yet deployed, the CLI has not had its first release, and no real
 Linear workspace has been connected yet); the rest are plans. Every document here is a plan with the open questions settled as **decisions so far**. Each
 ends in an empty **Learnings from the build** section that fills in as the phase ships. From then on that section,
 and not the plan above it, is the live account (rule 14 in [`AGENTS.md`](../../AGENTS.md)).

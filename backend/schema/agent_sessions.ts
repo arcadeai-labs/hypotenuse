@@ -10,6 +10,7 @@ import {
 } from "drizzle-orm/pg-core";
 import { integrations, type TriggerType } from "./integrations";
 import { projects } from "./projects";
+import { runners } from "./runners";
 
 /**
  * Every status Linear gives an agent session. Linear derives it from the last
@@ -57,6 +58,44 @@ export interface AgentSessionPlanStep {
   status: "pending" | "inProgress" | "completed" | "canceled";
 }
 
+/** One repository a person may pick, as the `select` offered it. */
+export interface RepositoryChoiceOption {
+  /** `owner/name`. */
+  label: string;
+  /** What Linear renders: `https://hostname/owner/name`. */
+  value: string;
+  /** `hostname/owner/name`. */
+  remote: string;
+}
+
+/**
+ * A repository question waiting on a person: the options a `select` offered,
+ * the work item that waits on the answer, and how many answers missed.
+ */
+export interface PendingRepositoryChoice {
+  workItemId: number;
+  options: RepositoryChoiceOption[];
+  misses: number;
+}
+
+/**
+ * What routing read about the issue from the trigger system when the session
+ * was prepared: the facts rules and subscriptions match on, and the snapshot
+ * a runner's assignment carries.
+ */
+export interface IssueSnapshot {
+  id: string;
+  identifier: string | null;
+  title: string | null;
+  description: string | null;
+  url: string | null;
+  teamKey: string | null;
+  labels: string[];
+  state: { name: string; type: string } | null;
+  parent: { id: string } | null;
+  project: { id: string; name: string } | null;
+}
+
 /** One external link on a session. */
 export interface AgentSessionExternalUrl {
   label: string;
@@ -75,7 +114,9 @@ export interface AgentSessionExternalUrl {
  * - **The creator is null** when an automation or another agent started the
  *   session — a fact routing and issue hygiene both read.
  * - **`role`, `repository`, and `runnerId` are routing's**, null until routing
- *   chooses them; `runnerId` is the sticky runner holding the worktree.
+ *   chooses them; `runnerId` is the sticky runner holding the worktree, set
+ *   on the first claim. `issueSnapshot` is what routing read about the issue;
+ *   `pendingRepositoryChoice` is a repository question waiting on a person.
  * - **`summary`, `plan`, `externalUrls`** are the last values Hypotenuse wrote.
  *
  * Its activities, both directions, are `agent_activities`.
@@ -119,7 +160,21 @@ export const agentSessions = pgTable(
     role: text("role").$type<AgentSessionRole | null>(),
     /** `hostname/owner/name`. */
     repository: text("repository"),
-    runnerId: integer("runner_id"),
+    runnerId: integer("runner_id").references(() => runners.id, {
+      onDelete: "set null",
+    }),
+    /**
+     * The text that mentioned the agent, with a matched role prefix stripped
+     * (`/manage plan the launch` → `plan the launch`); null for a delegation,
+     * which has no prompt. Read by routing when the first turn is prepared.
+     */
+    instruction: text("instruction"),
+    /** Read by routing when the session's first turn is prepared. */
+    issueSnapshot: jsonb("issue_snapshot").$type<IssueSnapshot | null>(),
+    /** Set while a `select` asks a person which repository to work in. */
+    pendingRepositoryChoice: jsonb(
+      "pending_repository_choice",
+    ).$type<PendingRepositoryChoice | null>(),
     status: text("status")
       .$type<AgentSessionStatus>()
       .notNull()

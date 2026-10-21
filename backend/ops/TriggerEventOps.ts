@@ -9,6 +9,7 @@ import { scheduleDelivery } from "./ActivityOutboxOps";
 import { catalogKey } from "./LinearCatalogOps";
 import { rateLimitKey } from "./LinearOps";
 import { handleLinearEvent } from "./LinearWebhookOps";
+import { applyEffects, type WorkEffects } from "./WorkItemOps";
 
 /**
  * Processing a recorded trigger delivery, whatever system sent it: take the
@@ -24,6 +25,8 @@ export interface ProcessResult {
   deliver: number[];
   /** An integration that was just revoked, whose Redis state should go. */
   revokedIntegrationId?: number;
+  /** Work routing's frames and routing pass, for after the commit. */
+  effects?: WorkEffects;
 }
 
 /** A handler's answer before it is written to the event row. */
@@ -103,12 +106,16 @@ export async function processTriggerEvent(
 }
 
 /**
- * After an event commits: send what it enqueued, and drop what Redis caches
- * for an integration it revoked.
+ * After an event commits: send what it enqueued, wake the runners and the
+ * routing pass it asked for, and drop what Redis caches for an integration
+ * it revoked.
  * @param result - What processing did.
  */
 export async function afterProcessing(result: ProcessResult): Promise<void> {
   await scheduleDelivery(result.deliver);
+  if (result.effects) {
+    await applyEffects({ ...result.effects, deliver: new Set() });
+  }
   if (result.revokedIntegrationId) {
     await api.redis.redis.del(
       catalogKey(result.revokedIntegrationId),

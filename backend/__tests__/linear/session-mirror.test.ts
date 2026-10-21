@@ -126,18 +126,18 @@ describe("the session mirror", () => {
     // A person's answer: Linear reports `pending` on the webhook.
     await personPrompts(session, "main");
     expect(await agreed(session)).toBe("pending");
-    // …and the interim reply it was answered with is now waiting to go.
+    // The prompt became work, which says nothing yet; a failing turn would.
     await deliverSession(session.id);
-    expect(await agreed(session)).toBe("error");
+    expect(await agreed(session)).toBe("pending");
+    expect(await after(session, { type: "error", body: "It broke." })).toBe(
+      "error",
+    );
     expect(
       (await sessionRow(session.externalSessionId))?.endedAt,
     ).not.toBeNull();
 
     await personPrompts(session, "please finish");
     expect((await sessionRow(session.externalSessionId))?.endedAt).toBeNull();
-    // Replace the queued interim error with a real answer.
-    const { failPending } = await import("../../ops/ActivityOutboxOps");
-    await failPending(api.db.db, { agentSessionId: session.id }, "test");
     expect(await after(session, { type: "response", body: "Done." })).toBe(
       "complete",
     );
