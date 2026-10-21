@@ -171,6 +171,7 @@ export function AppShell() {
         >
           <Sidebar
             collapsed={false}
+            inSheet
             onToggle={() => setMobileNavOpen(false)}
             onNavigate={() => setMobileNavOpen(false)}
           />

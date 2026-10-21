@@ -31,6 +31,20 @@ test("below 768px the sidebar is a sheet", async ({ page }) => {
   await page.getByTestId("nav-runners").click();
   await expect(page).toHaveURL(/\/runners$/);
   await expect(page.getByTestId("sidebar")).toBeHidden();
+  await page.getByTestId("sidebar-open").click();
+  await page.getByRole("button", { name: "Close navigation" }).click();
+  await expect(page.getByTestId("sidebar")).toBeHidden();
+});
+
+test("below 768px the page starts right under the top bar", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await signUp(page, "Shell Shay");
+  const bar = await page.locator(".shell-topbar").boundingBox();
+  const header = await page.locator(".shell-page-header").first().boundingBox();
+  if (!bar || !header) throw new Error("top bar or page header missing");
+  expect(Math.abs(header.y - (bar.y + bar.height))).toBeLessThanOrEqual(1);
 });
 
 test("the detail layout puts properties beside the main column, and under it below 768px", async ({

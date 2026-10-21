@@ -158,8 +158,10 @@ use, in **both** themes, and fails below 4.5:1 for body text and 3:1 for large t
   branch, issue link, Linear session link, PR links, timings.
 - **Keyboard:** `⌘K` command palette (built on `cmdk`), `g h/s/r/o` to go to Home, Sessions, Runners, or Routing,
   `j`/`k` to move, `enter` to open, `esc` to go back, `/` to search, and `?` for the shortcut sheet.
-- **Below 768px** the sidebar becomes a sheet, the properties panel moves under the main column, and lists keep one
-  line per row by dropping secondary columns. They do not wrap.
+- **Below 768px** the sidebar becomes a sheet (closed by an ✕, with finger-sized rows), the properties panel moves
+  under the main column, and lists keep one line per row by dropping secondary columns. They do not wrap. The docs
+  section nav folds behind a button naming the current section, pinned under the top bar, and a wide markdown table
+  scrolls inside itself rather than widening the page. Below 1100px the docs' "On this page" rail is dropped first.
 - ToolExec's loading rules carry over unchanged: three loading states (`useFirstLoad`), no denial rendered before
   standing is known, and skeletons only before the first answer.
 

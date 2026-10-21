@@ -30,8 +30,11 @@ $narrow: 767.98px;
 }
 
 @media (max-width: $narrow) {
+  // Two rows, the top bar sized to itself: with implicit auto rows the grid
+  // stretches both to share `min-height`, pushing the page halfway down.
   .shell {
     grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
   }
 
   .shell-topbar {
@@ -118,6 +121,13 @@ $narrow: 767.98px;
   .shell-sidebar {
     width: 100%;
     border-right: 0;
+  }
+
+  // Finger-sized rows: the desktop rail is sized for a pointer.
+  .shell-nav-item,
+  .shell-project,
+  .shell-account-trigger {
+    height: var(--row-height);
   }
 }
 

@@ -7,6 +7,7 @@ import {
   PanelLeft,
   Route,
   Settings,
+  X,
 } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import { Mark } from "../../ui";
@@ -38,6 +39,8 @@ export interface SidebarProps {
   counts?: Partial<Record<string, number>>;
   /** Called after a destination is chosen — the mobile sheet closes on it. */
   onNavigate?: () => void;
+  /** Drawn inside the mobile sheet: the toggle closes the sheet rather than collapsing. */
+  inSheet?: boolean;
 }
 
 /**
@@ -51,6 +54,7 @@ export function Sidebar({
   onToggle,
   counts = {},
   onNavigate,
+  inSheet = false,
 }: SidebarProps) {
   const link = (item: NavItem) => {
     const count = counts[item.id];
@@ -86,11 +90,21 @@ export function Sidebar({
           type="button"
           className="shell-icon-button shell-sidebar-toggle"
           data-testid="sidebar-toggle"
-          aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-          aria-pressed={collapsed}
+          aria-label={
+            inSheet
+              ? "Close navigation"
+              : collapsed
+                ? "Expand sidebar"
+                : "Collapse sidebar"
+          }
+          aria-pressed={inSheet ? undefined : collapsed}
           onClick={onToggle}
         >
-          <PanelLeft size={16} aria-hidden="true" />
+          {inSheet ? (
+            <X size={16} aria-hidden="true" />
+          ) : (
+            <PanelLeft size={16} aria-hidden="true" />
+          )}
         </button>
       </div>
       <ProjectSwitcher onNavigate={onNavigate} />
