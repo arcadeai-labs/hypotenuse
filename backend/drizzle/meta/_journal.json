@@ -20,6 +20,13 @@
       "when": 1792539607671,
       "tag": "0002_goofy_lord_tyger",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1792542560460,
+      "tag": "0003_graceful_agent_zero",
+      "breakpoints": true
     }
   ]
 }

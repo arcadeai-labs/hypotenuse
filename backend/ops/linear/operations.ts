@@ -319,11 +319,15 @@ export interface LinearAgentSession {
   issue: { id: string } | null;
 }
 
-/** The fields `agentSessionUpdate` may change. */
+/**
+ * The fields of `agentSessionUpdate` Hypotenuse writes. Deliberately not
+ * `externalLink` (deprecated; it overwrites every external URL) nor the
+ * whole-list `externalUrls`: links are only ever added or removed, so a link
+ * someone else put on the session survives.
+ */
 export interface LinearAgentSessionUpdateInput {
   summary?: string | null;
-  plan?: Record<string, unknown>;
-  externalLink?: string;
+  plan?: { content: string; status: string }[] | null;
   addedExternalUrls?: { label: string; url: string }[];
   removedExternalUrls?: string[];
 }

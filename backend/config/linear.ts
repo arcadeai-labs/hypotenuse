@@ -30,6 +30,22 @@ export const LINEAR_SCOPES = [
  *   projects, and labels from Redis before asking Linear again.
  * - `requestTimeoutMs` — the deadline on every call to Linear. A request that
  *   waits on Linear must not wait forever.
+ *
+ * Webhook ingress and the activity outbox:
+ *
+ * - `webhookSecretPrevious` — the signing secret being rotated out. While it is
+ *   set, a delivery signed with either secret verifies; unset it once Linear
+ *   signs with the new one (docs/DEPLOY.md).
+ * - `webhookMaxBodyBytes` — the largest delivery read; 5 MiB, the limit
+ *   `@linear/sdk`'s own webhook client uses. Larger answers 413 unread.
+ * - `webhookToleranceMs` — how far the signed `webhookTimestamp` may be from
+ *   now before the delivery is refused as a replay.
+ * - `eventRetentionDays` — how long `linear_events` rows live.
+ * - `requestsPerHour` / `bucketBurst` / `bucketReserve` — the per-installation
+ *   token bucket the outbox spends: Linear's 5,000 requests an hour per app
+ *   user, a burst of 60, and the last 10 tokens kept for acknowledgements.
+ * - `deliverMaxAttempts` — how many times a retryable failure is retried before
+ *   an outbound activity is `failed`.
  */
 export const configLinear = {
   clientId: await loadFromEnvIfSet("LINEAR_CLIENT_ID", ""),
@@ -45,6 +61,23 @@ export const configLinear = {
   stateTtlSeconds: await loadFromEnvIfSet("LINEAR_STATE_TTL_SECONDS", 600),
   catalogTtlMs: await loadFromEnvIfSet("LINEAR_CATALOG_TTL_MS", 60 * 1000),
   requestTimeoutMs: await loadFromEnvIfSet("LINEAR_REQUEST_TIMEOUT_MS", 10_000),
+  webhookSecretPrevious: await loadFromEnvIfSet(
+    "LINEAR_WEBHOOK_SECRET_PREVIOUS",
+    "",
+  ),
+  webhookMaxBodyBytes: await loadFromEnvIfSet(
+    "LINEAR_WEBHOOK_MAX_BODY_BYTES",
+    5 * 1024 * 1024,
+  ),
+  webhookToleranceMs: await loadFromEnvIfSet(
+    "LINEAR_WEBHOOK_TOLERANCE_MS",
+    60_000,
+  ),
+  eventRetentionDays: await loadFromEnvIfSet("LINEAR_EVENT_RETENTION_DAYS", 14),
+  requestsPerHour: await loadFromEnvIfSet("LINEAR_REQUESTS_PER_HOUR", 5000),
+  bucketBurst: await loadFromEnvIfSet("LINEAR_BUCKET_BURST", 60),
+  bucketReserve: await loadFromEnvIfSet("LINEAR_BUCKET_RESERVE", 10),
+  deliverMaxAttempts: await loadFromEnvIfSet("LINEAR_DELIVER_MAX_ATTEMPTS", 10),
 };
 
 declare module "keryx" {

@@ -416,6 +416,37 @@ export function useFinear() {
     return callback(await authorize(projectId, sessionId, options), sessionId);
   }
 
+  /**
+   * Call one of finear's `/__test/*` control routes directly (not through the
+   * proxy, so the request log stays the server's own traffic).
+   * @param path - The route, e.g. `/__test/agents/delegate`.
+   * @param body - The JSON body, or undefined for a GET.
+   * @returns The parsed answer; throws on a non-2xx.
+   */
+  async function control<T = Record<string, unknown>>(
+    path: string,
+    body?: Record<string, unknown>,
+  ): Promise<T> {
+    const res = await fetch(
+      `${running().url.toString().replace(/\/$/, "")}${path}`,
+      {
+        method: body === undefined ? "GET" : "POST",
+        headers: {
+          Authorization: `Bearer ${controlToken}`,
+          ...(body === undefined ? {} : { "Content-Type": "application/json" }),
+        },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      },
+    );
+    const answer = (await res.json()) as T;
+    if (!res.ok) {
+      throw new Error(
+        `finear ${path} answered ${res.status}: ${JSON.stringify(answer)}`,
+      );
+    }
+    return answer;
+  }
+
   return {
     /** finear's own base URL (not the proxy). */
     finearUrl: () => running().url.toString().replace(/\/$/, ""),
@@ -447,6 +478,9 @@ export function useFinear() {
     advance: (ms: number) => running().advance(ms),
     /** Reset finear to its fixtures; every OAuth token becomes invalid. */
     reset: () => running().reset(),
+    control,
+    /** finear's virtual clock, epoch ms. */
+    now: async () => (await control<{ now: number }>("/__test/clock")).now,
   };
 }
 

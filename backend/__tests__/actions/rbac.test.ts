@@ -49,6 +49,9 @@ const EXPECTED_LEVELS: Record<string, RbacLevel> = {
   "tag:list": "member",
   "linear:installation": "member",
   "linear:catalog": "member",
+  "agent-session:list": "member",
+  "agent-session:view": "member",
+  "agent-session:activities": "member",
 
   // Admin-gated: managing people, tags, invites, the project itself, and
   // reading the audit log, which names who did what.
@@ -101,6 +104,13 @@ const EXPECTED_LEVELS: Record<string, RbacLevel> = {
   "linear:callback": "none",
   "linear:refresh-tokens": "none",
   "linear:manifest-url": "none",
+  // Machine ingress: Linear is the caller, and the signature is the gate.
+  "webhooks:linear": "none",
+  "linear:process-event": "none",
+  "linear:process-pending": "none",
+  "linear-events:sweep": "none",
+  "activities:deliver": "none",
+  "activities:deliver-due": "none",
 };
 
 /** Every clock: task-only, never an HTTP route. */
@@ -110,6 +120,9 @@ const CLOCKS = [
   "invites:sweep",
   "audit:sweep",
   "linear:refresh-tokens",
+  "linear:process-pending",
+  "linear-events:sweep",
+  "activities:deliver-due",
 ];
 
 let universe: TestUniverse;
@@ -241,6 +254,9 @@ describe("MCP publish policy", () => {
       .sort();
     expect(published).toEqual(
       [
+        "agent-session:activities",
+        "agent-session:list",
+        "agent-session:view",
         "audit:list",
         "cli-token:list",
         "cli-token:revoke",

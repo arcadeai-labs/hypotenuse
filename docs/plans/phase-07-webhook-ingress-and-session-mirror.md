@@ -357,19 +357,104 @@ psql hypotenuse -c "select s.issue_identifier, a.seq, a.direction, a.content_typ
 
 ## Definition of done
 
-- [ ] `webhooks:linear`: cap → signature (constant time, raw bytes) → signed timestamp ±60 s → dedupe → 200
-- [ ] Verified deliveries for unknown or revoked installations answer 200
-- [ ] Bad signature and stale timestamp are byte-identical 401s
-- [ ] Injectable clock and tolerance for finear's virtual time
-- [ ] `linear_events`, `agent_sessions`, `agent_activities` with the indexes above
-- [ ] Outbox: per-session `seq`, client UUIDs as `agentActivityCreate.id`, superseding, retries, `RATELIMITED`
-- [ ] Token bucket in Lua with an `ack` reserve, fed by observed headers
-- [ ] Ack `thought` for every `created`, measured under 3 s on CI
-- [ ] `PermissionChange`, `OAuthApp revoked`, delegate removal, `AppUserNotification`, unknown types handled
-- [ ] Stop answered; prompt body read from both payload shapes
-- [ ] Read actions with pagination and RBAC; `webhooks:*` never MCP
-- [ ] Interim "no runner" error, named in Scope as replaced by work routing
+- [x] `webhooks:linear`: cap → signature (constant time, raw bytes) → signed timestamp ±60 s → dedupe → 200
+- [x] Verified deliveries for unknown or revoked installations answer 200
+- [x] Bad signature and stale timestamp are byte-identical 401s
+- [x] Injectable clock and tolerance for finear's virtual time
+- [x] `linear_events`, `agent_sessions`, `agent_activities` with the indexes above
+- [x] Outbox: per-session `seq`, client UUIDs as `agentActivityCreate.id`, superseding, retries, `RATELIMITED`
+- [x] Token bucket in Lua with an `ack` reserve, fed by observed headers
+- [x] Ack `thought` for every `created`, measured under 3 s on CI
+- [x] `PermissionChange`, `OAuthApp revoked`, delegate removal, `AppUserNotification`, unknown types handled
+- [x] Stop answered; prompt body read from both payload shapes
+- [x] Read actions with pagination and RBAC; `webhooks:*` never MCP
+- [x] Interim "no runner" error, named in Scope as replaced by work routing
 
 ## Learnings from the build
 
-_Nothing yet — this phase has not been built._
+### What is built
+
+All twelve Definition of done items. The backend gained three tables (`linear_events`, `agent_sessions`,
+`agent_activities`; one migration), two Lua scripts (`linear-token-bucket.lua`, `release-lock.lua`), five ops
+modules (`LinearWebhookOps`, `AgentSessionOps`, `ActivityOutboxOps`, `LinearBucketOps`, `LockOps`), nine actions
+(`webhooks:linear`, `linear:process-event`, `linear:process-pending`, `linear-events:sweep`,
+`activities:deliver`, `activities:deliver-due`, `agent-session:list`, `agent-session:view`,
+`agent-session:activities`), and the `linear-revoked` notification. The CLI gained `hypotenuse session
+list|view` at 0.3.0, and the public docs an *Agent sessions* page. Nothing has been tried against a real Linear
+workspace yet: the staging check under Verification is still to do.
+
+### Where the build departs from the plan
+
+- **The suites live in `backend/__tests__/linear/`**, named as [`LINEAR_COVERAGE.md`](../LINEAR_COVERAGE.md)
+  names them — `webhook-ingress`, `webhook-robustness`, `process-event`, `session-mirror`, `activity-outbox`, and
+  `ack` (the real-worker latency test) — plus `__tests__/actions/agent-session.test.ts` for the read actions.
+  The plan's `outbox-*` and `agent-session-*` files are folded into those. `inject.ts` signs what finear cannot
+  send, typed with `@linear/sdk/webhooks`; `sessions.ts` holds `settle()`, which runs the processing and delivery
+  jobs in-process until both report nothing to do.
+- **The two sweeps are their own clock actions**, `linear:process-pending` (5 s) and `activities:deliver-due`
+  (1 s), not `linear:process-event` and `activities:deliver` with a frequency. A Keryx clock gets the `JobLock`,
+  `QueueLock`, and `DelayQueueLock` plugins and re-enqueues itself after *every* run, a run enqueued with params
+  included, so one action doing both would start a new recurrence per webhook.
+- **Per-session order is a Redis lease, not `DISTINCT ON … FOR UPDATE SKIP LOCKED`.** Postgres refuses `FOR
+  UPDATE` with `DISTINCT`, and skipping a locked head would send the row behind it first. Holding the session's
+  row lock across the call to Linear would block every enqueue on that session for as long as Linear takes, so
+  `deliverSession` holds `activities:deliver:<id>` (released only by its holder, `release-lock.lua`) and the
+  clock fans out across sessions, eight at a time.
+- **The webhook has no rate-limit middleware.** The plan put it behind the unauthenticated limit, "which
+  Linear's volume never approaches" — but that limit is 20 a minute per address, every workspace's deliveries come
+  from Linear's few addresses, and one busy workspace's issue and comment events pass it. A 429 is a failed
+  delivery, and enough of them disable the webhook for everyone. The signature is checked before any database
+  work and the body capped before it is read; `webhook-robustness.test.ts` asserts the limit is live elsewhere
+  and never answers a delivery.
+- **A delivery run starts no row after a third of its lease** (six request deadlines), so a slow Linear cannot let
+  the lease lapse mid-send and a second sender in behind it; the clock picks the rest up a second later.
+- **Queue order is `["linear", "orchestrator", "default"]`.** The plan said `linear, routing, default`; the
+  notification clocks already ran on `orchestrator`, and the old value was `*`. `tasks.test.ts` asserts every
+  queue an action names is drained.
+- **`bulk` keeps twice the reserve.** The plan named the priority without saying what it does; ephemeral chatter
+  now yields first.
+- **Linear's remaining count is applied once per observation, and only until Linear's reset** (an hour when no
+  reset was sent). Otherwise a bucket that expired while idle is recreated pinned to a count from a window long
+  over — which the suite found, one test's `RATELIMITED` starving the next.
+- **The acknowledgement is sent once per session**: a `created` for a session that already has an outbound row
+  (a replay, or a session Hypotenuse started) is mirrored and not acknowledged again.
+- **A failed event is processed**, `outcome = failed` with the error: a delivery that fails the same way every
+  time must not be retried every five seconds forever. An `unknown_installation` delivery is processed at
+  ingress and gets no job.
+- **Session events do not lock the installation row**; only `PermissionChange` and `OAuthApp` do. The token
+  refresh holds that row lock across its call to Linear, and every session event would wait on it.
+- **More than the plan's columns:** `agent_sessions.linearUrl` (Linear's page for the session) and
+  `delegateRemovedAt` (read by cancellation). `parentAgentSessionId` is left to the manager, which adds it;
+  `runnerId` has no foreign key until runners exist. `creatorEmail` is stored and not serialized.
+- **`LINEAR_WEBHOOK_SECRET_PREVIOUS`** (LC-OAUTH-24): while set, a delivery signed with either secret verifies,
+  and [`DEPLOY.md`](../DEPLOY.md)'s rotation runbook uses it. A body that verifies but is not a JSON object gets
+  the same 401 as a bad signature; a delivery with no `Linear-Delivery` is deduplicated by its bytes' sha256.
+- **The interim answers:** "Received." then "No runner is connected for this project yet." on `created`, the
+  same error on `prompted`, and "Stopped. Nothing was running." (`ack` priority) on a stop. A team-access change
+  marks sessions on removed teams `error` and fails their unsent rows; `OAuthApp` / `revoked` writes exactly what
+  `linear:disconnect` writes.
+- **The outbox refuses at enqueue** what Linear would refuse: an ephemeral non-thought, a `prompt`, an empty
+  body, `stop` or a signal off an elicitation, a summary that is not one line of 1–255 characters, a malformed
+  plan, an empty update, and `externalLink` or a whole-list `externalUrls` (only `addedExternalUrls` /
+  `removedExternalUrls` are written). `LinearAgentSessionUpdateInput` lost its `externalLink` field.
+- **Rule 13:** `hypotenuse session list` (`--status`, `--role`, `--issue`) and `session view <id>`; `--follow`
+  waits for the dashboard. The task actions and clocks are out of scope.
+
+### Traps found while building
+
+- **finear refuses an agent's activity on a terminal session** until a person prompts it open again — so after
+  the interim error every session is closed. Suites that write their own activities start from
+  `mirroredQuietly()`, which mirrors a delegation without acknowledging it.
+- **finear records an activity a moment before the worker records it sent.** The real-worker test waits for both.
+- **finear's one-minute retry is still inside ±60 s of real time**; only the one-hour retry needs the clock
+  aligned to finear's, so that is the retry the test drives.
+- **finear answers a reused activity id with `CONFLICT`, "Agent activity ID already exists".** Linear does not
+  document its wording, so the outbox counts either the code or "already exists" as sent.
+- **Redis outlives `clearDatabase`.** Ids restart in every file, so the next file's installation 1 inherited an
+  empty token bucket and its event 1 a queued job for someone else's. `buildTestUniverse()` now clears the
+  `linear` queue and the `linear:*` / `activities:*` keys.
+- **A config snapshot taken at module load is a previous file's.** `Object.assign(config.linear, saved)` in a
+  `beforeEach` restored the last file's finear URL when files ran together; restore only the keys a test changes.
+- **Drizzle's debug logger prints every query with its parameters**, webhook bodies included. Deployments run at
+  `info`; the no-body-in-logs test filters to `info` and above, which is what a deployment emits.
+- **`@linear/sdk`'s webhook payload types say `createdAt: Date`**, though the wire carries a string.

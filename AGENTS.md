@@ -256,12 +256,19 @@ The map is [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md). What follows is the
   behind a small proxy that records every request and can stamp Linear's rate-limit headers, answer one request
   `RATELIMITED`, or lose one response — the things finear does not do. Every Linear call goes through
   `ops/LinearOps.ts` `linearRequest`, with documents in `ops/linear/operations.ts`, each executed against finear in
-  `linear-ops.test.ts`.
+  `linear-ops.test.ts`. finear signs and delivers webhooks to the server for real; `__tests__/linear/inject.ts`
+  signs what finear cannot send, typed with `@linear/sdk/webhooks`. Suites run processing and the outbox in-process
+  with `settle()` (`__tests__/linear/sessions.ts`); `ack.test.ts` alone starts a real Resque worker, to measure the
+  acknowledgement as deployed.
 - **CLI / daemon:** `cd cli && bun test` for unit tests; `backend/__tests__/cli/` spawns the real CLI against the
   booted server, approving its sign-in over HTTP as a test user; `cli/test/e2e/test-upgrade.sh` installs the branch
   by npm, bun, and binary (it installs globally — CI or a throwaway machine only); end-to-end suites in `backend/__tests__/e2e/` spawn the real
   `hypotenuse daemon` against the booted backend, finear, a temporary git origin, and the fake ACP agent.
-- **Control time by writing columns or advancing finear's clock, never by waiting.**
+- **Control time by writing columns or advancing finear's clock, never by waiting.** A test that advances
+  finear's clock aligns `webhookClock` (`ops/LinearWebhookOps.ts`) to it, or the server refuses finear's
+  deliveries as replays.
+- **Redis outlives `clearDatabase()`, and ids restart.** Anything keyed by a row id (a token bucket, a lease, a
+  queued job) must be cleared with the tables; `buildTestUniverse()` does it for the Linear keys and queue.
 - **Assert the property, not the symptom** — byte-identical refusal bodies, whole-set comparisons of allowlists,
   exact Linear activity sequences.
 - **Docs are tested:** links, the Learnings heading, and the Linear coverage matrix.

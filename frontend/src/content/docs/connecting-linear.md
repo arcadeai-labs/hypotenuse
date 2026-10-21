@@ -34,7 +34,8 @@ Hypotenuse never asks for Linear's `admin` scope (Linear does not allow it for a
 initiatives, or time schedules.
 
 The teams the Linear admin ticks are the teams the agent can see. Issues in other teams — private ones included —
-are invisible to it. A Linear admin can change the team list later in Linear, under the installed agent's settings.
+are invisible to it. A Linear admin can change the team list later in Linear, under the installed agent's settings;
+Hypotenuse picks the change up at once (see [agent sessions](/docs/agent-sessions)).
 
 ## One workspace, one project
 
@@ -71,9 +72,13 @@ and was last renewed, and — once Hypotenuse has talked to Linear — how much 
 Linear's access tokens last a day. Hypotenuse renews them by itself, well before they expire, so a connection
 stays up with nobody doing anything.
 
-If Linear ever refuses to renew — because someone uninstalled the app in Linear, or revoked its access — the
-connection turns to **Needs reconnecting**, every project admin gets a notification, and the agent stops acting in
-that workspace. An admin clicks **Reconnect Linear** and approves again; nothing else is lost.
+If someone uninstalls `@hypotenuse` from the workspace in Linear, Linear tells Hypotenuse, and the project is
+disconnected at once — exactly as if an admin had clicked **Disconnect** — and every project admin gets a
+notification. Anything the agent had not yet sent to Linear is dropped. An admin connects again to bring it back.
+
+If Linear ever refuses to renew the token — because its access was revoked some other way — the connection turns
+to **Needs reconnecting**, every project admin gets a notification, and the agent stops acting in that workspace.
+An admin clicks **Reconnect Linear** and approves again; nothing else is lost.
 
 **Reconnect Linear** is also how you pick up new permissions after Hypotenuse starts asking for more: Linear always
 shows the consent screen again, rather than reusing the last approval.

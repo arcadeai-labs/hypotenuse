@@ -1,5 +1,10 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { api } from "keryx";
+import {
+  bucketKey,
+  currentObservation,
+  takeLinearToken,
+} from "../../ops/LinearBucketOps";
 import { catalogKey } from "../../ops/LinearCatalogOps";
 import {
   LinearRateLimitedError,
@@ -156,5 +161,73 @@ describe("rate limits", () => {
       }),
     ).rejects.toBeInstanceOf(LinearUnavailableError);
     expect(sent("CreateComment")).toBe(1);
+  });
+});
+
+describe("the outbox's token bucket", () => {
+  /** A bucket key nobody else in the file uses. */
+  const BUCKET = 9_001;
+
+  /**
+   * Take from the test bucket at a fixed clock.
+   * @param priority - The row's priority.
+   * @param now - Epoch ms.
+   * @returns Granted, and the wait.
+   */
+  const take = (priority: "ack" | "normal" | "bulk", now: number) =>
+    takeLinearToken(BUCKET, priority, now);
+
+  test("LC-RATE-01 refills at 5,000 an hour from a burst of 60, and keeps the last 10 for acknowledgements", async () => {
+    await api.redis.redis.del(bucketKey(BUCKET), rateLimitKey(BUCKET));
+    const now = 1_000_000;
+    let normal = 0;
+    while ((await take("normal", now)).granted) normal++;
+    // 60 in the bucket, 10 kept back.
+    expect(normal).toBe(50);
+    const refused = await take("normal", now);
+    expect(refused.granted).toBe(false);
+    // One more token, at 5,000 an hour, is 720 ms away.
+    expect(refused.waitMs).toBe(720);
+
+    let acks = 0;
+    while ((await take("ack", now)).granted) acks++;
+    expect(acks).toBe(10);
+
+    // Two seconds later, about 2.8 tokens have refilled: still short of the
+    // reserve for normal work, enough for an acknowledgement.
+    expect((await take("normal", now + 2000)).granted).toBe(false);
+    expect((await take("ack", now + 2000)).granted).toBe(true);
+  });
+
+  test("bulk work yields first: it keeps twice the reserve", async () => {
+    await api.redis.redis.del(bucketKey(BUCKET), rateLimitKey(BUCKET));
+    const now = 2_000_000;
+    let bulk = 0;
+    while ((await take("bulk", now)).granted) bulk++;
+    expect(bulk).toBe(40);
+    expect((await take("normal", now)).granted).toBe(true);
+  });
+
+  test("LC-RATE-01 Linear's lower count wins, once per observation, and not after its window resets", async () => {
+    await api.redis.redis.del(bucketKey(BUCKET), rateLimitKey(BUCKET));
+    const now = Date.now();
+    await api.redis.redis.hset(rateLimitKey(BUCKET), {
+      requestsRemaining: "12",
+      observedAt: String(now),
+      requestsResetAt: String(now + 60_000),
+    });
+    // Twelve remain, not our sixty: two normal takes reach the reserve…
+    expect((await take("normal", now)).granted).toBe(true);
+    expect((await take("normal", now)).granted).toBe(true);
+    expect((await take("normal", now)).granted).toBe(false);
+    // …and the same observation is not applied a second time.
+    expect((await take("ack", now)).granted).toBe(true);
+
+    // After Linear's reset, the old count no longer pins a fresh bucket.
+    await api.redis.redis.del(bucketKey(BUCKET));
+    expect(currentObservation(0, now, now + 60_000, now + 60_001)).toEqual([
+      -1, 0,
+    ]);
+    expect((await take("normal", now + 60_001)).granted).toBe(true);
   });
 });

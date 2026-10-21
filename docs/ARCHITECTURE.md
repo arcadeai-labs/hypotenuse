@@ -106,9 +106,13 @@ Hypotenuse project** with `actor=app` and scopes `read,write,app:assignable,app:
 comments:create`. The app user's id (`viewer.id`) is unique per workspace and stored as `appUserId`.
 
 Every webhook arrives at one endpoint, `POST /api/webhooks/linear`, and is identified to an installation by
-`organizationId`. The handler verifies `Linear-Signature` (HMAC-SHA256 of the raw body), checks
-`webhookTimestamp` is within ±60 s, deduplicates on `Linear-Delivery`, inserts a `linear_events` row, answers
-200 well inside Linear's 5-second budget, and enqueues `linear:process-event` after commit.
+`organizationId`. The handler caps the body (5 MiB, 413 beyond), verifies `Linear-Signature` (HMAC-SHA256 of the
+raw body, constant time; `LINEAR_WEBHOOK_SECRET_PREVIOUS` also verifies during a rotation), checks the signed
+body's `webhookTimestamp` is within ±60 s, deduplicates on `Linear-Delivery`, inserts a `linear_events` row,
+answers 200 well inside Linear's 5-second budget, and enqueues `linear:process-event`. A bad signature and a stale
+timestamp are the same 401, byte for byte. A verified delivery for no live installation is still answered 200
+and recorded `unknown_installation`: one webhook serves every workspace, and Linear disables a webhook that keeps
+failing. The row is the delivery; the `linear:process-pending` clock processes any row whose job was lost.
 
 What each event does:
 
@@ -122,11 +126,22 @@ What each event does:
 | `AppUserNotification` / * | recorded and surfaced in the dashboard; no work is started (sessions are the work trigger) |
 | anything else | recorded, `outcome = ignored` |
 
+Until work routing exists, nothing is routed: a `created` session is acknowledged ("Received.") and then answered
+with an `error` saying no runner is connected; a `prompted` one gets the same `error`; a `stop` is answered with a
+`response` that nothing was running; a team-access change marks sessions on removed teams `error`; a removed
+delegate is recorded on the session (`delegateRemovedAt`).
+
 **Everything written to Linear goes through the activity outbox** (`agent_activities` rows with
-`direction = outbound`), drained by `activities:deliver`. Each row carries a client-generated UUID passed as
-`agentActivityCreate(input.id)`, so a retried send is idempotent. A per-installation token bucket in Redis
-keeps the deployment inside Linear's 5,000 requests/hour per app user; ephemeral activities are coalesced
-before they spend budget.
+`direction = outbound`), drained by `activities:deliver`. Rows get a per-session `seq` under the session's row
+lock; each session is sent in `seq` order by one process at a time (a Redis lease), and sessions in parallel.
+Each row carries a client-generated UUID passed as `agentActivityCreate(input.id)`, so a retried send is
+idempotent and Linear's "already exists" counts as sent. A per-installation token bucket in Redis
+(`backend/lua/linear-token-bucket.lua`) keeps the deployment inside Linear's 5,000 requests/hour per app user,
+pulled down to Linear's own `X-RateLimit-Requests-Remaining` when that is lower, with the last 10 tokens reserved
+for acknowledgements and stop answers. A still-pending ephemeral activity is superseded by the next one, and a
+pending plan or summary by a newer one, before they spend budget. `RATELIMITED` waits for Linear's reset without
+counting an attempt; a 5xx or lost response backs off from 1 s to 5 min, ten attempts; any other GraphQL error
+fails the row at once (it is our bug).
 
 ## The roles: manager and worker
 
@@ -293,14 +308,17 @@ costs latency, never correctness.
 
 | Task | Every | Does |
 |---|---|---|
-| `linear:process-event` | enqueued per delivery | the event table above |
-| `activities:deliver` | 1 s | drains the outbound outbox under the token bucket |
+| `linear:process-event` | enqueued per delivery; `linear:process-pending` every 5 s for a lost job | the event table above |
+| `activities:deliver` | enqueued per session; `activities:deliver-due` every 1 s | drains the outbound outbox under the token bucket |
 | `work:route` | enqueued + 5 s | offers queued work; expires work with no eligible runner after `routing.queueTimeout` |
 | `work:reap` | 15 s | returns work with expired leases to `queued`; marks runners offline after `runners.offlineAfter` |
 | `sessions:keepalive` | 60 s | a server-side keepalive `thought` for sessions whose runner is waiting on a person or reconnecting |
 | `linear:refresh-tokens` | 5 min | refreshes access tokens within 30 minutes of expiry under a row lock (refresh tokens rotate; a lost response is replayed inside Linear's 30-minute grace; `invalid_grant` marks the installation `error` and notifies its admins). A 401 anywhere refreshes inline through the same function |
 | `notifications:dispatch` | 30 s | delivers queued notifications: a ping on the project channel, and the e-mail (logged when `SMTP_HOST` is empty) |
 | `linear-events:sweep`, `audit:sweep`, `notifications:sweep`, `invites:sweep` | daily | retention |
+
+Linear's jobs — processing a delivery, sending an outbox — run on the `linear` queue, which workers drain before
+`orchestrator` and `default`, so nothing else queued delays an acknowledgement.
 
 ## Where the detail lives
 

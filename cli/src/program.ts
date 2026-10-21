@@ -12,6 +12,7 @@ import { registerInviteCommands } from "./commands/invite";
 import { registerLinearCommands } from "./commands/linear";
 import { registerMemberCommands } from "./commands/member";
 import { registerProjectCommands } from "./commands/project";
+import { registerSessionCommands } from "./commands/session";
 import { registerTagCommands } from "./commands/tag";
 import { registerUpgradeCommand } from "./commands/upgrade";
 import { banner } from "./output/theme";
@@ -56,6 +57,7 @@ export function buildProgram(): Command {
   registerTagCommands(program);
   registerAuditCommands(program);
   registerLinearCommands(program);
+  registerSessionCommands(program);
   registerCheckUpdateCommand(program);
   registerUpgradeCommand(program);
   return program;
