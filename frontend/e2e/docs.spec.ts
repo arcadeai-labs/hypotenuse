@@ -20,10 +20,10 @@ test.describe("public docs", () => {
     }
   });
 
-  test("below 768px the section nav folds behind the current section, and no page scrolls sideways", async ({
+  test("below 768px the section nav folds behind the current section, and no page scrolls sideways or hides a linked heading", async ({
     page,
   }) => {
-    await page.setViewportSize({ width: 375, height: 812 });
+    await page.setViewportSize({ width: 360, height: 800 });
     await page.goto("/docs/runners");
     const toggle = page.getByTestId("docs-nav-toggle");
     await expect(toggle).toHaveText("Runners");
@@ -43,6 +43,11 @@ test.describe("public docs", () => {
       ]);
       expect(scroll, slug).toBeLessThanOrEqual(client);
     }
+    await page.goto("/docs/cli#commands");
+    const heading = await page.locator("#commands").boundingBox();
+    const picker = await page.locator(".docs-nav-frame").boundingBox();
+    if (!heading || !picker) throw new Error("heading or picker missing");
+    expect(heading.y).toBeGreaterThanOrEqual(picker.y + picker.height);
   });
 
   test("docs stay readable signed in, and offer a way back into the app", async ({

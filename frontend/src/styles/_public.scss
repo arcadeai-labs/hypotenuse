@@ -129,6 +129,11 @@ $docs-rail-min: 1099.98px;
   a {
     color: var(--text-secondary);
   }
+
+  @media (max-width: $narrow) {
+    flex-wrap: wrap;
+    padding: var(--space-4);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -318,14 +323,22 @@ $docs-rail-min: 1099.98px;
     margin-bottom: var(--space-2);
   }
 
+  // Clear the sticky top bar, and on a phone the section picker pinned under it.
+  h2,
+  h3 {
+    scroll-margin-top: 64px;
+
+    @media (max-width: $narrow) {
+      scroll-margin-top: 116px;
+    }
+  }
+
   h2 {
     margin-top: var(--space-5);
-    scroll-margin-top: 64px;
   }
 
   h3 {
     margin-top: var(--space-3);
-    scroll-margin-top: 64px;
   }
 
   ul,
