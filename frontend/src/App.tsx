@@ -23,6 +23,7 @@ import { DocsPage } from "./pages/docs/DocsPage";
 import InvitesPage from "./pages/InvitesPage";
 import { HomePage } from "./pages/marketing/HomePage";
 import NewProjectPage from "./pages/NewProjectPage";
+import RunnersPage from "./pages/RunnersPage";
 import SettingsPage from "./pages/SettingsPage";
 import { SignInPage } from "./pages/SignInPage";
 import { SignUpPage } from "./pages/SignUpPage";
@@ -75,10 +76,7 @@ export function App() {
                   path="/sessions"
                   element={<PlaceholderPage title="Sessions" />}
                 />
-                <Route
-                  path="/runners"
-                  element={<PlaceholderPage title="Runners" />}
-                />
+                <Route path="/runners" element={<RunnersPage />} />
                 <Route
                   path="/routing"
                   element={<PlaceholderPage title="Routing" />}

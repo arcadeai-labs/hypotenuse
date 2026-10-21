@@ -39,9 +39,13 @@ On 426 the daemon stops claiming, keeps finishing what it holds, and logs *"The 
 | HTTP | `Authorization: Bearer hyp_rt_<43 chars>` — the runner token from `~/.config/hypotenuse/credentials.json` |
 | WebSocket | `Cookie: __session=<id>` obtained from `daemon:connect` |
 
-Every `daemon:*` request is checked by `RunnerTokenMiddleware`: the token's hash resolves to a non-revoked runner
-whose owner is still a member of its project. Any failure is one byte-identical **401**. A runner token is refused
-on every non-`daemon:*` action, and every `daemon:*` action is refused to anything but a runner token.
+Every `daemon:*` request is resolved by the principal hook (`backend/middleware/runnerToken.ts`): the token's hash
+(or the WebSocket session's runner id) resolves to a non-revoked runner whose owner is still a member of its
+project; an owner who is not is the runner revoked on the spot. A paused runner (`enabled: false`) may only
+heartbeat. Any failure is one **401** with the same message and type. A runner token is refused (**403**) on every
+non-`daemon:*` action, and every `daemon:*` action is refused to anything but a runner — 403 to a person's session
+or CLI token, 401 to nobody. The protocol header is checked first, at the HTTP edge, so an unsupported daemon is
+told to upgrade (**426**) whatever its token.
 
 ## Endpoints
 
@@ -50,9 +54,11 @@ check the envelope, not only the status.
 
 ### `daemon:connect`
 
-`POST /api/daemon/connect` with `{ "machineId": "sha256:…" }`. Answers 409 `machine_in_use` with
-`{ runnerId, runnerName }` when a different runner with that `machineId` is live (`online` or `draining`): one
-daemon per machine.
+`POST /api/daemon/connect` with `{ "machineId": "sha256:…" }`. Answers **409**
+`{ error: { type: "MACHINE_IN_USE", message, runnerId, runnerName } }` when a different runner with that
+`machineId` is live (`online` or `draining`): one daemon per machine. `runnerId` and `runnerName` are `null` when the
+other runner is in another project and has another owner — machine ids are global, and a shared build box should
+not name another tenant's runner.
 `daemon:heartbeat` gives the same 409, with nothing written, so the rule holds whichever call a daemon makes
 first.
 
@@ -60,8 +66,8 @@ first.
 { "runnerId": 5, "channel": "runner:5", "heartbeatIntervalMs": 15000, "leaseMs": 60000, "serverTime": 1792478400000 }
 ```
 
-Sets the `__session` cookie (`Set-Cookie`). Call it before every WebSocket connect; a session is revoked with
-its runner.
+Sets the `__session` cookie (`Set-Cookie`). The session carries only the runner's id and is deleted when the runner
+is revoked. Call it before every WebSocket connect.
 
 ### `daemon:heartbeat`
 
@@ -112,9 +118,14 @@ Response (`HeartbeatResponse`):
 }
 ```
 
+Capabilities and subscriptions are rewritten only when the hash of the normalized capabilities changes (remotes
+as `hostname/owner/name`, labels lowercased, subscription values sorted and de-duplicated), so a steady daemon
+costs one row update per beat.
+
 `unknownActive` lists `active` items the server no longer considers this runner's (lease reaped, reassigned,
 cancelled and closed). The daemon must stop work on them **without** emitting further events — someone else may
-own the session now.
+own the session now. Until the server routes work, it holds no work items for any runner, so every item in `active` comes back
+in `unknownActive`, and `offers` and `cancels` are always empty.
 
 ### `daemon:claim`
 
@@ -296,7 +307,9 @@ any `daemon:events` response — so it is delivered as long as *any* request suc
 
 | HTTP | `error.type` | Meaning | Daemon does |
 |---|---|---|---|
-| 401 | `CONNECTION_SESSION_NOT_FOUND` | bad, revoked, or orphaned token | stop; tell the person to `hypotenuse runner register` |
+| 401 | `CONNECTION_SESSION_NOT_FOUND` | bad, revoked, orphaned, or paused (on anything but a heartbeat) token | stop; tell the person to `hypotenuse runner register` |
+| 403 | `CONNECTION_CHANNEL_AUTHORIZATION` | a runner token on a non-`daemon:*` action | log as a bug |
+| 409 | `MACHINE_IN_USE` | another live runner holds this machine | exit; tell the person which runner |
 | 406 | `CONNECTION_ACTION_PARAM_VALIDATION` | schema violation; `key` / event index included | log as a bug; drop the batch item; never retry unchanged |
 | 409 | `NOT_YOUR_WORK` | the item is not claimed by this runner | stop work on it silently |
 | 409 | `SEQ_REGRESSION` | events out of order | log as a bug |

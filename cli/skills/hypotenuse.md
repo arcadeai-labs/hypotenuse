@@ -1,6 +1,6 @@
 ---
 name: hypotenuse
-description: Operate a Hypotenuse server from the terminal with the `hypotenuse` CLI — sign in, pick a project, manage members, invites, tags, connect trigger integrations (Linear), read agent sessions, and read the audit log. Use when asked to administer Hypotenuse projects, check what @hypotenuse did on an issue, or check who changed what.
+description: Operate a Hypotenuse server from the terminal with the `hypotenuse` CLI — sign in, pick a project, manage members, invites, tags, connect trigger integrations (Linear), register and manage runners, read agent sessions, and read the audit log. Use when asked to administer Hypotenuse projects, check what @hypotenuse did on an issue, or check who changed what.
 ---
 
 # hypotenuse
@@ -35,6 +35,7 @@ server. It calls the same HTTP actions the dashboard does, as the person who sig
 | `hypotenuse audit list [--since 7d] [--until <time>] [--action tag:edit]` | Who changed what, newest first (admin). Times are ISO-8601, epoch ms, or `7d` / `12h` / `30m`. |
 | `hypotenuse integration list\|view\|connect\|disconnect` | The selected project's trigger integrations — today the only type is `linear`, its Linear workspace connection. `list` shows each type this server supports and whether the project is connected. `view <type>` shows the workspace, the `@hypotenuse` app user, scopes, and token health (never a token). `connect <type>` (admin) prints the consent URL — a **workspace admin** of that system (for `linear`, a Linear workspace admin) must approve it in a browser — and waits until the integration is active (`--no-browser`, `--timeout <seconds>`). `disconnect <type> --yes` (admin) revokes the tokens; the agent stops answering there at once. |
 | `hypotenuse session list\|view` | The selected project's agent sessions — each time `@hypotenuse` was delegated an issue or mentioned, in any trigger type (Linear today). `list [--status <status>] [--role manager\|worker] [--type linear] [--issue ENG-123]`, newest first; `view <id>` shows the session (issue, status, origin, role, links) and every activity in order, both directions, with each write's delivery status (`pending`, `sent`, `failed`, `superseded`). |
+| `hypotenuse runner register\|list\|view\|edit\|revoke` | The selected project's runners — machines that run coding agents. `register [--name <name>] [--replace] [--force]` registers **this** machine as the signed-in person, saves the runner token to `credentials.json` (never printed), and sends a first heartbeat; `--replace` revokes the runner of that name first. `list [--status online\|offline\|draining\|revoked] [--all]`; `view <id\|name>` shows capabilities, subscriptions, and whether its socket is attached; `edit <id\|name> [--name] [--enable\|--disable]` renames or pauses it; `revoke <id\|name> --yes` revokes it for good (its owner or an admin). |
 | `hypotenuse check-update` | Whether a newer release exists, with its changelog. |
 | `hypotenuse upgrade` | Upgrade in place, by however it was installed (npm, bun, or binary). |
 
@@ -48,5 +49,6 @@ hypotenuse invite create --email luigi@example.com --tag 3
 hypotenuse --json audit list --since 1d --action membership:delete
 hypotenuse --json integration view linear | jq '.integration | {type, status, workspaceName, externalAppUserId}'
 hypotenuse --json session list --issue ENG-123 | jq '.agentSessions[] | {id, status}'
+hypotenuse --json runner list | jq '.runners[] | {name, status, owner: .owner.name}'
 hypotenuse --json session view 42 | jq '.activities[] | {seq, direction, contentType, deliveryStatus}'
 ```

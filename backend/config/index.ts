@@ -11,6 +11,7 @@ import { configPlugins } from "./plugins";
 import { configProcess } from "./process";
 import { configRateLimit } from "./rateLimit";
 import { configRedis } from "./redis";
+import { configRunners } from "./runners";
 import { configSecrets } from "./secrets";
 import { configServerCli } from "./server/cli";
 import { configServerMcp } from "./server/mcp";
@@ -36,6 +37,7 @@ export default {
   secrets: configSecrets,
   notifications: configNotifications,
   cliAuth: configCliAuth,
+  runners: configRunners,
 };
 
 /**

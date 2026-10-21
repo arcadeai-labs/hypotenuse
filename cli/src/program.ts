@@ -12,6 +12,7 @@ import { registerIntegrationCommands } from "./commands/integration";
 import { registerInviteCommands } from "./commands/invite";
 import { registerMemberCommands } from "./commands/member";
 import { registerProjectCommands } from "./commands/project";
+import { registerRunnerCommands } from "./commands/runner";
 import { registerSessionCommands } from "./commands/session";
 import { registerTagCommands } from "./commands/tag";
 import { registerUpgradeCommand } from "./commands/upgrade";
@@ -58,6 +59,7 @@ export function buildProgram(): Command {
   registerAuditCommands(program);
   registerIntegrationCommands(program);
   registerSessionCommands(program);
+  registerRunnerCommands(program);
   registerCheckUpdateCommand(program);
   registerUpgradeCommand(program);
   return program;

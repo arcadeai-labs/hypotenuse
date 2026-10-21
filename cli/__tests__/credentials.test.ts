@@ -1,5 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -99,5 +106,47 @@ describe("credentials.json", () => {
     expect(originOf("http://localhost:8080/api")).toBe("http://localhost:8080");
     expect(() => originOf("ftp://x")).toThrow("http(s)");
     expect(() => originOf("nope")).toThrow("Not a URL");
+  });
+});
+
+describe.skipIf(process.platform === "win32")("file mode", () => {
+  test("a file other users can read is refused, with the chmod that fixes it", () => {
+    const path = credentialsPath({ XDG_CONFIG_HOME: tempHome() });
+    saveCredentials(emptyCredentials(), path);
+    chmodSync(path, 0o644);
+    expect(() => loadCredentials(path)).toThrow(`chmod 600 ${path}`);
+    chmodSync(path, 0o600);
+    expect(loadCredentials(path)).toEqual(emptyCredentials());
+  });
+
+  test("a group-writable file is refused too", () => {
+    const home = tempHome();
+    mkdirSync(join(home, "hypotenuse"), { recursive: true });
+    const path = credentialsPath({ XDG_CONFIG_HOME: home });
+    writeFileSync(path, JSON.stringify(emptyCredentials()));
+    chmodSync(path, 0o620);
+    expect(() => loadCredentials(path)).toThrow("accessible by other users");
+  });
+});
+
+describe("the runner slot", () => {
+  test("round-trips, and stays apart from the sign-in", () => {
+    const path = credentialsPath({ XDG_CONFIG_HOME: tempHome() });
+    const credentials = emptyCredentials();
+    serverEntry(credentials, "https://api.example.com").runner = {
+      runnerId: 5,
+      projectId: 1,
+      name: "evan-mbp",
+      token: "hyp_rt_secret",
+    };
+    saveCredentials(credentials, path);
+    const loaded = loadCredentials(path);
+    expect(loaded.servers["https://api.example.com"]?.runner).toEqual({
+      runnerId: 5,
+      projectId: 1,
+      name: "evan-mbp",
+      token: "hyp_rt_secret",
+    });
+    expect(loaded.servers["https://api.example.com"]?.login).toBeNull();
   });
 });

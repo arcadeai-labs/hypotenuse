@@ -16,7 +16,8 @@ Linear ──webhooks──► Hypotenuse service ──work──► hypotenuse
 
 - **The hosted service** receives Linear's webhooks, holds the Linear credentials, and routes each session to a
   runner.
-- **A runner** is the `hypotenuse` daemon on one machine. It starts an agent in a worktree and reports back.
+- **A [runner](/docs/runners)** is the `hypotenuse` daemon on one machine. It starts an agent in a worktree and
+  reports back.
 - **An agent** is any coding agent that speaks the [Agent Client Protocol](https://agentclientprotocol.com):
   Claude Code, Codex, Gemini CLI, GitHub Copilot, goose, OpenCode, Cursor, and others.
 

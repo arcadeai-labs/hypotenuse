@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { api, HTTP_METHOD } from "keryx";
 import { principalRefusal } from "../../middleware/session";
-import { INVALID_TOKEN_MESSAGE } from "../../ops/CliTokenOps";
+import { INVALID_RUNNER_TOKEN_MESSAGE } from "../../ops/RunnerOps";
 import {
   bearerHeaders,
   buildTestUniverse,
@@ -72,7 +72,7 @@ describe("one principal per request", () => {
     });
     expect(res.status).toBe(401);
     const body = (await res.json()) as { error: { message: string } };
-    expect(body.error.message).toBe(INVALID_TOKEN_MESSAGE);
+    expect(body.error.message).toBe(INVALID_RUNNER_TOKEN_MESSAGE);
   });
 
   test("a CLI token is refused on every daemon action", () => {

@@ -32,6 +32,8 @@ export interface RequestOptions {
   body?: unknown;
   /** Send no credential even when the client holds one. */
   anonymous?: boolean;
+  /** Extra request headers, e.g. the runner protocol version. */
+  headers?: Record<string, string>;
 }
 
 /** A client bound to one server and, optionally, one bearer token. */
@@ -64,7 +66,10 @@ export class ApiClient {
     for (const [key, value] of Object.entries(options.query ?? {})) {
       if (value !== undefined) url.searchParams.set(key, String(value));
     }
-    const headers: Record<string, string> = { Accept: "application/json" };
+    const headers: Record<string, string> = {
+      Accept: "application/json",
+      ...options.headers,
+    };
     if (this.token && !options.anonymous) {
       headers.Authorization = `Bearer ${this.token}`;
     }

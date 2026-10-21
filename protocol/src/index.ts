@@ -1,6 +1,4 @@
-/**
- * The version of the server ⇄ daemon wire contract described in
- * `docs/RUNNER_PROTOCOL.md`. Bumped only for a change that is not additive;
- * the server refuses a daemon whose version it does not speak.
- */
-export const PROTOCOL_VERSION = 1;
+export * from "./capabilities";
+export * from "./connect";
+export * from "./heartbeat";
+export * from "./version";

@@ -10,34 +10,37 @@ import {
   RUNNER_TOKEN_PREFIX,
   resolveCliToken,
 } from "../ops/CliTokenOps";
+import { daemonPolicyRefusal } from "../ops/DaemonPolicyOps";
 import { bearerToken } from "../ops/RawRequestOps";
+import { type RunnerMeta, resolveRunner } from "./runnerToken";
 
 /**
- * The session shape Hypotenuse stores in Redis: just the signed-in user's id.
- * Everything else about the caller (their projects, their tags) is read from the
- * database per request, so a permission change takes effect immediately rather
- * than at the next login.
+ * The session shape Hypotenuse stores in Redis: the signed-in user's id, or —
+ * for a session `daemon:connect` minted for a runner's WebSocket — the
+ * runner's id. Never both. Everything else about the caller (their projects,
+ * their tags, the runner's row) is read from the database per request, so a
+ * permission change or a revocation takes effect immediately rather than at
+ * the next login.
  */
-export type SessionImpl = { userId?: number };
+export type SessionImpl = { userId?: number; runnerId?: number };
 
 /**
  * Which of the three principals a request resolved to.
  *
  * - `session` — a browser (or Keryx OAuth MCP client) with a signed-in session.
  * - `cli` — a `hyp_cli_…` bearer token; acts as its person on human actions.
+ * - `runner` — a `hyp_rt_…` runner token, or a WebSocket session minted for
+ *   one by `daemon:connect`; `daemon:*` actions only.
  * - `none` — nobody; public actions only.
- *
- * Runner tokens (`hyp_rt_…`) join this list when runners exist; until then one
- * authenticates nothing, which already satisfies the rule that a runner token
- * is refused on every human action.
  */
 export type Principal =
   | { kind: "session"; userId: number }
   | { kind: "cli"; userId: number; cliTokenId: number }
+  | { kind: "runner"; runnerId: number; projectId: number }
   | { kind: "none" };
 
 /** The connection metadata the principal resolver writes. */
-export interface PrincipalMeta {
+export interface PrincipalMeta extends RunnerMeta {
   /** Who this request is, as resolved by {@link resolvePrincipal}. */
   principal?: Principal;
 }
@@ -81,9 +84,9 @@ export const BrowserSessionMiddleware: ActionMiddleware = {
 /**
  * Whether a principal may run an action at all, before any RBAC middleware.
  *
- * The wall between people and machines (rule 8): a CLI token is its person, but
- * never on a `daemon:*` action, which belong to runner tokens. Exported so the
- * rule is testable before any `daemon:*` action exists.
+ * The wall between people and machines (rule 8), from `DaemonPolicyOps`: a
+ * runner may call `daemon:*` actions and nothing else, and nobody else may
+ * call them — a CLI token is its person, never a runner.
  * @param principal - Who is asking.
  * @param actionName - The action they asked for.
  * @returns A refusal to throw, or `null` to proceed.
@@ -92,13 +95,7 @@ export function principalRefusal(
   principal: Principal,
   actionName: string,
 ): TypedError | null {
-  if (principal.kind === "cli" && actionName.startsWith("daemon:")) {
-    return new TypedError({
-      message: "A CLI sign-in cannot call daemon actions",
-      type: ErrorType.CONNECTION_CHANNEL_AUTHORIZATION,
-    });
-  }
-  return null;
+  return daemonPolicyRefusal(principal.kind, actionName);
 }
 
 /**
@@ -108,9 +105,15 @@ export function principalRefusal(
  * request: a live `hyp_cli_…` token sets the session's `userId` **in memory
  * only** — nothing is written to the Redis session, so the token, not a cookie,
  * stays the credential — and every human action then sees its person exactly as
- * it would a browser. A presented token that does not authenticate (unknown,
- * revoked, expired, or a runner token on a human action) is refused with one
- * 401 whose body does not say which.
+ * it would a browser. A presented CLI token that does not authenticate
+ * (unknown, revoked, or expired) is refused with one 401 whose body does not
+ * say which.
+ *
+ * A runner — a `hyp_rt_…` bearer, or a session `daemon:connect` minted —
+ * resolves through `resolveRunner` (`middleware/runnerToken.ts`), which
+ * re-reads the runner and its owner's membership on every request. Its
+ * session never carries a `userId`, so no human action can see a person
+ * behind it even before the wall refuses it.
  *
  * Bearer tokens without a Hypotenuse prefix are left alone: Keryx's own OAuth
  * access tokens on `/mcp` are not ours to judge.
@@ -125,23 +128,33 @@ export async function resolvePrincipal(
 ): Promise<void> {
   const conn = connection as Connection<SessionImpl, PrincipalMeta>;
   const sessionUserId = conn.session?.data.userId;
-  if (sessionUserId) {
-    conn.metadata.principal = { kind: "session", userId: sessionUserId };
-    return;
-  }
-
+  const sessionRunnerId = conn.session?.data.runnerId;
   const token = conn.rawRequest ? bearerToken(conn.rawRequest) : null;
   let principal: Principal = { kind: "none" };
 
-  if (token?.startsWith(CLI_TOKEN_PREFIX)) {
+  if (sessionUserId) {
+    principal = { kind: "session", userId: sessionUserId };
+  } else if (sessionRunnerId || token?.startsWith(RUNNER_TOKEN_PREFIX)) {
+    const { runner, project } = await resolveRunner(
+      sessionRunnerId
+        ? { kind: "session", runnerId: sessionRunnerId }
+        : { kind: "token", token: token! },
+      actionName,
+    );
+    conn.metadata.runner = runner;
+    conn.metadata.project = project;
+    principal = {
+      kind: "runner",
+      runnerId: runner.id,
+      projectId: runner.projectId,
+    };
+  } else if (token?.startsWith(CLI_TOKEN_PREFIX)) {
     const row = await resolveCliToken(token);
     if (!row) throw invalidToken();
     principal = { kind: "cli", userId: row.userId, cliTokenId: row.id };
     if (conn.session) {
       conn.session.data = { ...conn.session.data, userId: row.userId };
     }
-  } else if (token?.startsWith(RUNNER_TOKEN_PREFIX)) {
-    throw invalidToken();
   }
 
   conn.metadata.principal = principal;

@@ -1,0 +1,79 @@
+import { HeartbeatRequest, isSupportedProtocol } from "@hypotenuse/protocol";
+import { type Action, api, type Connection, config, HTTP_METHOD } from "keryx";
+import { RunnerRateLimitMiddleware } from "../../middleware/runnerRateLimit";
+import type { PrincipalMeta, SessionImpl } from "../../middleware/session";
+import { protocolUnsupportedResponse } from "../../ops/DaemonPolicyOps";
+import {
+  applyHeartbeat,
+  findMachineConflict,
+  type HeartbeatResult,
+  isMachineIndexViolation,
+  machineInUseResponse,
+  publishRunnersChanged,
+} from "../../ops/RunnerOps";
+
+/**
+ * `daemon:heartbeat` — liveness, capabilities, and (once work routing
+ * exists) the daemon's offers and cancels. Every 15 s, and immediately on any
+ * frame on the runner's channel.
+ *
+ * Capabilities and subscriptions are rewritten only when their hash changes,
+ * and the dashboard is told only when something it shows changed. A second
+ * live runner on the same machine is refused with a 409 and nothing written —
+ * including when two start at once, which the live-machine unique index
+ * settles.
+ *
+ * `offers` and `cancels` are empty until work routing fills them; the wire
+ * shape is already final. `unknownActive` echoes every item the daemon says
+ * it holds, because the server holds no work items for it yet.
+ *
+ * Machine traffic: not audited, never MCP, never wrapped by the CLI.
+ */
+export class DaemonHeartbeat implements Action {
+  name = "daemon:heartbeat";
+  description =
+    "Called by a runner's daemon every heartbeat interval: reports liveness and capabilities, and answers offers and cancels. Runner token only.";
+  mcp = { tool: false };
+  middleware = [RunnerRateLimitMiddleware("heartbeat")];
+  web = { route: "/daemon/heartbeat", method: HTTP_METHOD.POST };
+  inputs = HeartbeatRequest;
+
+  /**
+   * @param params - The heartbeat.
+   * @param connection - The runner's connection (resolved by the principal hook).
+   * @returns The heartbeat response, or a 426 / 409 response.
+   */
+  async run(
+    params: HeartbeatRequest,
+    connection: Connection<SessionImpl, PrincipalMeta>,
+  ) {
+    if (!isSupportedProtocol(params.protocolVersion)) {
+      return protocolUnsupportedResponse();
+    }
+    const runner = connection.metadata.runner!;
+
+    let result: HeartbeatResult;
+    try {
+      result = await api.db.db.transaction((tx) =>
+        applyHeartbeat(tx, runner.id, params),
+      );
+    } catch (error) {
+      if (!isMachineIndexViolation(error)) throw error;
+      const conflict = await findMachineConflict(runner, params.machineId);
+      return machineInUseResponse(
+        conflict ?? { runnerId: null, runnerName: null },
+      );
+    }
+    if (result.conflict) return machineInUseResponse(result.conflict);
+    if (result.changed) await publishRunnersChanged(runner.projectId);
+
+    return {
+      serverTime: Date.now(),
+      heartbeatIntervalMs: config.runners.heartbeatIntervalMs,
+      leaseMs: config.runners.leaseMs,
+      offers: [],
+      cancels: [],
+      unknownActive: params.active.map((item) => item.workItemId),
+    };
+  }
+}

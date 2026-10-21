@@ -34,6 +34,13 @@
       "when": 1792554308904,
       "tag": "0004_lean_owl",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1792556441757,
+      "tag": "0005_quick_chronomancer",
+      "breakpoints": true
     }
   ]
 }
