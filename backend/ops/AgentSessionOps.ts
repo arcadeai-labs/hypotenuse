@@ -186,41 +186,6 @@ export async function upsertFromWebhook(
       }
     : {};
 
-  const [existing] = await tx
-    .select()
-    .from(agentSessions)
-    .where(
-      and(
-        eq(agentSessions.type, integration.type),
-        eq(agentSessions.externalSessionId, s.id),
-      ),
-    )
-    .for("update");
-
-  if (existing) {
-    const [updated] = await tx
-      .update(agentSessions)
-      .set({
-        ...(issueFields.externalIssueId ? issueFields : {}),
-        externalUrl: s.url ?? existing.externalUrl,
-        externalCommentId: commentId ?? existing.externalCommentId,
-        externalSourceCommentId:
-          s.sourceCommentId ?? existing.externalSourceCommentId,
-        ...(creator
-          ? {
-              creatorExternalUserId: creator.id,
-              creatorName: creator.name ?? null,
-              creatorEmail: creator.email ?? null,
-            }
-          : {}),
-        ...contextFields,
-        ...(status ? statusColumns(status) : {}),
-      })
-      .where(eq(agentSessions.id, existing.id))
-      .returning();
-    return { session: updated, created: false };
-  }
-
   const [inserted] = await tx
     .insert(agentSessions)
     .values({
@@ -239,8 +204,48 @@ export async function upsertFromWebhook(
       ...contextFields,
       status: status ?? "pending",
     })
+    // Two events for a session nobody has mirrored yet can be processed at
+    // once (a `created` and its first `prompted` on two workers). The unique
+    // index decides; the loser falls through to the update below instead of
+    // failing its whole delivery.
+    .onConflictDoNothing({
+      target: [agentSessions.type, agentSessions.externalSessionId],
+    })
     .returning();
-  return { session: inserted, created: true };
+  if (inserted) return { session: inserted, created: true };
+
+  const [existing] = await tx
+    .select()
+    .from(agentSessions)
+    .where(
+      and(
+        eq(agentSessions.type, integration.type),
+        eq(agentSessions.externalSessionId, s.id),
+      ),
+    )
+    .for("update");
+
+  const [updated] = await tx
+    .update(agentSessions)
+    .set({
+      ...(issueFields.externalIssueId ? issueFields : {}),
+      externalUrl: s.url ?? existing.externalUrl,
+      externalCommentId: commentId ?? existing.externalCommentId,
+      externalSourceCommentId:
+        s.sourceCommentId ?? existing.externalSourceCommentId,
+      ...(creator
+        ? {
+            creatorExternalUserId: creator.id,
+            creatorName: creator.name ?? null,
+            creatorEmail: creator.email ?? null,
+          }
+        : {}),
+      ...contextFields,
+      ...(status ? statusColumns(status) : {}),
+    })
+    .where(eq(agentSessions.id, existing.id))
+    .returning();
+  return { session: updated, created: false };
 }
 
 /**

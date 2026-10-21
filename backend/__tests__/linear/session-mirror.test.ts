@@ -5,6 +5,10 @@ import {
   enqueueActivity,
   type OutboundContent,
 } from "../../ops/ActivityOutboxOps";
+import {
+  type AgentSessionEventPayload,
+  upsertFromWebhook,
+} from "../../ops/AgentSessionOps";
 import { LINEAR_OPERATIONS } from "../../ops/linear/operations";
 import type { AgentSession } from "../../schema/agent_sessions";
 import {
@@ -15,6 +19,7 @@ import {
 } from "../setup";
 import { useFinear } from "./finear";
 import { appToken, integrationRow } from "./helpers";
+import { agentSessionEvent, webhookSession } from "./inject";
 import {
   finearSession,
   mirroredQuietly,
@@ -136,6 +141,26 @@ describe("the session mirror", () => {
     expect(await after(session, { type: "response", body: "Done." })).toBe(
       "complete",
     );
+  });
+
+  test("two events for a session nobody has mirrored yet, processed at once, make one row and both succeed", async () => {
+    const integration = await integrationRow(universe.projectId);
+    const payload = agentSessionEvent(
+      {
+        organizationId: integration.externalWorkspaceId,
+        appUserId: integration.externalAppUserId,
+      },
+      { action: "created", agentSession: webhookSession() },
+    ) as unknown as AgentSessionEventPayload;
+    const results = await Promise.all(
+      [0, 1].map(() =>
+        api.db.db.transaction((tx) =>
+          upsertFromWebhook(tx, integration, payload),
+        ),
+      ),
+    );
+    expect(results.map((r) => r.created).sort()).toEqual([false, true]);
+    expect(results[0].session.id).toBe(results[1].session.id);
   });
 
   test("LC-SES-11 no operation Hypotenuse sends sets a status", () => {

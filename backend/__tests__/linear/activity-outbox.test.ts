@@ -216,6 +216,38 @@ describe("idempotency", () => {
     expect(finear.activities).toHaveLength(1);
   });
 
+  test("a session update whose response is lost is re-sent, and its link appears once", async () => {
+    const session = await quietSession("Lost update");
+    await enqueue(session, [{ type: "thought", body: "Linking" }]);
+    await api.db.db.transaction((tx) =>
+      enqueueSessionUpdate(tx, session.id, {
+        addedExternalUrls: [
+          { label: "Hypotenuse", url: "https://example.com/s/lost" },
+        ],
+      }),
+    );
+    linear.fault({
+      kind: "drop",
+      match: (r) => r.operationName === "UpdateAgentSession",
+    });
+    await deliverSession(session.id);
+
+    expect(sent("UpdateAgentSession")).toBe(2);
+    const reply = await linear.graphql<{
+      agentSession: { externalLinks: { url: string }[] };
+    }>(
+      `Bearer ${token}`,
+      "query($id: String!) { agentSession(id: $id) { externalLinks { url } } }",
+      { id: session.externalSessionId },
+    );
+    expect(reply.data?.agentSession.externalLinks).toEqual([
+      { url: "https://example.com/s/lost" },
+    ]);
+    expect((await activityRows(session.id)).at(-1)?.deliveryStatus).toBe(
+      "sent",
+    );
+  });
+
   test("a row out of attempts is failed, and the session moves on", async () => {
     const session = await quietSession("Out of attempts");
     await enqueue(

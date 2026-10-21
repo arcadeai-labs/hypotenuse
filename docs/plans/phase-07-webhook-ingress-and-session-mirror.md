@@ -454,6 +454,10 @@ workspace yet: the staging check under Verification is still to do.
 - **finear refuses an agent's activity on a terminal session** until a person prompts it open again — so after
   the interim error every session is closed. Suites that write their own activities start from
   `mirroredQuietly()`, which mirrors a delegation without acknowledging it.
+- **`SELECT … FOR UPDATE` on a row that does not exist yet locks nothing.** The first session upsert selected,
+  then inserted, so a `created` and a `prompted` for a new session on two workers both inserted, and the loser's
+  delivery was marked `failed` for good (Bugbot found it). It now inserts `ON CONFLICT DO NOTHING` and then locks
+  and updates whatever won.
 - **finear records an activity a moment before the worker records it sent.** The real-worker test waits for both.
 - **finear's one-minute retry is still inside ±60 s of real time**; only the one-hour retry needs the clock
   aligned to finear's, so that is the retry the test drives.

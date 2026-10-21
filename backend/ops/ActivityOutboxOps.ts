@@ -637,10 +637,18 @@ async function send(
         { idempotent: true },
       );
     } else {
-      await linearRequest(integration, UpdateAgentSession, {
-        id: session.externalSessionId,
-        input: row.content as LinearAgentSessionUpdateInput,
-      });
+      // Safe to send twice without a client id: every field sets a state
+      // rather than adding to one — the plan and summary replace whole, and
+      // added and removed links are keyed by their URL.
+      await linearRequest(
+        integration,
+        UpdateAgentSession,
+        {
+          id: session.externalSessionId,
+          input: row.content as LinearAgentSessionUpdateInput,
+        },
+        { idempotent: true },
+      );
     }
     await markSent(row);
     return "sent";
