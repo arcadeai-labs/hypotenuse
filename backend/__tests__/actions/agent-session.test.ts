@@ -92,7 +92,7 @@ describe("agent-session:list", () => {
     });
   });
 
-  test("filters by status and issue identifier", async () => {
+  test("filters by trigger type, status, and issue identifier", async () => {
     const all = await get<ActionResponse<AgentSessionList>>(
       `/agent-sessions?projectId=${universe.projectId}`,
       universe.toad.sessionId,
@@ -105,6 +105,16 @@ describe("agent-session:list", () => {
     expect(one.body.agentSessions.map((s) => s.issueIdentifier)).toEqual([
       identifier,
     ]);
+    const linearOnly = await get<ActionResponse<AgentSessionList>>(
+      `/agent-sessions?projectId=${universe.projectId}&type=linear`,
+      universe.toad.sessionId,
+    );
+    expect(linearOnly.body.agentSessions).toHaveLength(3);
+    const unknownType = await get(
+      `/agent-sessions?projectId=${universe.projectId}&type=jira`,
+      universe.toad.sessionId,
+    );
+    expect(unknownType.status).toBe(406);
     const none = await get<ActionResponse<AgentSessionList>>(
       `/agent-sessions?projectId=${universe.projectId}&status=active`,
       universe.toad.sessionId,

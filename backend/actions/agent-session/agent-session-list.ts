@@ -15,6 +15,7 @@ import {
   AGENT_SESSION_STATUSES,
   agentSessions,
 } from "../../schema/agent_sessions";
+import { TRIGGER_TYPES } from "../../schema/integrations";
 
 /**
  * `agent-session:list` — a project's Linear agent sessions, newest first:
@@ -24,7 +25,7 @@ import {
 export class AgentSessionList implements Action {
   name = "agent-session:list";
   description =
-    "List a project's Linear agent sessions (each time @hypotenuse was delegated an issue or mentioned), newest first, optionally filtered by status, role, runner, or issue identifier. Requires membership in the project. Paginated.";
+    "List a project's Linear agent sessions (each time @hypotenuse was delegated an issue or mentioned), newest first, optionally filtered by trigger type, status, role, runner, or issue identifier. Requires membership in the project. Paginated.";
   middleware = [ProjectMemberMiddleware()];
   web = { route: "/agent-sessions", method: HTTP_METHOD.GET };
   inputs = paginationInputs({ defaultLimit: 25 }).extend({
@@ -33,6 +34,10 @@ export class AgentSessionList implements Action {
       .int()
       .positive()
       .describe("The project whose sessions to list"),
+    type: z
+      .enum(TRIGGER_TYPES)
+      .optional()
+      .describe("Only sessions from this trigger system, e.g. linear"),
     status: z
       .enum(AGENT_SESSION_STATUSES)
       .optional()
@@ -63,6 +68,7 @@ export class AgentSessionList implements Action {
   async run(params: ActionParams<AgentSessionList>) {
     const where = and(
       eq(agentSessions.projectId, params.projectId),
+      params.type ? eq(agentSessions.type, params.type) : undefined,
       params.status ? eq(agentSessions.status, params.status) : undefined,
       params.role ? eq(agentSessions.role, params.role) : undefined,
       params.runnerId ? eq(agentSessions.runnerId, params.runnerId) : undefined,
