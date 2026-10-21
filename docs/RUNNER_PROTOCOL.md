@@ -154,6 +154,13 @@ lease, so a claim whose answer was lost is safe to repeat — and the daemon rep
 or not, after a network error or a 5xx. Nothing claimable is `{ "assignment": null }`, never an
 error.
 
+A claim also does two things in Linear, on the server, so a daemon never needs the rights to: it links the session
+to its dashboard page (`addedExternalUrls` `{ label: "Hypotenuse", url: dashboardUrl }`, once per session), and, for
+a session's first turn (`session_created`, `dispatch`), it applies **issue hygiene** after the claim commits and
+before answering — the started-state move for a person's delegation, the app as delegate when the issue has none,
+never the assignee. The outcome is recorded on the work item; a Linear failure becomes a thought in the session and
+never fails the claim.
+
 ```json
 {
   "assignment": {
@@ -194,7 +201,7 @@ error.
 | `kind` | `session_created` \| `prompt` \| `dispatch` \| `review` |
 | `agentId` | the runner's agent for this role, chosen when the item was offered and counted against `limits.agents` |
 | `instruction` | what the mention said, with a matched role prefix stripped (`/manage plan the launch` → `plan the launch`); null for a delegation |
-| `branch` | a hint, `hypotenuse/<identifier>-<title slug>`; null without a repository |
+| `branch` | a hint, `hypotenuse/<identifier>-<title slug>`; null without a repository. The daemon names its own (its repository's `branch_prefix`, a suffix on collision, or the branch the session already has) and reports it in `daemon:complete` |
 | `type`, `externalSessionId`, `externalSessionUrl` | the trigger the session came from (`linear` today) and the session's id and page there; the daemon never interprets them beyond display and logs |
 | `fresh` | true when the daemon must create a new worktree and cannot `session/load` an ACP session — first turn, or a sticky session moved to this runner |
 | `repository` | null for a manager working without one |
@@ -227,7 +234,7 @@ Every event: `{ "eventId": "<uuid v4>", "seq": <int, per work item, from 1>, "at
 | `error` | `body` | `{ type: "error", body }` |
 | `plan` | `entries: [{ content, status: pending \| in_progress \| completed \| canceled }]` | `agentSessionUpdate { plan }`, whole list, `in_progress` → `inProgress` |
 | `summary` | `title` (1–255 chars, one line) | `agentSessionUpdate { summary }` |
-| `external_url` | `label`, `url` | `agentSessionUpdate { addedExternalUrls }` |
+| `external_url` | `label`, `url` | `agentSessionUpdate { addedExternalUrls }`, never the whole list; the daemon sends one per pull request of the session's own repository (`Pull Request`, `Pull Request (2)`, …) |
 | `usage` | `inputTokens?`, `outputTokens?`, `costUsd?`, `contextUsed?`, `contextSize?` | dashboard only |
 | `status` | `state: starting \| running \| waiting_permission \| finishing` | dashboard only |
 
@@ -362,15 +369,17 @@ any `daemon:events` response — so it is delivered as long as *any* request suc
 |---|---|
 | `stop` | `response`: "Stopped at your request. Changes so far are …" — where the work is, and how many files changed |
 | `dashboard` | `error`: cancelled from the dashboard, and where the work is |
-| `delegate_removed`, `integration_revoked` | none — the person disengaged, so the daemon stays quiet |
+| `delegate_removed`, `issue_closed`, `integration_revoked` | none — the person disengaged, so the daemon stays quiet. The server enforces it: once one of these is requested, every event for the item is dropped (`dropped` in the answer), and its end posts no fallback |
 | `superseded` | none — the item is no longer this runner's |
 
 The daemon ends turns of its own the same way: `agents kill` (an `error` naming it), a drain with `--cancel` or a
 shutdown (an `error` saying the runner shut down mid-turn), and `turn_timeout` / `idle_timeout` (an `error`, and
 `outcome: "failed"`).
 
-`reason` values: `stop` (a person pressed Stop in Linear), `dashboard`, `delegate_removed`, `integration_revoked`,
-`superseded`.
+`reason` values: `stop` (a person pressed Stop in Linear), `dashboard`, `delegate_removed` (un-delegated, or the
+session dismissed), `issue_closed` (the issue moved to a completed or canceled state, or was deleted),
+`integration_revoked`, `superseded`. The list may grow without a version bump: a daemon stops the turn for a reason
+it does not know and says nothing.
 
 ## Error codes
 

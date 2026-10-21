@@ -258,7 +258,14 @@ The map is [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md). What follows is the
 - **Acknowledge within 10 seconds.** Every `created` session gets a server-emitted `thought` before routing, so a
   slow runner never makes the agent look unresponsive.
 - **Respect disengagement.** `stop`, un-delegation, session dismissal, and an issue moving to a completed or canceled
-  state each cancel the live turn, and nothing re-engages without a new prompt or delegation.
+  state (or being deleted) each cancel the live turn, and nothing re-engages without a new prompt or delegation.
+  The ones where the person stepped away (`DISENGAGED_CANCEL_REASONS`) are silent **on the server**: later events
+  are dropped and the turn's end posts no fallback, whatever the daemon does.
+- **Issue hygiene is the server's, at claim.** `ops/IssueHygieneOps.ts` moves a person's delegation to started and
+  sets a missing delegate; it never touches the assignee, never fails a claim, and no daemon gets `issueUpdate`.
+- **A worktree is removed only when the safety rules allow** (`cli/src/worktree/cleanup.ts`): never one in use;
+  uncommitted changes, unpushed commits, and a `.hypotenuse-keep` file keep it unless `--force`; branches go with
+  `git branch -d`, never `-D`. Hypotenuse never stashes, resets, or cleans a person's checkout.
 - **The daemon never holds a Linear token**, and the coding agent never sees the runner token: the MCP server
   reaches the server through the daemon's control socket.
 
@@ -318,6 +325,7 @@ bun run --cwd cli hypotenuse --help
 bun run --cwd cli hypotenuse -c ./examples/config.toml config validate --offline
 bun run --cwd cli hypotenuse config schema > frontend/public/schemas/config-v1.json   # after a schema change
 bun run --cwd cli hypotenuse doctor
+bun run --cwd cli hypotenuse worktrees list                # and `worktrees cleanup --dry-run`
 cd cli && bun run build                       # compiled binary at dist/hypotenuse
 cd cli && bun run bundle                      # the npm bundle at dist/hypotenuse.js (prepack runs it)
 bash cli/test/e2e/test-upgrade.sh             # npm + bun + binary installs, globally — CI or a throwaway box

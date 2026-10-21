@@ -383,19 +383,19 @@ git -C ~/code/web worktree list
 
 ## Definition of done
 
-- [ ] One worktree per session at `<root>/<repo>/<ISSUE>`, on `<prefix>/<issue>-<slug>`, from a fresh fetch of
+- [x] One worktree per session at `<root>/<repo>/<ISSUE>`, on `<prefix>/<issue>-<slug>`, from a fresh fetch of
       `origin/<base_branch>`; reused for follow-ups; collision-safe; mutex per repository
-- [ ] Setup commands with timeouts, action events, and the per-session environment; failures keep the worktree
-- [ ] Scratch directories for repository-less turns
-- [ ] `worktrees = "never"` with a lock, no stash/reset/clean ever, and a validation warning
-- [ ] Turn, idle, keepalive, setup, and stop timers per the table; ordering validated
-- [ ] Four cleanup policies; four safety rules; `-d` only; `--force` semantics; 30-minute sweep; the merge check
-- [ ] `agents list|kill` and `worktrees list|cleanup` with `--json`; offline fallback for `worktrees`
-- [ ] Disk guard reports capacity 0 and fails a turn with a helpful error
-- [ ] PR detection limited to the session's repository; `addedExternalUrls`, never the whole list; a dashboard
+- [x] Setup commands with timeouts, action events, and the per-session environment; failures keep the worktree
+- [x] Scratch directories for repository-less turns
+- [x] `worktrees = "never"` with a lock, no stash/reset/clean ever, and a validation warning
+- [x] Turn, idle, keepalive, setup, and stop timers per the table; ordering validated
+- [x] Four cleanup policies; four safety rules; `-d` only; `--force` semantics; 30-minute sweep; the merge check
+- [x] `agents list|kill` and `worktrees list|cleanup` with `--json`; offline fallback for `worktrees`
+- [x] Disk guard reports capacity 0 and fails a turn with a helpful error
+- [x] PR detection limited to the session's repository; `addedExternalUrls`, never the whole list; a dashboard
       link at claim
-- [ ] Server-side issue hygiene per the table; the assignee is never touched; disengagement cancels silently
-- [ ] User docs: `/docs/worktrees` (layout, policies, safety rules, commands) and an issue-hygiene section in
+- [x] Server-side issue hygiene per the table; the assignee is never touched; disengagement cancels silently
+- [x] User docs: `/docs/worktrees` (layout, policies, safety rules, commands) and an issue-hygiene section in
       `/docs/linear`
 
 ## Commands
@@ -409,4 +409,83 @@ git -C ~/.hypotenuse/worktrees/web/ENG-123 config --worktree --get hypotenuse.se
 
 ## Learnings from the build
 
-_Nothing yet — this phase has not been built._
+**Built.** Everything in the Definition of done, at CLI 0.8.0, with the departures below. Every real-daemon suite
+(`backend/__tests__/daemon/`) now runs its turns in real git worktrees of a clone whose origin is a local bare
+repository. No real coding agent has opened a real pull request through it yet, and the `on-merge` policy has been
+checked against a scripted `gh` and a real `git ls-remote`, not against GitHub.
+
+### Where the pieces live
+
+- **`cli/src/worktree/`** — `manager.ts` (`WorktreeManager.acquire`: reuse, fetch, disk guard, branch choice,
+  `worktree add`, setup; `worktrees = "never"`; scratch directories), `cleanup.ts` (`WorktreeCleaner`: policies,
+  the four safety rules, removal, adoption of worktrees `state.db` forgot), `merge-state.ts`, `setup.ts`,
+  `branch.ts`, `lock.ts` (the per-repository `KeyedMutex` and the checkout lock file), `disk.ts`, `git.ts`, and
+  `list.ts` (what `worktrees list` prints, shared by the daemon and the offline fallback).
+- **The daemon** — the supervisor owns one manager and one cleaner over one mutex, hands each turn
+  `prepareWorkspace`, cleans up after each turn and every 30 minutes, and heartbeats `draining` while the disk guard
+  is tripped. `state.db` migration 2 adds the worktree's kind, clone, setup state, and kept reason, and each
+  session's last answer, end time, and pull requests.
+- **The host** — `acp/host.ts` prepares the workspace before it spawns the agent and releases it after;
+  `acp/pr-detect.ts` and the mapper turn pull request URLs into `external_url` events.
+- **Commands** — `cli/src/commands/worktrees.ts` (`list`, `cleanup`, with the offline fallback); `agents list`
+  gained `for` and `worktree`, and `agents kill --reason` says the reason in Linear.
+- **Server** — `ops/IssueHygieneOps.ts` (run by `daemon:claim`), `work_items.hygiene` (migration `0008`),
+  `addDashboardLink` in `ops/WorkItemOps.ts`, `issue_closed` in `ops/LinearWebhookOps.ts`, and
+  `DISENGAGED_CANCEL_REASONS`, which `finishWorkItem` and `applyEvents` read.
+- **Tests** — `cli/__tests__/worktree/` (against real temporary repositories), `cli/__tests__/acp/pr-detect.test.ts`,
+  `cli/__tests__/commands/worktrees.test.ts`, `cli/__tests__/daemon/disk-guard.test.ts`,
+  `backend/__tests__/ops/issue-hygiene.test.ts`, `backend/__tests__/linear/disengagement.test.ts`, and
+  `backend/__tests__/daemon/worktree-lifecycle.test.ts` (the fake agent's new `ship` scenario and `shell` step).
+
+### Where the build departs from the plan
+
+| Plan | Built | Why |
+|---|---|---|
+| Hygiene runs "before the assignment is returned" | **after the claim commits, before it is answered** | the claim holds the session and runner row locks; a Linear round trip inside it would hold them for seconds |
+| Move to started when "the session's creator is a person" | **only when a person delegated** (`humanDelegated`); a mention leaves the state alone | a question in a comment is not implementing, and Linear's guideline speaks of delegation |
+| `payload.hygiene` | **`work_items.hygiene`** (jsonb) | work items have no payload column |
+| Cancels with reason `disengaged` | **`delegate_removed`** (as before) and the new **`issue_closed`**, which also covers an issue being deleted (`remove`). `Cancel.reason` now also accepts a string a daemon does not know, which stops the turn quietly | the reasons say which disengagement it was. Additive: no daemon has been released with the strict enum |
+| "Disengagement cancels silently" — the daemon posts nothing | **enforced on the server too**: once a disengagement cancel is requested, every event is dropped and the turn's end posts no fallback | the daemon was quiet, but its `daemon:complete` (`cancelled`, unanswered) made the server post *"Stopped."* after an un-delegation |
+| `worktrees = "never"`: "heartbeat capacity for roles that need that repository drops" | **a second session waits for the checkout lock**, with one thought | an offer does not name its repository, and the protocol has no per-repository capacity |
+| `on-complete`: "Linear reports the session complete" | **the last turn's answering event was a `response`**, recorded by the daemon | the daemon cannot read Linear; a `response` is what makes Linear mark the session complete |
+| The disk guard "reports capacity 0" | **`draining: true`** | `maxParallelJobs` is at least 1; the daemon's drain already used `draining` (phase 10) |
+| Reuse when `rev-parse --abbrev-ref HEAD` equals the branch | the same; otherwise a new worktree at `<ISSUE>-2`, **on the session's own branch** when it is free | a session's branch is recorded as `branch.<name>.hypotenuseSession` in git config, so a follow-up whose worktree was removed — or moved off its branch — gets its branch back rather than a sibling |
+| — | **`originOf` reads `remote.origin.url`**, not `git remote get-url origin` | `get-url` applies `url.*.insteadOf`, so a person with a mirror rewrite would have a remote that no longer matched routing. The test homes rely on it: their origin reads `github.com/acme/web` and `insteadOf` sends git to a local bare repository |
+| — | **`HYPOTENUSE_SESSION_URL` is the dashboard URL** | the plan's table said so; the ACP host had passed Linear's session URL |
+| A failing setup command keeps the worktree | the same, and **the next turn runs setup again** (`setup_done`) | otherwise a fixed `setup` would never run in a worktree that failed once |
+| `backend/__tests__/e2e/worktree-lifecycle.test.ts` with a 0 s grace | **`backend/__tests__/daemon/worktree-lifecycle.test.ts`**; the grace is lowered by `daemon reload` after the follow-up | beside the other real-daemon suites. With no grace from the start, the first turn's worktree would be gone before the follow-up could reuse it |
+| An issue-hygiene section in `/docs/linear` | **"Keeping the issue tidy" in `/docs/agent-sessions`** | there is no `/docs/linear` page; agent sessions is where a person reads what happens to their issue |
+| A stopped turn says "(n files changed, not pushed)" | **"(n files changed, not committed)"**, or "(nothing uncommitted)" | `git status` counts uncommitted files; it says nothing about pushing |
+
+### Decisions the plan left open
+
+| Question | Answer |
+|---|---|
+| A follow-up after its worktree was removed | a new worktree on the session's own branch: the local branch if it survived, else `origin/<branch>`, else a fresh one from the base |
+| A worktree deleted by hand | the next cleanup prunes it and marks the row `removed` |
+| A stop during fetch or setup | the setup command's process group is killed; nothing is said about setup, only the stop's own activity |
+| `active` rows a crashed daemon left | marked `idle` when the daemon starts; their sessions were already marked `interrupted` |
+| `worktrees list` / `cleanup` with no daemon | nothing counts as in use (no daemon, no agent). A daemon that holds its lock but does not answer is *not* "not running": the command exits 3 rather than racing its turns |
+| What `gh` answers | `MERGED` and `CLOSED` count; `OPEN` does not; anything else (no `gh`, not logged in, no pull request) falls back to `ls-remote`; an `unknown` answer is not cached |
+| Worktrees `state.db` does not know | adopted `idle` on every `list` and full `cleanup`, from `git worktree list` and each one's `hypotenuse.session` |
+| `pr_url_patterns` | regexes; a match counts when its named group `repo` (or the whole URL) contains the remote's `owner/name` |
+| Labels of later pull requests | `Pull Request (2)`, … counted per session across turns (`local_sessions.pull_requests`) |
+| An automation's session in tests | finear cannot start one (a gap, recorded); the test clears the mirror row's creator columns |
+
+### Traps found while building
+
+- **`git remote get-url` applies `insteadOf`; `git config --get remote.origin.url` does not.** And two local
+  `insteadOf` rules with the same value are ambiguous — the test helper removes the clone's own before adding one,
+  and only `--local` ones: the sandbox's global git config has its own `url.https://github.com/.insteadof`.
+- **`git status --porcelain` lists the `.hypotenuse-keep` file** as untracked, so rule 2 fired before rule 4; the
+  status excludes it (`:(exclude).hypotenuse-keep`).
+- **A setup command runs `sh -c`**, whose children outlive a kill of `sh` alone; each command gets its own process
+  group (`detached`) and the timeout kills the group.
+- **`git branch -d` refuses a pushed branch with no upstream** that is not merged into the clone's `HEAD`. That is
+  `-d` doing its job: the worktree goes, the branch stays, and the report says `branchDeleted: false`.
+- **finear's mention control route without a `commentId` mirrors as a delegation** (the origin comes from the
+  comment), so a hygiene test of a mention creates a real comment first.
+- **The CLI logger's `warn` is silent when stderr is not a terminal**, so the offline fallback's warning is visible
+  only interactively; the tests assert the behaviour, not the line.
+- **Two full backend runs at once share `hypotenuse_test`** and fail each other — as the parallel-forks note in
+  `AGENTS.md` says; it bit a single session that started a second run before the first was done.

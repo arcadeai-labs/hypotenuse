@@ -49,6 +49,8 @@ export interface DaemonHomeOptions {
   scenario?: string;
   /** More `[roles.worker]` keys. */
   worker?: string;
+  /** More `[sessions]` keys. */
+  sessions?: string;
   /** Extra config TOML appended to the file. */
   extraConfig?: string;
   /** The server origin the daemon talks to (a proxy, say). */
@@ -129,7 +131,12 @@ export class DaemonHome {
     git(repo, "remote", "add", "origin", "git@github.com:acme/web.git");
     // The clone's origin reads as github.com/acme/web, as routing expects;
     // git sends it to the local bare repository.
-    git(repo, "config", `url.${origin}.insteadOf`, "git@github.com:acme/web.git");
+    git(
+      repo,
+      "config",
+      `url.${origin}.insteadOf`,
+      "git@github.com:acme/web.git",
+    );
     git(repo, "fetch", "-q", "origin");
     git(repo, "reset", "-q", "--hard", "origin/main");
     mkdirSync(join(root, "config", "hypotenuse"), {
@@ -178,6 +185,7 @@ export class DaemonHome {
         'worktree_root = "~/worktrees"',
         'stop_grace = "2s"',
         'min_free_disk = "1MB"',
+        options.sessions ?? "",
         "[log]",
         'level = "debug"',
         options.extraConfig ?? "",

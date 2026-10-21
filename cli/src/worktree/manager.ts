@@ -272,12 +272,13 @@ export class WorktreeManager {
    * @param request - The turn.
    * @param repository - The repository.
    * @param baseBranch - The base branch.
+   * @returns Whether origin answered (the fetch worked).
    */
   private async fetchBase(
     request: AcquireRequest,
     repository: ResolvedRepository,
     baseBranch: string,
-  ): Promise<void> {
+  ): Promise<boolean> {
     const fetched = await this.git(["fetch", "origin", baseBranch, "--prune"], {
       cwd: repository.path,
       timeoutMs: FETCH_TIMEOUT_MS,
@@ -289,7 +290,7 @@ export class WorktreeManager {
         ["update-ref", `refs/remotes/origin/${baseBranch}`, "FETCH_HEAD"],
         { cwd: repository.path },
       );
-      return;
+      return true;
     }
     request.output(`git fetch failed: ${stderrTail(fetched)}`);
     if (
@@ -301,7 +302,7 @@ export class WorktreeManager {
         body: `Could not fetch ${repository.name}; working from the last fetched origin/${baseBranch}${age ? ` (${age} old)` : ""}.`,
         ephemeral: false,
       });
-      return;
+      return false;
     }
     throw new WorkspaceError(
       `Could not fetch \`${baseBranch}\` from ${repository.remote}, and ${this.home(repository.path)} has no earlier copy of origin/${baseBranch} to work from.\n\n\`\`\`\n${stderrTail(fetched)}\n\`\`\``,
@@ -371,12 +372,15 @@ export class WorktreeManager {
    * @param request - The turn.
    * @param repository - The repository.
    * @param repoConfig - Its config entry.
+   * @param askOrigin - Whether origin can be asked about branches it has that
+   *   this clone has not fetched (false when the fetch just failed).
    * @returns The branch, and where it exists already.
    */
   private async chooseBranch(
     request: AcquireRequest,
     repository: ResolvedRepository,
     repoConfig: RepositoryConfig | null,
+    askOrigin: boolean,
   ): Promise<{ branch: string; local: boolean; remote: boolean }> {
     const { assignment } = request;
     const id = assignment.agentSessionId;
@@ -397,12 +401,13 @@ export class WorktreeManager {
       const local = await this.hasRef(repository.path, `refs/heads/${branch}`);
       const remote =
         (await this.hasRef(repository.path, `refs/remotes/origin/${branch}`)) ||
-        (
-          await this.git(["ls-remote", "--heads", "origin", branch], {
-            cwd: repository.path,
-            timeoutMs: 30_000,
-          })
-        ).stdout.trim() !== "";
+        (askOrigin &&
+          (
+            await this.git(["ls-remote", "--heads", "origin", branch], {
+              cwd: repository.path,
+              timeoutMs: 30_000,
+            })
+          ).stdout.trim() !== "");
       const owner = local
         ? await this.branchOwner(repository.path, branch)
         : null;
@@ -478,12 +483,13 @@ export class WorktreeManager {
           `not reusing ${previous.path}: HEAD is ${head.stdout.trim() || "unreadable"}, not ${previous.branch}`,
         );
       }
-      await this.fetchBase(request, repository, baseBranch);
+      const reachable = await this.fetchBase(request, repository, baseBranch);
       await this.guardDisk(request);
       const { branch, local, remote } = await this.chooseBranch(
         request,
         repository,
         repoConfig,
+        reachable,
       );
       const path = this.worktreePath(request, repository);
       mkdirSync(join(path, ".."), { recursive: true, mode: 0o700 });
@@ -668,11 +674,12 @@ export class WorktreeManager {
             id,
           );
         }
-        await this.fetchBase(request, repository, baseBranch);
+        const reachable = await this.fetchBase(request, repository, baseBranch);
         const { branch, local } = await this.chooseBranch(
           request,
           repository,
           repoConfig,
+          reachable,
         );
         await this.must(
           local

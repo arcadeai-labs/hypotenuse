@@ -509,12 +509,19 @@ async function sessionsWithLiveWork(
   return rows.map((r) => r.id);
 }
 
+/** The state types that end an issue: the person is done with it. */
+const CLOSED_STATE_TYPES = new Set(["completed", "canceled"]);
+
 /**
- * `Issue` data events. The one this reads: `@hypotenuse` stopped being the
- * issue's delegate — a person un-delegated it, or dismissed the session, which
- * removes the delegate. Its sessions on the issue are marked
- * `delegateRemovedAt` and their live turns cancelled, quietly: the person
- * disengaged, and nothing re-engages without a new prompt or delegation.
+ * `Issue` data events. Two disengage the agent, and are handled the same way
+ * — the issue's live turns are cancelled, quietly, and nothing re-engages
+ * without a new prompt or delegation:
+ *
+ * | Change | Cancel reason |
+ * |---|---|
+ * | `@hypotenuse` stopped being the delegate (un-delegated, or the session dismissed, which removes the delegate) | `delegate_removed`; sessions are marked `delegateRemovedAt` |
+ * | the issue moved to a `completed` or `canceled` state, or was deleted (`remove`) | `issue_closed` |
+ *
  * Every other issue change is `ignored`.
  * @param tx - The transaction.
  * @param integration - The integration.
@@ -532,26 +539,35 @@ export async function handleIssueEvent(
     string,
     unknown
   > | null;
+  if (typeof data.id !== "string") return { outcome: "ignored", deliver: [] };
+  const updated = payload.action === "update" && updatedFrom !== null;
   const wasOurs =
-    updatedFrom !== null &&
+    updated &&
     "delegateId" in updatedFrom &&
     updatedFrom.delegateId === integration.externalAppUserId;
   const isOurs = data.delegateId === integration.externalAppUserId;
-  if (payload.action !== "update" || !wasOurs || isOurs) {
-    return { outcome: "ignored", deliver: [] };
-  }
-  if (typeof data.id !== "string") return { outcome: "ignored", deliver: [] };
+  const undelegated = wasOurs && !isOurs;
+  const stateType = (data.state as { type?: unknown } | undefined)?.type;
+  const closed =
+    payload.action === "remove" ||
+    (updated &&
+      "stateId" in updatedFrom &&
+      typeof stateType === "string" &&
+      CLOSED_STATE_TYPES.has(stateType));
+  if (!undelegated && !closed) return { outcome: "ignored", deliver: [] };
 
-  await tx
-    .update(agentSessions)
-    .set({ delegateRemovedAt: new Date() })
-    .where(
-      and(
-        eq(agentSessions.integrationId, integration.id),
-        eq(agentSessions.externalIssueId, data.id),
-        isNull(agentSessions.delegateRemovedAt),
-      ),
-    );
+  if (undelegated) {
+    await tx
+      .update(agentSessions)
+      .set({ delegateRemovedAt: new Date() })
+      .where(
+        and(
+          eq(agentSessions.integrationId, integration.id),
+          eq(agentSessions.externalIssueId, data.id),
+          isNull(agentSessions.delegateRemovedAt),
+        ),
+      );
+  }
   const effects = noEffects();
   for (const id of await sessionsWithLiveWork(tx, {
     integrationId: integration.id,
@@ -560,7 +576,7 @@ export async function handleIssueEvent(
     mergeEffects(
       effects,
       await cancelSessionWork(tx, id, {
-        reason: "delegate_removed",
+        reason: undelegated ? "delegate_removed" : "issue_closed",
         announce: false,
       }),
     );

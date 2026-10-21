@@ -125,6 +125,6 @@ that agent, asks it to introduce itself, and opens a session, which shows whethe
 | Credentials | `~/.config/hypotenuse/credentials.json`, readable only by you; the daemon refuses it otherwise |
 | State, log, control socket | `~/.local/state/hypotenuse/` — or, for a config elsewhere, `.hypotenuse-state/` beside it |
 | Session logs | `sessions/<session>.log` in the state directory |
-| Session working directories | `workspaces/<session>` in the state directory, until worktrees replace them |
+| Worktrees | `~/.hypotenuse/worktrees/<repository>/<ISSUE>` (`sessions.worktree_root`) — [worktrees](/docs/worktrees) |
 
 `hypotenuse config path` prints the ones in use.

@@ -58,6 +58,7 @@ export const TERMINAL_WORK_STATUSES = [
 export const WORK_CANCEL_REASONS = [
   "stop",
   "delegate_removed",
+  "issue_closed",
   "integration_revoked",
   "dashboard",
   "superseded",
@@ -78,6 +79,23 @@ export interface WorkItemOutcome {
   error?: string | null;
   acpSessionId?: string | null;
   branch?: string | null;
+}
+
+/** One issue hygiene rule's outcome, as recorded at claim. */
+export interface HygieneOutcome {
+  /** `moved`, `set`, `unchanged`, `skipped`, or `failed`. */
+  outcome: "moved" | "set" | "unchanged" | "skipped" | "failed";
+  /** Why, or what it was moved to. */
+  detail: string;
+}
+
+/** What issue hygiene did when the turn was claimed. */
+export interface WorkItemHygiene {
+  /** The started-state move. */
+  state: HygieneOutcome;
+  /** The delegate. */
+  delegate: HygieneOutcome;
+  at: number;
 }
 
 /** The last `usage` event a daemon reported for the turn. */
@@ -189,6 +207,8 @@ export const workItems = pgTable(
     daemonState: text("daemon_state"),
     usage: jsonb("usage").$type<WorkItemUsage | null>(),
     outcome: jsonb("outcome").$type<WorkItemOutcome | null>(),
+    /** What issue hygiene did at claim; null until it ran (first-turn items only). */
+    hygiene: jsonb("hygiene").$type<WorkItemHygiene | null>(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

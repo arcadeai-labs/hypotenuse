@@ -112,7 +112,7 @@ message starts the agent again, picking its session back up where the agent supp
 | `hypotenuse agents kill` or the dashboard | an error saying it was cancelled, and from where |
 | `turn_timeout` | *"Stopped after 1h. Reply to continue from where it left off."* |
 | the daemon shutting down mid-turn | *"The runner … shut down mid-turn. Reply to continue …"* |
-| un-delegating, dismissing the session, or completing the issue | nothing — you stepped away, so it stays quiet |
+| un-delegating, dismissing the session, or completing, canceling, or deleting the issue | nothing — you stepped away, so it stays quiet |
 
 ## Follow-ups
 
@@ -120,9 +120,9 @@ Your next message goes to the same runner, which continues the agent's own sessi
 so it only needs your new message. Otherwise, or on another runner, the agent starts fresh with the whole
 conversation in its prompt.
 
-> **Where this is today.** Each session works in its own directory under the daemon's state directory
-> (`workspaces/<session>`); git worktrees of your repositories, and the `hypotenuse` tools the agent uses to read
-> and update Linear, come next.
+Each session works in its own [git worktree](/docs/worktrees) of the repository, reused by every follow-up.
+
+> **Where this is today.** The `hypotenuse` tools the agent uses to read and update Linear come next.
 
 ## Logs
 

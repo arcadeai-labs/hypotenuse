@@ -299,7 +299,9 @@ describe("acp host end to end", () => {
     const row = rows.find((r) => r.agentSessionId === session.id);
     expect(row?.state).toBe("running");
     expect(row?.pid).toBeGreaterThan(0);
-    expect(row?.worktree).toStartWith(join(home.root, "worktrees", "web", "ENG-"));
+    expect(row?.worktree).toStartWith(
+      join(home.root, "worktrees", "web", "ENG-"),
+    );
 
     const kill = await home.run([
       "agents",

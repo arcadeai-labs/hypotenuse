@@ -22,7 +22,6 @@
 import { hostname } from "node:os";
 import {
   type ActiveItem,
-  type Cancel,
   type HeartbeatRequest,
   type HeartbeatResponse,
   type Offer,
@@ -385,7 +384,7 @@ export class Supervisor {
   private async onBeat(answer: HeartbeatResponse): Promise<void> {
     for (const id of answer.unknownActive) this.silence(id);
     for (const cancel of answer.cancels)
-      this.stop(cancel.workItemId, cancel.reason as Cancel["reason"]);
+      this.stop(cancel.workItemId, cancel.reason as StopReason);
     for (const reply of answer.answers ?? []) this.deliver(reply);
     if (this.draining || this.claimsHalted || this.diskWasLow) return;
     // A claim repeated for an item this runner already holds answers the same
@@ -946,6 +945,10 @@ export class Supervisor {
           "idle",
           "interrupted",
         ]);
+    const worktreePath = (id: number | null) => {
+      const wt = id ? this.options.state.worktree(id) : null;
+      return wt && wt.state !== "removed" ? wt.path : null;
+    };
     return rows.map((s) => {
       const slot = [...this.slots.values()].find(
         (x) => x.agentSessionId === s.agentSessionId,
@@ -959,9 +962,7 @@ export class Supervisor {
         pid: s.pid,
         startedAt: slot?.startedAt ?? s.updatedAt,
         lastEventAt: s.lastEventAt,
-        worktree: s.worktreeId
-          ? (this.options.state.worktree(s.worktreeId)?.path ?? null)
-          : null,
+        worktree: worktreePath(s.worktreeId),
       };
     });
   }

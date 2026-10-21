@@ -249,14 +249,14 @@ that have it, matched by normalized `remote`.
 |---|---|---|---|
 | `name` | string | last path segment of `remote` | unique; used in worktree paths |
 | `path` | path | — (required) | an existing git repository (a clone, not a worktree) |
-| `remote` | string | the repository's `origin` | normalized (`git@github.com:acme/web.git` = `https://github.com/acme/web` = `github.com/acme/web`); must match `origin`; unique |
+| `remote` | string | the repository's `origin` | normalized (`git@github.com:acme/web.git` = `https://github.com/acme/web` = `github.com/acme/web`); must match `origin` as configured (`remote.origin.url`, before any `url.*.insteadOf` rewrite, so a mirror does not change it); unique |
 | `base_branch` | string | `origin/HEAD`'s branch, else `main` | must exist on origin (checked unless `--offline`) |
-| `setup` | array of strings | `[]` | shell commands run in each new worktree, in order |
+| `setup` | array of strings | `[]` | shell commands (`sh -c`) run in each new worktree, in order, with the per-session environment; a failure ends the turn and keeps the worktree, and the next turn runs them again |
 | `setup_timeout` | duration | `"10m"` | per command |
-| `branch_prefix` | string | `"hypotenuse"` | branches are `<prefix>/<issue-id>-<slug>` |
-| `worktrees` | `"always"` \| `"never"` | `[sessions] worktrees` | `"never"` runs the agent in `path` itself, one session at a time, on a clean tree only (warned) |
+| `branch_prefix` | string | `"hypotenuse"` | branches are `<prefix>/<issue-id>-<slug>`; a name taken by anything else gets `-2`, `-3`, … |
+| `worktrees` | `"always"` \| `"never"` | `[sessions] worktrees` | `"never"` runs the agent in `path` itself, one session at a time (the next waits), on its own branch from a clean tree only, switching back afterwards; never stashes, resets, or cleans; nothing is ever removed (warned) |
 | `cleanup` | as `[sessions] cleanup` | `[sessions] cleanup` | per-repository override |
-| `pr_url_patterns` | array of strings (regex) | `[]` | extra PR URL patterns for self-hosted forges; GitHub, GitLab, and Bitbucket are built in |
+| `pr_url_patterns` | array of strings (regex) | `[]` | extra PR URL patterns for self-hosted forges; GitHub, GitLab, and Bitbucket are built in. A match counts only when its named group `repo` (or, without one, the whole URL) contains the remote's `owner/name` |
 
 ## `[sessions]`
 
@@ -264,14 +264,14 @@ that have it, matched by normalized `remote`.
 |---|---|---|---|
 | `worktrees` | `"always"` \| `"never"` | `"always"` | see `[[repositories]] worktrees` |
 | `worktree_root` | path | `"~/.hypotenuse/worktrees"` | writable; not inside a configured repository |
-| `cleanup` | `"on-complete"` \| `"on-merge"` \| `"ttl"` \| `"never"` | `"on-complete"` | when a worktree becomes eligible for removal. Uncommitted changes, unpushed commits, a `.hypotenuse-keep` file, or a running session always keep it |
+| `cleanup` | `"on-complete"` \| `"on-merge"` \| `"ttl"` \| `"never"` | `"on-complete"` | when a worktree becomes eligible for removal: `on-complete` once the last turn answered with a response and `cleanup_grace` passed; `on-merge` once its pull request is merged or closed (`gh`), or its branch is gone from origin; `ttl` after `cleanup_ttl` unused; `never` only by `worktrees cleanup --all` or `--older-than`. A running session, uncommitted changes, unpushed commits, or a `.hypotenuse-keep` file always keep it |
 | `cleanup_ttl` | duration | — | required when `cleanup = "ttl"` |
 | `cleanup_grace` | duration | `"1h"` | `on-complete` waits this long after a session completes, in case a follow-up arrives |
 | `turn_timeout` | duration | `"60m"` | maximum length of one turn; ≥ `idle_timeout` |
 | `idle_timeout` | duration | `"15m"` | maximum silence from the agent, or wait for an answer, before the turn is stopped; ≥ `keepalive_interval` |
 | `keepalive_interval` | duration | `"10m"` | a "still working" thought after this much silence; must be under 30m, Linear's stale window |
 | `stop_grace` | duration | `"10s"` | after a stop, how long the agent gets to wind down before it is terminated |
-| `min_free_disk` | size | `"2GB"` | free space required under `worktree_root` to start a new worktree |
+| `min_free_disk` | size | `"2GB"` | free space required under `worktree_root` to start a new worktree; below it the daemon runs cleanup, then fails the turn and claims nothing (heartbeats report `draining`) until space recovers |
 
 ## `[log]`
 
@@ -297,8 +297,8 @@ that have it, matched by normalized `remote`.
 
 The daemon sets these in every agent's environment and every setup command's environment:
 `HYPOTENUSE_SESSION_ID`, `HYPOTENUSE_LINEAR_SESSION_ID`, `HYPOTENUSE_ISSUE`, `HYPOTENUSE_ISSUE_URL`,
-`HYPOTENUSE_BRANCH`, `HYPOTENUSE_BASE_BRANCH`, `HYPOTENUSE_ROLE`, `HYPOTENUSE_SESSION_URL`, and
-`GIT_TERMINAL_PROMPT=0`.
+`HYPOTENUSE_BRANCH`, `HYPOTENUSE_BASE_BRANCH`, `HYPOTENUSE_ROLE`, `HYPOTENUSE_SESSION_URL` (the session's
+dashboard page), and `GIT_TERMINAL_PROMPT=0`.
 
 ## A complete example
 

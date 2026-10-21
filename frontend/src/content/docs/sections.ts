@@ -15,6 +15,7 @@ import projects from "./projects.md?raw";
 import routing from "./routing.md?raw";
 import runners from "./runners.md?raw";
 import why from "./why.md?raw";
+import worktrees from "./worktrees.md?raw";
 
 /** Where the repository's own docs live, for links the public site cannot serve. */
 const REPOSITORY_DOCS =
@@ -76,6 +77,7 @@ export const DOCS_SECTIONS: DocsSection[] = [
   { slug: "runners", title: "Runners", markdown: runners },
   { slug: "daemon", title: "The daemon", markdown: daemon },
   { slug: "agents", title: "Coding agents", markdown: agents },
+  { slug: "worktrees", title: "Worktrees", markdown: worktrees },
   {
     slug: "config",
     title: "Config file",

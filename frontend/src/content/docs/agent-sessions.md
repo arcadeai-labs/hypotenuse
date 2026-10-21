@@ -25,6 +25,7 @@ own: its thoughts, the actions it takes, its plan, and its answer.
 | Answer the repository question | takes your answer as the repository and starts |
 | Press **Stop** | stops the work: *Stopped before starting.*, the agent's own account of where it stopped, or *Stopped. Nothing was running.* |
 | Remove `@hypotenuse` as the delegate, or dismiss the session | stops the work quietly |
+| Move the issue to a completed or canceled state, or delete it | stops the work quietly |
 
 When no runner can take the work, the session says why and keeps waiting; after the project's queue timeout (30
 minutes by default) it ends with an error naming the reason — no runner takes that team's work, they are all
@@ -32,6 +33,21 @@ offline, none has the repository, or all are busy. Replying in the session's thr
 
 Hypotenuse never says anything in a session that implies a person wrote it, and never names a model: the badge
 on `@hypotenuse` already says it is an app.
+
+## Keeping the issue tidy
+
+When a runner takes a session's first turn, Hypotenuse tidies the issue the way Linear asks agents to:
+
+| When | Hypotenuse |
+|---|---|
+| a person **delegated** the issue to `@hypotenuse`, and it is not started, completed, or canceled | moves it to the team's first started state (*In Progress*) |
+| an automation started the session, or it came from a mention | leaves the state alone — triage stays with a person |
+| the issue has no delegate | sets `@hypotenuse` as the delegate |
+| always | never changes the **assignee**: the person keeps ownership |
+| the manager role is answering | changes nothing; planning an issue is not implementing it |
+
+If Linear refuses (say, a team's access changed), the session says so in a thought and the work goes on anyway.
+The session also links to its page in the dashboard (**Hypotenuse**), and to the pull request once the agent opens one.
 
 ## Workspace changes Hypotenuse follows
 

@@ -141,7 +141,7 @@ export interface StopContext {
  * | Reason | Final activity |
  * |---|---|
  * | `stop` | `response`: stopped at your request, and where the changes are |
- * | `delegate_removed`, `integration_revoked`, `superseded`, `revoked` | none — the server decided not to speak, or the turn is not ours |
+ * | `delegate_removed`, `issue_closed`, `integration_revoked`, `superseded`, `revoked` | none — the person disengaged, the server decided not to speak, or the turn is not ours |
  * | `kill`, `dashboard` | `error`: cancelled, and from where |
  * | `timeout` | `error`: stopped after the turn timeout |
  * | `idle` | `error`: waited for an answer, or the agent was silent |
