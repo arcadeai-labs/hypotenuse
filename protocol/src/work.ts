@@ -94,6 +94,11 @@ export const WorkAssignment = z.looseObject({
   history: z.array(HistoryEntry),
   prompt: z.array(PromptEntry).nullable(),
   origin: z.string(),
+  creator: z
+    .looseObject({ name: z.string().nullable(), email: z.string().nullable() })
+    .nullable()
+    .optional()
+    .describe("Who started the session; null when an automation did"),
   humanDelegated: z.boolean(),
   leaseExpiresAt: z.number().int(),
 });

@@ -110,6 +110,11 @@ export interface WorkItemUsage {
  * - **A turn ends in one place**, `WorkItemOps.finishWorkItem`, which also
  *   guarantees the session is answered: `answeredAt` records the first
  *   `response`, `error`, or `elicitation` the turn produced.
+ * - **A question mid-turn is answered in the turn.** An `elicitation` from a
+ *   held turn sets `awaitingAnswerSince`; the person's next follow-up is
+ *   appended to `answers` (and heartbeats deliver it) instead of queueing a
+ *   turn. Whatever the daemon does not report consuming becomes the next
+ *   `prompt` turn when this one ends.
  */
 export const workItems = pgTable(
   "work_items",
@@ -170,6 +175,16 @@ export const workItems = pgTable(
     lastEventSeq: integer("last_event_seq").notNull().default(0),
     /** The first response, error, or elicitation of the turn. */
     answeredAt: timestamp("answered_at", { withTimezone: true }),
+    /**
+     * Set while a held turn waits on a person: it posted an `elicitation`
+     * mid-turn and keeps running. The next follow-up answers it instead of
+     * queueing behind it.
+     */
+    awaitingAnswerSince: timestamp("awaiting_answer_since", {
+      withTimezone: true,
+    }),
+    /** Follow-ups delivered to this held turn as answers, in order. */
+    answers: jsonb("answers").$type<WorkItemPrompt[]>().notNull().default([]),
     /** The daemon's last `status` event state. */
     daemonState: text("daemon_state"),
     usage: jsonb("usage").$type<WorkItemUsage | null>(),

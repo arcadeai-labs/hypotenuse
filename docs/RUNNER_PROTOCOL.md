@@ -115,7 +115,8 @@ Response (`HeartbeatResponse`):
   "leaseMs": 60000,
   "offers": [{ "workItemId": 813, "agentSessionId": 92, "kind": "session_created", "role": "worker", "offerExpiresAt": 1792478425000 }],
   "cancels": [{ "workItemId": 812, "reason": "stop" }],
-  "unknownActive": []
+  "unknownActive": [],
+  "answers": [{ "workItemId": 811, "activityId": 418, "body": "allow" }]
 }
 ```
 
@@ -134,6 +135,10 @@ no working connection to ask (the integration's cached catalog is read, never wr
 `unknownActive` lists `active` items the server no longer considers this runner's (lease reaped, reassigned,
 cancelled and closed). The daemon must stop work on them **without** emitting further events — someone else may
 own the session now.
+
+`answers` lists the replies people sent to questions held turns are waiting on (see
+[Questions mid-turn](#questions-mid-turn)), oldest first, for items this runner holds and is not being asked to
+cancel. They repeat on every heartbeat until the turn completes; the daemon reads each `activityId` once.
 
 A heartbeat that changed what routing reads — the runner came online, went draining, freed capacity, or reported
 new capabilities — runs a routing pass, so a freed slot is offered work at once.
@@ -197,6 +202,7 @@ error.
 | `history` | the session's conversation from `agent_activities`, both directions, delivered/received only, in `seq` order — never from comments. It includes this turn's own prompts; `activityId` matches `prompt[].activityId` |
 | `prompt` | for `prompt` kind: `[{ "activityId": 330, "body": "Also handle the EUR case" }]` (merged follow-ups); for `review`: the dispatched worker's result |
 | `humanDelegated` | the session was started by a person delegating (not an automation) — read by issue hygiene |
+| `creator` | `{ name, email }` of whoever started the session, or null when an automation did; the prompt template's `creator.*` |
 
 ### `daemon:events`
 
@@ -250,11 +256,29 @@ Rules, enforced by the schema and the server:
 { "workItemId": 813, "outcome": "completed", "acpSessionId": "sess_01…", "branch": "hypotenuse/eng-123-fix-checkout-rounding", "error": null }
 ```
 
-`outcome`: `completed` \| `failed` \| `cancelled`. Answers `{ "alreadyTerminal": false }`. Idempotent: completing a
+`outcome`: `completed` \| `failed` \| `cancelled`. `answersConsumed` (optional, ≤ 100) lists the `activityId`s of
+delivered [answers](#questions-mid-turn) the turn took as answers. Answers `{ "alreadyTerminal": false }`. Idempotent: completing a
 terminal item answers 200 with `{ "alreadyTerminal": true }` — including a late completion of a turn the server
 already ended after the stop grace. If the turn emitted no `response`, `error`, or `elicitation`, the server writes
 one: "Done." for `completed` (a daemon bug, logged), the `error` text (or a generic one) for `failed`, "Stopped."
 for `cancelled`. Routing runs next, so a queued follow-up is offered at once.
+
+### Questions mid-turn
+
+A turn may ask a person something and **keep running** while it waits — an agent's permission request under an
+`ask` policy, or an ACP `elicitation/create`. The daemon posts an `elicitation` event (with a `select` or `auth`
+signal), and the agent process stays blocked on the answer.
+
+| Step | Server | Daemon |
+|---|---|---|
+| the turn posts an `elicitation` | marks the held item awaiting an answer | keeps the agent waiting; its turn timer pauses, `idle_timeout` keeps running |
+| the person replies (Linear `prompted`) | appends the reply to the item's answers instead of queueing a turn, says nothing, and pings the runner | — |
+| the next heartbeat | carries it in `answers` | hands it to the waiting question: a choice it matches resumes the agent; anything else is free text |
+| the turn ends | `daemon:complete` | lists the answers it took in `answersConsumed` |
+| — | every delivered answer not consumed becomes the session's next `prompt` turn (a stopped turn's are dropped: a stop disengages) | — |
+
+A second reply while the first is unread is an ordinary follow-up, queued behind the turn. A turn whose lease
+lapses while waiting goes back to the queue with its answers turned into a `prompt` turn behind it.
 
 ### `daemon:linear-*` and `daemon:dispatch`
 
@@ -326,12 +350,24 @@ Rules:
 A cancel reaches the daemon three ways — the `cancel` frame, the heartbeat's `cancels`, and `cancelRequested` on
 any `daemon:events` response — so it is delivered as long as *any* request succeeds. On a cancel the daemon:
 
-1. sends ACP `session/cancel` and answers any pending `session/request_permission` with `cancelled`;
-2. waits up to `sessions.stop_grace` (config) for the agent's prompt to return `stopReason: cancelled`, then kills
-   the process tree;
-3. emits one `response` describing the state the work was left in — the branch, whether there are uncommitted
-   changes, what was in progress — as Linear's stop guidance requires;
+1. sends ACP `session/cancel` and answers any pending `session/request_permission` with `cancelled` (and any
+   pending `elicitation/create` with `cancel`);
+2. waits up to `sessions.stop_grace` (config) for the agent's prompt to return `stopReason: cancelled`, then
+   closes its stdin, then sends `SIGTERM` and, 5 seconds later, `SIGKILL` to its process group;
+3. emits the final activity for the reason, and nothing else — after a `stop` Linear accepts only a `response` or
+   an `error`;
 4. calls `daemon:complete` with `outcome: "cancelled"`.
+
+| `reason` | Final activity |
+|---|---|
+| `stop` | `response`: "Stopped at your request. Changes so far are …" — where the work is, and how many files changed |
+| `dashboard` | `error`: cancelled from the dashboard, and where the work is |
+| `delegate_removed`, `integration_revoked` | none — the person disengaged, so the daemon stays quiet |
+| `superseded` | none — the item is no longer this runner's |
+
+The daemon ends turns of its own the same way: `agents kill` (an `error` naming it), a drain with `--cancel` or a
+shutdown (an `error` saying the runner shut down mid-turn), and `turn_timeout` / `idle_timeout` (an `error`, and
+`outcome: "failed"`).
 
 `reason` values: `stop` (a person pressed Stop in Linear), `dashboard`, `delegate_removed`, `integration_revoked`,
 `superseded`.

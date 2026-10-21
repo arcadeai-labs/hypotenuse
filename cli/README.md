@@ -2,8 +2,9 @@
 
 The `hypotenuse` command line: sign in to a [Hypotenuse](https://github.com/arcadeai-labs/hypotenuse)
 server through your browser, manage projects, members, invites, tags, and the audit log, register
-this machine as a runner, and keep itself up to date. Later releases add the runner daemon that runs
-coding agents on your machine for Linear agent sessions.
+this machine as a runner, and keep itself up to date. Its daemon runs coding agents (Claude Code,
+Codex, Gemini CLI, and any other [ACP](https://agentclientprotocol.com) agent) on your machine for
+Linear agent sessions.
 
 ## Install
 
@@ -25,6 +26,8 @@ hypotenuse project use my-team
 hypotenuse member list
 hypotenuse integration connect linear  # a Linear workspace admin approves in the browser
 hypotenuse runner register --name my-laptop  # saves a runner token for the daemon
+hypotenuse config init --repo ~/code/web && hypotenuse doctor --agent claude
+hypotenuse daemon start
 hypotenuse --json audit list --since 7d | jq
 hypotenuse upgrade
 ```

@@ -108,17 +108,19 @@ describe("offline queue", () => {
     const rows = (await outbound(session.id)).filter(
       (r) => r.contentType !== null,
     );
-    const fromDaemon = rows.filter((r) =>
-      /Holding this turn open|received this|no coding agent/.test(
-        String((r.content as { body?: string }).body),
-      ),
+    const fromDaemon = rows.filter(
+      (r) =>
+        r.contentType === "action" ||
+        /Starting claude|Finished the long job/.test(
+          String((r.content as { body?: string }).body),
+        ),
     );
     // Exactly once each: no client id twice.
     const ids = fromDaemon.map((r) => r.clientActivityId);
     expect(new Set(ids).size).toBe(ids.length);
-    // In order: the received thought first, the response last.
+    // In order: the starting thought first, the response last.
     expect((fromDaemon[0]?.content as { body: string }).body).toContain(
-      "received this",
+      "Starting claude",
     );
     expect(fromDaemon.at(-1)?.contentType).toBe("response");
     // Fewer ephemerals arrived than were produced: the offline ones superseded each other.

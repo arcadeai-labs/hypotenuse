@@ -1,0 +1,17 @@
+{
+  "turns": [
+    [
+      {
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": { "type": "text", "text": "About to fall over." }
+        }
+      },
+      {
+        "stderr": "fatal: could not reach the model with key sk-abcdefghijklmnopqrstuvwxyz123456"
+      },
+      { "stderr": "panic: out of cheese" },
+      { "exit": 1 }
+    ]
+  ]
+}

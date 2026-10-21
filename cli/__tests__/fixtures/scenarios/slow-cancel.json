@@ -1,0 +1,4 @@
+{
+  "ignoreCancel": true,
+  "turns": [[{ "sleep": 600000 }, { "stop": "end_turn" }]]
+}

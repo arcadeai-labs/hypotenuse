@@ -530,22 +530,22 @@ FAKE_ACP_SCENARIO=happy hypotenuse daemon start --foreground -c ./examples/fake.
 
 ## Definition of done
 
-- [ ] SDK pinned to `2.0.0`, imported only by `cli/src/acp/connection.ts`
+- [x] SDK pinned to `2.0.0`, imported only by `cli/src/acp/connection.ts`
 - [ ] Every preset in the table launches; custom `command` works; per-agent `env` and `args`
-- [ ] `initialize` with the capabilities above; auth handled per the table; `agents login`; unavailable agents
+- [x] `initialize` with the capabilities above; auth handled per the table; `agents login`; unavailable agents
       reported in capabilities
-- [ ] `session/new`, `session/resume`, `session/load` (replay discarded), and fallback with history
-- [ ] `buildPrompt` is the only prompt builder; template variables validated
-- [ ] The mapping table implemented exactly, with coalescing, keepalive, plan dedupe, and summary trimming
-- [ ] `allow`/`ask`/`deny` policies, per-kind overrides, the select round trip, free-text fallback, and the
+- [x] `session/new`, `session/resume`, `session/load` (replay discarded), and fallback with history
+- [x] `buildPrompt` is the only prompt builder; template variables validated
+- [x] The mapping table implemented exactly, with coalescing, keepalive, plan dedupe, and summary trimming
+- [x] `allow`/`ask`/`deny` policies, per-kind overrides, the select round trip, free-text fallback, and the
       idle wait
-- [ ] `elicitation/create` form and url, including the `auth` signal
-- [ ] `fs/*` confined to the worktree
-- [ ] One cancel path for all five reasons; Linear's `stopping` rule respected
-- [ ] Crash, start failure, init timeout, stdout noise, and both timeouts handled; per-session logs with
+- [x] `elicitation/create` form and url, including the `auth` signal
+- [x] `fs/*` confined to the worktree
+- [x] One cancel path for all five reasons; Linear's `stopping` rule respected
+- [x] Crash, start failure, init timeout, stdout noise, and both timeouts handled; per-session logs with
       redaction
-- [ ] The fake agent supports every scenario and records requests
-- [ ] User docs: `/docs/agents` (supported agents, login, permissions)
+- [x] The fake agent supports every scenario and records requests
+- [x] User docs: `/docs/agents` (supported agents, login, permissions)
 
 ## Commands
 
@@ -558,4 +558,71 @@ FAKE_ACP_SCENARIO=permission bun cli/__tests__/fixtures/fake-acp-agent.ts   # sp
 
 ## Learnings from the build
 
-_Nothing yet — this phase has not been built._
+**Built.** Everything in the Definition of done, at CLI 0.7.0, with the departures below. The daemon's slots run
+`AcpSessionExecutor`; the null executor is gone, and every real-daemon suite (`backend/__tests__/daemon/`) now runs
+the fake ACP agent through it. No real coding agent has run a turn in CI; the presets were checked against the ACP
+registry, not launched.
+
+### Where the pieces live
+
+- **`cli/src/acp/`** — `connection.ts` (the only SDK importer: spawn in a process group, stdout filtered to JSON
+  before the SDK sees it, stderr and a JSON-RPC trace to callbacks), `host.ts` (`AcpSessionExecutor`: one `Turn`
+  per claim), `mapping.ts` (`TurnMapper`), `summarize.ts` (verbs, compaction, the diff stat, redaction),
+  `prompt.ts` + `templates/{worker,manager}.md`, `permissions.ts`, `elicitation.ts` (questions and the
+  `QuestionQueue`), `fs.ts` (`ConfinedFs`), `lifecycle.ts` (session logs, the stop-activity table),
+  `presets.ts` (launch command and environment; the preset table stays in `config/presets.ts`), `handshake.ts`
+  (`doctor --agent` and `agents login`; it replaced `daemon/acp-probe.ts`).
+- **Commands:** `cli/src/commands/agents.ts` — `agents list`, `agents kill` (the control-socket methods phase 10
+  left without commands), and `agents login`.
+- **Server:** `work_items.awaiting_answer_since` and `answers` (migration `0007`), `answerWaitingTurn` and
+  `releaseAnswers` in `ops/WorkItemOps.ts`, the heartbeat's `answers`, and `daemon:complete`'s `answersConsumed`.
+- **Tests:** `cli/__tests__/acp/` (unit, and `host.test.ts` against the fake agent), `cli/__tests__/commands/
+  agents.test.ts`, `backend/__tests__/routing/answers.test.ts` (the server's round trip with a scripted daemon),
+  and `backend/__tests__/daemon/acp.test.ts` (end to end).
+
+### Where the build departs from the plan
+
+| Plan | Built | Why |
+|---|---|---|
+| A reply to an `ask` arrives as a `prompt` work item with `answersElicitation` | **the held item is marked awaiting an answer when it posts an `elicitation`; the reply is appended to its `answers` and carried by every heartbeat's `answers`; `daemon:complete` lists `answersConsumed`, and the rest become the next `prompt` turn** — additive to `protocol/`, no version bump | the one-turn-per-session index forbids a second live item, and the turn being answered is the one that is running. Reporting what was consumed (rather than what was not) means a lost daemon loses no reply |
+| `mcpServers` always includes the `hypotenuse` server; `<environment>` names its tools | **only the role's `extra_mcp_servers`**; the built-in templates name no tools | `hypotenuse mcp` does not exist yet. Handing every agent a server that fails to start would put an MCP error in every turn |
+| `backend/__tests__/e2e/acp.test.ts` | **`backend/__tests__/daemon/acp.test.ts`** | beside the other real-daemon suites, and their `DaemonHome` |
+| "a plain temporary directory" until worktrees | **`<state dir>/workspaces/<agentSessionId>`**, kept | a follow-up must `session/load` in the same `cwd`; a fresh temp directory per turn would break every resume |
+| `action: verb(kind) + title` | **`action` is the verb; `parameter` the compact path, command, or query; an `other` tool's title is its action** | Linear renders the pair as "**Ran** `npm test`"; the ACP title usually repeats the parameter |
+| `killed` → "Cancelled by <who> from <where>" | **"Cancelled from runner <name> (`hypotenuse agents kill`)"**, and the dashboard's own sentence | the daemon does not know who ran the command |
+| Timeouts take "the cancel path with `reason: timeout`" | **the same path, completing `failed`** with the error text | the server asked for nothing, and the dashboard should show a failure, not a cancellation |
+| The cancel path sends `session/cancel` and waits `stop_grace` | **waits for `session/prompt` to answer, then closes stdin, then SIGTERM, 5 s, SIGKILL**, all within `stop_grace` + 5 s | an agent exits when its stdin closes, so closing it before the prompt answers would cut its wind-down short |
+| `auth_required` during auth with a URL is its own row | **the generic `elicitation/create` url path** (an `auth` elicitation; the next reply accepts) | the agent asks the same way either way |
+| An agent marked unavailable recovers "at the next successful handshake" | **`daemon reload` forgets it, and `agents login` sends a reload when it succeeds** | an unavailable agent is offered no work, so no turn would ever find it healthy again |
+| `doctor --agent` runs `initialize` | **`initialize` and `session/new` in a scratch directory** | a logged-out agent answers `initialize` happily; only a session shows it |
+| `mcp-probe` scenario | **not built** | there is no MCP server to probe until the Hypotenuse MCP plan lands |
+| — | **`creator: { name, email }` on the assignment** (additive) | the `creator.*` template variables had nothing to read. `issue.team.name` still renders empty: the issue snapshot has the key only |
+
+### Decisions the plan left open
+
+| Question | Answer |
+|---|---|
+| Which `elicitation`s mark a turn awaiting | every one a held turn posts; one that ends its turn (a future `linear_ask_user`) just completes, and a reply that arrives in between is unconsumed, so it becomes the next turn as it should |
+| A second reply while the first is unread | an ordinary follow-up, queued behind the turn with the "queued behind" thought |
+| Free text while several questions wait | every waiting question is declined (permissions: `reject_once`; elicitations: `decline`) and the text becomes the next prompt |
+| An agent-run auth method when the config names none | the first one the agent advertises that is not `terminal` |
+| What "thoughts flushed before an action" means | a buffered thought flushes (ephemeral) before any action, plan, or question, so order is kept; only the turn's last thought persists |
+| A `cancelled` stop reason the host did not ask for | treated as `end_turn` |
+| Unknown template variables at runtime | rendered empty and logged as a warning once per variable |
+
+### Traps found while building
+
+- **`return promise` inside `try … finally` runs `finally` first.** The turn's `finally` closes the agent, so
+  `return this.stopped()` closed it before the cancel path had sent `session/cancel`; the SDK's `notify` then hung
+  until the close rejected it. `return await` it.
+- **A dying agent closes the connection a moment before it exits.** The pending `session/prompt` rejects with "ACP
+  connection closed" first; wait briefly for the exit code before reporting, or every crash reads as a protocol
+  error.
+- **The SDK answers a non-JSON stdout line with a parse error the agent never reads.** Filtering stdout ourselves
+  is the only way to count noise, and it keeps the SDK's stream clean.
+- **Every turn is a new agent process**, so a scripted agent cannot count turns in memory; the fake counts the
+  prompts its record file holds for `HYPOTENUSE_SESSION_ID`.
+- **No routing clock runs in the suites.** A follow-up the server queued is offered only when a test calls
+  `route()`; the real-daemon tests that span two turns loop on it.
+- **A daemon killed with `SIGKILL` cannot kill its agents.** They are in their own process groups and exit when
+  their stdin closes, which every agent tested does; nothing reaps one that does not yet.

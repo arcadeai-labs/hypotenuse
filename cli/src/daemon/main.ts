@@ -25,6 +25,7 @@ import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { AcpSessionExecutor } from "../acp/host";
 import {
   type Credentials,
   loadCredentials,
@@ -52,7 +53,6 @@ import {
 } from "./control-socket";
 import { DaemonApi } from "./daemon-api";
 import { DaemonLog } from "./log";
-import { NullExecutor } from "./null-executor";
 import { acquireLock, LockHeld, releaseLock } from "./pidfile";
 import { childArgs, selfCommand } from "./self";
 import { StateDb } from "./state";
@@ -325,7 +325,9 @@ export async function runDaemon(options: DaemonOptions): Promise<void> {
       projectId: runner.projectId,
       name: runner.name,
     },
-    executor: new NullExecutor(),
+    executor: new AcpSessionExecutor(),
+    stateDir: paths.stateDir,
+    env,
     readConfig: () => readDaemonConfig(options, env),
     requestExit,
   });

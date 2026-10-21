@@ -15,3 +15,9 @@ declare module "*.plist" {
   const text: string;
   export default text;
 }
+
+/** A role's built-in prompt template imported `with { type: "text" }`. */
+declare module "*.md" {
+  const text: string;
+  export default text;
+}

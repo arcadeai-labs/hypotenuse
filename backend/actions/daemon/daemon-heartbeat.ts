@@ -29,7 +29,8 @@ import { applyEffects, heartbeatWork, noEffects } from "../../ops/WorkItemOps";
  *
  * `unknownActive` lists the items the daemon reports that the server no
  * longer considers its own (a lapsed lease, a reassignment, a closed cancel);
- * the daemon stops work on them without writing further. A heartbeat that
+ * the daemon stops work on them without writing further. `answers` carries
+ * the replies a held turn waiting on a person has been sent. A heartbeat that
  * changed what routing reads (presence, capacity, capabilities) runs a
  * routing pass.
  *
@@ -68,6 +69,7 @@ export class DaemonHeartbeat implements Action {
       offers: [],
       cancels: [],
       unknownActive: [],
+      answers: [],
     };
     try {
       result = await api.db.db.transaction(async (tx) => {
@@ -141,6 +143,7 @@ const dryRun = async (
     offers: [],
     cancels: [],
     unknownActive: [],
+    answers: [],
     runner: {
       id: runner.id,
       name: runner.name,

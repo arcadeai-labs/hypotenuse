@@ -69,7 +69,7 @@ describe("drain", () => {
     home.proc = null;
   }, 30_000);
 
-  test("daemon stop --timeout 1s --cancel ends the turn cancelled, with a final response", async () => {
+  test("daemon stop --timeout 1s --cancel ends the turn cancelled, saying the runner shut down", async () => {
     home = new DaemonHome(
       home.root,
       home.url,
@@ -91,9 +91,9 @@ describe("drain", () => {
     const [item] = await itemsOf(session.id);
     expect(item?.status).toBe("cancelled");
     const last = (await outbound(session.id)).at(-1);
-    expect(last?.contentType).toBe("response");
-    expect((last?.content as { body: string }).body).toContain(
-      "Stopped (drain)",
+    expect(last?.contentType).toBe("error");
+    expect((last?.content as { body: string }).body).toBe(
+      "The runner drainer shut down mid-turn. Reply to continue (it may resume on another runner).",
     );
     expect(await home.proc?.exited).toBe(143);
     home.proc = null;

@@ -87,6 +87,19 @@ export const Cancel = z.looseObject({
 export type Cancel = z.infer<typeof Cancel>;
 
 /**
+ * A person's reply to a question a held turn is waiting on (an `elicitation`
+ * it posted mid-turn), delivered to that turn instead of starting a new one.
+ * Repeated on every heartbeat until the turn completes; the daemon reads each
+ * `activityId` once.
+ */
+export const Answer = z.looseObject({
+  workItemId: z.number().int().positive(),
+  activityId: z.number().int().positive(),
+  body: z.string(),
+});
+export type Answer = z.infer<typeof Answer>;
+
+/**
  * `daemon:heartbeat`'s answer. Loose: an older daemon ignores fields a newer
  * server adds.
  */
@@ -97,6 +110,10 @@ export const HeartbeatResponse = z.looseObject({
   offers: z.array(Offer),
   cancels: z.array(Cancel),
   unknownActive: z.array(z.number().int().positive()),
+  answers: z
+    .array(Answer)
+    .default([])
+    .describe("Replies to questions held turns are waiting on, oldest first"),
   runner: DryRunRunner.optional().describe(
     "A dry run only: the runner the token is",
   ),

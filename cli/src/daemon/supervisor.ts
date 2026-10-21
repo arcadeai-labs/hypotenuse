@@ -39,6 +39,7 @@ import type {
   SessionExecutor,
   StopReason,
   TurnContext,
+  TurnReply,
   TurnResult,
 } from "./executor";
 import type { DaemonLog } from "./log";
@@ -59,6 +60,12 @@ export interface Slot {
   silent: boolean;
   startedAt: number;
   done: Promise<void>;
+  /** The turn's reader of a person's replies. */
+  onReply: ((reply: TurnReply) => boolean | null) | null;
+  /** Answer activity ids already handed to the turn. */
+  delivered: Set<number>;
+  /** Answer activity ids the turn took as answers. */
+  consumed: number[];
 }
 
 /** The outcome of a config reload. */
@@ -91,6 +98,10 @@ export interface SupervisorOptions {
   machineId: string;
   runner: { runnerId: number; projectId: number; name: string };
   executor: SessionExecutor;
+  /** The state directory (session logs, working directories). */
+  stateDir: string;
+  /** The daemon's environment, which agents inherit. */
+  env: Record<string, string | undefined>;
   /** Re-read and validate the config file; null on failure (already logged). */
   readConfig: () => { config: Config | null; error?: string };
   /** Ask the process to exit. */
@@ -112,6 +123,11 @@ export class Supervisor {
   private capabilities: HeartbeatRequest["capabilities"];
   private draining = false;
   private claimsHalted = false;
+  /** What turns found out about their agents, over the config's view. */
+  private readonly agentHealth = new Map<
+    string,
+    { available: boolean; error?: string }
+  >();
   private readonly startedAt = Date.now();
 
   /**
@@ -120,11 +136,7 @@ export class Supervisor {
   constructor(private readonly options: SupervisorOptions) {
     this.config = options.config;
     this.repositories = daemonRepositories(this.config, options.machine);
-    this.capabilities = buildCapabilities(
-      this.config,
-      options.machine,
-      this.repositories,
-    );
+    this.capabilities = this.buildCapabilities();
     this.sink = new EventSink(options.state, options.api, options.log, {
       onCancelRequested: (id) => this.stop(id, "stop"),
       onNotYours: (id) => this.silence(id),
@@ -163,6 +175,51 @@ export class Supervisor {
     this.link.start();
     this.sink.kick(true);
     return interrupted;
+  }
+
+  /**
+   * The capabilities heartbeats report: the config's, with what turns found
+   * out — an agent that would not start or is not logged in is unavailable
+   * until a turn starts it again or the config is reloaded.
+   * @returns The capabilities.
+   */
+  private buildCapabilities(): HeartbeatRequest["capabilities"] {
+    const base = buildCapabilities(
+      this.config,
+      this.options.machine,
+      this.repositories,
+    );
+    return {
+      ...base,
+      agents: base.agents.map((agent) => {
+        const health = this.agentHealth.get(agent.id);
+        if (!health || !agent.available) return agent;
+        const { error: _error, ...rest } = agent;
+        return health.available
+          ? rest
+          : { ...rest, available: false, error: health.error?.slice(0, 1024) };
+      }),
+    };
+  }
+
+  /**
+   * Record what a turn found out about its agent.
+   * @param agentId - The agent.
+   * @param available - Whether it started and opened a session.
+   * @param error - Why not.
+   */
+  private agentAvailability(
+    agentId: string,
+    available: boolean,
+    error?: string,
+  ): void {
+    const before = this.agentHealth.get(agentId);
+    if (before?.available === available && before.error === error) return;
+    this.agentHealth.set(agentId, { available, error });
+    this.capabilities = this.buildCapabilities();
+    if (!available)
+      this.options.log.warn(`agent ${agentId} is unavailable: ${error ?? ""}`);
+    this.link.beatNow();
   }
 
   /** The heartbeat this daemon would send now. */
@@ -216,6 +273,7 @@ export class Supervisor {
     for (const id of answer.unknownActive) this.silence(id);
     for (const cancel of answer.cancels)
       this.stop(cancel.workItemId, cancel.reason as Cancel["reason"]);
+    for (const reply of answer.answers ?? []) this.deliver(reply);
     if (this.draining || this.claimsHalted) return;
     // A claim repeated for an item this runner already holds answers the same
     // assignment, so a claim whose answer was lost is retried, offered or not.
@@ -225,6 +283,31 @@ export class Supervisor {
       if (!this.canTake(offer)) continue;
       await this.claim(offer);
     }
+  }
+
+  /**
+   * Hand a person's reply to the turn waiting on it, once.
+   * @param reply - The answer, from a heartbeat.
+   */
+  private deliver(reply: {
+    workItemId: number;
+    activityId: number;
+    body: string;
+  }): void {
+    const slot = this.slots.get(reply.workItemId);
+    if (!slot || slot.silent || slot.delivered.has(reply.activityId)) return;
+    slot.delivered.add(reply.activityId);
+    const taken = slot.onReply?.({
+      activityId: reply.activityId,
+      body: reply.body,
+    });
+    if (taken) slot.consumed.push(reply.activityId);
+    this.options.log.info(
+      taken
+        ? "a reply answered the turn's question"
+        : "a reply did not answer the turn's question; it becomes the next prompt",
+      { session: slot.agentSessionId, workItem: slot.workItemId },
+    );
   }
 
   /**
@@ -316,6 +399,8 @@ export class Supervisor {
     const { state, log } = this.options;
     const agentId =
       assignment.agentId ?? this.agentFor(assignment.role) ?? "unknown";
+    const previousAcpSessionId =
+      state.session(assignment.agentSessionId)?.acpSessionId ?? null;
     state.claimSession({
       agentSessionId: assignment.agentSessionId,
       linearSessionId: assignment.externalSessionId,
@@ -337,6 +422,9 @@ export class Supervisor {
       silent: false,
       startedAt: Date.now(),
       done: Promise.resolve(),
+      onReply: null,
+      delivered: new Set(),
+      consumed: [],
     };
     this.slots.set(assignment.workItemId, slot);
     log.info(
@@ -364,6 +452,23 @@ export class Supervisor {
         );
       },
       log,
+      stateDir: this.options.stateDir,
+      env: this.options.env,
+      previousAcpSessionId,
+      onReply: (handler) => {
+        slot.onReply = handler;
+      },
+      setPid: (pid) =>
+        this.options.state.setSessionState(
+          slot.agentSessionId,
+          this.options.state.session(slot.agentSessionId)?.state ?? "running",
+          { pid },
+        ),
+      agentAvailability: (available, error) =>
+        this.agentAvailability(agentId, available, error),
+      setState: (next) => {
+        if (slot.state !== "cancelling") slot.state = next;
+      },
     };
     slot.done = this.runTurn(slot, ctx);
   }
@@ -399,6 +504,9 @@ export class Supervisor {
           error: result.error ?? null,
           acpSessionId: result.acpSessionId ?? null,
           branch: result.branch ?? null,
+          ...(slot.consumed.length
+            ? { answersConsumed: slot.consumed.slice(0, 100) }
+            : {}),
         },
         active: {
           workItemId: slot.workItemId,
@@ -415,7 +523,12 @@ export class Supervisor {
           : result.outcome === "cancelled"
             ? "cancelled"
             : "failed",
-        { pid: null, acpSessionId: result.acpSessionId ?? null },
+        // A turn that never opened an ACP session keeps the last one's id,
+        // so the next follow-up can still resume it.
+        {
+          pid: null,
+          ...(result.acpSessionId ? { acpSessionId: result.acpSessionId } : {}),
+        },
       );
     }
     this.options.log.info(
@@ -588,14 +701,17 @@ export class Supervisor {
     }
 
     for (const key of changedKeys(previous, merged)) applied.push(key);
+    // What turns learned about agents is forgotten: a reload is how a person
+    // says "I fixed it" (`agents login` sends one), and an agent marked
+    // unavailable is offered no turn that could find out otherwise.
+    if (this.agentHealth.size) {
+      applied.push("agents.availability");
+      this.agentHealth.clear();
+    }
     this.config = merged;
     this.options.log.level = merged.log.level;
     this.repositories = daemonRepositories(merged, this.options.machine);
-    this.capabilities = buildCapabilities(
-      merged,
-      this.options.machine,
-      this.repositories,
-    );
+    this.capabilities = this.buildCapabilities();
     this.options.log.info("config reloaded", {
       applied: applied.join(",") || "nothing",
       requiresRestart: requiresRestart.join(",") || undefined,

@@ -1,0 +1,508 @@
+import { describe, expect, test } from "bun:test";
+import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { sessionLogPath } from "../../src/acp/lifecycle";
+import { assignment, fakeConfig, TestTurn } from "./harness";
+
+/**
+ * The real agent host against the fake ACP agent, one test per scenario:
+ * what Hypotenuse sends the agent, and the exact events a turn emits.
+ */
+
+/**
+ * A fresh home.
+ * @returns A temporary directory.
+ */
+function home(): string {
+  return mkdtempSync(join(tmpdir(), "hyp-host-"));
+}
+
+/**
+ * Whether a process is alive.
+ * @param pid - The process.
+ * @returns True while it runs.
+ */
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+describe("acp host", () => {
+  test("happy: the mapping, in order, and a completed turn", async () => {
+    const turn = new TestTurn(fakeConfig(home()), "happy");
+    const result = await turn.result;
+    expect(result.outcome).toBe("completed");
+    expect(result.acpSessionId).toMatch(/^fake-session-/);
+    expect(turn.visible()).toEqual([
+      {
+        type: "thought",
+        body: "Starting fake in its working directory…",
+        ephemeral: true,
+      },
+      {
+        type: "thought",
+        body: "Reading the issue. The rounding happens in src/a.ts.",
+        ephemeral: true,
+      },
+      {
+        type: "plan",
+        entries: [
+          { content: "Find the rounding", status: "in_progress" },
+          { content: "Fix it", status: "pending" },
+          { content: "Run the tests", status: "pending" },
+        ],
+      },
+      {
+        type: "action",
+        action: "Editing",
+        parameter: "src/a.ts",
+        ephemeral: true,
+      },
+      {
+        type: "action",
+        action: "Edited",
+        parameter: "src/a.ts",
+        result:
+          "+1 −1 in src/a.ts\n\n+++ Diff\n```diff\n-round(x)\n+roundHalfEven(x)\n```\n+++",
+        ephemeral: false,
+      },
+      {
+        type: "plan",
+        entries: [
+          { content: "Find the rounding", status: "completed" },
+          { content: "Fix it", status: "completed" },
+          { content: "Run the tests", status: "completed" },
+        ],
+      },
+      { type: "summary", title: "Fix checkout rounding" },
+      { type: "response", body: "Fixed the rounding in `src/a.ts`." },
+    ]);
+    const received = turn.received();
+    expect(received.map((r) => r.method)).toEqual([
+      "initialize",
+      "session/new",
+      "session/prompt",
+    ]);
+    expect(received[0]?.params).toMatchObject({
+      protocolVersion: 1,
+      clientCapabilities: {
+        fs: { readTextFile: true, writeTextFile: true },
+        terminal: false,
+        auth: { terminal: true },
+        elicitation: { form: {}, url: {} },
+        session: { configOptions: { boolean: {} } },
+      },
+      clientInfo: { name: "hypotenuse", title: "Hypotenuse" },
+    });
+    const prompt = received[2]?.params.prompt as {
+      type: string;
+      text?: string;
+      uri?: string;
+    }[];
+    expect(prompt[0]?.text).toContain("<request>\nBegin.\n</request>");
+    expect(prompt[1]).toMatchObject({
+      type: "resource_link",
+      uri: "https://linear.app/acme/issue/ENG-1/fix-checkout-rounding",
+    });
+    expect(turn.availability).toEqual([{ available: true }]);
+    expect(turn.pids.at(-1)).toBeNull();
+  }, 20_000);
+
+  test("permission allow: answered by policy, never allow_always", async () => {
+    const turn = new TestTurn(fakeConfig(home()), "permission");
+    expect((await turn.result).outcome).toBe("completed");
+    expect(turn.visible().at(-1)).toEqual({
+      type: "response",
+      body: "Removed build/.",
+    });
+    expect(turn.visible()).toContainEqual({
+      type: "action",
+      action: "Ran",
+      parameter: "rm -rf build/",
+      result: "```\nremoved build/\n```",
+      ephemeral: false,
+    });
+  }, 20_000);
+
+  test("permission deny: rejected once, the tool call fails", async () => {
+    const turn = new TestTurn(
+      fakeConfig(home(), "", 'permission_policy = "deny"'),
+      "permission",
+    );
+    expect((await turn.result).outcome).toBe("completed");
+    expect(turn.visible()).toContainEqual({
+      type: "action",
+      action: "Ran",
+      parameter: "rm -rf build/",
+      result: "Failed: permission denied by the user",
+      ephemeral: false,
+    });
+    expect(turn.visible().at(-1)).toEqual({
+      type: "response",
+      body: "I did not remove build/.",
+    });
+  }, 20_000);
+
+  test("permission ask: a select elicitation, the turn waits, a reply resumes it", async () => {
+    const turn = new TestTurn(
+      fakeConfig(
+        home(),
+        "",
+        'permission_policy = { default = "allow", execute = "ask" }',
+      ),
+      "permission",
+    );
+    const asked = await turn.waitFor((e) => e.type === "elicitation");
+    expect(asked).toEqual({
+      type: "elicitation",
+      body: "The agent wants to run `rm -rf build/` in its working directory. Allow it?",
+      signal: "select",
+      signalMetadata: {
+        options: [
+          { label: "Allow", value: "yes" },
+          { label: "Always allow", value: "always" },
+          { label: "Reject", value: "no" },
+        ],
+      },
+    });
+    expect(turn.events).toContainEqual({
+      type: "status",
+      state: "waiting_permission",
+    });
+    expect(turn.replyHandler?.({ activityId: 7, body: "allow" })).toBe(true);
+    expect((await turn.result).outcome).toBe("completed");
+    expect(turn.visible().at(-1)).toEqual({
+      type: "response",
+      body: "Removed build/.",
+    });
+  }, 20_000);
+
+  test("permission ask: free text rejects once and is not consumed", async () => {
+    const turn = new TestTurn(
+      fakeConfig(home(), "", 'permission_policy = "ask"'),
+      "permission",
+    );
+    await turn.waitFor((e) => e.type === "elicitation");
+    expect(
+      turn.replyHandler?.({ activityId: 8, body: "run the tests instead" }),
+    ).toBe(false);
+    expect((await turn.result).outcome).toBe("completed");
+    expect(turn.visible().at(-1)).toEqual({
+      type: "response",
+      body: "I did not remove build/.",
+    });
+    // Nothing is waiting any more: a later reply is not this turn's.
+    expect(turn.replyHandler?.({ activityId: 9, body: "yes" })).toBeNull();
+  }, 20_000);
+
+  test("permission ask: idle_timeout while waiting ends the turn with an error", async () => {
+    const turn = new TestTurn(
+      fakeConfig(
+        home(),
+        '[sessions]\nidle_timeout = "1s"\nkeepalive_interval = "1s"\nturn_timeout = "1m"',
+        'permission_policy = "ask"',
+      ),
+      "permission",
+    );
+    const result = await turn.result;
+    expect(result.outcome).toBe("failed");
+    expect(turn.visible().at(-1)).toEqual({
+      type: "error",
+      body: "Waited 1s for an answer; reply to resume.",
+    });
+  }, 20_000);
+
+  test("elicit-form: an enum form is a select, and the answer is the enum value", async () => {
+    const turn = new TestTurn(fakeConfig(home()), "elicit-form");
+    const asked = await turn.waitFor((e) => e.type === "elicitation");
+    expect(asked).toEqual({
+      type: "elicitation",
+      body: "Which database should I use?",
+      signal: "select",
+      signalMetadata: {
+        options: [
+          { label: "postgres", value: "postgres" },
+          { label: "sqlite", value: "sqlite" },
+        ],
+      },
+    });
+    expect(turn.replyHandler?.({ activityId: 3, body: "2" })).toBe(true);
+    await turn.result;
+    expect(turn.visible().at(-1)).toEqual({
+      type: "response",
+      body: 'Elicitation: {"action":"accept","content":{"db":"sqlite"}}',
+    });
+  }, 20_000);
+
+  test("elicit-url: an auth elicitation with the link; the next reply accepts", async () => {
+    const turn = new TestTurn(fakeConfig(home()), "elicit-url");
+    const asked = await turn.waitFor((e) => e.type === "elicitation");
+    expect(asked).toEqual({
+      type: "elicitation",
+      body: "Sign in to continue",
+      signal: "auth",
+      signalMetadata: {
+        url: "https://example.com/login",
+        providerName: "Fake Agent",
+      },
+    });
+    expect(turn.replyHandler?.({ activityId: 4, body: "done" })).toBe(true);
+    await turn.result;
+    expect(turn.visible().at(-1)).toEqual({
+      type: "response",
+      body: 'Elicitation: {"action":"accept"}',
+    });
+  }, 20_000);
+
+  test("long + stop: session/cancel, the stop response, and the agent is gone", async () => {
+    const turn = new TestTurn(
+      fakeConfig(home(), '[sessions]\nstop_grace = "2s"'),
+      "long",
+    );
+    await Bun.sleep(1_000);
+    const pid = turn.pids.find((p) => p !== null) as number;
+    expect(alive(pid)).toBe(true);
+    turn.stop("stop");
+    const result = await turn.result;
+    expect(result.outcome).toBe("cancelled");
+    const body = (turn.visible().at(-1) as { body: string }).body;
+    expect(turn.visible().at(-1)?.type).toBe("response");
+    expect(body).toStartWith(
+      "Stopped at your request. Changes so far are in `",
+    );
+    expect(turn.received().map((r) => r.method)).toContain("session/cancel");
+    expect(alive(pid)).toBe(false);
+  }, 20_000);
+
+  test("slow-cancel: SIGTERM, then SIGKILL, within stop_grace + the kill grace", async () => {
+    const turn = new TestTurn(
+      fakeConfig(home(), '[sessions]\nstop_grace = "1s"'),
+      "slow-cancel",
+    );
+    await Bun.sleep(1_000);
+    const pid = turn.pids.find((p) => p !== null) as number;
+    const started = Date.now();
+    turn.stop("kill");
+    const result = await turn.result;
+    expect(Date.now() - started).toBeLessThan(1_000 + 500 + 3_000);
+    expect(result.outcome).toBe("cancelled");
+    expect(alive(pid)).toBe(false);
+    expect((turn.visible().at(-1) as { body: string }).body).toStartWith(
+      "Cancelled from runner test-runner (`hypotenuse agents kill`).",
+    );
+  }, 20_000);
+
+  test("disengaged: a stop the server asked for quietly says nothing", async () => {
+    const turn = new TestTurn(
+      fakeConfig(home(), '[sessions]\nstop_grace = "2s"'),
+      "long",
+    );
+    await Bun.sleep(800);
+    turn.stop("delegate_removed");
+    expect((await turn.result).outcome).toBe("cancelled");
+    expect(turn.visible().map((e) => e.type)).toEqual(["thought"]);
+  }, 20_000);
+
+  test("crash: an error with the stderr tail, redacted", async () => {
+    const turn = new TestTurn(fakeConfig(home()), "crash");
+    const result = await turn.result;
+    expect(result.outcome).toBe("failed");
+    const last = turn.visible().at(-1) as { type: string; body: string };
+    expect(last.type).toBe("error");
+    expect(last.body).toStartWith("fake exited unexpectedly (code 1).");
+    expect(last.body).toContain("panic: out of cheese");
+    expect(last.body).toContain("key [redacted]");
+    expect(last.body).not.toContain("sk-abcdef");
+  }, 20_000);
+
+  test("a command that does not exist: an error naming it, and the agent unavailable", async () => {
+    const root = home();
+    const config = fakeConfig(root);
+    config.agents.fake = {
+      ...config.agents.fake!,
+      command: ["/nonexistent/agent-binary"],
+    };
+    const turn = new TestTurn(config, "happy");
+    expect((await turn.result).outcome).toBe("failed");
+    const last = turn.visible().at(-1) as { type: string; body: string };
+    expect(last.type).toBe("error");
+    expect(last.body).toContain("/nonexistent/agent-binary");
+    expect(turn.availability[0]?.available).toBe(false);
+  }, 20_000);
+
+  test("refusal and max-tokens end with their errors", async () => {
+    const refusal = new TestTurn(fakeConfig(home()), "refusal");
+    expect((await refusal.result).outcome).toBe("failed");
+    expect(refusal.visible().at(-1)).toEqual({
+      type: "error",
+      body: "The agent declined to continue: That would delete production data.",
+    });
+    const tokens = new TestTurn(fakeConfig(home()), "max-tokens");
+    await tokens.result;
+    expect(tokens.visible().at(-1)).toEqual({
+      type: "error",
+      body: "The agent ran out of output tokens. Progress so far is in the working directory; reply to continue.",
+    });
+  }, 20_000);
+
+  test("auth-required with an agent-run method: authenticate once, then proceed", async () => {
+    const turn = new TestTurn(fakeConfig(home()), "auth-required");
+    expect((await turn.result).outcome).toBe("completed");
+    expect(turn.received().map((r) => r.method)).toEqual([
+      "initialize",
+      "session/new",
+      "authenticate",
+      "session/new",
+      "session/prompt",
+    ]);
+  }, 20_000);
+
+  test("auth-required with only a terminal method: the login command, and unavailable", async () => {
+    const turn = new TestTurn(fakeConfig(home()), "auth-terminal");
+    expect((await turn.result).outcome).toBe("failed");
+    expect(turn.visible().at(-1)).toEqual({
+      type: "error",
+      body: "fake on runner test-runner is not logged in. On that machine, run: `hypotenuse agents login fake`",
+    });
+    expect(turn.availability).toEqual([
+      { available: false, error: "not logged in" },
+    ]);
+  }, 20_000);
+
+  test("loadable: a follow-up loads the session, discards the replay, and sends only the request", async () => {
+    const followUp = assignment({
+      kind: "prompt",
+      fresh: false,
+      prompt: [{ activityId: 9, body: "Also the README" }],
+    });
+    const turn = new TestTurn(fakeConfig(home()), "loadable", {
+      assignment: followUp,
+      previousAcpSessionId: "old-session",
+    });
+    expect((await turn.result).outcome).toBe("completed");
+    const received = turn.received();
+    expect(received.map((r) => r.method)).toEqual([
+      "initialize",
+      "session/load",
+      "session/prompt",
+    ]);
+    expect(turn.visible().map((e) => e.type)).toEqual(["thought", "response"]);
+    const text =
+      (received[2]?.params.prompt as { text: string }[])[0]?.text ?? "";
+    expect(text).toContain("<request>\nAlso the README\n</request>");
+    expect(text).not.toContain("<linear-context>");
+    expect((await turn.result).acpSessionId).toBe("old-session");
+  }, 20_000);
+
+  test("resumable: session/resume is preferred over load", async () => {
+    const turn = new TestTurn(fakeConfig(home()), "resumable", {
+      assignment: assignment({
+        kind: "prompt",
+        fresh: false,
+        prompt: [{ activityId: 2, body: "more" }],
+      }),
+      previousAcpSessionId: "old-session",
+    });
+    await turn.result;
+    expect(turn.received().map((r) => r.method)).toEqual([
+      "initialize",
+      "session/resume",
+      "session/prompt",
+    ]);
+  }, 20_000);
+
+  test("a fresh follow-up starts a new session with the whole history", async () => {
+    const turn = new TestTurn(fakeConfig(home()), "loadable", {
+      assignment: assignment({
+        kind: "prompt",
+        fresh: true,
+        history: [
+          {
+            seq: 1,
+            activityId: 1,
+            direction: "outbound",
+            type: "response",
+            body: "Fixed it.",
+            signal: null,
+          },
+          {
+            seq: 2,
+            activityId: 2,
+            direction: "inbound",
+            type: "prompt",
+            body: "Also the README",
+            signal: null,
+          },
+        ],
+        prompt: [{ activityId: 2, body: "Also the README" }],
+      }),
+      previousAcpSessionId: "old-session",
+    });
+    await turn.result;
+    const received = turn.received();
+    expect(received.map((r) => r.method)).toEqual([
+      "initialize",
+      "session/new",
+      "session/prompt",
+    ]);
+    const text =
+      (received[2]?.params.prompt as { text: string }[])[0]?.text ?? "";
+    expect(text).toContain(
+      '<conversation>\n<turn role="agent">\nFixed it.\n</turn>\n</conversation>',
+    );
+    expect(text).toContain("<request>\nAlso the README\n</request>");
+  }, 20_000);
+
+  test("stdout-noise: three non-ACP lines in a row fail the turn", async () => {
+    const turn = new TestTurn(fakeConfig(home()), "stdout-noise");
+    expect((await turn.result).outcome).toBe("failed");
+    const last = turn.visible().at(-1) as { type: string; body: string };
+    expect(last.type).toBe("error");
+    expect(last.body).toStartWith(
+      "fake wrote 3 lines to stdout that are not ACP",
+    );
+  }, 20_000);
+
+  test("turn_timeout: the cancel path with a timeout error", async () => {
+    const turn = new TestTurn(
+      fakeConfig(
+        home(),
+        '[sessions]\nturn_timeout = "1s"\nidle_timeout = "1s"\nkeepalive_interval = "1s"\nstop_grace = "1s"',
+      ),
+      "long",
+    );
+    const result = await turn.result;
+    expect(result.outcome).toBe("failed");
+    expect(turn.visible().at(-1)?.type).toBe("error");
+  }, 20_000);
+
+  test("the session log has stderr and a JSON-RPC trace", async () => {
+    const stateDir = home();
+    const turn = new TestTurn(fakeConfig(stateDir), "crash", { stateDir });
+    await turn.result;
+    const path = sessionLogPath(stateDir, 42);
+    expect(existsSync(path)).toBe(true);
+    const log = readFileSync(path, "utf8");
+    expect(log).toContain("stderr panic: out of cheese");
+    expect(log).toMatch(/rpc -> initialize \d+B/);
+    expect(log).toMatch(/rpc <- session\/update \d+B/);
+  }, 20_000);
+
+  test("the role's mode is selected after the session opens", async () => {
+    const turn = new TestTurn(fakeConfig(home(), "", 'mode = "plan"'), "echo", {
+      env: { FAKE_ACP_SCRIPT: "" },
+    });
+    await turn.result;
+    // The fake agent offers no modes, so the host continues in the default.
+    expect(turn.received().map((r) => r.method)).toEqual([
+      "initialize",
+      "session/new",
+      "session/prompt",
+    ]);
+  }, 20_000);
+});

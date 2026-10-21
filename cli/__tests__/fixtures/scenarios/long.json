@@ -1,0 +1,14 @@
+{
+  "turns": [
+    [
+      { "sleepEnv": "FAKE_ACP_LONG_MS", "default": 60000 },
+      {
+        "update": {
+          "sessionUpdate": "agent_message_chunk",
+          "content": { "type": "text", "text": "Finished the long job." }
+        }
+      },
+      { "stop": "end_turn" }
+    ]
+  ]
+}

@@ -1,0 +1,7 @@
+{
+  "agentCapabilities": {
+    "loadSession": true,
+    "sessionCapabilities": { "resume": {} }
+  },
+  "turns": [[{ "echoPrompt": true }, { "stop": "end_turn" }]]
+}
