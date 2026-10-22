@@ -40,6 +40,12 @@ export const LINEAR_SCOPES = [
  *   `@linear/sdk`'s own webhook client uses. Larger answers 413 unread.
  * - `webhookToleranceMs` — how far the signed `webhookTimestamp` may be from
  *   now before the delivery is refused as a replay.
+ * - `webhookIpAllowlist` — comma-separated IPv4 CIDRs or addresses (and exact
+ *   IPv6 addresses) a delivery must come from; empty, the default, checks
+ *   nothing. Linear publishes the addresses it sends from.
+ * - `webhookTrustForwarded` — read the sender from the last
+ *   `X-Forwarded-For` entry (what the deployment's own proxy saw) instead of
+ *   the socket; for a proxied deployment such as Render.
  * - `eventRetentionDays` — how long `trigger_events` rows live.
  * - `requestsPerHour` / `bucketBurst` / `bucketReserve` — the per-integration
  *   token bucket the outbox spends: Linear's 5,000 requests an hour per app
@@ -75,6 +81,11 @@ export const configLinear = {
   webhookToleranceMs: await loadFromEnvIfSet(
     "LINEAR_WEBHOOK_TOLERANCE_MS",
     60_000,
+  ),
+  webhookIpAllowlist: await loadFromEnvIfSet("LINEAR_WEBHOOK_IP_ALLOWLIST", ""),
+  webhookTrustForwarded: await loadFromEnvIfSet(
+    "LINEAR_WEBHOOK_TRUST_FORWARDED",
+    false,
   ),
   eventRetentionDays: await loadFromEnvIfSet("LINEAR_EVENT_RETENTION_DAYS", 14),
   requestsPerHour: await loadFromEnvIfSet("LINEAR_REQUESTS_PER_HOUR", 5000),

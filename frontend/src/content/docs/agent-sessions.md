@@ -23,16 +23,19 @@ own: its thoughts, the actions it takes, its plan, and its answer.
 | Mention `@hypotenuse` in a comment | the same, in that comment's thread; a mention in a reply keeps the earlier comments as context, and a role prefix such as `/manage` chooses the role |
 | Reply in the session's thread | records your message and sends it to the runner holding the session — *Got it — I'll read this when the current step finishes.* if it is busy |
 | Answer the repository question | takes your answer as the repository and starts |
-| Press **Stop** | stops the work: *Stopped before starting.*, the agent's own account of where it stopped, or *Stopped. Nothing was running.* |
-| Remove `@hypotenuse` as the delegate, or dismiss the session | stops the work quietly |
+| Press **Stop** | stops the work and withdraws anything not yet posted: *Stopped before starting.*, the agent's own account of where it stopped, or *Stopped. Nothing was running.* — with anything you typed alongside quoted back, never acted on |
+| Remove `@hypotenuse` as the delegate, dismiss the session, or unassign it | stops the work quietly |
 | Move the issue to a completed or canceled state, or delete it | stops the work quietly |
+| Assign the issue to `@hypotenuse` (instead of delegating) | nothing starts; the Linear card in Settings explains that it works by delegation |
 
 When no runner can take the work, the session says why and keeps waiting; after the project's queue timeout (30
 minutes by default) it ends with an error naming the reason — no runner takes that team's work, they are all
 offline, none has the repository, or all are busy. Replying in the session's thread opens it again.
 
 Hypotenuse never says anything in a session that implies a person wrote it, and never names a model: the badge
-on `@hypotenuse` already says it is an app.
+on `@hypotenuse` already says it is an app, and the agent's final answer ends in a folded block saying an AI agent
+wrote it, which agent, and on whose runner. When a runner needs a login to carry on, the session shows a sign-in
+prompt to the runner's owner — see [coding agents](/docs/agents#logging-in).
 
 ## Keeping the issue tidy
 

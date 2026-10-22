@@ -53,10 +53,18 @@ hypotenuse agents login claude     # log it in, then check again
 yours; one the agent can do itself is asked for over the protocol. Agents that sign in with their own tools (for
 example `claude` after `claude login`, or an API key in `env`) need nothing more.
 
-If a turn finds the agent logged out, the session says so in Linear — *"claude on runner evan-mbp is not logged in.
-On that machine, run: `hypotenuse agents login claude`"* — and the runner stops being offered work for that agent.
-`agents login` tells a running daemon once the agent can open a session again (so does `hypotenuse daemon
-reload`), and work resumes.
+If a turn finds the agent logged out, the session asks for a login in Linear — a sign-in prompt, shown to the
+runner's owner (their linked Linear account, or else whoever started the session) — and the runner stops being
+offered work for that agent. The prompt links the runner's **auth page** in the dashboard
+(`/runners/<id>/auth/<agent>`), which shows the owner the exact command to run on that machine, usually
+`hypotenuse agents login claude`; anyone else is told who to ask. `agents login` tells a running daemon once the
+agent can open a session again (so does `hypotenuse daemon reload`). Reply in the session — anything will do — and
+the next turn opens with *"Signed in — continuing."* and carries on.
+
+The same happens before a turn starts when the repository's remote refuses the runner's git credentials, or when a
+worker's repository is on GitHub and the GitHub CLI (if installed) is not signed in: the prompt names GitHub (or the
+git host), and its auth page gives `gh auth login` / `gh auth setup-git` or what git needs. An agent that asks for
+a sign-in by link mid-turn gets that link passed through, when it is a public `https` address.
 
 ## What you see in Linear
 
@@ -67,7 +75,8 @@ reload`), and work resumes.
 | keeps a plan | the session's plan, kept current |
 | names the work | the session's title |
 | asks a question | an elicitation — a choice when it offered choices |
-| finishes | its answer as the response |
+| needs a login | a sign-in prompt linking the runner's auth page |
+| finishes | its answer as the response, ending in a folded *— Hypotenuse (worker, Claude Code)* block that names the agent and runner, so the answer says an AI wrote it wherever it is copied |
 | refuses, runs out of tokens, crashes, or times out | an error that says which, and that a reply continues |
 
 A long build that prints nothing still shows *"Still working"* every `keepalive_interval`, so Linear never thinks
@@ -107,17 +116,18 @@ to its working directory and the role's `additional_directories`.
 
 ## Stopping
 
-Press **Stop** in Linear and the agent is told to stop at once. It gets `stop_grace` (10 seconds) to wind down, then
+Press **Stop** in Linear and the agent is told to stop at once — and anything it had queued but not yet posted
+(a thought, a tool call) is withdrawn, so nothing but its answer appears after your stop. It gets `stop_grace` (10 seconds) to wind down, then
 it is terminated, and the session says where the work was left. Nothing is still running after a stop: the next
 message starts the agent again, picking its session back up where the agent supports that.
 
 | Stopped by | The session ends with |
 |---|---|
-| Stop in Linear | *"Stopped at your request. Changes so far are …"* |
+| Stop in Linear | *"Stopped at your request. Changes so far are …"* — and anything you typed with the stop, quoted back; it is never acted on |
 | `hypotenuse agents kill` or the dashboard | an error saying it was cancelled, and from where |
 | `turn_timeout` | *"Stopped after 1h. Reply to continue from where it left off."* |
 | the daemon shutting down mid-turn | *"The runner … shut down mid-turn. Reply to continue …"* |
-| un-delegating, dismissing the session, or completing, canceling, or deleting the issue | nothing — you stepped away, so it stays quiet |
+| un-delegating, dismissing the session, unassigning the app, or completing, canceling, or deleting the issue | nothing — you stepped away, so it stays quiet |
 
 ## Follow-ups
 

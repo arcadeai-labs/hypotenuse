@@ -27,6 +27,8 @@ export interface ProcessResult {
   revokedIntegrationId?: number;
   /** Work routing's frames and routing pass, for after the commit. */
   effects?: WorkEffects;
+  /** When the `triggers:check-notifications` clock should look again. */
+  checkAfter?: Date;
 }
 
 /** A handler's answer before it is written to the event row. */
@@ -85,7 +87,11 @@ export async function processTriggerEvent(
 
       await tx
         .update(triggerEvents)
-        .set({ processedAt: new Date(), outcome: result.outcome })
+        .set({
+          processedAt: new Date(),
+          outcome: result.outcome,
+          checkAfter: result.checkAfter ?? null,
+        })
         .where(eq(triggerEvents.id, event.id));
       return result;
     });

@@ -39,6 +39,7 @@ export const SENSITIVE_KEYS = [
   "refresh_token",
   // OAuth hops
   "clientSecret",
+  "client_secret",
   "webhookSecret",
   "code",
   "codeVerifier",

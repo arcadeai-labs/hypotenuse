@@ -14,6 +14,7 @@ import {
   NOT_YOUR_WORK,
   runnerChannel,
   SEQ_REGRESSION,
+  stopQuote,
 } from "@hypotenuse/protocol";
 import { and, asc, eq, gt, inArray, isNotNull, lt, or, sql } from "drizzle-orm";
 import { api, config, ErrorType, TypedError } from "keryx";
@@ -42,7 +43,9 @@ import {
   enqueueSessionUpdate,
   type OutboundContent,
   OutboxValidationError,
+  supersedeNonFinal,
 } from "./ActivityOutboxOps";
+import { resolveAuthMetadata } from "./AuthSignalOps";
 import { enqueueReviewIfChild } from "./DispatchOps";
 import { resolveIssuer } from "./IdentityOps";
 import type { TxHandle } from "./ProjectOps";
@@ -120,13 +123,14 @@ const STOPPING_EVENT_TYPES = new Set(["response", "error"]);
 
 /**
  * Cancel reasons that mean the person disengaged — un-delegated the issue,
- * dismissed the session, closed the issue, or removed the app's access. A
- * turn cancelled for one of these says nothing more: every later event is
+ * dismissed the session, unassigned the app, closed the issue, or removed the
+ * app's access. A turn cancelled for one of these says nothing more: every later event is
  * dropped, and no fallback answer is posted (AIG: respect disengagement).
  */
 export const DISENGAGED_CANCEL_REASONS: ReadonlySet<string> = new Set([
   "delegate_removed",
   "issue_closed",
+  "unassigned",
   "integration_revoked",
 ]);
 
@@ -526,6 +530,8 @@ export interface CancelRequest {
   announce: boolean;
   /** The person who cancelled from the dashboard or CLI, named in what Linear is told. */
   by?: { userId: number; name: string } | null;
+  /** What the person typed along with a Linear stop, quoted back and never acted on. */
+  said?: string | null;
 }
 
 /**
@@ -555,7 +561,10 @@ export function dashboardStoppedBody(
  * A cancel from the dashboard or CLI (`by`) records who on every live item
  * and names them in each answer in place of "Stopped before starting.".
  *
- * A pending repository question is dropped: the work it was for is gone.
+ * A pending repository question is dropped: the work it was for is gone, and
+ * so is every activity still queued for Linear that is not a `response` or an
+ * `error` (`supersedeNonFinal`) — nothing more is said after a stop but its
+ * answer. (A lost integration's rows are failed by its caller instead.)
  * @param tx - The transaction.
  * @param agentSessionId - The session.
  * @param request - Why, and whether to say so.
@@ -575,8 +584,15 @@ export async function cancelSessionWork(
       .set({ pendingRepositoryChoice: null })
       .where(eq(agentSessions.id, session.id));
   }
+  // A lost integration fails the whole outbox instead, saying why.
+  if (request.reason !== "integration_revoked") {
+    await supersedeNonFinal(tx, agentSessionId);
+  }
   const items = await liveItems(tx, agentSessionId);
   const by = request.by ?? null;
+  const quote = request.reason === "stop" ? stopQuote(request.said) : "";
+  // Kept for the daemon's own answer only when there is something to quote.
+  const said = quote ? (request.said?.trim() ?? null) : null;
   if (by && items.length > 0) {
     await tx
       .update(workItems)
@@ -590,7 +606,9 @@ export async function cancelSessionWork(
   }
   const stopped: OutboundContent = {
     type: "response",
-    body: by ? dashboardStoppedBody(by.name, true) : STOPPED_BEFORE_START_BODY,
+    body: by
+      ? dashboardStoppedBody(by.name, true)
+      : `${STOPPED_BEFORE_START_BODY}${quote}`,
   };
   let announced = false;
   const active = items.find((i) =>
@@ -602,7 +620,11 @@ export async function cancelSessionWork(
       if (!item.cancelRequestedAt) {
         await tx
           .update(workItems)
-          .set({ cancelRequestedAt: new Date(), cancelReason: request.reason })
+          .set({
+            cancelRequestedAt: new Date(),
+            cancelReason: request.reason,
+            cancelNote: said,
+          })
           .where(eq(workItems.id, item.id));
       }
       if (item.runnerId) effects.frames.set(item.runnerId, "cancel");
@@ -629,7 +651,7 @@ export async function cancelSessionWork(
     await enqueueActivity(
       tx,
       agentSessionId,
-      { type: "response", body: STOPPED_NOTHING_BODY },
+      { type: "response", body: `${STOPPED_NOTHING_BODY}${quote}` },
       { priority: "ack" },
     );
     effects.deliver.add(agentSessionId);
@@ -843,6 +865,7 @@ export async function heartbeatWork(
           workItemId: i.id,
           reason: i.cancelReason ?? "stop",
           ...(by ? { by } : {}),
+          ...(i.cancelNote ? { said: i.cancelNote } : {}),
         };
       }),
     unknownActive: active.filter((id) => !heldIds.has(id)),
@@ -1524,17 +1547,23 @@ async function recordEvent(
         clientActivityId,
       });
       return;
-    case "elicitation":
+    case "elicitation": {
+      const reported = (event.signalMetadata ?? {}) as Record<string, unknown>;
       await enqueueActivity(tx, sessionId, activityContent(event), {
         ...(event.signal
           ? {
               signal: event.signal,
-              signalMetadata: event.signalMetadata as Record<string, unknown>,
+              // An auth link's address and audience are the server's call.
+              signalMetadata:
+                event.signal === "auth"
+                  ? await resolveAuthMetadata(tx, item, reported)
+                  : reported,
             }
           : {}),
         clientActivityId,
       });
       return;
+    }
     case "response":
     case "error":
       await enqueueActivity(tx, sessionId, activityContent(event), {
@@ -1628,7 +1657,10 @@ export async function completeWork(
             type: "error",
             body: request.error?.trim() || FAILED_FALLBACK_BODY,
           }
-        : { type: "response", body: STOPPED_FALLBACK_BODY };
+        : {
+            type: "response",
+            body: `${STOPPED_FALLBACK_BODY}${stopQuote(item.cancelNote)}`,
+          };
   const effects = await finishWorkItem(tx, item, {
     status: request.outcome,
     outcome: {
@@ -1695,7 +1727,10 @@ export async function reapWork(): Promise<ReapResult> {
           result.effects,
           await finishWorkItem(tx, item, {
             status: "cancelled",
-            fallback: { type: "response", body: STOP_UNCONFIRMED_BODY },
+            fallback: {
+              type: "response",
+              body: `${STOP_UNCONFIRMED_BODY}${stopQuote(item.cancelNote)}`,
+            },
             urgent: true,
           }),
         );

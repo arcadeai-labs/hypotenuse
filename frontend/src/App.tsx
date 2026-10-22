@@ -26,6 +26,7 @@ import { HomePage } from "./pages/marketing/HomePage";
 import NewProjectPage from "./pages/NewProjectPage";
 import ProjectHomePage from "./pages/ProjectHomePage";
 import RoutingPage from "./pages/RoutingPage";
+import RunnerAuthPage from "./pages/RunnerAuthPage";
 import RunnersPage from "./pages/RunnersPage";
 import SessionPage from "./pages/SessionPage";
 import SessionsPage from "./pages/SessionsPage";
@@ -77,6 +78,10 @@ export function App() {
                 <Route path="/sessions" element={<SessionsPage />} />
                 <Route path="/sessions/:id" element={<SessionPage />} />
                 <Route path="/runners" element={<RunnersPage />} />
+                <Route
+                  path="/runners/:runnerId/auth/:provider"
+                  element={<RunnerAuthPage />}
+                />
                 <Route path="/routing" element={<RoutingPage />} />
                 <Route path="/identities" element={<IdentitiesPage />} />
                 <Route path="/projects/new" element={<NewProjectPage />} />

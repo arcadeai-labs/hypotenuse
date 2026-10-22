@@ -52,8 +52,9 @@ All shared values live on the **`hypotenuse-shared`** env group, which both back
 | `LINEAR_CLIENT_SECRET` | group, dashboard | **required**; from the Linear OAuth app |
 | `LINEAR_WEBHOOK_SECRET` | group, dashboard | **required**; the app's webhook signing secret |
 | `LINEAR_WEBHOOK_SECRET_PREVIOUS` | group, dashboard | only while rotating the webhook secret (below); unset otherwise |
+| `LINEAR_WEBHOOK_IP_ALLOWLIST`, `LINEAR_WEBHOOK_TRUST_FORWARDED` | api, dashboard | optional; off by default. Comma-separated addresses or IPv4 CIDRs Linear delivers from (Linear publishes them); others get the unverified 401. Behind Render's proxy set `LINEAR_WEBHOOK_TRUST_FORWARDED=true`, so the sender is the last `X-Forwarded-For` hop Render appended — and keep the list current, or every delivery is refused |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM` | group, dashboard | optional; without `SMTP_HOST`, mail is logged, not sent |
-| `FRONTEND_URL` | group | `https://www.hypotenuse.cloud` — the worker writes it into e-mail and Linear `externalUrls`; the api answers it as `/api/status` `dashboardUrl`, which `hypotenuse login` opens, and as the device flow's `/cli/activate` URL |
+| `FRONTEND_URL` | group | `https://www.hypotenuse.cloud` — the worker writes it into e-mail, Linear `externalUrls`, and the runner auth pages `auth` prompts link; the api answers it as `/api/status` `dashboardUrl`, which `hypotenuse login` opens, and as the device flow's `/cli/activate` URL |
 | `NODE_ENV`, `LOG_LEVEL`, `LOG_FORMAT` | group | `production`, `info`, `json` |
 | `SENTRY_DSN`, `SENTRY_ENVIRONMENT`, `SENTRY_TRACES_SAMPLE_RATE=0`, `SENTRY_ENABLE_METRICS=false`, `SENTRY_ENABLE_LOGS=false` | group | errors only |
 | `APPLICATION_URL` | api + worker | `https://api.hypotenuse.cloud` |

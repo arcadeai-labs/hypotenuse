@@ -43,6 +43,8 @@ export interface DeliverOptions {
   /** The exact body bytes, instead of `JSON.stringify(payload)`. */
   raw?: string | Uint8Array;
   method?: string;
+  /** More request headers. */
+  headers?: Record<string, string>;
 }
 
 /** What the server answered. */
@@ -80,6 +82,7 @@ export async function deliver(
       (payload as { webhookTimestamp?: unknown }).webhookTimestamp ?? "",
     ),
     "User-Agent": "Linear-Webhook",
+    ...options.headers,
   };
   if (deliveryId !== null) headers["Linear-Delivery"] = deliveryId;
   if (signature !== null) headers["Linear-Signature"] = signature;
@@ -206,11 +209,13 @@ export function oauthAppRevoked(target: Target): OAuthAppWebhookPayload {
  * `AppUserNotification` of one notification type.
  * @param target - The workspace and app.
  * @param action - The notification type, e.g. `issueMention`.
+ * @param fields - More notification fields: `issueId` and `issue`, `actorId`.
  * @returns The payload, stamped now.
  */
 export function appUserNotification(
   target: Target,
   action: string,
+  fields: Record<string, unknown> = {},
 ): AppUserNotificationWebhookPayloadWithNotification {
   return {
     type: "AppUserNotification",
@@ -227,6 +232,7 @@ export function appUserNotification(
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       userId: target.appUserId,
+      ...fields,
     },
   } as unknown as AppUserNotificationWebhookPayloadWithNotification;
 }

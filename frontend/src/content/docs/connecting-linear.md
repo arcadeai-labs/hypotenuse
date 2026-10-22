@@ -70,7 +70,15 @@ Once connected: the workspace and its address, the name `@hypotenuse` has there 
 clashes with a member's name), the permissions granted, how many teams it can see, when its access token expires
 and was last renewed, and — once Hypotenuse has talked to Linear — how much of Linear's rate limit is left. It
 also shows when Linear's last webhook arrived and what became of the most recent ones: `handled`, `ignored` (an
-event Hypotenuse has no use for), or `failed` (Hypotenuse could not process it — the card says why). A workspace
+event Hypotenuse has no use for), or `failed` (Hypotenuse could not process it — the card says why). Linear's
+inbox notifications to `@hypotenuse` are listed too, and none of them starts work — delegating does:
+
+| Outcome | Means |
+|---|---|
+| `noted` | seen; nothing to do (a mention Linear also started a session for) |
+| `mention_without_session` | `@hypotenuse` was mentioned but no session followed — usually lost permissions; reconnect Linear |
+| `assigned_not_delegated` | someone *assigned* the issue to `@hypotenuse`. It works by delegation: set it as the issue's agent instead |
+| `disengaged` | the app was unassigned, or a person closed the issue, so its running work stopped, quietly | A workspace
 that has gone quiet for longer than you expect, or a run of failures, is the first thing to look at when
 `@hypotenuse` does not answer.
 

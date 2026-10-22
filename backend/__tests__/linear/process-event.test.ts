@@ -489,7 +489,7 @@ describe("other events", () => {
     }
   });
 
-  test("LC-BP-08 an AppUserNotification is recorded as handled and starts nothing", async () => {
+  test("LC-BP-08 an AppUserNotification is recorded as noted and starts nothing", async () => {
     const sessionsBefore = await api.db.db.select().from(agentSessions);
     const res = await deliver(url, appUserNotification(target, "issueMention"));
     expect(res.status).toBe(200);
@@ -498,7 +498,7 @@ describe("other events", () => {
       .select()
       .from(triggerEvents)
       .where(eq(triggerEvents.eventType, "AppUserNotification"));
-    expect(row.outcome).toBe("handled");
+    expect(row.outcome).toBe("noted");
     expect(await api.db.db.select().from(agentSessions)).toHaveLength(
       sessionsBefore.length,
     );

@@ -18,6 +18,7 @@ import {
   Table,
 } from "../../../ui";
 import { apiFetch } from "../../../utils/client";
+import { outcomeView } from "../../../utils/deliveryOutcomes";
 import SectionCard from "../../sections/SectionCard";
 import { useSectionSave } from "../../sections/useSectionSave";
 import { useProjectSettings } from "../context";
@@ -445,20 +446,22 @@ function RecentDeliveries({
         </tr>
       </thead>
       <tbody>
-        {deliveries.recent.map((d) => (
-          <tr key={d.id} data-testid={`linear-delivery-${d.id}`}>
-            <td className="tabular">{when(d.receivedAt)}</td>
-            <td>
-              {d.eventType} · {d.action}
-            </td>
-            <td>
-              <Badge bg={d.outcome === "failed" ? "danger" : "secondary"}>
-                {d.outcome}
-              </Badge>
-              {d.error && <span className="text-muted"> {d.error}</span>}
-            </td>
-          </tr>
-        ))}
+        {deliveries.recent.map((d) => {
+          const view = outcomeView(d.outcome);
+          return (
+            <tr key={d.id} data-testid={`linear-delivery-${d.id}`}>
+              <td className="tabular">{when(d.receivedAt)}</td>
+              <td>
+                {d.eventType} · {d.action}
+              </td>
+              <td>
+                <Badge bg={view.tone}>{d.outcome}</Badge>
+                {d.error && <span className="text-muted"> {d.error}</span>}
+                {view.hint && <span className="text-muted"> {view.hint}</span>}
+              </td>
+            </tr>
+          );
+        })}
       </tbody>
     </Table>
   );

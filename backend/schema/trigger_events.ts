@@ -20,6 +20,16 @@ export const TRIGGER_EVENT_OUTCOMES = [
   "ignored",
   "unknown_integration",
   "failed",
+  // `AppUserNotification`s (see `handleAppUserNotification`): seen and
+  // recorded, nothing to do — or a check is still due (`checkAfter`).
+  "noted",
+  // A mention Linear started no session for: the app has likely lost
+  // `app:mentionable`.
+  "mention_without_session",
+  // The issue was *assigned* to the app user; Hypotenuse works by delegation.
+  "assigned_not_delegated",
+  // The notification ended live work: unassigned, or the issue closed.
+  "disengaged",
 ] as const;
 
 /** One of {@link TRIGGER_EVENT_OUTCOMES}. */
@@ -73,6 +83,13 @@ export const triggerEvents = pgTable(
       .default("pending"),
     /** Why processing failed, for `failed`. */
     error: text("error"),
+    /**
+     * When a processed notification is checked again by the
+     * `triggers:check-notifications` clock — a mention that should have
+     * started a session, a status change whose new state must be read from
+     * Linear. Null when nothing is due.
+     */
+    checkAfter: timestamp("check_after", { withTimezone: true }),
   },
   (t) => ({
     deliveryIndex: uniqueIndex("trigger_events_delivery_idx").on(
@@ -83,6 +100,10 @@ export const triggerEvents = pgTable(
     unprocessedIndex: index("trigger_events_unprocessed_idx")
       .on(t.processedAt)
       .where(sql`${t.processedAt} IS NULL`),
+    // The notification clock's only query.
+    checkIndex: index("trigger_events_check_idx")
+      .on(t.checkAfter)
+      .where(sql`${t.checkAfter} IS NOT NULL`),
     // Retention deletes by age.
     receivedIndex: index("trigger_events_received_idx").on(t.receivedAt),
   }),

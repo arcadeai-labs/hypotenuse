@@ -116,7 +116,9 @@ Hypotenuse project** with `actor=app` and scopes `read,write,app:assignable,app:
 comments:create`. The app user's id (`viewer.id`) is unique per workspace and stored as the integration's `externalAppUserId`.
 
 Every Linear webhook arrives at one endpoint, `POST /api/webhooks/linear`, and is identified to a `linear`
-integration by its `organizationId` (the integration's `externalWorkspaceId`). The handler caps the body (5 MiB, 413 beyond), verifies `Linear-Signature` (HMAC-SHA256 of the
+integration by its `organizationId` (the integration's `externalWorkspaceId`). When `LINEAR_WEBHOOK_IP_ALLOWLIST` is set, a delivery from another address is
+refused first, with the same 401 as a bad signature (`LINEAR_WEBHOOK_TRUST_FORWARDED` reads the sender from the
+deployment proxy's last `X-Forwarded-For` hop). The handler caps the body (5 MiB, 413 beyond), verifies `Linear-Signature` (HMAC-SHA256 of the
 raw body, constant time; `LINEAR_WEBHOOK_SECRET_PREVIOUS` also verifies during a rotation), checks the signed
 body's `webhookTimestamp` is within ±60 s, deduplicates on `Linear-Delivery`, inserts a `trigger_events` row,
 answers 200 well inside Linear's 5-second budget, and enqueues `triggers:process-event`. A bad signature and a stale
@@ -129,12 +131,16 @@ What each event does:
 | Event | Effect |
 |---|---|
 | `AgentSessionEvent` / `created` | upsert `agent_sessions`; enqueue an immediate acknowledgement `thought` (Linear marks a session unresponsive after 10 s without one); select a role and repository; insert a `work_items` row; ping eligible runners |
-| `AgentSessionEvent` / `prompted` | record the inbound `prompt` activity; if `signal = stop`, cancel the live work item; otherwise insert a follow-up work item sticky to the session's runner |
+| `AgentSessionEvent` / `prompted` | record the inbound `prompt` activity; if `signal = stop`, cancel the live work item, withdraw every queued activity that is not a `response` or `error`, and quote any text typed with the stop in the final answer; otherwise (including `signal = continue`, a plain prompt) insert a follow-up work item sticky to the session's runner |
 | `PermissionChange` / `teamAccessChanged` | update the integration's team access; cancel sessions on teams it lost |
 | `OAuthApp` / `revoked` | mark the integration revoked; cancel every live session; notify project admins |
 | `Issue` / `update` with `delegateId` removed | cancel live work for that issue, quietly (`delegate_removed`; a dismissed session removes the delegate) |
 | `Issue` / `update` to a `completed` or `canceled` state, or `remove` | cancel live work for that issue, quietly (`issue_closed`) |
-| `AppUserNotification` / * | recorded and surfaced in the dashboard; no work is started (sessions are the work trigger) |
+| `AppUserNotification` / `issueMention`, `issueCommentMention` | `noted`; 30 s later the `triggers:check-notifications` clock records `mention_without_session` if no session followed (the app may have lost `app:mentionable`) |
+| `AppUserNotification` / `issueAssignedToYou` | `assigned_not_delegated`, explained on the integration card; no work (Hypotenuse works by delegation) |
+| `AppUserNotification` / `issueUnassignedFromYou` | cancel live work for that issue, quietly (`unassigned`); `disengaged` |
+| `AppUserNotification` / `issueStatusChanged` by a person, with live work | the clock reads the issue's state from Linear (the notification carries none); `completed` or `canceled` cancels it quietly (`issue_closed`) |
+| `AppUserNotification` / anything else (reactions, new comments, `pullRequest*`, …) | recorded, `ignored`; sessions are the work trigger |
 | anything else | recorded, `outcome = ignored` |
 
 The acknowledgement is *"On it — finding a runner for ENG-123."*; routing then names the role it chose, the
@@ -145,7 +151,7 @@ server's for work not started, the daemon's (from the heartbeat cancel's `by`) f
 on a question with no turn behind it is answered by the server, and one with nothing to stop is refused. A team-access change marks sessions on
 removed teams `error` and cancels their work; a removed delegate is recorded on the session (`delegateRemovedAt`)
 and its work cancelled without a word, because the person disengaged. "Without a word" is enforced on the server:
-after a disengagement cancel (`delegate_removed`, `issue_closed`, `integration_revoked`) every event the daemon
+after a disengagement cancel (`delegate_removed`, `issue_closed`, `unassigned`, `integration_revoked`) every event the daemon
 still sends for the turn is dropped, and its end posts no fallback answer.
 
 **Issue hygiene runs at claim**, on the server (`ops/IssueHygieneOps.ts`), so no daemon holds `issueUpdate` rights:
@@ -400,6 +406,7 @@ costs latency, never correctness.
 | Task | Every | Does |
 |---|---|---|
 | `triggers:process-event` | enqueued per delivery; `triggers:process-pending` every 5 s for a lost job | the event table above |
+| `triggers:check-notifications` | 10 s | the second look a notification asked for (`trigger_events.checkAfter`): did a session follow a mention; did a status change close an issue with live work |
 | `activities:deliver` | enqueued per session; `activities:deliver-due` every 1 s | drains the outbound outbox under the token bucket |
 | `work:route` | enqueued + 5 s | lapses expired offers; prepares new sessions (reads the issue, chooses the role and repository); offers each session's next queued turn; expires work with no eligible runner after `routing.queueTimeoutMs` |
 | `work:reap` | 15 s | marks runners `offline` after `runners.offlineAfterMs` (45 s) without a heartbeat; returns claims with lapsed leases to `queued`; ends stopped turns whose runner did not confirm within `routing.stopGraceMs` |

@@ -122,7 +122,10 @@ describe("work that has not started", () => {
 
     await personSays(linear, externalSessionId, "Stop again", "stop");
     expect(await lastOutbound(session.id)).toMatchObject({
-      content: { type: "response", body: STOPPED_NOTHING_BODY },
+      content: {
+        type: "response",
+        body: `${STOPPED_NOTHING_BODY}\n\n> You said: Stop again`,
+      },
       priority: "ack",
     });
   });
