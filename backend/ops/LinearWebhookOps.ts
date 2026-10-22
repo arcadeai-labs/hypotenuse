@@ -1,5 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { and, eq, inArray, isNull, notInArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, notInArray, sql } from "drizzle-orm";
 import { api, config } from "keryx";
 import {
   ACTIVITY_SIGNALS,
@@ -310,12 +310,21 @@ export async function handleAgentSessionEvent(
       };
     }
     if (adopted) {
+      // The dispatch's turn, when it queued one (a sibling already holding
+      // the issue's dispatch means it did not).
+      const [turn] = await tx
+        .select({ id: workItems.id })
+        .from(workItems)
+        .where(eq(workItems.agentSessionId, session.id))
+        .orderBy(desc(workItems.id))
+        .limit(1);
       return {
         outcome: "handled",
         deliver: [...adopted.effects.deliver],
         effects: adopted.effects,
         summary: `Adopted as the worker session a manager's dispatch started on ${issue}.`,
         ...about,
+        workItemId: turn?.id ?? null,
       };
     }
     await enqueueActivity(
