@@ -33,7 +33,7 @@
     },
     "cli": {
       "name": "@arcadeai/hypotenuse",
-      "version": "0.12.0",
+      "version": "0.13.1",
       "bin": {
         "hypotenuse": "./dist/hypotenuse.js",
       },
