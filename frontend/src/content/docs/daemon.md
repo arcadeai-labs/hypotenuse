@@ -20,8 +20,8 @@ hypotenuse daemon start
 ```
 
 `config init` writes `~/.config/hypotenuse/config.toml` with the server you signed in to, the coding agent it found
-on this machine, and each `--repo` you named (its name, its `origin`, and its default branch). Everything else is a
-commented example. Every key is in the [config file reference](/docs/config).
+on this machine playing both [roles](/docs/manager-and-worker) (a read-only manager and a worker), and each `--repo`
+you named (its name, its `origin`, and its default branch). Everything else is a commented example. Every key is in the [config file reference](/docs/config).
 
 ## Check the config
 
