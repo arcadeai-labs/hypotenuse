@@ -118,8 +118,8 @@ The **Routing** page's preview answers "what would happen if this issue were del
 
 The preview runs the same rules and the same runner checks as real routing, against the issue as Linear has it now
 and the runners as they are now. It changes nothing, and any member may run it. Ranking repositories asks Linear,
-which spends the workspace's API budget, so the preview does it only when you ask ("Ask Linear about the
-repository", or `--with-repository`). From the terminal:
+which spends the workspace's API budget, so the preview does it only when you ask ("Ask Linear to rank
+repositories", or `--with-repository`). From the terminal:
 
 ```bash
 hypotenuse routing preview ENG-123

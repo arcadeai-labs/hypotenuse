@@ -154,8 +154,10 @@ export class ProjectOverview implements Action {
           AND finished_at >= ${since}`)
     ).rows;
 
+    // Clamped at zero: a session row written after its first activity
+    // (clock skew between processes) must not show a negative wait.
     const ms = (v: number | string | null | undefined) =>
-      v === null || v === undefined ? null : Math.round(Number(v));
+      v === null || v === undefined ? null : Math.max(0, Math.round(Number(v)));
     return {
       overview: {
         window: params.window,

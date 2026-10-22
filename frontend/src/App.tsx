@@ -16,15 +16,19 @@ import { LiveSocketProvider } from "./context/LiveSocketContext";
 import { NotificationProvider } from "./context/NotificationContext";
 import AccountPage from "./pages/AccountPage";
 import AuditLogPage from "./pages/AuditLogPage";
-import { PlaceholderPage } from "./pages/app/PlaceholderPage";
 import { CliActivatePage } from "./pages/cli/CliActivatePage";
 import { CliAuthorizePage } from "./pages/cli/CliAuthorizePage";
 import { DocsLayout } from "./pages/docs/DocsLayout";
 import { DocsPage } from "./pages/docs/DocsPage";
+import IdentitiesPage from "./pages/IdentitiesPage";
 import InvitesPage from "./pages/InvitesPage";
 import { HomePage } from "./pages/marketing/HomePage";
 import NewProjectPage from "./pages/NewProjectPage";
+import ProjectHomePage from "./pages/ProjectHomePage";
+import RoutingPage from "./pages/RoutingPage";
 import RunnersPage from "./pages/RunnersPage";
+import SessionPage from "./pages/SessionPage";
+import SessionsPage from "./pages/SessionsPage";
 import SettingsPage from "./pages/SettingsPage";
 import { SignInPage } from "./pages/SignInPage";
 import { SignUpPage } from "./pages/SignUpPage";
@@ -69,19 +73,12 @@ export function App() {
                 <Route path="/cli/activate" element={<CliActivatePage />} />
               </Route>
               <Route element={<AppShell />}>
-                <Route
-                  path="/home"
-                  element={<PlaceholderPage title="Home" />}
-                />
-                <Route
-                  path="/sessions"
-                  element={<PlaceholderPage title="Sessions" />}
-                />
+                <Route path="/home" element={<ProjectHomePage />} />
+                <Route path="/sessions" element={<SessionsPage />} />
+                <Route path="/sessions/:id" element={<SessionPage />} />
                 <Route path="/runners" element={<RunnersPage />} />
-                <Route
-                  path="/routing"
-                  element={<PlaceholderPage title="Routing" />}
-                />
+                <Route path="/routing" element={<RoutingPage />} />
+                <Route path="/identities" element={<IdentitiesPage />} />
                 <Route path="/projects/new" element={<NewProjectPage />} />
                 <Route path="/invites" element={<InvitesPage />} />
                 <Route path="/audit" element={<AuditLogPage />} />

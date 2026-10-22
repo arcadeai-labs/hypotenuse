@@ -1,8 +1,8 @@
 import type { UserEdit } from "@backend/actions/user-edit";
 import type { ActionResponse } from "keryx";
 import { type FormEvent, useState } from "react";
+import { Link } from "react-router-dom";
 import { CliSignInsCard } from "../components/account/CliSignInsCard";
-import { LinkedIdentitiesCard } from "../components/account/LinkedIdentitiesCard";
 import LoadingLabel from "../components/LoadingLabel";
 import { useSeededDraft } from "../components/sections/useSeededDraft";
 import { PageHeader } from "../components/shell/PageHeader";
@@ -161,7 +161,10 @@ export default function AccountPage() {
 
       <CliSignInsCard />
 
-      <LinkedIdentitiesCard />
+      <p className="text-muted" data-testid="account-identities-link">
+        The Linear accounts linked to you are on the{" "}
+        <Link to="/identities">Identities</Link> page.
+      </p>
     </div>
   );
 }

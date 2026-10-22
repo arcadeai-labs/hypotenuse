@@ -1,6 +1,6 @@
 import { Menu } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Outlet, useNavigate } from "react-router-dom";
+import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import {
   createSequenceMatcher,
   isTypingTarget,
@@ -66,6 +66,7 @@ function useNarrow(): boolean {
  */
 export function AppShell() {
   const navigate = useNavigate();
+  const { pathname } = useLocation();
   const { setPreference } = useTheme();
   const { permissions } = useAuth();
   const standing = useProjectStanding();
@@ -103,8 +104,9 @@ export function AppShell() {
       focusSearch: () =>
         document.querySelector<HTMLElement>("[data-search]")?.focus(),
       may,
+      pathname,
     }),
-    [navigate, setPreference, toggleSidebar, may],
+    [navigate, setPreference, toggleSidebar, may, pathname],
   );
   const commands = useMemo(() => availableCommands(COMMANDS, ctx), [ctx]);
   const run = useCallback((command: Command) => command.run(ctx), [ctx]);

@@ -49,13 +49,14 @@ The machines that take the project's work, grouped by owner: whether each is onl
 and repositories it reports, its version, and its last heartbeat. A runner that goes offline in the middle of work
 is the one thing drawn loudly.
 
-Registering a runner from the dashboard shows its token **once**, with the exact commands to run on the machine;
-after that, only its last four characters are ever shown. Its owner or an admin can rename or pause a runner, and
+`hypotenuse runner register` on the machine is the usual way to add one. Registering from the dashboard instead
+shows the new token **once**, with the `credentials.json` entry to put on the machine; after that, only its last
+four characters are ever shown. Its owner or an admin can rename or pause a runner, and
 revoke it — see [runners](/docs/runners) and [security](/docs/security).
 
 ## Routing
 
-The project's routing rules in the order they are checked: drag to reorder, switch each on or off, and see what it
+The project's routing rules in the order they are checked: move each up or down, switch it on or off, and see what it
 matches and which role it picks. Changing rules is for admins; reading them is for everyone. Saving an order sends
 the whole list, so a stale tab cannot drop a rule someone else added.
 
@@ -65,8 +66,8 @@ eligibility and reasons. See [routing](/docs/routing#previewing-a-route).
 ## Identities
 
 Hypotenuse prefers the runners of the person who started a session; it knows who that is through a link between
-their Linear account and their Hypotenuse account. The Identities page shows your own link, and admins see and
-manage every link in the project. See [routing](/docs/routing#who-started-the-session).
+their Linear account and their Hypotenuse account. The Identities page (from the project menu) shows your own links,
+which you can remove; admins also see every link in the project, link a Linear user to a member, and unlink any. See [routing](/docs/routing#who-started-the-session).
 
 ## Settings → Integrations
 

@@ -58,6 +58,14 @@ export function ProjectSwitcher({ onNavigate }: { onNavigate?: () => void }) {
         </Dropdown.Item>
         <Dropdown.Item
           as={Link}
+          to="/identities"
+          onClick={onNavigate}
+          data-testid="identities-link"
+        >
+          Identities
+        </Dropdown.Item>
+        <Dropdown.Item
+          as={Link}
           to="/audit"
           onClick={onNavigate}
           data-testid="audit-link"
