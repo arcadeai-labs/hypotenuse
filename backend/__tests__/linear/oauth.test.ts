@@ -419,7 +419,11 @@ describe("integration:view", () => {
       `${url}/api/integration?projectId=${universe.toad.projectId}&type=linear`,
       { headers: cookieHeader(universe.toad.sessionId) },
     );
-    expect(await res.json()).toEqual({ integration: null, configured: true });
+    expect(await res.json()).toEqual({
+      integration: null,
+      configured: true,
+      deliveries: null,
+    });
     const outsider = await fetch(
       `${url}/api/integration?projectId=${universe.projectId}&type=linear`,
       { headers: cookieHeader(universe.bowser.sessionId) },

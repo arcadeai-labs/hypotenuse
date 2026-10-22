@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  Cancel,
   ConnectResponse,
   HeartbeatRequest,
   HeartbeatResponse,
@@ -121,6 +122,21 @@ describe("responses are loose", () => {
         serverTime: 1,
       }).success,
     ).toBe(true);
+  });
+});
+
+describe("Cancel", () => {
+  test("carries who cancelled from the dashboard, and parses without it", () => {
+    expect(
+      Cancel.parse({ workItemId: 1, reason: "dashboard", by: "Mario" }),
+    ).toEqual({ workItemId: 1, reason: "dashboard", by: "Mario" });
+    expect(Cancel.parse({ workItemId: 1, reason: "stop" })).toEqual({
+      workItemId: 1,
+      reason: "stop",
+    });
+    expect(() =>
+      Cancel.parse({ workItemId: 1, reason: "dashboard", by: "" }),
+    ).toThrow();
   });
 });
 

@@ -3,7 +3,9 @@
 A **runner** is a machine that runs coding agents for a project — your laptop, a desktop, a build box. The
 `hypotenuse` daemon on that machine runs the agent with *your* model login and *your* git credentials; the hosted
 service only decides what it should work on. The **Runners** page lists every runner in the project, who owns it,
-whether it is online, how many of its slots are busy, and which agents it can run. It updates live.
+whether it is online, how many of its slots are busy, and which agents it can run. It updates live; see
+[the dashboard](/docs/dashboard#runners). When work is waiting, the [routing preview](/docs/routing#previewing-a-route)
+says, runner by runner, why each one could not take it.
 
 ## Registering a machine
 

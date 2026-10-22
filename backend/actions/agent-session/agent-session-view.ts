@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { type Action, type ActionParams, api, HTTP_METHOD } from "keryx";
 import { z } from "zod";
 import { ProjectMemberMiddleware } from "../../middleware/rbac";
@@ -6,7 +6,11 @@ import {
   serializeAgentSession,
   sessionInProject,
 } from "../../ops/AgentSessionOps";
+import { linkedIssuer } from "../../ops/IdentityOps";
+import { runnerOwners } from "../../ops/RunnerOps";
+import { serializeWorkItem } from "../../ops/WorkItemOps";
 import { type AgentSession, agentSessions } from "../../schema/agent_sessions";
+import { runners } from "../../schema/runners";
 import { workItems } from "../../schema/work_items";
 
 /**
@@ -15,7 +19,10 @@ import { workItems } from "../../schema/work_items";
  * dispatches, the tree: the session that dispatched it (`parent`) and the
  * sessions it dispatched (`children`), each with its review round, pull
  * requests, and its latest turn's status. The server draws the tree; a
- * client only renders it. Requires membership.
+ * client only renders it. Also every turn the session took (`workItems`,
+ * oldest first, with why a waiting one waits), the runner holding its
+ * worktree and that runner's owner (`runner`), and the issuer's Hypotenuse
+ * user when their Linear identity is linked (`issuer`). Requires membership.
  */
 export class AgentSessionView implements Action {
   name = "agent-session:view";
@@ -56,8 +63,62 @@ export class AgentSessionView implements Action {
       .where(eq(agentSessions.parentAgentSessionId, row.id))
       .orderBy(agentSessions.id);
     const latest = await latestWorkStatus(children.map((c) => c.id));
+    const turns = await api.db.db
+      .select()
+      .from(workItems)
+      .where(eq(workItems.agentSessionId, row.id))
+      .orderBy(asc(workItems.id));
+    const runnerIds = [
+      ...new Set(
+        [
+          row.runnerId,
+          ...turns.flatMap((t) => [t.runnerId, t.offeredToRunnerId]),
+        ].filter((id): id is number => id !== null),
+      ),
+    ];
+    const runnerRows =
+      runnerIds.length === 0
+        ? []
+        : await api.db.db
+            .select({
+              id: runners.id,
+              name: runners.name,
+              status: runners.status,
+              userId: runners.userId,
+            })
+            .from(runners)
+            .where(inArray(runners.id, runnerIds));
+    const issuerUserId = await linkedIssuer(api.db.db, row);
+    const people = await runnerOwners([
+      ...runnerRows.map((r) => r.userId),
+      ...(issuerUserId !== null ? [issuerUserId] : []),
+    ]);
+    const runnerSummary = (id: number | null) => {
+      const r = runnerRows.find((x) => x.id === id);
+      if (!r) return null;
+      const owner = people.get(r.userId);
+      return {
+        id: r.id,
+        name: r.name,
+        status: r.status,
+        owner: owner ? { id: owner.id, name: owner.name } : null,
+      };
+    };
+    const issuerUser =
+      issuerUserId !== null ? (people.get(issuerUserId) ?? null) : null;
     return {
       agentSession: serializeAgentSession(row),
+      runner: runnerSummary(row.runnerId),
+      issuer: {
+        name: row.creatorName,
+        externalUserId: row.creatorExternalUserId,
+        user: issuerUser ? { id: issuerUser.id, name: issuerUser.name } : null,
+      },
+      workItems: turns.map((t) => ({
+        ...serializeWorkItem(t),
+        runnerName:
+          runnerSummary(t.runnerId ?? t.offeredToRunnerId)?.name ?? null,
+      })),
       parent: parent ? sessionLink(parent) : null,
       children: children.map((child) => ({
         ...sessionLink(child),

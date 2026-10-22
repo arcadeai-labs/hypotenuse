@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { eq } from "drizzle-orm";
 import { api } from "keryx";
+import { dashboardStoppedBody } from "../../ops/WorkItemOps";
 import { agentActivities } from "../../schema/agent_activities";
 import { workItems } from "../../schema/work_items";
 import { FINEAR_FIXTURES, useFinear } from "../linear/finear";
@@ -484,7 +485,8 @@ describe("hypotenuse session cancel", () => {
       activities.some(
         (a) =>
           a.contentType === "response" &&
-          (a.content as { body?: string }).body === "Stopped before starting.",
+          (a.content as { body?: string }).body ===
+            dashboardStoppedBody(universe.luigi.name, true),
       ),
     ).toBe(true);
 

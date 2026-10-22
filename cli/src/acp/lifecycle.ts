@@ -125,7 +125,10 @@ export interface StopContext {
   cwd: string;
   /** The branch, if any. */
   branch: string | null;
-  /** What the person who stopped it said (`agents kill --reason`). */
+  /**
+   * What the person who stopped it said (`agents kill --reason`), or who they
+   * are (a dashboard cancel's `by`).
+   */
   note?: string | null;
   /** The turn timeout (for `timeout`) or idle timeout (for `idle`), ms. */
   timeoutMs: number;
@@ -173,7 +176,7 @@ export function stopActivity(ctx: StopContext): EventInput | null {
     case "dashboard":
       return {
         type: "error",
-        body: `Cancelled from the Hypotenuse dashboard. Changes so far are ${where}.`,
+        body: `Cancelled from the Hypotenuse dashboard${ctx.note ? ` by ${ctx.note.trim()}` : ""}. Changes so far are ${where}.`,
       };
     case "timeout":
       return {

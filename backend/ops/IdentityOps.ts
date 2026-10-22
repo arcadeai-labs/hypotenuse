@@ -35,25 +35,9 @@ export async function resolveIssuer(
   tx: TxHandle,
   session: AgentSession,
 ): Promise<number | null> {
+  const linked = await linkedIssuer(tx, session);
+  if (linked !== null) return linked;
   if (!session.creatorExternalUserId) return null;
-  const [linked] = await tx
-    .select({ userId: externalIdentities.userId })
-    .from(externalIdentities)
-    .innerJoin(
-      projectMemberships,
-      and(
-        eq(projectMemberships.userId, externalIdentities.userId),
-        eq(projectMemberships.projectId, session.projectId),
-      ),
-    )
-    .where(
-      and(
-        eq(externalIdentities.integrationId, session.integrationId),
-        eq(externalIdentities.externalUserId, session.creatorExternalUserId),
-      ),
-    )
-    .limit(1);
-  if (linked) return linked.userId;
 
   const email = session.creatorEmail?.trim();
   if (!email) return null;
@@ -84,6 +68,39 @@ export async function resolveIssuer(
     })
     .onConflictDoNothing();
   return member.id;
+}
+
+/**
+ * The issuer's Hypotenuse user through an existing identity link only — a
+ * member of the session's project linked to its creator. Reads, never
+ * writes; {@link resolveIssuer} adds the e-mail match.
+ * @param db - Where to read.
+ * @param session - The session.
+ * @returns The user id, or null.
+ */
+export async function linkedIssuer(
+  db: Db,
+  session: AgentSession,
+): Promise<number | null> {
+  if (!session.creatorExternalUserId) return null;
+  const [linked] = await db
+    .select({ userId: externalIdentities.userId })
+    .from(externalIdentities)
+    .innerJoin(
+      projectMemberships,
+      and(
+        eq(projectMemberships.userId, externalIdentities.userId),
+        eq(projectMemberships.projectId, session.projectId),
+      ),
+    )
+    .where(
+      and(
+        eq(externalIdentities.integrationId, session.integrationId),
+        eq(externalIdentities.externalUserId, session.creatorExternalUserId),
+      ),
+    )
+    .limit(1);
+  return linked?.userId ?? null;
 }
 
 /**

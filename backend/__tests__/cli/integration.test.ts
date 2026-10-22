@@ -159,6 +159,7 @@ describe("hypotenuse integration", () => {
     expect(JSON.parse(json.stdout)).toEqual({
       integration: null,
       configured: true,
+      deliveries: null,
     });
 
     const list = await run("peach", ["--json", "integration", "list"]);

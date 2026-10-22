@@ -91,15 +91,15 @@ hypotenuse --project 12 member list   # or name it for one command (also HYPOTEN
 | Command | Does |
 |---|---|
 | `login`, `logout`, `whoami` | sign in and out, as above |
-| `project list`, `view`, `create --name`, `edit <project> --name`, `delete <project> --yes`, `use <project>` | your projects |
+| `project list`, `view`, `overview [--window 24h\|7d]`, `create --name`, `edit <project> --name`, `delete <project> --yes`, `use <project>` | your projects; `overview` is the project home, below |
 | `member list`, `add --email`, `remove <userId>` | the selected project's members |
 | `invite list`, `pending`, `create --email [--tag <id>]`, `accept <id>`, `reject <id>` | invitations; `pending` lists the ones addressed to you |
 | `tag list`, `create <name>`, `edit <id> --name`, `delete <id>`, `assign <id> --user <userId>`, `unassign <id> --user <userId>` | permission tags |
 | `audit list [--since 7d] [--until <time>] [--action tag:edit]` | the audit log; times are ISO-8601, epoch milliseconds, or `7d` / `12h` / `30m` ago |
 | `integration list`, `view <type>`, `connect <type> [--no-browser] [--timeout <seconds>]`, `disconnect <type> [--yes]` | the selected project's integrations — today `linear` — below |
-| `session list [--type linear] [--status <status>] [--role <role>] [--issue ENG-123]`, `view <id>`, `cancel <id>` | the selected project's agent sessions, below |
+| `session list [--type linear] [--status <status>] [--role <role>] [--issue ENG-123] [--runner <id>]`, `view <id\|ENG-123> [--transcript] [--follow]`, `cancel <id>` | the selected project's agent sessions, below |
 | `runner register [--name <name>] [--replace] [--force]`, `list [--status <status>] [--all]`, `view <runner>`, `edit <runner> [--name] [--enable\|--disable]`, `revoke <runner> [--yes]` | the selected project's runners, below |
-| `routing list`, `add --name <name> --role manager\|worker [match flags] [--repository <repo>] [--disabled]`, `edit <id> [...]`, `remove <id>`, `reorder <id...>`, `settings [...]` | the selected project's routing rules and settings, below |
+| `routing list`, `add --name <name> --role manager\|worker [match flags] [--repository <repo>] [--disabled]`, `edit <id> [...]`, `remove <id>`, `reorder <id...>`, `preview <ENG-123> [--prompt <text>] [--with-repository]`, `settings [...]` | the selected project's routing rules and settings, below |
 | `identity list [--user <id>]`, `link --user <id> --linear-user <id> [--name] [--email]`, `unlink <id>` | links between Linear users and project members, below |
 | `config init [--repo <path>...]`, `validate [--online]`, `schema`, `path` | the daemon's config file — [the daemon](/docs/daemon), [every key](/docs/config) |
 | `daemon start [--foreground]`, `stop [--timeout] [--cancel] [--force]`, `restart`, `status`, `logs [-f] [--session <id>]`, `reload` | run this machine as a runner — [the daemon](/docs/daemon) |
@@ -119,7 +119,8 @@ An integration connects the project to a system that starts agent work. Linear i
 `hypotenuse integration list` shows every kind the server knows and whether the project has connected it.
 
 `hypotenuse integration view linear` shows which Linear workspace the project is connected to, the `@hypotenuse`
-app user, the granted scopes and teams, and when its token expires. It never shows a token.
+app user, the granted scopes and teams, when its token expires, when Linear's last webhook arrived, and what became
+of the most recent ones (`handled`, `ignored`, `failed`, …). It never shows a token.
 
 `hypotenuse integration connect linear` (project admins) prints the address of Linear's consent screen and opens it in your
 browser; `--no-browser` only prints it, for SSH. Whoever opens it must be an **admin of the Linear workspace**,
@@ -144,14 +145,29 @@ whether it started from a delegation or a mention. `--type`, `--status`, `--role
 `hypotenuse session view <id>` shows one session and its whole conversation in order: what people typed into it,
 and everything Hypotenuse wrote back, each with its delivery status — `sent`, `pending` while it waits its turn or
 Linear's rate limit, `failed` when Linear refused it, or `superseded` when a later activity replaced it before it was
-sent.
+sent. Give it an issue identifier instead (`hypotenuse session view ENG-123`) and it shows the newest session on that
+issue. Above the conversation it lists the session's runner and its owner, the Hypotenuse member who started it
+when their Linear account is linked, and its **turns** — each piece of work the session took, where it ran, and,
+for one still waiting, why, as one of the [reason codes](/docs/routing#why-work-waits) (`offline`, `no_capacity`,
+…). `--transcript` prints only the conversation. `--follow` keeps printing new activities as they arrive, re-reading
+every two seconds (`--interval <seconds>`), until you press Ctrl-C; with `--json` each new activity is one line of
+JSON. `session list --runner <id>` lists the sessions a runner holds.
 
 For a session a manager dispatched, `session view` names the planning session it came from; for a planning session,
 it lists every issue it dispatched with the worker's status, its review round, and its pull requests.
 
 `hypotenuse session cancel <id>` stops a session's work, as pressing **Stop** in Linear does: work no runner has
 started is cancelled and the session says so; a running turn is told to stop and report the state it left things in.
-Any member can do it.
+What Linear shows names you. A session waiting on a question it asked is answered and stopped; a session with
+nothing to stop is refused. Any member can do it.
+
+### The project at a glance
+
+`hypotenuse project overview` is the dashboard's home page in the terminal: whether Linear is connected and when
+its last webhook arrived (and how many failed), how many runners are online, draining, and offline and how many of
+their slots are busy, the sessions started in the last day by status and role — with the median time to the first
+acknowledgement and to a runner taking the work — and every piece of work waiting right now, with its reason code
+and how long it has waited. `--window 7d` counts the last week instead.
 
 ### Routing
 
@@ -181,6 +197,13 @@ the check and says so.
 `hypotenuse routing edit <id>` takes the same flags; any match flag replaces the rule's whole match. `--enable` and
 `--disable` switch it on and off, and `--clear-repository` removes the pin. `hypotenuse routing remove <id>` deletes
 a rule, and `hypotenuse routing reorder <id...>` sets the order, listing every rule id, first tried first.
+
+`hypotenuse routing preview ENG-123` shows what would happen if the issue were delegated now: the rule that
+matches and the role it picks, every runner with whether it could take the work and each
+[reason](/docs/routing#why-work-waits) it could not, and the repository it would use. `--prompt "/manage plan it"`
+previews a mention with that text instead of a delegation. `--with-repository` asks Linear to rank the candidate
+repositories, which spends the workspace's Linear API budget; without it, several candidates are listed unranked.
+Any member may preview.
 
 `hypotenuse routing settings` shows how long work waits: the queue timeout, how long a follow-up waits for the
 runner that has its worktree, how long an offer to a runner stands, how long a stopped runner has to confirm, and how

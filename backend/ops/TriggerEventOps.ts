@@ -1,4 +1,4 @@
-import { and, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, isNull } from "drizzle-orm";
 import { api } from "keryx";
 import { integrations } from "../schema/integrations";
 import {
@@ -9,7 +9,7 @@ import { scheduleDelivery } from "./ActivityOutboxOps";
 import { catalogKey } from "./LinearCatalogOps";
 import { rateLimitKey } from "./LinearOps";
 import { handleLinearEvent } from "./LinearWebhookOps";
-import { applyEffects, type WorkEffects } from "./WorkItemOps";
+import { applyEffects, noEffects, type WorkEffects } from "./WorkItemOps";
 
 /**
  * Processing a recorded trigger delivery, whatever system sent it: take the
@@ -107,19 +107,64 @@ export async function processTriggerEvent(
 
 /**
  * After an event commits: send what it enqueued, wake the runners and the
- * routing pass it asked for, and drop what Redis caches for an integration
- * it revoked.
+ * routing pass it asked for, tell the dashboards which sessions changed, and
+ * drop what Redis caches for an integration it revoked.
  * @param result - What processing did.
  */
 export async function afterProcessing(result: ProcessResult): Promise<void> {
   await scheduleDelivery(result.deliver);
-  if (result.effects) {
-    await applyEffects({ ...result.effects, deliver: new Set() });
-  }
+  // Delivery is scheduled above; the sessions it is for changed, and the
+  // dashboards hear about them with the rest of the effects.
+  await applyEffects({
+    ...(result.effects ?? noEffects()),
+    deliver: new Set(),
+    sessions: new Set([
+      ...(result.effects?.sessions ?? []),
+      ...(result.effects?.deliver ?? []),
+      ...result.deliver,
+    ]),
+  });
   if (result.revokedIntegrationId) {
     await api.redis.redis.del(
       catalogKey(result.revokedIntegrationId),
       rateLimitKey(result.revokedIntegrationId),
     );
   }
+}
+
+/**
+ * An integration's most recent webhook deliveries and when the last one
+ * arrived — what the dashboard's integration card and project home show
+ * about the webhook's health. Never the payload.
+ * @param integrationId - The integration.
+ * @param limit - How many deliveries to list.
+ * @returns The last receipt time (epoch ms) and the deliveries, newest first.
+ */
+export async function recentDeliveries(integrationId: number, limit = 10) {
+  const rows = await api.db.db
+    .select({
+      id: triggerEvents.id,
+      eventType: triggerEvents.eventType,
+      action: triggerEvents.action,
+      outcome: triggerEvents.outcome,
+      error: triggerEvents.error,
+      receivedAt: triggerEvents.receivedAt,
+      processedAt: triggerEvents.processedAt,
+    })
+    .from(triggerEvents)
+    .where(eq(triggerEvents.integrationId, integrationId))
+    .orderBy(desc(triggerEvents.receivedAt), desc(triggerEvents.id))
+    .limit(limit);
+  return {
+    lastReceivedAt: rows[0]?.receivedAt.getTime() ?? null,
+    recent: rows.map((r) => ({
+      id: r.id,
+      eventType: r.eventType,
+      action: r.action,
+      outcome: r.outcome,
+      error: r.error,
+      receivedAt: r.receivedAt.getTime(),
+      processedAt: r.processedAt?.getTime() ?? null,
+    })),
+  };
 }

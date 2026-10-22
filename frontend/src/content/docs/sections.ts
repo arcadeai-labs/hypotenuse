@@ -8,6 +8,7 @@ import cli from "./cli.md?raw";
 import config from "./config.md?raw";
 import connectingLinear from "./connecting-linear.md?raw";
 import daemon from "./daemon.md?raw";
+import dashboard from "./dashboard.md?raw";
 import gettingStarted from "./getting-started.md?raw";
 import index from "./index.md?raw";
 import managerAndWorker from "./manager-and-worker.md?raw";
@@ -15,6 +16,7 @@ import members from "./members.md?raw";
 import projects from "./projects.md?raw";
 import routing from "./routing.md?raw";
 import runners from "./runners.md?raw";
+import security from "./security.md?raw";
 import why from "./why.md?raw";
 import worktrees from "./worktrees.md?raw";
 
@@ -70,6 +72,7 @@ export const DOCS_SECTIONS: DocsSection[] = [
     title: "Connecting Linear",
     markdown: connectingLinear,
   },
+  { slug: "dashboard", title: "The dashboard", markdown: dashboard },
   {
     slug: "agent-sessions",
     title: "Agent sessions",
@@ -92,6 +95,7 @@ export const DOCS_SECTIONS: DocsSection[] = [
     markdown: managerAndWorker,
   },
   { slug: "members", title: "Members and tags", markdown: members },
+  { slug: "security", title: "Security", markdown: security },
   { slug: "audit", title: "Audit log", markdown: audit },
   { slug: "cli", title: "The CLI", markdown: cli },
 ];

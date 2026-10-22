@@ -76,6 +76,13 @@
       "when": 1792639392218,
       "tag": "0010_overjoyed_lucky_pierre",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1792643198771,
+      "tag": "0011_elite_freak",
+      "breakpoints": true
     }
   ]
 }

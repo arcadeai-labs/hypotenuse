@@ -125,7 +125,9 @@ as `hostname/owner/name`, labels lowercased, subscription values sorted and de-d
 costs one row update per beat.
 
 `offers` lists every offer standing for this runner (unexpired), oldest first; `cancels` lists every item it holds
-whose session asked to stop. Every `active` item the runner does hold has its lease renewed.
+whose session asked to stop. A cancel a person made from the dashboard or the CLI (`reason: "dashboard"`) also
+carries `by`, their name, which the daemon puts in its final activity; the field is additive and absent otherwise.
+Every `active` item the runner does hold has its lease renewed.
 
 A dry run's answer has empty `offers`, `cancels`, and `unknownActive`, plus two fields no other heartbeat carries:
 `runner` — `{ id, name, projectId, projectSlug }`, who the token is — and `unknownSubscriptions` —
@@ -419,7 +421,7 @@ any `daemon:events` response — so it is delivered as long as *any* request suc
 | `reason` | Final activity |
 |---|---|
 | `stop` | `response`: "Stopped at your request. Changes so far are …" — where the work is, and how many files changed |
-| `dashboard` | `error`: cancelled from the dashboard, and where the work is |
+| `dashboard` | `error`: "Cancelled from the Hypotenuse dashboard by <`by`>. Changes so far are …" |
 | `delegate_removed`, `issue_closed`, `integration_revoked` | none — the person disengaged, so the daemon stays quiet. The server enforces it: once one of these is requested, every event for the item is dropped (`dropped` in the answer), and its end posts no fallback |
 | `superseded` | none — the item is no longer this runner's |
 

@@ -8,7 +8,11 @@ import {
 } from "../schema/agent_sessions";
 import { type Integration, integrations } from "../schema/integrations";
 import { runners } from "../schema/runners";
-import { type WorkItem, workItems } from "../schema/work_items";
+import {
+  type WaitingCode,
+  type WorkItem,
+  workItems,
+} from "../schema/work_items";
 import { enqueueActivity } from "./ActivityOutboxOps";
 import { reviewingThought, reviewSuperseded } from "./DispatchOps";
 import { linearRequest } from "./LinearOps";
@@ -26,6 +30,7 @@ import {
   candidateRepository,
   type EligibilityQuery,
   eligibleRunners,
+  evaluateRunners,
   explainUnplaceable,
   listRoutingRules,
   parseRepositoryAnswer,
@@ -37,6 +42,7 @@ import {
   routingFacts,
   rulesNeedProjectContent,
   selectRole,
+  waitingCodeFor,
 } from "./RoutingOps";
 import {
   finishWorkItem,
@@ -169,10 +175,28 @@ function snapshotOf(session: AgentSession): IssueSnapshot {
 }
 
 /** How a session's repository was decided, if it was. */
-type RepositoryDecision =
+export type RepositoryDecision =
   | { kind: "resolved"; repository: string | null; announce: boolean }
   | { kind: "ask"; options: RepositoryChoiceOption[] }
   | { kind: "unresolved" };
+
+/** What a repository decision is made about. */
+export interface RepositoryContext {
+  projectId: number;
+  externalIssueId: string;
+  /** The session asking, when there is one (Linear ranks better with it). */
+  externalSessionId: string | null;
+  /** A repository already chosen for the session. */
+  repository: string | null;
+}
+
+/** What a repository decision looked at, for `routing-rule:preview`. */
+export interface RepositoryTrace {
+  /** The repositories the eligible runners have checked out. */
+  candidates: string[];
+  /** Linear's top suggestion among them, when Linear was asked. */
+  suggestion: { repository: string; confidence: number } | null;
+}
 
 /**
  * Choose the repository for a session's first turn, in order: a rule's pin;
@@ -185,14 +209,19 @@ type RepositoryDecision =
  * @param role - The role chosen.
  * @param snapshot - The issue.
  * @param decision - The rule that chose the role, when it was just chosen.
+ * @param trace - Filled in with the candidates and Linear's top suggestion.
+ * @param suggest - Ask Linear to rank several candidates; without it, several
+ *   end in `ask` (`routing-rule:preview` without `withRepository`).
  * @returns The decision.
  */
-async function decideRepository(
-  session: AgentSession,
+export async function decideRepository(
+  session: RepositoryContext,
   integration: Integration,
   role: "manager" | "worker",
   snapshot: IssueSnapshot,
   decision: RoleDecision | null,
+  trace?: RepositoryTrace,
+  suggest = true,
 ): Promise<RepositoryDecision> {
   if (session.repository) {
     return {
@@ -215,6 +244,7 @@ async function decideRepository(
     issue: snapshot,
   });
   const candidates = repositoryCandidates(eligible);
+  if (trace) trace.candidates = candidates;
   if (candidates.length === 0) {
     return role === "manager"
       ? { kind: "resolved", repository: null, announce: false }
@@ -226,13 +256,21 @@ async function decideRepository(
 
   const settings = await getRoutingSettings(api.db.db, session.projectId);
   let ranked: string[] = [];
+  if (!suggest) {
+    return {
+      kind: "ask",
+      options: candidates
+        .slice(0, MAX_REPOSITORY_OPTIONS)
+        .map(repositoryOption),
+    };
+  }
   try {
     const { issueRepositorySuggestions } = await linearRequest(
       integration,
       IssueRepositorySuggestions,
       {
         issueId: session.externalIssueId,
-        agentSessionId: session.externalSessionId,
+        agentSessionId: session.externalSessionId ?? undefined,
         candidateRepositories: candidates.map(candidateRepository),
       },
       { idempotent: true },
@@ -253,6 +291,9 @@ async function decideRepository(
       );
     const top = suggestions[0];
     const topRemote = top ? remoteOf(top) : undefined;
+    if (trace && top && topRemote) {
+      trace.suggestion = { repository: topRemote, confidence: top.confidence };
+    }
     if (top && topRemote && top.confidence >= settings.repositoryConfidence) {
       return { kind: "resolved", repository: topRemote, announce: true };
     }
@@ -263,7 +304,7 @@ async function decideRepository(
     // Asking a person is the fallback either way; Linear being unsure and
     // Linear being unreachable end in the same question.
     api.logger.warn("issueRepositorySuggestions failed; asking instead", {
-      agentSessionId: session.id,
+      externalSessionId: session.externalSessionId,
       error: e instanceof Error ? e.message : String(e),
     });
   }
@@ -272,6 +313,50 @@ async function decideRepository(
     MAX_REPOSITORY_OPTIONS,
   );
   return { kind: "ask", options: ordered.map(repositoryOption) };
+}
+
+/**
+ * Choose the role by the project's rules, reading whether the issue's
+ * project has content first when an enabled rule matches on it.
+ * @param integration - The integration to read as.
+ * @param projectId - The project whose rules decide.
+ * @param snapshot - The issue as read.
+ * @param origin - How the session started.
+ * @param text - What the mention or prompt said, if anything.
+ * @returns The decision, and the snapshot with `hasContent` filled in when it was read.
+ */
+export async function decideRole(
+  integration: Integration,
+  projectId: number,
+  snapshot: IssueSnapshot,
+  origin: AgentSession["origin"],
+  text: string | null,
+): Promise<{ snapshot: IssueSnapshot; decision: RoleDecision }> {
+  const rules = await listRoutingRules(api.db.db, projectId);
+  let read = snapshot;
+  if (
+    read.project &&
+    read.project.hasContent === undefined &&
+    rulesNeedProjectContent(rules)
+  ) {
+    const { project } = await linearRequest(
+      integration,
+      GetProjectContent,
+      { id: read.project.id },
+      { idempotent: true },
+    );
+    read = {
+      ...read,
+      project: {
+        ...read.project,
+        hasContent: Boolean(project.content?.trim()),
+      },
+    };
+  }
+  return {
+    snapshot: read,
+    decision: selectRole(rules, routingFacts(read, origin, text)),
+  };
 }
 
 /**
@@ -311,33 +396,21 @@ export async function prepareSession(
       }
       if (session.role === null) {
         const text = await fetchMentionText(integration, session);
-        const rules = await listRoutingRules(api.db.db, session.projectId);
-        if (
-          snapshot.project &&
-          snapshot.project.hasContent === undefined &&
-          rulesNeedProjectContent(rules)
-        ) {
-          const { project } = await linearRequest(
-            integration,
-            GetProjectContent,
-            { id: snapshot.project.id },
-            { idempotent: true },
-          );
-          snapshot = {
-            ...snapshot,
-            project: {
-              ...snapshot.project,
-              hasContent: Boolean(project.content?.trim()),
-            },
-          };
-        }
-        decision = selectRole(
-          rules,
-          routingFacts(snapshot, session.origin, text),
-        );
+        ({ snapshot, decision } = await decideRole(
+          integration,
+          session.projectId,
+          snapshot,
+          session.origin,
+          text,
+        ));
       }
       repository = await decideRepository(
-        session,
+        {
+          projectId: session.projectId,
+          externalIssueId: session.externalIssueId,
+          externalSessionId: session.externalSessionId,
+          repository: session.repository,
+        },
         integration,
         decision?.role ?? session.role!,
         snapshot,
@@ -379,6 +452,7 @@ async function applyPreparation(
   const effects = noEffects();
   const session = await lockSession(tx, agentSessionId);
   if (session.pendingRepositoryChoice) return effects;
+  effects.sessions.add(agentSessionId);
   const items = await tx
     .select()
     .from(workItems)
@@ -602,19 +676,23 @@ function minutes(ms: number): string {
  * @param tx - The transaction.
  * @param item - The waiting item.
  * @param reason - Why, as a sentence.
+ * @param code - Why, as a code.
  * @param effects - Where to record the delivery.
  */
 async function setWaiting(
   tx: TxHandle,
   item: WorkItem,
   reason: string,
+  code: WaitingCode,
   effects: WorkEffects,
 ): Promise<void> {
-  if (item.waitingReason === reason) return;
+  if (item.waitingReason === reason && item.waitingCode === code) return;
   await tx
     .update(workItems)
-    .set({ waitingReason: reason })
+    .set({ waitingReason: reason, waitingCode: code })
     .where(eq(workItems.id, item.id));
+  effects.sessions.add(item.agentSessionId);
+  if (item.waitingReason === reason) return;
   await enqueueActivity(
     tx,
     item.agentSessionId,
@@ -622,6 +700,20 @@ async function setWaiting(
     { ephemeral: true },
   );
   effects.deliver.add(item.agentSessionId);
+}
+
+/**
+ * The code for why nothing can take a turn — `routing-rule:preview`'s
+ * per-runner reasons, folded to one ({@link waitingCodeFor}).
+ * @param tx - The transaction.
+ * @param query - What could not be placed.
+ * @returns The code; `no_capacity` if a runner turned eligible meanwhile.
+ */
+async function unplaceableCode(
+  tx: TxHandle,
+  query: EligibilityQuery,
+): Promise<WaitingCode> {
+  return waitingCodeFor(await evaluateRunners(tx, query)) ?? "no_capacity";
 }
 
 /**
@@ -684,6 +776,7 @@ async function offerItem(itemId: number, now: Date): Promise<WorkEffects> {
         tx,
         item,
         `Waiting for a runner: ${await explainUnplaceable(tx, query)}`,
+        await unplaceableCode(tx, query),
         effects,
       );
       return effects;
@@ -709,6 +802,7 @@ async function offerItem(itemId: number, now: Date): Promise<WorkEffects> {
         tx,
         item,
         `Waiting for **${holder?.name ?? `runner ${sticky}`}**, which has this session's worktree.`,
+        "sticky_runner",
         effects,
       );
       return effects;
@@ -719,11 +813,17 @@ async function offerItem(itemId: number, now: Date): Promise<WorkEffects> {
       preferredUserId: item.preferredUserId,
     });
     if (!chosen) {
-      const reason =
-        eligible.length > 0
-          ? "every runner that could take it just let an offer lapse; trying again shortly."
-          : await explainUnplaceable(tx, query);
-      await setWaiting(tx, item, `Waiting for a runner: ${reason}`, effects);
+      const lapsed = eligible.length > 0;
+      const reason = lapsed
+        ? "every runner that could take it just let an offer lapse; trying again shortly."
+        : await explainUnplaceable(tx, query);
+      await setWaiting(
+        tx,
+        item,
+        `Waiting for a runner: ${reason}`,
+        lapsed ? "offer_lapsed" : await unplaceableCode(tx, query),
+        effects,
+      );
       return effects;
     }
 
@@ -735,9 +835,11 @@ async function offerItem(itemId: number, now: Date): Promise<WorkEffects> {
         offerExpiresAt: new Date(now.getTime() + settings.offerTtlMs),
         agentId: chosen.agentId,
         waitingReason: null,
+        waitingCode: null,
       })
       .where(eq(workItems.id, item.id));
     effects.frames.set(chosen.id, "work");
+    effects.sessions.add(session.id);
     // A review says why the manager woke — once, when it is offered (not
     // when queued behind a turn still running).
     if (
@@ -763,9 +865,11 @@ async function offerItem(itemId: number, now: Date): Promise<WorkEffects> {
  * Put offers that lapsed back in the queue, remembering who let them lapse
  * so the next offer goes elsewhere. The queue and sticky timeouts keep
  * counting from when the item was queued.
- * @returns The items returned.
+ * @returns The items returned, with their sessions.
  */
-async function lapseOffers(): Promise<number[]> {
+async function lapseOffers(): Promise<
+  { id: number; agentSessionId: number }[]
+> {
   const rows = await api.db.db
     .update(workItems)
     .set({
@@ -781,8 +885,8 @@ async function lapseOffers(): Promise<number[]> {
         sql`${workItems.offerExpiresAt} <= now()`,
       ),
     )
-    .returning({ id: workItems.id });
-  return rows.map((r) => r.id);
+    .returning({ id: workItems.id, agentSessionId: workItems.agentSessionId });
+  return rows;
 }
 
 /** What one {@link routeWork} pass did. */
@@ -816,7 +920,9 @@ export async function routeWork(): Promise<RouteResult> {
     offered: [],
     effects: noEffects(),
   };
-  result.lapsed = await lapseOffers();
+  const lapsed = await lapseOffers();
+  result.lapsed = lapsed.map((r) => r.id);
+  for (const r of lapsed) result.effects.sessions.add(r.agentSessionId);
 
   const unprepared = await api.db.db
     .selectDistinct({ agentSessionId: workItems.agentSessionId })

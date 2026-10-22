@@ -62,6 +62,18 @@ export interface Integration {
 export interface IntegrationResponse {
   integration: Integration | null;
   configured: boolean;
+  /** The integration's recent webhook deliveries; absent from older servers. */
+  deliveries?: {
+    lastReceivedAt: number | null;
+    recent: {
+      id: number;
+      eventType: string;
+      action: string;
+      outcome: string;
+      error: string | null;
+      receivedAt: number;
+    }[];
+  } | null;
 }
 
 /** How often `connect` re-reads the integration. */
@@ -158,6 +170,29 @@ export function describeIntegration(
     );
   }
   if (i.refreshError) lines.push(`error      ${i.refreshError}`);
+  const deliveries = response.deliveries;
+  if (deliveries) {
+    lines.push(`webhook    last received ${when(deliveries.lastReceivedAt)}`);
+    if (deliveries.recent.length > 0) {
+      lines.push(
+        "",
+        table(
+          deliveries.recent.map((d) => ({
+            received: when(d.receivedAt),
+            event: `${d.eventType} ${d.action}`,
+            outcome: d.outcome,
+            error: d.error ?? "",
+          })),
+          [
+            { key: "received" },
+            { key: "event", maxWidth: 40 },
+            { key: "outcome" },
+            { key: "error", maxWidth: 50 },
+          ],
+        ),
+      );
+    }
+  }
   return lines.join("\n");
 }
 

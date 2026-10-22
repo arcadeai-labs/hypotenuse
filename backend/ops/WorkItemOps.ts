@@ -25,6 +25,7 @@ import {
 } from "../schema/agent_sessions";
 import { projectSettings } from "../schema/project_settings";
 import type { Runner } from "../schema/runners";
+import { users } from "../schema/users";
 import {
   ACTIVE_WORK_STATUSES,
   HELD_WORK_STATUSES,
@@ -46,6 +47,7 @@ import { enqueueReviewIfChild } from "./DispatchOps";
 import { resolveIssuer } from "./IdentityOps";
 import type { TxHandle } from "./ProjectOps";
 import { resolveRoutingSettings } from "./ProjectSettingsOps";
+import { broadcastSessionsChanged } from "./SessionChannelOps";
 
 /**
  * Work items: one row per **turn** of an agent session, from the moment a
@@ -130,13 +132,19 @@ export const DISENGAGED_CANCEL_REASONS: ReadonlySet<string> = new Set([
 
 /**
  * Side effects a transaction leaves for after its commit: sessions whose
- * outbox gained rows, runners to wake with a frame, and whether routing should
- * run.
+ * outbox gained rows, runners to wake with a frame, sessions whose turns
+ * changed (for the dashboard), and whether routing should run.
  */
 export interface WorkEffects {
   deliver: Set<number>;
   /** Runner id → the frame to publish on its channel. */
   frames: Map<number, "work" | "cancel">;
+  /**
+   * Sessions whose work changed — a turn queued, offered, claimed, waiting,
+   * or finished — announced on `project:<id>:sessions`. A session in
+   * `deliver` is announced too.
+   */
+  sessions: Set<number>;
   route: boolean;
 }
 
@@ -145,7 +153,12 @@ export interface WorkEffects {
  * @returns A fresh one.
  */
 export function noEffects(): WorkEffects {
-  return { deliver: new Set(), frames: new Map(), route: false };
+  return {
+    deliver: new Set(),
+    frames: new Map(),
+    sessions: new Set(),
+    route: false,
+  };
 }
 
 /**
@@ -159,6 +172,7 @@ export function mergeEffects(
   from: WorkEffects,
 ): WorkEffects {
   for (const id of from.deliver) into.deliver.add(id);
+  for (const id of from.sessions) into.sessions.add(id);
   for (const [id, frame] of from.frames) {
     // A cancel frame outranks a work frame: both make the daemon heartbeat.
     if (into.frames.get(id) !== "cancel") into.frames.set(id, frame);
@@ -169,7 +183,8 @@ export function mergeEffects(
 
 /**
  * Do what a committed transaction left: schedule outbox delivery, publish
- * frames, enqueue `work:route`. Never throws — the change already committed.
+ * frames, enqueue `work:route`, and tell the dashboards which sessions
+ * changed. Never throws — the change already committed.
  * @param effects - What to do.
  */
 export async function applyEffects(effects: WorkEffects): Promise<void> {
@@ -190,6 +205,7 @@ export async function applyEffects(effects: WorkEffects): Promise<void> {
       error: error instanceof Error ? error.message : String(error),
     });
   }
+  await broadcastSessionsChanged([...effects.sessions, ...effects.deliver]);
 }
 
 /**
@@ -447,6 +463,7 @@ export async function answerWaitingTurn(
     .set({ answers: [...waiting.answers, prompt], awaitingAnswerSince: null })
     .where(eq(workItems.id, waiting.id));
   const effects = noEffects();
+  effects.sessions.add(waiting.agentSessionId);
   if (waiting.runnerId) effects.frames.set(waiting.runnerId, "work");
   return effects;
 }
@@ -468,6 +485,7 @@ export async function finishWorkItem(
   options: FinishOptions,
 ): Promise<WorkEffects> {
   const effects = noEffects();
+  effects.sessions.add(item.agentSessionId);
   const reason = options.cancelReason ?? item.cancelReason;
   const silent =
     options.status === "cancelled" &&
@@ -483,6 +501,7 @@ export async function finishWorkItem(
       status: options.status,
       finishedAt: new Date(),
       waitingReason: null,
+      waitingCode: null,
       awaitingAnswerSince: null,
       ...(options.outcome !== undefined ? { outcome: options.outcome } : {}),
       ...(options.cancelReason ? { cancelReason: options.cancelReason } : {}),
@@ -505,6 +524,21 @@ export interface CancelRequest {
   reason: WorkCancelReason;
   /** Tell the person what happened (a stop, the dashboard), or end quietly. */
   announce: boolean;
+  /** The person who cancelled from the dashboard or CLI, named in what Linear is told. */
+  by?: { userId: number; name: string } | null;
+}
+
+/**
+ * What a dashboard cancel tells the session.
+ * @param name - Who cancelled.
+ * @param beforeStart - Whether no runner had started the turn.
+ * @returns The response body.
+ */
+export function dashboardStoppedBody(
+  name: string,
+  beforeStart: boolean,
+): string {
+  return `Stopped from the Hypotenuse dashboard by ${name}${beforeStart ? " before starting" : ""}.`;
 }
 
 /**
@@ -516,7 +550,10 @@ export interface CancelRequest {
  * | `offered`, or the first `queued` when nothing is under way | `cancelled`; "Stopped before starting." |
  * | `claimed`, `running` | `cancelRequestedAt`; a `cancel` frame; the daemon stops and answers, or the server does after `stopGraceMs` |
  * | every other `queued` | `cancelled` as `superseded`, silently |
- * | nothing at all | "Stopped. Nothing was running." (stops only) |
+ * | nothing at all | "Stopped. Nothing was running." (stops); "Stopped from the Hypotenuse dashboard by <name>." (a dashboard cancel of a session awaiting input) |
+ *
+ * A cancel from the dashboard or CLI (`by`) records who on every live item
+ * and names them in each answer in place of "Stopped before starting.".
  *
  * A pending repository question is dropped: the work it was for is gone.
  * @param tx - The transaction.
@@ -530,6 +567,7 @@ export async function cancelSessionWork(
   request: CancelRequest,
 ): Promise<WorkEffects> {
   const effects = noEffects();
+  effects.sessions.add(agentSessionId);
   const session = await lockSession(tx, agentSessionId);
   if (session.pendingRepositoryChoice) {
     await tx
@@ -538,9 +576,21 @@ export async function cancelSessionWork(
       .where(eq(agentSessions.id, session.id));
   }
   const items = await liveItems(tx, agentSessionId);
+  const by = request.by ?? null;
+  if (by && items.length > 0) {
+    await tx
+      .update(workItems)
+      .set({ cancelledByUserId: by.userId })
+      .where(
+        inArray(
+          workItems.id,
+          items.map((i) => i.id),
+        ),
+      );
+  }
   const stopped: OutboundContent = {
     type: "response",
-    body: STOPPED_BEFORE_START_BODY,
+    body: by ? dashboardStoppedBody(by.name, true) : STOPPED_BEFORE_START_BODY,
   };
   let announced = false;
   const active = items.find((i) =>
@@ -580,6 +630,16 @@ export async function cancelSessionWork(
       tx,
       agentSessionId,
       { type: "response", body: STOPPED_NOTHING_BODY },
+      { priority: "ack" },
+    );
+    effects.deliver.add(agentSessionId);
+  } else if (!announced && request.announce && by) {
+    // A session waiting on a question has no turn to stop; answering takes
+    // Linear's status out of `awaitingInput`.
+    await enqueueActivity(
+      tx,
+      agentSessionId,
+      { type: "response", body: dashboardStoppedBody(by.name, false) },
       { priority: "ack" },
     );
     effects.deliver.add(agentSessionId);
@@ -626,6 +686,7 @@ export async function requeueRunnerWork(
   const toLock = [...new Set([...sessionIds, ...stuck].map((r) => r.id))].sort(
     (a, b) => a - b,
   );
+  for (const id of toLock) effects.sessions.add(id);
   if (toLock.length > 0) {
     await tx
       .select({ id: agentSessions.id })
@@ -691,6 +752,7 @@ function requeuedColumns() {
     fresh: null,
     queuedAt: new Date(),
     waitingReason: null,
+    waitingCode: null,
     // Sequence numbers are per claim: the next claimant numbers from 1.
     lastEventSeq: 0,
     // Answers were for the lost claim's questions; `releaseAnswers` has
@@ -731,6 +793,19 @@ export async function heartbeatWork(
       ),
     );
   const heldIds = new Set(held.map((i) => i.id));
+  const cancellerIds = held
+    .filter((i) => i.cancelRequestedAt && i.cancelledByUserId !== null)
+    .map((i) => i.cancelledByUserId as number);
+  const cancellers = new Map(
+    cancellerIds.length === 0
+      ? []
+      : (
+          await tx
+            .select({ id: users.id, name: users.name })
+            .from(users)
+            .where(inArray(users.id, cancellerIds))
+        ).map((u) => [u.id, u.name] as const),
+  );
   const renew = active.filter((id) => heldIds.has(id));
   if (renew.length > 0) {
     await tx
@@ -759,10 +834,17 @@ export async function heartbeatWork(
     })),
     cancels: held
       .filter((i) => i.cancelRequestedAt)
-      .map((i) => ({
-        workItemId: i.id,
-        reason: i.cancelReason ?? "stop",
-      })),
+      .map((i) => {
+        const by =
+          i.cancelledByUserId !== null
+            ? cancellers.get(i.cancelledByUserId)
+            : undefined;
+        return {
+          workItemId: i.id,
+          reason: i.cancelReason ?? "stop",
+          ...(by ? { by } : {}),
+        };
+      }),
     unknownActive: active.filter((id) => !heldIds.has(id)),
     answers: held
       .filter((i) => !i.cancelRequestedAt)
@@ -967,6 +1049,7 @@ export async function claimWork(
       leaseExpiresAt: lease,
       fresh,
       waitingReason: null,
+      waitingCode: null,
     })
     .where(eq(workItems.id, item.id))
     .returning();
@@ -976,6 +1059,7 @@ export async function claimWork(
       .set({ runnerId: runner.id })
       .where(eq(agentSessions.id, session.id));
   }
+  effects.sessions.add(session.id);
   if (await addDashboardLink(tx, session)) effects.deliver.add(session.id);
   return { assignment: await buildAssignment(tx, claimed, runner), effects };
 }
@@ -1301,6 +1385,7 @@ export async function applyEvents(
 ): Promise<EventsResult> {
   const effects = noEffects();
   const item = await lockHeldItem(tx, runnerId, request.workItemId);
+  effects.sessions.add(item.agentSessionId);
   const ordered = request.events
     .map((event, index) => ({ event, index }))
     .sort((a, b) => a.event.seq - b.event.seq);
@@ -1641,6 +1726,7 @@ export async function reapWork(): Promise<ReapResult> {
         .update(workItems)
         .set({ ...requeuedColumns(), attempts })
         .where(eq(workItems.id, item.id));
+      result.effects.sessions.add(item.agentSessionId);
       result.requeued.push(item.id);
       result.effects.route = true;
     });
@@ -1714,7 +1800,9 @@ export function serializeWorkItem(item: WorkItem) {
     agentId: item.agentId,
     attempts: item.attempts,
     waitingReason: item.waitingReason,
+    waitingCode: item.waitingCode,
     cancelReason: item.cancelReason,
+    cancelledByUserId: item.cancelledByUserId,
     cancelRequestedAt: ms(item.cancelRequestedAt),
     daemonState: item.daemonState,
     usage: item.usage,
@@ -1722,6 +1810,8 @@ export function serializeWorkItem(item: WorkItem) {
     hygiene: item.hygiene,
     linearWrites: item.linearWrites,
     createdAt: item.createdAt.getTime(),
+    queuedAt: item.queuedAt.getTime(),
+    offerExpiresAt: ms(item.offerExpiresAt),
     claimedAt: ms(item.claimedAt),
     finishedAt: ms(item.finishedAt),
   };

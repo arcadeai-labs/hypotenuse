@@ -538,8 +538,113 @@ function checkRole(role: string): "manager" | "worker" {
   return role;
 }
 
+/** One runner in a routing preview, as `routing-rule:preview` judges it. */
+export interface PreviewCandidate {
+  runnerId: number;
+  name: string;
+  owner: { id: number; name: string } | null;
+  eligible: boolean;
+  reasons: { code: string; message: string }[];
+}
+
+/** `routing-rule:preview`'s answer. */
+export interface RoutingPreview {
+  issue: {
+    id: string;
+    identifier: string | null;
+    title: string | null;
+    url: string | null;
+    teamKey: string | null;
+    labels: string[];
+    project: { id: string; name: string } | null;
+  };
+  origin: "delegation" | "mention";
+  matchedRuleId: number | null;
+  matchedRuleName: string | null;
+  role: "manager" | "worker";
+  candidates: PreviewCandidate[];
+  /** Why nothing could take it now, or null when a runner could. */
+  waitingCode: string | null;
+  repository: {
+    candidates: string[];
+    repository: string | null;
+    pinnedByRule: boolean;
+    suggestion: { repository: string; confidence: number } | null;
+    wouldElicit: boolean | null;
+    waitsForRepository: boolean;
+    askedLinear: boolean;
+  };
+}
+
 /**
- * Register `routing list|add|edit|remove|reorder|settings`.
+ * The repository line of a preview, in words.
+ * @param r - The preview's repository block.
+ * @returns One sentence.
+ */
+export function previewRepositoryLine(r: RoutingPreview["repository"]): string {
+  if (r.repository) {
+    const why = r.pinnedByRule
+      ? "pinned by the rule"
+      : r.suggestion?.repository === r.repository
+        ? `Linear's suggestion, ${Math.round(r.suggestion.confidence * 100)}% confident`
+        : "the only candidate";
+    return `${r.repository} (${why})`;
+  }
+  if (r.waitsForRepository) {
+    return "none yet: no eligible runner has a repository checked out, so the work would wait";
+  }
+  if (r.wouldElicit === true) {
+    return `Linear is unsure; the person would be asked to pick: ${r.candidates.join(", ")}`;
+  }
+  if (r.wouldElicit === null) {
+    return `one of ${r.candidates.join(", ")} (pass --with-repository to ask Linear which)`;
+  }
+  return "none needed";
+}
+
+/**
+ * The human rendering of a routing preview.
+ * @param p - The preview.
+ * @returns Lines for stdout.
+ */
+export function describePreview(p: RoutingPreview): string {
+  const rule = p.matchedRuleId
+    ? `rule #${p.matchedRuleId} ${p.matchedRuleName ?? ""}`.trim()
+    : "no rule matched (the default)";
+  const lines = [
+    `${p.issue.identifier ?? p.issue.id}  ${p.issue.title ?? ""}`.trim(),
+    `as         ${p.origin}`,
+    `matched    ${rule}`,
+    `role       ${p.role}`,
+    `repository ${previewRepositoryLine(p.repository)}`,
+  ];
+  if (p.waitingCode) lines.push(`would wait ${p.waitingCode}`);
+  lines.push("");
+  lines.push(
+    p.candidates.length === 0
+      ? "No runners in this project."
+      : table(
+          p.candidates.map((c) => ({
+            id: c.runnerId,
+            runner: c.name,
+            owner: c.owner?.name ?? "-",
+            eligible: c.eligible ? "yes" : "no",
+            reasons: c.reasons.map((r) => r.code).join(", ") || "-",
+          })),
+          [
+            { key: "id" },
+            { key: "runner" },
+            { key: "owner" },
+            { key: "eligible" },
+            { key: "reasons", maxWidth: 70 },
+          ],
+        ),
+  );
+  return lines.join("\n");
+}
+
+/**
+ * Register `routing list|add|edit|remove|reorder|preview|settings`.
  * @param program - The root program.
  */
 export function registerRoutingCommands(program: Command): void {
@@ -691,6 +796,44 @@ export function registerRoutingCommands(program: Command): void {
           body: { projectId, ids: order.map(Number) },
         });
         emit(ctx, result, () => describeRules(result.routingRules));
+      });
+    });
+
+  routing
+    .command("preview <issue>")
+    .description(
+      "Show how an issue would be routed if it were delegated now: the rule, the role, and why each runner could or could not take it",
+    )
+    .option(
+      "--prompt <text>",
+      'route as a mention with this text, e.g. "/manage plan the launch"',
+    )
+    .option(
+      "--with-repository",
+      "also ask Linear to rank the candidate repositories (spends Linear API budget)",
+    )
+    .action(async function (this: Command, issue: string) {
+      await runCommand(this, async (ctx) => {
+        const opts = this.opts() as {
+          prompt?: string;
+          withRepository?: boolean;
+        };
+        const projectId = await ctx.projectId();
+        const result = await ctx
+          .signedInClient()
+          .request<{ preview: RoutingPreview }>(
+            "GET",
+            "/routing-rule/preview",
+            {
+              query: {
+                projectId,
+                issue,
+                prompt: opts.prompt,
+                withRepository: opts.withRepository ? "true" : undefined,
+              },
+            },
+          );
+        emit(ctx, result, () => describePreview(result.preview));
       });
     });
 

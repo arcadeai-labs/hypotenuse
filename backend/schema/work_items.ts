@@ -13,6 +13,7 @@ import {
 import { type AgentSessionRole, agentSessions } from "./agent_sessions";
 import { projects } from "./projects";
 import { runners } from "./runners";
+import { users } from "./users";
 
 /** What a turn is for. */
 export const WORK_ITEM_KINDS = [
@@ -67,6 +68,26 @@ export const WORK_CANCEL_REASONS = [
 /** One of {@link WORK_CANCEL_REASONS}. */
 export type WorkCancelReason = (typeof WORK_CANCEL_REASONS)[number];
 
+/**
+ * Why a turn waits, as a machine code — the same codes
+ * `routing-rule:preview` gives each runner it rules out
+ * (`RUNNER_REASON_CODES` in `ops/RoutingOps.ts`), plus the waits that are
+ * about the turn rather than a runner.
+ */
+export const WAITING_CODES = [
+  "offline",
+  "draining",
+  "paused",
+  "no_capacity",
+  "role_not_served",
+  "repository_missing",
+  "subscription_mismatch",
+  "no_runners",
+  "sticky_runner",
+  "offer_lapsed",
+] as const;
+/** One of {@link WAITING_CODES}. */
+export type WaitingCode = (typeof WAITING_CODES)[number];
 /** One merged follow-up, in the order it was typed. */
 export interface WorkItemPrompt {
   activityId: number;
@@ -230,8 +251,15 @@ export const workItems = pgTable(
       .defaultNow(),
     /** Why it cannot be placed yet, as last told to the session. */
     waitingReason: text("waiting_reason"),
+    /** {@link waitingReason} as a code; null when it is not waiting. */
+    waitingCode: text("waiting_code").$type<WaitingCode | null>(),
     cancelRequestedAt: timestamp("cancel_requested_at", { withTimezone: true }),
     cancelReason: text("cancel_reason").$type<WorkCancelReason | null>(),
+    /** The person who cancelled it from the dashboard or CLI. */
+    cancelledByUserId: integer("cancelled_by_user_id").references(
+      () => users.id,
+      { onDelete: "set null" },
+    ),
     /** Claims that ended without completion (lapsed leases). */
     attempts: integer("attempts").notNull().default(0),
     /** The highest event `seq` accepted. */
