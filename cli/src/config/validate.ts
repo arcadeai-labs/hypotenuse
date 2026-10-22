@@ -12,12 +12,14 @@
  * Every check reports a TOML-style path and an exact message, so the same
  * text appears in a terminal, in `--json`, and in the docs' examples.
  */
+
 import { isAbsolute, relative } from "node:path";
 import {
   normalizeRemote,
   PROTOCOL_HEADER,
   PROTOCOL_VERSION,
 } from "../../../protocol/src/index";
+import { decide } from "../acp/permissions";
 import { ApiClient, ApiError } from "../api/client";
 import { formatDuration } from "./durations";
 import type { ConfigIssue } from "./loader";
@@ -186,6 +188,20 @@ export function validateReferences(config: Config): Findings {
       });
     }
     checkMcpServers(at, table, errors, warnings);
+  }
+
+  const manager = config.roles.manager;
+  if (
+    manager &&
+    (decide(manager.permission_policy, "edit") !== "deny" ||
+      decide(manager.permission_policy, "execute") !== "deny")
+  ) {
+    warnings.push({
+      path: "roles.manager.permission_policy",
+      message:
+        "a manager with write permission can change code; this is allowed but unusual",
+      hint: 'the default denies edit, delete, move, and execute: { default = "allow", edit = "deny", delete = "deny", move = "deny", execute = "deny" }',
+    });
   }
 
   const names = new Map<string, number>();

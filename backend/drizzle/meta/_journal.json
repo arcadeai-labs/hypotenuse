@@ -69,6 +69,13 @@
       "when": 1792633205911,
       "tag": "0009_equal_mandarin",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1792639392218,
+      "tag": "0010_overjoyed_lucky_pierre",
+      "breakpoints": true
     }
   ]
 }

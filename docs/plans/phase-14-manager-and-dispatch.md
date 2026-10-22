@@ -436,18 +436,18 @@ local daemon with the fake agent scripted to plan-and-dispatch:
 
 ## Definition of done
 
-- [ ] `parentAgentSessionId`, `dispatchMode`, `reviewRound` on `agent_sessions`; `manager` and
+- [x] `parentAgentSessionId`, `dispatchMode`, `reviewRound` on `agent_sessions`; `manager` and
       `routing.maxReviewRounds` settings
-- [ ] Default routing rules seeded on first connect, rule 4 disabled
-- [ ] `daemon:dispatch` with every guard, row-locked, Linear calls after commit, audit row via `writeAuditLog`
-- [ ] Exactly one session row and one work item regardless of `created` webhook ordering
-- [ ] Review work items enqueued on child completion, serialized, superseded ones cancelled
-- [ ] Request-changes as a sticky `prompt` work item plus a visible thought — never a fake prompt activity
-- [ ] `completed`/`canceled` state changes gated by `manager.can_complete_issues`; never for workers
-- [ ] Manager runtime: detached read-only checkout, `deny` policy, default `manager.md`
-- [ ] Session page and `session view` show parent/children
-- [ ] `roles.md` user doc updated
-- [ ] Tests above green twice in a row
+- [x] Default routing rules seeded on first connect, rule 4 disabled
+- [x] `daemon:dispatch` with every guard, row-locked, Linear calls after commit, audit row via `writeAuditLog`
+- [x] Exactly one session row and one work item regardless of `created` webhook ordering
+- [x] Review work items enqueued on child completion, serialized, superseded ones cancelled
+- [x] Request-changes as a sticky `prompt` work item plus a visible thought — never a fake prompt activity
+- [x] `completed`/`canceled` state changes gated by `manager.can_complete_issues`; never for workers
+- [x] Manager runtime: detached read-only checkout, `deny` policy, default `manager.md`
+- [x] Session page and `session view` show parent/children (the CLI draws it; the session page is the dashboard's)
+- [x] `roles.md` user doc updated (it is `manager-and-worker.md`)
+- [x] Tests above green twice in a row
 
 ## Settled non-goals (do not reopen without a new plan)
 
@@ -461,4 +461,73 @@ local daemon with the fake agent scripted to plan-and-dispatch:
 
 ## Learnings from the build
 
-_Nothing yet — this phase has not been built._
+**Built.** Everything in the Definition of done, at CLI 0.10.0, with the departures below. A scripted daemon
+dispatches against finear in `backend/__tests__/actions/daemon-dispatch.test.ts` and `review-loop.test.ts`; the
+fake ACP agent exercises the read-only runtime in `cli/__tests__/acp/manager-runtime.test.ts`. No real coding agent
+has planned and dispatched yet, and the manual walk-through under Verification has not been run against a real
+Linear workspace.
+
+### Where the pieces live
+
+- **Server:** `ops/DispatchOps.ts` (guards, the Redis intent and in-flight reservation, `completeDispatch`,
+  `adoptDispatchedSession`, the review payload, `enqueueReviewIfChild`, `reviewSuperseded`); `dispatch` in
+  `ops/DaemonToolOps.ts` and the issue-state gate beside it; the `created` branch of
+  `ops/LinearWebhookOps.ts`; `finishWorkItem` (reviews) and `buildAssignment` (`dispatch`, `review`) in
+  `ops/WorkItemOps.ts`; supersede-at-offer and the "Reviewing" thought in `ops/WorkRouteOps.ts`;
+  `MANAGER_DEFAULTS` and the `manager` section in `ops/ProjectSettingsOps.ts`; `SEEDED_RULES` and the
+  `projectHasContent` match in `ops/RoutingOps.ts`; `agent-session:view`'s `parent` and `children`. Migration `0010`
+  (the three session columns, `work_items.payload`, `project_settings.manager`).
+- **Protocol:** `AssignmentDispatch`, `AssignmentReview` on `WorkAssignment` (additive); the
+  `hypotenuse_dispatch` input in `protocol/src/tools.ts`.
+- **Daemon:** `cli/src/acp/templates/manager.md`, the request sections in `cli/src/acp/prompt.ts`,
+  `isReadOnly` in `cli/src/acp/permissions.ts` and the host's write refusal, `cli/src/acp/agent-choice.ts`, the
+  `readonly` workspace in `cli/src/worktree/manager.ts`, `MANAGER_DEFAULT_POLICY` in `cli/src/config/schema.ts`,
+  the validate warning, and `session view`'s tree; `routing settings` and `routing add|edit` gained the manager
+  settings and the project-content match.
+
+### Where the build departs from the plan
+
+| Plan | Built | Why |
+|---|---|---|
+| The manager's `permission_policy = "deny"` | **a table: `{ default = "allow", edit = "deny", delete = "deny", move = "deny", execute = "deny" }`** | ACP agents ask permission for MCP tool calls (kind `other` or `fetch`); a blanket deny refused the manager its own Hypotenuse tools |
+| `fs/write_text_file` errors under policy `deny` | **under any policy that denies `edit`**, whatever the role | read-only is a property of the policy, not of the role's name |
+| The read-only checkout is cleaned "with the session" under `on-complete` | **made fresh for every turn and removed at its end**; a dirty one is kept for cleanup's safety rules | a review turn may come hours later on another runner; there is nothing to keep |
+| `agentPreference` chosen by routing | **applied by the daemon**, for a new dispatch only, when the agent is an `[agents]` id on that runner | the server records the role's agent at offer; a `changes` turn resumes the agent holding the session. The server's per-agent count can be off by one for such a turn |
+| Step 4: `issueUpdate(delegateId)`, then `agentSessionCreateOnIssue` | **create the session first, then delegate** | finear (and, we expect, Linear) starts a session on delegation unless one is live on the issue for the app; creating first makes the delegation join it instead of starting a second |
+| The intent is "`dispatch_intents`-shaped" in Redis, the authoritative copy the work item | the same, plus **an in-flight hash per manager** (`dispatch:inflight:<id>`) written under the manager's row lock | the cap must count dispatches whose child row does not exist yet, or two racing calls both pass at `cap - 1` |
+| A failed Linear call leaves nothing | **a refused call (a GraphQL error, `RATELIMITED`, an empty bucket) releases the slot; a lost response or timeout keeps it until the intent lapses (10 min)** | a lost response may hide a session Linear did create, which the `created` webhook then adopts; a retry meanwhile is refused rather than starting a second worker |
+| Reconciliation in `work:route` | **none**: the `created` webhook (and its retries) is the reconciliation | Linear retries a delivery for six hours; the intent covers the first ten minutes |
+| A review on every child completion, outcome `completed` / `failed` / `cancelled` | **none for a cancelled turn, a turn that ended on a question, or a manager a person stopped or un-delegated**; an expired turn is `failed` | re-dispatching what a person stopped re-engages without a prompt; a worker waiting on a person has nothing to review yet |
+| The "Reviewing" thought when the item is offered | the same, **on its first offer only** | a lapsed offer re-offered must not say it twice |
+| `buildReviewPayload` reads `plan` and `externalUrls` from the session | **folds in the turn's still-pending session updates** | the row holds what Linear has accepted; the turn that just ended usually has its plan and pull request link still in the outbox |
+| `payload` on work items | **`work_items.payload` (jsonb)**: `{ dispatch }` or `{ review }` | work items had no payload column |
+| Rule 4: "no team-workflow parent, project description empty" | **`{ hasParent: false, projectHasContent: false }`**, read with `GetProjectContent` only when an enabled rule needs it | Linear's `description` is the one-line summary; the PRD is `content` (as the tools plan found) |
+| `roles.md`; the session page | **`manager-and-worker.md`**; the CLI draws the tree from `agent-session:view` | that is the doc's name; no session page exists yet |
+| `outcome = duplicate_of_dispatch` | the same, also for **another session on an issue mid-dispatch** | Linear may start one for the delegation; it gets no worker |
+
+### Decisions the plan left open
+
+| Question | Answer |
+|---|---|
+| A dispatch onto an issue a person's own session is working | refused (406): delegating would join their session |
+| Who the audit row names | the runner's owner, with the manager session, issue, mode, round, and runner in `metadata` |
+| How a person reads "round N" | `reviewRound + 1`; the wire carries the count of change requests (0 for the first dispatch) |
+| Manager settings in the CLI | `hypotenuse routing settings --max-parallel-dispatch`, `--manager-can-complete`, `--reset canCompleteIssues` |
+| A worker moving its issue to `completed` | refused, like `canceled`, whatever the project allows |
+
+### Traps found while building
+
+- **A foreign key is a lock.** `completeDispatch` writing the child's `parent_agent_session_id` takes a key-share
+  lock on the manager's row; two dispatches holding one each then deadlocked upgrading it to `FOR UPDATE` for the
+  manager's outbox. The manager is now locked first, inside the same transaction.
+- **Redis survived the tables between runs**: a reservation keyed by manager session 1 from an earlier file made the
+  next file's session 1 look busy. `clearLinearRedisState` now clears `dispatch:*`.
+- **A stop's own reason is not on the latest row.** Stopping a manager cancels the turn it hit with `stop` and
+  sweeps queued reviews as `superseded`; "is the manager disengaged?" must read the latest turn that was not
+  swept, or a child finishing afterwards wakes the session the person stopped (found in review).
+- **An intent keyed by issue is shared by every manager.** It is written `NX` — a second manager's dispatch of the
+  issue is refused while one is in flight — cleared only by its owner, and adopts only a session with no creator:
+  a person's own delegation of the issue in that window routes as theirs (found in review).
+- **finear starts a session on an app's own delegation** and delivers `created` for sessions the app creates, so
+  both of the plan's webhook orders are reachable; the "webhook first" order is driven by losing the delegation's
+  response at the proxy.

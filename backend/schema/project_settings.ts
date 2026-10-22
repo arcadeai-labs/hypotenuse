@@ -24,6 +24,14 @@ export interface RoutingSettings {
   maxReviewRounds: number;
 }
 
+/** What a project lets its manager sessions do. */
+export interface ManagerSettings {
+  /** Whether a manager may move an issue to a completed or canceled state. */
+  canCompleteIssues: boolean;
+  /** How many dispatched sessions one manager session may have under way. */
+  maxParallelDispatch: number;
+}
+
 /**
  * A project's settings — one row per project, inserted by the signup bootstrap
  * and by `project:create` alongside the project itself.
@@ -34,6 +42,8 @@ export interface RoutingSettings {
  * - **`routing`** — work routing's timers and thresholds, sparse: a key that is
  *   absent takes its default (`ROUTING_DEFAULTS` in `ops/ProjectSettingsOps.ts`),
  *   so a default can change without rewriting every row.
+ * - **`manager`** — what manager sessions may do, sparse the same way
+ *   (`MANAGER_DEFAULTS`).
  */
 export const projectSettings = pgTable(
   "project_settings",
@@ -44,6 +54,10 @@ export const projectSettings = pgTable(
       .references(() => projects.id, { onDelete: "cascade" }),
     routing: jsonb("routing")
       .$type<Partial<RoutingSettings>>()
+      .notNull()
+      .default({}),
+    manager: jsonb("manager")
+      .$type<Partial<ManagerSettings>>()
       .notNull()
       .default({}),
     createdAt: timestamp("created_at", { withTimezone: true })

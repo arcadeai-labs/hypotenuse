@@ -1,0 +1,98 @@
+{
+  "turns": [
+    [
+      {
+        "permission": {
+          "toolCall": {
+            "toolCallId": "edit-1",
+            "title": "Edit src/a.ts",
+            "kind": "edit",
+            "rawInput": { "path": "src/a.ts" }
+          },
+          "options": [
+            { "optionId": "yes", "name": "Allow", "kind": "allow_once" },
+            { "optionId": "no", "name": "Reject", "kind": "reject_once" }
+          ]
+        },
+        "allowed": [
+          {
+            "update": {
+              "sessionUpdate": "agent_message_chunk",
+              "content": { "type": "text", "text": "Edit allowed. " }
+            }
+          }
+        ],
+        "rejected": [
+          {
+            "update": {
+              "sessionUpdate": "agent_message_chunk",
+              "content": { "type": "text", "text": "Edit rejected. " }
+            }
+          }
+        ]
+      },
+      {
+        "permission": {
+          "toolCall": {
+            "toolCallId": "run-1",
+            "title": "bun test",
+            "kind": "execute",
+            "rawInput": { "command": "bun test" }
+          },
+          "options": [
+            { "optionId": "yes", "name": "Allow", "kind": "allow_once" },
+            { "optionId": "no", "name": "Reject", "kind": "reject_once" }
+          ]
+        },
+        "allowed": [
+          {
+            "update": {
+              "sessionUpdate": "agent_message_chunk",
+              "content": { "type": "text", "text": "Run allowed. " }
+            }
+          }
+        ],
+        "rejected": [
+          {
+            "update": {
+              "sessionUpdate": "agent_message_chunk",
+              "content": { "type": "text", "text": "Run rejected. " }
+            }
+          }
+        ]
+      },
+      {
+        "permission": {
+          "toolCall": {
+            "toolCallId": "mcp-1",
+            "title": "hypotenuse_dispatch",
+            "kind": "other",
+            "rawInput": { "issue": "ENG-2" }
+          },
+          "options": [
+            { "optionId": "yes", "name": "Allow", "kind": "allow_once" },
+            { "optionId": "no", "name": "Reject", "kind": "reject_once" }
+          ]
+        },
+        "allowed": [
+          {
+            "update": {
+              "sessionUpdate": "agent_message_chunk",
+              "content": { "type": "text", "text": "Tool allowed. " }
+            }
+          }
+        ],
+        "rejected": [
+          {
+            "update": {
+              "sessionUpdate": "agent_message_chunk",
+              "content": { "type": "text", "text": "Tool rejected. " }
+            }
+          }
+        ]
+      },
+      { "write": { "path": "$CWD/notes.md", "content": "a note" } },
+      { "stop": "end_turn" }
+    ]
+  ]
+}

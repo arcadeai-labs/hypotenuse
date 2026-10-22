@@ -9,6 +9,11 @@
  *   session at a time (a lock file in its git directory), on the session's
  *   branch — and only from a clean tree. Hypotenuse never stashes, resets, or
  *   cleans a person's checkout.
+ * - **A manager on a repository**: a read-only checkout — a worktree at the
+ *   fresh base branch, **detached** (no branch is created), for the agent to
+ *   read; removed when the turn ends, whatever the cleanup policy, because
+ *   there is never anything in it to keep. `git worktree remove` without
+ *   `--force` refuses a dirty one, which is then left to cleanup's safety rules.
  * - **No repository** (a manager writing tickets): a scratch directory,
  *   `<worktree_root>/_scratch/<agentSessionId>`.
  *
@@ -48,8 +53,8 @@ const BRANCH_SESSION_KEY = "hypotenuseSession";
 
 /** A turn's place to work. */
 export interface Workspace {
-  /** `worktree`, `checkout` (worktrees = "never"), or `scratch`. */
-  mode: "worktree" | "checkout" | "scratch";
+  /** `worktree`, `checkout` (worktrees = "never"), `readonly` (a manager's detached checkout), or `scratch`. */
+  mode: "worktree" | "checkout" | "readonly" | "scratch";
   /** The directory the agent runs in. */
   cwd: string;
   /** The branch, for a repository. */
@@ -173,9 +178,96 @@ export class WorktreeManager {
       repoConfig?.worktrees ?? request.config.sessions.worktrees ?? "always";
     const baseBranch =
       request.assignment.repository?.baseBranch ?? repository.baseBranch;
+    if (request.assignment.role === "manager")
+      return this.readOnly(request, repository, repoConfig, baseBranch);
     if (mode === "never")
       return this.checkout(request, repository, repoConfig, baseBranch);
     return this.worktree(request, repository, repoConfig, baseBranch);
+  }
+
+  /**
+   * A manager's read-only checkout: the base branch's head, detached, made
+   * fresh for each turn and removed at its end. No setup commands run — the
+   * manager reads, it does not build.
+   * @param request - The turn.
+   * @param repository - The repository.
+   * @param repoConfig - Its config entry.
+   * @param baseBranch - The base branch.
+   * @returns The workspace.
+   */
+  private async readOnly(
+    request: AcquireRequest,
+    repository: ResolvedRepository,
+    repoConfig: RepositoryConfig | null,
+    baseBranch: string,
+  ): Promise<Workspace> {
+    const id = request.assignment.agentSessionId;
+    const row = await this.mutex.run(repository.path, async () => {
+      this.refuseIfShort(request);
+      await this.fetchBase(request, repository, baseBranch);
+      const path = this.worktreePath(request, repository);
+      mkdirSync(join(path, ".."), { recursive: true, mode: 0o700 });
+      await this.git(["worktree", "prune"], { cwd: repository.path });
+      await this.must(
+        ["worktree", "add", "--detach", path, `origin/${baseBranch}`],
+        repository.path,
+        `create a read-only checkout of ${baseBranch}`,
+      );
+      const created = this.state.insertWorktree({
+        kind: "worktree",
+        repository: repository.name,
+        repoPath: repository.path,
+        path,
+        branch: "",
+        baseBranch,
+        agentSessionId: id,
+      });
+      this.state.updateWorktree(created.id, { setupDone: true });
+      request.output(
+        `created read-only checkout ${path} at origin/${baseBranch} (detached)`,
+      );
+      return created;
+    });
+    return {
+      mode: "readonly",
+      cwd: row.path,
+      branch: null,
+      baseBranch,
+      worktreeId: row.id,
+      repository,
+      repositoryConfig: repoConfig,
+      reused: false,
+      release: async () => this.removeReadOnly(row, request.output),
+    };
+  }
+
+  /**
+   * Remove a read-only checkout at the end of its turn. A dirty one (the
+   * agent wrote despite the policy, through its own tools) is kept for the
+   * usual cleanup, whose safety rules then decide.
+   * @param row - The checkout.
+   * @param output - A line for the session log.
+   */
+  private async removeReadOnly(
+    row: LocalWorktree,
+    output: (line: string) => void,
+  ): Promise<void> {
+    const repoPath = row.repoPath as string;
+    await this.mutex.run(repoPath, async () => {
+      const removed = await this.git(["worktree", "remove", row.path], {
+        cwd: repoPath,
+      });
+      if (removed.code !== 0) {
+        output(
+          `kept read-only checkout ${row.path}: ${stderrTail(removed, 3)}`,
+        );
+        this.idle(row.id);
+        return;
+      }
+      await this.git(["worktree", "prune"], { cwd: repoPath });
+      this.state.updateWorktree(row.id, { state: "removed", keptReason: null });
+      output(`removed read-only checkout ${row.path}`);
+    });
   }
 
   /**

@@ -27,17 +27,24 @@ A rule matches when **every** field it sets holds. Fields left empty match anyth
 | Team keys | the issue is in one of these teams, e.g. `ENG` |
 | Linear project ids | the issue is in one of these Linear projects |
 | Sub-issues | the issue is (or is not) a sub-issue |
+| Project content | the issue's Linear project has (or has no) content — its PRD — yet; an issue in no project matches neither |
 | Started by | the session came from a delegation, or from a mention |
 
 A delegation has no text, so a prefix rule never matches one. A matched prefix is removed before the agent reads
 the mention: `@hypotenuse /manage plan the launch` reaches a manager as *plan the launch*.
 
-When a project first connects Linear it gets two rules, which an admin can edit, disable, reorder, or delete:
+When a project first connects Linear it gets four rules, which an admin can edit, disable, reorder, or delete:
 
-| Rule | Matches | Role |
-|---|---|---|
-| `/manage` | a mention starting with `/manage` | manager |
-| `/work` | a mention starting with `/work` | worker |
+| Rule | Matches | Role | Enabled |
+|---|---|---|---|
+| `/manage` | a mention starting with `/manage` | manager | yes |
+| `/work` | a mention starting with `/work` | worker | yes |
+| `hypotenuse:manager label` | an issue labelled `hypotenuse:manager` | manager | yes |
+| `plan an empty project` | a top-level issue in a Linear project with no content yet | manager | no |
+
+The last one is a guess — "nobody has written this project's PRD, so plan it" — and a guess that quietly changes
+which kind of agent answers is worse than none, so it starts off. Sessions a manager dispatches are always workers,
+whatever the rules say.
 
 **The role is fixed for a session's life.** Typing `/manage` in a reply to a worker session does not switch it; the
 session says so, and the next mention starts a manager session. Changing a rule never changes a session that was

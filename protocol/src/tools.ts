@@ -183,7 +183,7 @@ export const HYPOTENUSE_TOOLS = [
     roles: BOTH,
     kind: "write",
     description:
-      'Move a Linear issue to a workflow state, by the state\'s name ("In Review") or its type (triage, backlog, unstarted, started, completed, canceled). Defaults to the issue you are working on. A worker cannot cancel an issue.',
+      'Move a Linear issue to a workflow state, by the state\'s name ("In Review") or its type (triage, backlog, unstarted, started, completed, canceled). Defaults to the issue you are working on. A worker cannot complete or cancel an issue, and a manager can only where the project allows it: a person decides when work is done.',
     input: z.strictObject({
       state: z
         .string()
@@ -464,16 +464,33 @@ export const HYPOTENUSE_TOOLS = [
     roles: MANAGER,
     kind: "write",
     description:
-      "Hand an issue you manage to a Hypotenuse worker to implement, with an optional instruction for it.",
+      'Hand an issue you manage to a Hypotenuse worker: it is delegated to Hypotenuse and a worker session starts on it on whichever runner can take it. Only dispatch an issue whose acceptance criteria are written, one call per issue. When the worker finishes, you get a review turn with its result: accept it, request changes with mode "changes" and specific instructions, or file follow-up issues. Workers cannot dispatch, you cannot dispatch the issue you are working on, and you may have only a few dispatched issues in progress at once.',
     input: z.strictObject({
       issue: issueRef,
-      instruction: z
+      instructions: z
         .string()
         .trim()
         .min(1)
-        .max(10_000)
+        .max(8192)
         .optional()
-        .describe("What the worker should do, beyond the issue itself"),
+        .describe(
+          'Context for the worker that does not belong in the issue; for mode "changes", exactly what to change',
+        ),
+      agentPreference: z
+        .string()
+        .trim()
+        .min(1)
+        .max(64)
+        .optional()
+        .describe(
+          "An agent id the worker's runner should prefer (a preference, not a requirement)",
+        ),
+      mode: z
+        .enum(["new", "changes"])
+        .optional()
+        .describe(
+          "new (default): start a worker on the issue. changes: send a finished worker back to the same session and branch with your instructions",
+        ),
     }),
   }),
 ] as const;

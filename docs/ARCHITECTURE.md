@@ -167,15 +167,27 @@ fails the row at once (it is our bug).
 
 There is one Linear app user, `@hypotenuse`. **Which kind of agent answers is a routing decision, not an
 identity.** A project's ordered `routing_rules` pick `manager` or `worker` for each new session from the issue's
-labels, team, project, parent, how the session started, and the start of the mention's text (`/manage`, `/work`,
-seeded as the first two rules when a project connects Linear). The default is `worker`, and the role is fixed for
+labels, team, project, parent, whether the project has content yet, how the session started, and the start of the
+mention's text. A project connecting Linear is seeded with four: `/manage`, `/work`, the `hypotenuse:manager`
+label, and — disabled — top-level issues in a project with no PRD. The default is `worker`, and the role is fixed for
 the session's life.
 
 - A **worker** implements one issue in one worktree and opens a pull request.
-- A **manager** owns the shape of a project: it writes PRDs (project descriptions and Linear documents), breaks
-  them into issues and sub-issues, and **dispatches** issues to workers. When a dispatched worker session
-  finishes, the server enqueues a **review turn** on the manager's session with the worker's result, and the
-  manager accepts, asks for changes, or files follow-ups.
+- A **manager** owns the shape of a project: it writes PRDs (project content and Linear documents), breaks them
+  into issues and sub-issues, and **dispatches** issues to workers. It reads the repository in a detached,
+  read-only checkout and its daemon refuses edits and commands. When a dispatched worker's turn ends, the server
+  enqueues a **review turn** on the manager's session with the worker's result, and the manager accepts, requests
+  changes (a turn on the worker's own session, sticky to its worktree), or files follow-ups.
+
+**Dispatch** (`daemon:dispatch`, `ops/DispatchOps.ts`) is one level deep: a dispatched session is always a worker,
+its `parentAgentSessionId` names the manager, and workers have no dispatch tool. The guards run under the manager
+session's row lock and reserve the slot in Redis before it is released; the Linear calls
+(`agentSessionCreateOnIssue`, then `issueUpdate(delegateId)` — never the assignee) follow the commit; and the child
+row and its turn are recorded by whichever of the dispatch and Linear's `created` webhook for the new session comes
+first, so a replay or a race converges on one row and one turn. A review or a change request is a work item whose
+input lives in `work_items.payload`, never a prompt activity: Linear lets no agent write one. No agent merges, a
+worker never moves an issue to a completed or canceled state, and a manager does only where the project's
+`manager.canCompleteIssues` allows.
 
 Each role has its own entry prompt, coding agent, permission policy, and MCP tool set, defined in the daemon's
 config file (see [`CONFIG.md`](./CONFIG.md)). A runner advertises which roles it serves.
@@ -222,7 +234,8 @@ pin the repository instead, and a manager with no candidates works without one.
  queued ──no eligible runner for routing.queueTimeout──► expired   (session gets an `error`)
 ```
 
-A work item is one **turn**: the session's creation, one follow-up prompt, a dispatch, or a manager review.
+A work item is one **turn**: the session's creation, one follow-up prompt (or a manager's change request), a
+dispatch, or a manager review.
 At most one work item per session may be under way (`offered`, `claimed`, `running`) at a time; a prompt that
 arrives meanwhile is queued behind it, merged with any follow-up already queued (or, with `signal = stop`, cancels
 it and supersedes what is queued). The queue and sticky timeouts count from when an item was last queued.

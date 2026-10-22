@@ -108,4 +108,68 @@ describe("describeSession", () => {
     expect(text).toContain("pending");
     expect(text).toContain("linear     https://linear.app/agent-session/s");
   });
+
+  test("a dispatched session names its manager; a manager lists what it dispatched", () => {
+    const session: AgentSession = {
+      id: 9,
+      type: "linear",
+      externalSessionId: "w",
+      externalUrl: null,
+      issueIdentifier: "ENG-2",
+      issueTitle: "Handle EUR",
+      issueUrl: null,
+      creatorName: null,
+      origin: "delegation",
+      role: "worker",
+      repository: null,
+      runnerId: null,
+      status: "complete",
+      summary: null,
+      externalUrls: [],
+      parentAgentSessionId: 7,
+      dispatchMode: "changes",
+      reviewRound: 2,
+      createdAt: 0,
+      endedAt: null,
+    };
+    expect(
+      describeSession(session, [], {
+        parent: {
+          id: 7,
+          issueIdentifier: "ENG-1",
+          issueUrl: "https://linear.app/acme/issue/ENG-1",
+          status: "active",
+          role: "manager",
+        },
+      }),
+    ).toContain(
+      "dispatched by session 7 on ENG-1 (active, round 3) https://linear.app/acme/issue/ENG-1",
+    );
+    const tree = describeSession({ ...session, id: 7, role: "manager" }, [], {
+      parent: null,
+      children: [
+        {
+          id: 9,
+          issueIdentifier: "ENG-2",
+          issueTitle: "Handle EUR",
+          issueUrl: null,
+          status: "complete",
+          dispatchMode: "changes",
+          reviewRound: 2,
+          pullRequests: [
+            {
+              label: "Pull Request",
+              url: "https://github.com/acme/web/pull/9",
+            },
+          ],
+          workStatus: "completed",
+        },
+      ],
+    });
+    expect(tree).toContain("Dispatched");
+    expect(tree).toMatch(
+      /9\s+ENG-2\s+Handle EUR\s+complete\s+completed\s+3\s+https:\/\/github.com\/acme\/web\/pull\/9/,
+    );
+    expect(tree).not.toContain("dispatched by");
+  });
 });

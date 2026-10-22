@@ -42,6 +42,7 @@ import {
   type OutboundContent,
   OutboxValidationError,
 } from "./ActivityOutboxOps";
+import { enqueueReviewIfChild } from "./DispatchOps";
 import { resolveIssuer } from "./IdentityOps";
 import type { TxHandle } from "./ProjectOps";
 import { resolveRoutingSettings } from "./ProjectSettingsOps";
@@ -454,7 +455,8 @@ export async function answerWaitingTurn(
  * End a turn — **the one place a turn ends**. Marks the item terminal,
  * releases the runner's slot (capacity counts live items only), and, when the
  * turn has not answered the session, enqueues the fallback so the session is
- * never left hanging.
+ * never left hanging. A turn of a session a manager dispatched queues the
+ * manager's review of it (`enqueueReviewIfChild`).
  * @param tx - The transaction.
  * @param item - The item, locked.
  * @param options - How it ends.
@@ -492,6 +494,8 @@ export async function finishWorkItem(
     });
     effects.deliver.add(item.agentSessionId);
   }
+  // A dispatched worker's result goes back to its manager as a review turn.
+  await enqueueReviewIfChild(tx, item, options.status, options.outcome);
   effects.route = true;
   return effects;
 }
@@ -1182,7 +1186,63 @@ export async function buildAssignment(
     humanDelegated:
       session.origin === "delegation" && session.creatorExternalUserId !== null,
     leaseExpiresAt: item.leaseExpiresAt!.getTime(),
+    ...(await assignmentPayload(tx, item)),
   };
+}
+
+/**
+ * What a turn's payload adds to its assignment: the manager's dispatch, or
+ * the worker result a review turn reviews.
+ * @param tx - The transaction.
+ * @param item - The claimed item.
+ * @returns `{ dispatch, review }`, each null when absent.
+ */
+async function assignmentPayload(
+  tx: TxHandle,
+  item: WorkItem,
+): Promise<Pick<WorkAssignment, "dispatch" | "review">> {
+  const payload = item.payload;
+  if (payload && "dispatch" in payload) {
+    const d = payload.dispatch;
+    const [parent] = await tx
+      .select({
+        issueIdentifier: agentSessions.issueIdentifier,
+        issueUrl: agentSessions.issueUrl,
+      })
+      .from(agentSessions)
+      .where(eq(agentSessions.id, d.dispatchedBy));
+    return {
+      dispatch: {
+        mode: d.mode,
+        reviewRound: d.reviewRound,
+        instructions: d.instructions,
+        agentPreference: d.agentPreference,
+        parent: {
+          agentSessionId: d.dispatchedBy,
+          issueIdentifier: parent?.issueIdentifier ?? null,
+          issueUrl: parent?.issueUrl ?? null,
+        },
+      },
+      review: null,
+    };
+  }
+  if (payload && "review" in payload) {
+    const r = payload.review;
+    return {
+      dispatch: null,
+      review: {
+        childAgentSessionId: r.childSessionId,
+        childIssueIdentifier: r.childIssueIdentifier,
+        childIssueUrl: r.childIssueUrl,
+        reviewRound: r.reviewRound,
+        outcome: r.outcome,
+        finalResponse: r.finalResponse,
+        plan: r.plan,
+        pullRequests: r.pullRequests,
+      },
+    };
+  }
+  return { dispatch: null, review: null };
 }
 
 /** What {@link applyEvents} answers. */

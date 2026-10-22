@@ -104,7 +104,7 @@ async function lastAudit(action: string) {
 }
 
 describe("routing-rule:*", () => {
-  test("connecting Linear seeded the two prefix rules, and every member reads them", async () => {
+  test("connecting Linear seeded the four rules, and every member reads them", async () => {
     const { status, body } = await call<{
       routingRules: SerializedRoutingRule[];
       pagination: { total: number };
@@ -115,8 +115,20 @@ describe("routing-rule:*", () => {
     ).toEqual([
       [0, "/manage", { promptPrefix: "/manage" }, "manager"],
       [1, "/work", { promptPrefix: "/work" }, "worker"],
+      [
+        2,
+        "hypotenuse:manager label",
+        { labels: ["hypotenuse:manager"] },
+        "manager",
+      ],
+      [
+        3,
+        "plan an empty project",
+        { hasParent: false, projectHasContent: false },
+        "manager",
+      ],
     ]);
-    expect(body.pagination.total).toBe(2);
+    expect(body.pagination.total).toBe(4);
     const outsider = await call("GET", "/routing-rules", universe.bowser);
     expect(outsider.status).toBe(403);
   });
@@ -135,7 +147,7 @@ describe("routing-rule:*", () => {
     );
     expect(status).toBe(200);
     expect(body.routingRule).toMatchObject({
-      position: 2,
+      position: 4,
       name: "PRDs",
       role: "manager",
       enabled: true,
@@ -145,7 +157,13 @@ describe("routing-rule:*", () => {
     const audit = await lastAudit("routing-rule:create");
     expect(audit.targetType).toBe("routing_rule");
     expect(audit.targetPath).toBe("PRDs");
-    expect(await names()).toEqual(["/manage", "/work", "PRDs"]);
+    expect(await names()).toEqual([
+      "/manage",
+      "/work",
+      "hypotenuse:manager label",
+      "plan an empty project",
+      "PRDs",
+    ]);
   });
 
   test("a match field outside the schema, a bad prefix, and a bad role are refused", async () => {
@@ -259,7 +277,13 @@ describe("routing-rule:*", () => {
     expect(body.routingRules.map((r) => [r.id, r.position])).toEqual(
       reversed.map((id, position) => [id, position]),
     );
-    expect(await names()).toEqual(["PRDs", "/work", "/manage"]);
+    expect(await names()).toEqual([
+      "PRDs",
+      "plan an empty project",
+      "hypotenuse:manager label",
+      "/work",
+      "/manage",
+    ]);
   });
 
   test("a delete moves the later rules up, and the list pages", async () => {
@@ -280,15 +304,15 @@ describe("routing-rule:*", () => {
     const page = await call<{
       routingRules: SerializedRoutingRule[];
       pagination: Record<string, number>;
-    }>("GET", "/routing-rules", universe.luigi, { limit: 1, page: 2 });
+    }>("GET", "/routing-rules", universe.luigi, { limit: 1, page: 4 });
     expect(page.body.routingRules.map((r) => [r.name, r.position])).toEqual([
-      ["/manage", 1],
+      ["/manage", 3],
     ]);
     expect(page.body.pagination).toEqual({
-      page: 2,
+      page: 4,
       limit: 1,
-      total: 2,
-      pages: 2,
+      total: 4,
+      pages: 4,
     });
   });
 });

@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import type { api } from "keryx";
 import { z } from "zod";
 import {
+  type ManagerSettings,
   type ProjectSettings,
   projectSettings,
   type RoutingSettings,
@@ -16,6 +17,12 @@ export const ROUTING_DEFAULTS: RoutingSettings = {
   repositoryConfidence: 0.7,
   stopGraceMs: 30_000,
   maxReviewRounds: 3,
+};
+
+/** What manager sessions may do, for every key a project has not set. */
+export const MANAGER_DEFAULTS: ManagerSettings = {
+  canCompleteIssues: false,
+  maxParallelDispatch: 3,
 };
 
 /** One hour in ms, the most any routing timer waits but the queue timeout. */
@@ -76,6 +83,79 @@ export const RoutingSettingsEditInput = z.strictObject({
   stopGraceMs: routingFields.stopGraceMs.nullable().optional(),
   maxReviewRounds: routingFields.maxReviewRounds.nullable().optional(),
 });
+
+/**
+ * The `manager` section a settings edit may change, the same way as
+ * {@link RoutingSettingsEditInput}.
+ */
+export const ManagerSettingsEditInput = z.strictObject({
+  canCompleteIssues: z
+    .boolean()
+    .nullable()
+    .optional()
+    .describe(
+      "Whether a manager session may move an issue to a completed or canceled state",
+    ),
+  maxParallelDispatch: z
+    .number()
+    .int()
+    .min(1)
+    .max(20)
+    .nullable()
+    .optional()
+    .describe(
+      "How many dispatched worker sessions one manager session may have under way",
+    ),
+});
+
+/**
+ * A sparse settings section with an edit applied: a key left out keeps its
+ * value, and `null` removes it so it takes its default.
+ * @param stored - The stored section.
+ * @param edit - The edit.
+ * @returns The new section.
+ */
+export function applySectionEdit(
+  stored: Record<string, unknown>,
+  edit: Record<string, unknown> | undefined,
+): Record<string, unknown> {
+  const next: Record<string, unknown> = { ...stored };
+  for (const [key, value] of Object.entries(edit ?? {})) {
+    if (value === undefined) continue;
+    if (value === null) delete next[key];
+    else next[key] = value;
+  }
+  return next;
+}
+
+/**
+ * A project's manager settings, every key filled in.
+ * @param settings - The settings row (or just its `manager` column).
+ * @returns The stored values over the defaults.
+ */
+export function resolveManagerSettings(
+  settings: Pick<ProjectSettings, "manager"> | null | undefined,
+): ManagerSettings {
+  return { ...MANAGER_DEFAULTS, ...(settings?.manager ?? {}) };
+}
+
+/**
+ * Read a project's manager settings.
+ * @param db - A transaction or the shared handle.
+ * @param projectId - The project.
+ * @returns Its settings over the defaults.
+ */
+export async function getManagerSettings(
+  db: TxHandle | typeof api.db.db,
+  projectId: number,
+): Promise<ManagerSettings> {
+  const [row] = await db
+    .select({ manager: projectSettings.manager })
+    .from(projectSettings)
+    .where(eq(projectSettings.projectId, projectId))
+    .limit(1);
+  return resolveManagerSettings(row);
+}
 
 /**
  * A project's routing settings, every key filled in.
@@ -145,8 +225,9 @@ export async function getOrCreateSettings(
  * Shape a settings row into the API-safe object returned by actions. Timestamps
  * are emitted as epoch milliseconds.
  *
- * `routing` is answered resolved — every key, defaults filled in — because a
- * client deciding what a turn will wait for must not guess a default.
+ * `routing` and `manager` are answered resolved — every key, defaults filled
+ * in — because a client deciding what a turn will wait for must not guess a
+ * default.
  * @param settings - The settings row from the database.
  * @returns The serialized settings.
  */
@@ -155,6 +236,7 @@ export function serializeProjectSettings(settings: ProjectSettings) {
     id: settings.id,
     projectId: settings.projectId,
     routing: resolveRoutingSettings(settings),
+    manager: resolveManagerSettings(settings),
     createdAt: settings.createdAt.getTime(),
     updatedAt: settings.updatedAt.getTime(),
   };

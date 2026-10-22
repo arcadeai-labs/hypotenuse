@@ -1,4 +1,5 @@
 import {
+  type AnyPgColumn,
   index,
   integer,
   jsonb,
@@ -45,6 +46,12 @@ export const AGENT_SESSION_ROLES = ["manager", "worker"] as const;
 
 /** One of {@link AGENT_SESSION_ROLES}. */
 export type AgentSessionRole = (typeof AGENT_SESSION_ROLES)[number];
+
+/** How a manager session handed a worker session its work. */
+export const DISPATCH_MODES = ["new", "changes"] as const;
+
+/** One of {@link DISPATCH_MODES}. */
+export type DispatchMode = (typeof DISPATCH_MODES)[number];
 
 /** One piece of workspace or team guidance, as Linear sends it. */
 export interface AgentSessionGuidance {
@@ -93,7 +100,11 @@ export interface IssueSnapshot {
   labels: string[];
   state: { name: string; type: string } | null;
   parent: { id: string } | null;
-  project: { id: string; name: string } | null;
+  /**
+   * `hasContent` is read only when an enabled rule matches on it, and is
+   * absent otherwise.
+   */
+  project: { id: string; name: string; hasContent?: boolean } | null;
 }
 
 /** One external link on a session. */
@@ -118,6 +129,10 @@ export interface AgentSessionExternalUrl {
  *   on the first claim. `issueSnapshot` is what routing read about the issue;
  *   `pendingRepositoryChoice` is a repository question waiting on a person.
  * - **`summary`, `plan`, `externalUrls`** are the last values Hypotenuse wrote.
+ * - **`parentAgentSessionId`** is the manager session that dispatched this
+ *   one (a worker; dispatch is one level deep). `dispatchMode` is how the
+ *   last dispatch reached it and `reviewRound` how many times the manager
+ *   has sent it back with changes.
  *
  * Its activities, both directions, are `agent_activities`.
  */
@@ -191,6 +206,15 @@ export const agentSessions = pgTable(
      * the live turn.
      */
     delegateRemovedAt: timestamp("delegate_removed_at", { withTimezone: true }),
+    /** The manager session that dispatched this one; null for every other session. */
+    parentAgentSessionId: integer("parent_agent_session_id").references(
+      (): AnyPgColumn => agentSessions.id,
+      { onDelete: "set null" },
+    ),
+    /** How the manager last dispatched it; null when no manager did. */
+    dispatchMode: text("dispatch_mode").$type<DispatchMode | null>(),
+    /** How many times the manager has requested changes. */
+    reviewRound: integer("review_round").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -212,6 +236,8 @@ export const agentSessions = pgTable(
     ),
     // Issue events find the sessions on an issue.
     issueIndex: index("agent_sessions_issue_idx").on(t.type, t.externalIssueId),
+    // A manager's dispatched children.
+    parentIndex: index("agent_sessions_parent_idx").on(t.parentAgentSessionId),
   }),
 );
 

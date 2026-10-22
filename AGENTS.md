@@ -58,7 +58,8 @@ and that is where to read before changing something load-bearing, and where to w
    `trigger_events`), `cli-auth:device` / `cli-auth:exchange` and a CLI token's sliding-expiry touch (the CLI's
    sign-in ingress — the person's `cli-auth:approve` / `cli-auth:activate` is the audited decision), the outbox and
    clocks, and the daemon half (`daemon:*`, recorded in `agent_activities` and
-   `work_items`). The audited thing is always **the decision a person made** — connecting Linear, registering or
+   `work_items`) — save `daemon:dispatch`, which writes an `agent:dispatch` row through `writeAuditLog` because it
+   delegates work to the app on a person's issue. The audited thing is always **the decision a person made** — connecting Linear, registering or
    revoking a runner, editing a routing rule, cancelling a session.
 7. **Linear credentials never leave the server.** No action returns a Linear access token, refresh token, client
    secret, or webhook secret, and no serializer has a field one fits in. The daemon, the coding agent, and its MCP
@@ -245,7 +246,13 @@ The map is [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md). What follows is the
   releases the runner slot and answers the session if the turn did not.
 - **Lock a session before its work items, and both before a runner row.** Cancellation starts from the session and
   a daemon's writes from an item; any other order deadlocks a Stop against a running turn. Lock an item with
-  `WorkItemOps.lockItemWithSession`.
+  `WorkItemOps.lockItemWithSession`. A dispatch locks the worker's session, then its manager's — before writing the
+  child's parent column, whose key-share lock two dispatches would otherwise both try to upgrade.
+- **Dispatch is one level deep, and a review is a turn, not a prompt.** A manager's `hypotenuse_dispatch` makes a
+  worker child (`parentAgentSessionId`); its turns that end come back as `review` work items on the manager, their
+  input in `work_items.payload`. A change request is a `prompt` item on the worker's own session with a visible
+  thought. A cancelled worker turn, or one that ended on a question, wakes no review: that would re-engage what a
+  person stopped or is answering.
 - **A question mid-turn is answered in the turn.** A held turn that posts an `elicitation` is marked awaiting an
   answer; the person's next follow-up is appended to that item's `answers` (`WorkItemOps.answerWaitingTurn`) and
   delivered by heartbeat, not queued. Whatever the daemon does not report in `answersConsumed` becomes the next
@@ -299,7 +306,8 @@ The map is [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md). What follows is the
   finear's clock aligns `webhookClock` (`ops/LinearWebhookOps.ts`) to it, or the server refuses finear's
   deliveries as replays.
 - **Redis outlives `clearDatabase()`, and ids restart.** Anything keyed by a row id (a token bucket, a lease, a
-  queued job) must be cleared with the tables; `buildTestUniverse()` does it for the Linear keys and queue.
+  queued job, a dispatch reservation) must be cleared with the tables; `buildTestUniverse()` does it for the Linear,
+  runner, and dispatch keys and the queue.
 - **Assert the property, not the symptom** — byte-identical refusal bodies, whole-set comparisons of allowlists,
   exact Linear activity sequences.
 - **Docs are tested:** links, the Learnings heading, and the Linear coverage matrix.

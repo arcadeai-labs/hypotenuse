@@ -24,14 +24,15 @@ or your runner's token, and nothing it does through these tools can reach past t
 | `linear_update_project` | | ✓ | writes the PRD, summary, or status of its issue's project — never the lead or members |
 | `linear_create_document`, `linear_update_document` | | ✓ | writes documents on its issue's project, or on an issue it manages |
 | `linear_list_labels` | | ✓ | lists the labels it can use |
-| `hypotenuse_dispatch` | | ✓ | hands an issue to a worker |
+| `hypotenuse_dispatch` | | ✓ | delegates an issue it manages to `@hypotenuse` and starts a worker on it, or sends a finished worker back with changes |
 
 **What a manager manages:** the session's issue, its sub-issues (five levels down), issues the session created, and
 other issues in the same team. Everything is also limited to the teams you granted Hypotenuse when you
 [connected Linear](/docs/connecting-linear).
 
-> **Where this is today.** `hypotenuse_dispatch` checks and records the hand-off, but a worker is not started from
-> it yet; the agent is told so, and should tell you.
+A dispatched worker's result comes back to the manager as a review turn — see
+[managers and workers](/docs/manager-and-worker). `linear_set_issue_state` never lets a worker move an issue to a
+completed or canceled state, and lets a manager do it only where the project allows.
 
 ## Questions end the turn
 

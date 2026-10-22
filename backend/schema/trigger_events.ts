@@ -15,6 +15,8 @@ import { integrations, type TriggerType } from "./integrations";
 export const TRIGGER_EVENT_OUTCOMES = [
   "pending",
   "handled",
+  // A `created` for a session a manager's dispatch had already recorded.
+  "duplicate_of_dispatch",
   "ignored",
   "unknown_integration",
   "failed",

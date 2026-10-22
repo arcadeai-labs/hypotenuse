@@ -73,6 +73,19 @@ export function decide(
   return byKind ?? policy.default ?? "allow";
 }
 
+/** The answer a read-only session's file writes get. */
+export const READ_ONLY_MESSAGE = "this session is read-only";
+
+/**
+ * Whether a policy makes the session read-only: it refuses `edit` without
+ * asking, so a file write through the daemon must be refused too.
+ * @param policy - The role's policy.
+ * @returns True when edits are denied.
+ */
+export function isReadOnly(policy: PermissionPolicy): boolean {
+  return decide(policy, "edit") === "deny";
+}
+
 /**
  * The option a policy picks without asking.
  * @param options - The agent's options.

@@ -27,7 +27,8 @@ agent = "{{agent}}"
 
 # [roles.manager]
 # agent = "{{agent}}"
-# permission_policy = "ask"
+# # read-only by default: edits, deletes, moves, and commands are refused
+# # permission_policy = { default = "allow", edit = "deny", delete = "deny", move = "deny", execute = "deny" }
 # max_parallel = 1
 
 {{repositories}}

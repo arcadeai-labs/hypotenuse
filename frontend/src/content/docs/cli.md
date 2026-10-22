@@ -146,6 +146,9 @@ and everything Hypotenuse wrote back, each with its delivery status — `sent`, 
 Linear's rate limit, `failed` when Linear refused it, or `superseded` when a later activity replaced it before it was
 sent.
 
+For a session a manager dispatched, `session view` names the planning session it came from; for a planning session,
+it lists every issue it dispatched with the worker's status, its review round, and its pull requests.
+
 `hypotenuse session cancel <id>` stops a session's work, as pressing **Stop** in Linear does: work no runner has
 started is cancelled and the session says so; a running turn is told to stop and report the state it left things in.
 Any member can do it.
@@ -154,8 +157,9 @@ Any member can do it.
 
 `hypotenuse routing list` shows the project's routing rules in the order they are tried. The first enabled rule
 whose match holds for a new session decides whether a **manager** or a **worker** answers it; when none matches, a
-worker does. Every project starts with two rules, `/manage` and `/work`, that match a mention beginning with that
-word. [Routing](/docs/routing) explains the whole decision.
+worker does. Every project starts with four rules: `/manage` and `/work`, which match a mention beginning with that
+word; one sending issues labelled `hypotenuse:manager` to a manager; and one, disabled, sending top-level issues in a
+project with no PRD yet to a manager. [Routing](/docs/routing) explains the whole decision.
 
 `hypotenuse routing add --name <name> --role manager|worker` adds a rule at the end. The match flags are all
 optional, and every one given must hold:
@@ -167,6 +171,7 @@ optional, and every one given must hold:
 | `--linear-project <ids>` | the issue is in one of these Linear projects, by id |
 | `--prefix /manage` | the mention starts with this word |
 | `--has-parent`, `--no-parent` | the issue is, or is not, a sub-issue |
+| `--project-has-content`, `--project-empty` | the issue's Linear project has, or has no, content (its PRD) yet |
 | `--origin delegation\|mention` | the session started that way |
 
 `--repository <repo>` also pins the repository the work happens in, and `--disabled` adds the rule switched off.
@@ -181,7 +186,10 @@ a rule, and `hypotenuse routing reorder <id...>` sets the order, listing every r
 runner that has its worktree, how long an offer to a runner stands, how long a stopped runner has to confirm, and how
 sure Linear must be of a repository before Hypotenuse picks it without asking. Change them with `--queue-timeout 45m`,
 `--sticky-timeout 10m` (`0` never waits), `--offer-ttl 10s`, `--stop-grace 30s`, `--repository-confidence 0.7`, and
-`--max-review-rounds 3`; `--reset <key>` returns one to its default.
+`--max-review-rounds 3`; `--reset <key>` returns one to its default. It also shows what a
+[manager](/docs/manager-and-worker) may do: `--max-parallel-dispatch 3` caps the dispatched workers one planning
+session has under way, and `--manager-can-complete yes|no` decides whether a manager may move an issue to a completed
+or canceled state (no by default; a worker never may).
 
 Reading rules and settings is open to every member; changing them is for project admins.
 

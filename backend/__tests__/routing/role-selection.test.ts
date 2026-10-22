@@ -18,6 +18,7 @@ import {
 import { integrationRow } from "../linear/helpers";
 import {
   activityRows,
+  delegate,
   recordedEvent,
   sessionRow,
   settle,
@@ -65,6 +66,7 @@ const BASE: RoutingFacts = {
   teamKey: "ENG",
   projectId: "proj-1",
   hasParent: false,
+  projectHasContent: null,
   origin: "delegation",
   text: null,
 };
@@ -214,7 +216,7 @@ describe("selectRole", () => {
 });
 
 describe("through finear", () => {
-  test("connecting Linear seeds /manage and /work", async () => {
+  test("connecting Linear seeds /manage, /work, the manager label, and the empty-project rule disabled", async () => {
     const rows = await api.db.db
       .select()
       .from(routingRules)
@@ -225,6 +227,20 @@ describe("through finear", () => {
     ).toEqual([
       [0, "/manage", { promptPrefix: "/manage" }, "manager", true],
       [1, "/work", { promptPrefix: "/work" }, "worker", true],
+      [
+        2,
+        "hypotenuse:manager label",
+        { labels: ["hypotenuse:manager"] },
+        "manager",
+        true,
+      ],
+      [
+        3,
+        "plan an empty project",
+        { hasParent: false, projectHasContent: false },
+        "manager",
+        false,
+      ],
     ]);
   });
 
@@ -370,5 +386,85 @@ describe("through finear", () => {
       (r) => (r.content as { body?: string }).body,
     );
     expect(bodies).toContain("Routing as **manager** (rule: PRDs).");
+  });
+
+  test("LC-SES-24 the seeded empty-project rule, once enabled, makes a top-level issue in a project with no PRD a manager", async () => {
+    await api.db.db
+      .update(routingRules)
+      .set({ enabled: true })
+      .where(eq(routingRules.name, "plan an empty project"));
+    try {
+      const statuses = await linear.graphql<{
+        organization: { projectStatuses: { id: string }[] };
+      }>(FINEAR_PRIMARY_KEY, `{ organization { projectStatuses { id } } }`);
+      const project = (
+        await linear.graphql<{ projectCreate: { project: { id: string } } }>(
+          FINEAR_PRIMARY_KEY,
+          `mutation($input: ProjectCreateInput!) { projectCreate(input: $input) { project { id } } }`,
+          {
+            input: {
+              name: "Saved carts",
+              teamIds: [FINEAR_FIXTURES.primary.team],
+              statusId: statuses.data!.organization.projectStatuses[0]!.id,
+            },
+          },
+        )
+      ).data!.projectCreate.project;
+
+      /**
+       * Delegate a new top-level issue in the project and settle it.
+       * @param title - The issue's title.
+       * @returns The session's role.
+       */
+      const roleFor = async (title: string) => {
+        const issue = (
+          await linear.graphql<{ issueCreate: { issue: { id: string } } }>(
+            FINEAR_PRIMARY_KEY,
+            `mutation($input: IssueCreateInput!) { issueCreate(input: $input) { issue { id } } }`,
+            {
+              input: {
+                teamId: FINEAR_FIXTURES.primary.team,
+                projectId: project.id,
+                title,
+              },
+            },
+          )
+        ).data!.issueCreate.issue;
+        const externalSessionId = await delegate(linear, issue.id, appUserId);
+        await recordedEvent(
+          (e) =>
+            (e.payload as { agentSession?: { id?: string } }).agentSession
+              ?.id === externalSessionId,
+        );
+        await settle();
+        return (await sessionRow(externalSessionId))!;
+      };
+
+      const empty = await roleFor("Plan saved carts");
+      expect(empty.role).toBe("manager");
+      expect(empty.issueSnapshot?.project).toMatchObject({
+        id: project.id,
+        hasContent: false,
+      });
+      expect(
+        (await activityRows(empty.id)).map(
+          (r) => (r.content as { body?: string }).body,
+        ),
+      ).toContain("Routing as **manager** (rule: plan an empty project).");
+
+      await linear.graphql(
+        FINEAR_PRIMARY_KEY,
+        `mutation($id: String!, $input: ProjectUpdateInput!) { projectUpdate(id: $id, input: $input) { success } }`,
+        { id: project.id, input: { content: "## Problem\nCarts vanish." } },
+      );
+      const written = await roleFor("Build saved carts");
+      expect(written.role).toBe("worker");
+      expect(written.issueSnapshot?.project?.hasContent).toBe(true);
+    } finally {
+      await api.db.db
+        .update(routingRules)
+        .set({ enabled: false })
+        .where(eq(routingRules.name, "plan an empty project"));
+    }
   });
 });

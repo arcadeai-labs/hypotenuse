@@ -6,6 +6,7 @@ import {
   formatDuration,
   hasMatchFlags,
   listOption,
+  managerSettingsBody,
   matchFromFlags,
   parseDuration,
   type RoutingRule,
@@ -92,6 +93,16 @@ describe("rule flags", () => {
     expect(hasMatchFlags({ hasParent: true })).toBe(true);
   });
 
+  test("the project-content match reads both ways", () => {
+    expect(matchFromFlags({ projectHasContent: false })).toEqual({
+      projectHasContent: false,
+    });
+    expect(hasMatchFlags({ projectHasContent: true })).toBe(true);
+    expect(describeMatch({ hasParent: false, projectHasContent: false })).toBe(
+      "not sub-issue project empty",
+    );
+  });
+
   test("an unknown origin is refused", () => {
     expect(() => matchFromFlags({ origin: "automation" })).toThrow(/origin/);
   });
@@ -161,6 +172,45 @@ describe("settings edits", () => {
   test("bad values and unknown keys are refused", () => {
     expect(() => settingsBody({ repositoryConfidence: "2" })).toThrow(/0 to 1/);
     expect(() => settingsBody({ reset: ["nope"] })).toThrow(/Unknown setting/);
+  });
+
+  test("manager flags become the manager body, apart from routing's; --reset sends either section its null", () => {
+    const flags = {
+      maxParallelDispatch: "5",
+      managerCanComplete: "yes",
+      reset: ["canCompleteIssues", "maxReviewRounds"],
+    };
+    expect(managerSettingsBody(flags)).toEqual({
+      maxParallelDispatch: 5,
+      canCompleteIssues: null,
+    });
+    expect(settingsBody(flags)).toEqual({ maxReviewRounds: null });
+    expect(managerSettingsBody({ managerCanComplete: "no" })).toEqual({
+      canCompleteIssues: false,
+    });
+    expect(managerSettingsBody({})).toBeNull();
+    expect(() => managerSettingsBody({ maxParallelDispatch: "0" })).toThrow(
+      /at least 1/,
+    );
+    expect(() => managerSettingsBody({ managerCanComplete: "maybe" })).toThrow(
+      /yes or no/,
+    );
+  });
+
+  test("settings show the manager section when the server sends it", () => {
+    const text = describeRoutingSettings(
+      {
+        queueTimeoutMs: 1_800_000,
+        stickyTimeoutMs: 600_000,
+        offerTtlMs: 10_000,
+        repositoryConfidence: 0.7,
+        stopGraceMs: 30_000,
+        maxReviewRounds: 3,
+      },
+      { canCompleteIssues: false, maxParallelDispatch: 3 },
+    );
+    expect(text).toContain("max parallel dispatch  3");
+    expect(text).toContain("manager completes      no");
   });
 });
 

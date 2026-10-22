@@ -183,3 +183,50 @@ describe("acquire", () => {
     );
   });
 });
+
+describe("a manager's read-only checkout", () => {
+  test("is detached at the fresh base branch, creates no branch, and is removed when the turn ends", async () => {
+    const f = fixture();
+    const branchesBefore = git(f.clone, "branch", "--format=%(refname)");
+    const ws = await f.manager.acquire(request(f, work({ role: "manager" })));
+    expect(ws.mode).toBe("readonly");
+    expect(ws.branch).toBeNull();
+    expect(ws.baseBranch).toBe("main");
+    expect(ws.cwd).toBe(join(f.root, "worktrees", "web", "ENG-1"));
+    expect(git(ws.cwd, "rev-parse", "--abbrev-ref", "HEAD")).toBe("HEAD");
+    expect(git(ws.cwd, "rev-parse", "HEAD")).toBe(
+      git(f.origin, "rev-parse", "main"),
+    );
+    expect(git(f.clone, "branch", "--format=%(refname)")).toBe(branchesBefore);
+    await ws.release();
+    expect(existsSync(ws.cwd)).toBe(false);
+    expect(f.state.worktree(ws.worktreeId as number)?.state).toBe("removed");
+    expect(git(f.clone, "worktree", "list")).not.toContain(ws.cwd);
+  });
+
+  test("a dirty one is kept for cleanup's safety rules, and the next turn gets a fresh one", async () => {
+    const f = fixture();
+    const first = await f.manager.acquire(
+      request(f, work({ role: "manager" })),
+    );
+    Bun.write(join(first.cwd, "scribble.txt"), "should not be here\n");
+    git(first.cwd, "add", "scribble.txt");
+    await first.release();
+    expect(existsSync(join(first.cwd, "scribble.txt"))).toBe(true);
+    expect(f.state.worktree(first.worktreeId as number)?.state).toBe("idle");
+    const second = await f.manager.acquire(
+      request(f, work({ role: "manager", workItemId: 2, kind: "review" })),
+    );
+    expect(second.reused).toBe(false);
+    expect(second.cwd).toBe(`${first.cwd}-2`);
+    await second.release();
+  });
+
+  test("without a repository, a manager works in a scratch directory", async () => {
+    const f = fixture();
+    const ws = await f.manager.acquire(
+      request(f, work({ role: "manager", repository: null })),
+    );
+    expect(ws.mode).toBe("scratch");
+  });
+});

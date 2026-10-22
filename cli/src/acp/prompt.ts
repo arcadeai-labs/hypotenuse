@@ -14,6 +14,13 @@
  * <environment>          where it is working
  * ```
  *
+ * A turn a manager session handed over carries its own request, in headed
+ * sections of `<request>`: a dispatch's `## Instructions from the planning
+ * agent`, a change request's `## Changes requested by the planning agent`,
+ * and a manager's review turn's `## Worker result for ENG-123 (round N)` —
+ * the worker's outcome, pull requests, plan, and final response in a fenced
+ * block. Linear lets no agent write a prompt, so these exist only here.
+ *
  * A turn that resumes the agent's own session gets only a one-line
  * `<hypotenuse>` reminder and the `<request>`: the agent already holds the
  * rest, and re-sending it every turn reads as new instructions.
@@ -21,7 +28,10 @@
  * Templates are Markdown with `{{dotted.variable}}` and no logic. An unknown
  * variable is an error at `config validate` and renders empty here.
  */
-import type { WorkAssignment } from "../../../protocol/src/index";
+import type {
+  AssignmentReview,
+  WorkAssignment,
+} from "../../../protocol/src/index";
 import type { RoleConfig } from "../config/schema";
 import { PROMPT_VARIABLES, templateVariables } from "../config/validate";
 import type { ContentBlock } from "./connection";
@@ -48,6 +58,8 @@ export interface PromptContext {
   resumed: boolean;
   /** A role's `prompt_file`, already read; overrides `prompt`. */
   templateText?: string | null;
+  /** Whether the directory is a read-only checkout (a manager's). */
+  readOnly?: boolean;
 }
 
 /**
@@ -95,8 +107,7 @@ export function templateValues(
     "worktree.branch": ctx.branch ?? "",
     "runner.name": ctx.runnerName,
     "dispatch.parent_identifier":
-      ((assignment as { dispatch?: { parentIdentifier?: string } }).dispatch
-        ?.parentIdentifier as string | undefined) ?? "",
+      assignment.dispatch?.parent.issueIdentifier ?? "",
   };
 }
 
@@ -160,17 +171,88 @@ function attr(value: string): string {
 }
 
 /**
- * What this turn asks for.
+ * A fence longer than any run of backticks in the text, so the text cannot
+ * close it.
+ * @param text - What goes inside.
+ * @returns The fence.
+ */
+function fenceFor(text: string): string {
+  const longest = Math.max(
+    0,
+    ...[...text.matchAll(/`+/g)].map((m) => m[0].length),
+  );
+  return "`".repeat(Math.max(3, longest + 1));
+}
+
+/**
+ * A manager's review turn: one dispatched worker's result.
+ * @param review - The result.
+ * @returns The headed section.
+ */
+export function reviewSection(review: AssignmentReview): string {
+  const issue = review.childIssueIdentifier ?? "the dispatched issue";
+  const body = [
+    `outcome: ${review.outcome}`,
+    `pull requests: ${review.pullRequests.length ? "" : "none"}`,
+    ...review.pullRequests.map((p) => `- ${p.label}: ${p.url}`),
+    `plan: ${review.plan?.length ? "" : "none"}`,
+    ...(review.plan ?? []).map((s) => `- [${s.status}] ${s.content}`),
+    "final response:",
+    review.finalResponse?.trim() || "(none)",
+  ]
+    .map((line) => line.trimEnd())
+    .join("\n");
+  const fence = fenceFor(body);
+  return [
+    `## Worker result for ${issue} (round ${review.reviewRound + 1})`,
+    review.childIssueUrl ? `Issue: ${review.childIssueUrl}` : null,
+    `${fence}\n${body}\n${fence}`,
+    "Review it against the issue's acceptance criteria, then accept it, request changes, or file follow-ups — and end with a response that says which, and why.",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+/**
+ * What this turn asks for: a review, a change request, or the person's
+ * prompts (else the mention's text), with a dispatch's instructions after.
  * @param assignment - The turn.
  * @returns The request text.
  */
 export function requestText(assignment: WorkAssignment): string {
+  const parts: string[] = [];
   const prompts = (assignment.prompt ?? [])
     .map((p) => p.body.trim())
     .filter(Boolean);
-  if (prompts.length) return prompts.join("\n\n");
-  const instruction = assignment.instruction?.trim();
-  return instruction || "Begin.";
+  const dispatch = assignment.dispatch;
+  const instructions = dispatch?.instructions?.trim();
+  if (assignment.review) parts.push(reviewSection(assignment.review));
+  if (dispatch?.mode === "changes") {
+    parts.push(
+      `## Changes requested by the planning agent\n\n${instructions || "Review the issue's acceptance criteria again; the planning agent found the work incomplete."}`,
+    );
+  }
+  if (prompts.length) parts.push(prompts.join("\n\n"));
+  if (parts.length === 0)
+    parts.push(assignment.instruction?.trim() || "Begin.");
+  if (dispatch?.mode === "new" && instructions) {
+    parts.push(`## Instructions from the planning agent\n\n${instructions}`);
+  }
+  return parts.join("\n\n");
+}
+
+/**
+ * Where a dispatched worker's work came from, for its first turn.
+ * @param assignment - The turn.
+ * @returns The sentence, or empty.
+ */
+function dispatchedBy(assignment: WorkAssignment): string {
+  const parent = assignment.dispatch?.parent;
+  if (!parent) return "";
+  const where = parent.issueUrl ?? parent.issueIdentifier;
+  return where
+    ? ` This issue was dispatched to you by the planning agent's session on ${where}.`
+    : " This issue was dispatched to you by the planning agent.";
 }
 
 /**
@@ -247,9 +329,12 @@ export function buildPrompt(
   ].join("");
   const environment = [
     where,
+    ctx.readOnly
+      ? `This is a read-only checkout of ${assignment.repository?.baseBranch ?? "the base branch"} (detached, no branch): read the code, do not change it.`
+      : null,
     assignment.repository
       ? `Repository: ${assignment.repository.remote}`
-      : null,
+      : "No repository applies to this session: the working directory is a scratch directory, not a checkout.",
     `Runner: ${ctx.runnerName}`,
   ]
     .filter(Boolean)
@@ -258,7 +343,7 @@ export function buildPrompt(
   const text = [
     section(
       "hypotenuse",
-      `You are working as the ${assignment.role} agent for ${who}${creator ? ` on behalf of ${creator}` : ""}, in a Linear agent session. You are an AI agent; never claim to be a person. What you say at the end of your turn is posted to the session as your response.`,
+      `You are working as the ${assignment.role} agent for ${who}${creator ? ` on behalf of ${creator}` : ""}, in a Linear agent session. You are an AI agent; never claim to be a person. What you say at the end of your turn is posted to the session as your response.${dispatchedBy(assignment)}`,
     ),
     section("role-instructions", renderTemplate(template, values, onUnknown)),
     section("linear-context", assignment.promptContext),

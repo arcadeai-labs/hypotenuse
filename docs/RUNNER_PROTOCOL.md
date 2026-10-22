@@ -207,7 +207,9 @@ never fails the claim.
 | `repository` | null for a manager working without one |
 | `guidance` | already ordered: nearest team first, then parent teams, then workspace |
 | `history` | the session's conversation from `agent_activities`, both directions, delivered/received only, in `seq` order — never from comments. It includes this turn's own prompts; `activityId` matches `prompt[].activityId` |
-| `prompt` | for `prompt` kind: `[{ "activityId": 330, "body": "Also handle the EUR case" }]` (merged follow-ups); for `review`: the dispatched worker's result |
+| `prompt` | for `prompt` kind: `[{ "activityId": 330, "body": "Also handle the EUR case" }]` (merged follow-ups); empty for a manager's change request, whose request is `dispatch` |
+| `dispatch` | on a worker turn a manager dispatched (`dispatch` kind) or sent back (`prompt` kind): `{ mode: "new" \| "changes", reviewRound, instructions, agentPreference, parent: { agentSessionId, issueIdentifier, issueUrl } }`; absent or null otherwise. `reviewRound` counts change requests (0 for the first dispatch); `agentPreference` is an `[agents]` id the daemon may use instead of the role's agent |
+| `review` | on a `review` turn: `{ childAgentSessionId, childIssueIdentifier, childIssueUrl, reviewRound, outcome, finalResponse, plan, pullRequests }` — the worker's last `response` or `error`, its plan, and its links labelled *Pull Request*; absent or null otherwise |
 | `humanDelegated` | the session was started by a person delegating (not an automation) — read by issue hygiene |
 | `creator` | `{ name, email }` of whoever started the session, or null when an automation did; the prompt template's `creator.*` |
 
@@ -293,6 +295,13 @@ The Linear proxy behind `hypotenuse mcp`: one `POST` action per agent tool, eigh
 routes (`/api/daemon/linear/<verb>`, `/api/daemon/dispatch`), roles, and input schemas are one table,
 `protocol/src/tools.ts`, which the daemon's MCP server and the server both read. Same auth and header as every
 daemon action; the body is the tool's input plus `agentSessionId`. Additive to protocol 1.
+
+`daemon:dispatch` (`{ issue, instructions?, agentPreference?, mode?: "new" | "changes" }`) answers
+`{ result: { text, data: { dispatch: { agentSessionId, externalSessionId, externalSessionUrl, issueIdentifier,
+mode, reviewRound } } } }`. Beyond the checks below it refuses with 406 — saying why — the manager's own issue, an
+issue already dispatched or with a session under way, `changes` for an issue this manager has not dispatched or whose
+worker is still working, a round past `routing.maxReviewRounds`, and a dispatch past `manager.maxParallelDispatch`.
+A worker session calling it gets the uniform 403 (the tool is not in its list).
 
 The server re-derives the call's scope from the session row on every request:
 

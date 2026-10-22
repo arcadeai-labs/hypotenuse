@@ -24,7 +24,7 @@ env = { CODEX_API_KEY = "$OPENAI_API_KEY" }
 [roles.manager]
 agent = "claude"
 prompt_file = "prompts/manager.md"   # relative to this file
-permission_policy = "ask"            # every tool call that needs approval goes to Linear
+permission_policy = { default = "allow", edit = "deny", delete = "deny", move = "deny", execute = "deny" }   # read-only, the default
 turn_timeout = "30m"
 
 [roles.worker]
