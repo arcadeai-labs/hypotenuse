@@ -223,9 +223,17 @@ envVarGroups:
       # Set ONCE on this group in the Render dashboard, never in this file —
       # Render ignores `sync: false` inside an envVarGroup, and ignores it on a
       # service during Blueprint updates. Keys a sync does not mention are
-      # preserved, and both backend services pull this group:
+      # preserved, and both backend services pull this group.
+      #
+      # REQUIRED — hypotenuse-api and hypotenuse-worker refuse to boot without
+      # all three (backend/initializers/linear.ts). They come from the Linear
+      # OAuth app: create it with `bun keryx.ts linear:manifest-url`
+      # (docs/DEPLOY.md#create-the-linear-oauth-app), set them, then deploy.
       #
       #   LINEAR_CLIENT_ID, LINEAR_CLIENT_SECRET, LINEAR_WEBHOOK_SECRET
+      #
+      # Optional — without them no notification mail is sent:
+      #
       #   SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD, SMTP_FROM
       #
       # LINEAR_API_URL / LINEAR_OAUTH_URL are not set in production; they default

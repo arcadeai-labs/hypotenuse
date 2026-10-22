@@ -48,9 +48,9 @@ All shared values live on the **`hypotenuse-shared`** env group, which both back
 | Key | Where | Notes |
 |---|---|---|
 | `SECRETS_ENCRYPTION_KEY` | group, `generateValue: true` once | AES-256-GCM key for stored Linear tokens. Must be identical on api and worker. Never rotate without a re-encryption migration |
-| `LINEAR_CLIENT_ID` | group, dashboard | from the Linear OAuth app |
-| `LINEAR_CLIENT_SECRET` | group, dashboard | from the Linear OAuth app |
-| `LINEAR_WEBHOOK_SECRET` | group, dashboard | the app's webhook signing secret |
+| `LINEAR_CLIENT_ID` | group, dashboard | **required — api and worker refuse to boot without it**; from the Linear OAuth app |
+| `LINEAR_CLIENT_SECRET` | group, dashboard | **required**; from the Linear OAuth app |
+| `LINEAR_WEBHOOK_SECRET` | group, dashboard | **required**; the app's webhook signing secret |
 | `LINEAR_WEBHOOK_SECRET_PREVIOUS` | group, dashboard | only while rotating the webhook secret (below); unset otherwise |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM` | group, dashboard | optional; without `SMTP_HOST`, mail is logged, not sent |
 | `FRONTEND_URL` | group | `https://www.hypotenuse.cloud` — the worker writes it into e-mail and Linear `externalUrls`; the api answers it as `/api/status` `dashboardUrl`, which `hypotenuse login` opens, and as the device flow's `/cli/activate` URL |
