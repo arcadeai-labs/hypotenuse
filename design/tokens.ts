@@ -451,9 +451,10 @@ export const ICO_SIZES = [16, 32, 48, 64] as const;
  * 32-unit viewBox — at one pixel size, 8×8 supersampled for anti-aliasing.
  * @param t - One theme's tokens.
  * @param size - Width and height in pixels.
+ * @param scale - The mark's size as a fraction of the image, centered.
  * @returns Straight-alpha RGBA bytes, row-major.
  */
-export function rasterizeMark(t: ThemeTokens, size: number): Uint8Array {
+export function rasterizeMark(t: ThemeTokens, size: number, scale = 1): Uint8Array {
   const rgb = (hex: string) => [1, 3, 5].map((i) => Number.parseInt(hex.slice(i, i + 2), 16));
   const fill = rgb(t["text-primary"]);
   const stroke = rgb(t.accent);
@@ -464,8 +465,8 @@ export function rasterizeMark(t: ThemeTokens, size: number): Uint8Array {
       const sum = [0, 0, 0, 0];
       for (let sy = 0; sy < SS; sy++) {
         for (let sx = 0; sx < SS; sx++) {
-          const x = ((px + (sx + 0.5) / SS) * 32) / size;
-          const y = ((py + (sy + 0.5) / SS) * 32) / size;
+          const x = 16 + (((px + (sx + 0.5) / SS) * 32) / size - 16) / scale;
+          const y = 16 + (((py + (sy + 0.5) / SS) * 32) / size - 16) / scale;
           // The stroke runs (28,4)→(4,28), 3 wide with round caps.
           const u = Math.max(0, Math.min(1, (28 - x + (y - 4)) / 48));
           const inStroke = Math.hypot(x - (28 - 24 * u), y - (4 + 24 * u)) <= 1.5;
@@ -551,6 +552,30 @@ export function renderFaviconIco(themes: Record<"light" | "dark", ThemeTokens>):
   return Buffer.concat([header, ...pngs]);
 }
 
+/** The app icon's width and height in pixels. */
+export const APP_ICON_SIZE = 512;
+
+/**
+ * Render the app icon — the PNG uploaded where a service takes a picture, not an
+ * SVG (the Linear app's icon). An opaque light-panel tile with the light mark at
+ * 60%, so it reads on a dark UI and survives a circular avatar crop: the mark's
+ * far corner sits inside the inscribed circle.
+ * @param themes - Generated tokens.
+ * @returns PNG bytes.
+ */
+export function renderAppIcon(themes: Record<"light" | "dark", ThemeTokens>): Buffer {
+  const t = themes.light;
+  const ground = [1, 3, 5].map((i) => Number.parseInt(t["bg-panel"].slice(i, i + 2), 16));
+  const mark = rasterizeMark(t, APP_ICON_SIZE, 0.6);
+  const out = new Uint8Array(mark.length);
+  for (let o = 0; o < mark.length; o += 4) {
+    const a = mark[o + 3] / 255;
+    for (let i = 0; i < 3; i++) out[o + i] = Math.round(mark[o + i] * a + ground[i] * (1 - a));
+    out[o + 3] = 255;
+  }
+  return encodePng(out, APP_ICON_SIZE);
+}
+
 /** Where each output lives, and how to render it. */
 export const OUTPUTS = [
   { path: "frontend/src/styles/_tokens.generated.scss", render: renderScss },
@@ -558,6 +583,7 @@ export const OUTPUTS = [
   { path: "backend/theme/hypotenuse-theme.ts", render: renderKeryxTheme },
   { path: "backend/theme/email-palette.ts", render: renderEmailPalette },
   { path: "design/mark.svg", render: (themes) => renderMark(themes.light) },
+  { path: "design/app-icon.png", render: renderAppIcon },
   { path: "frontend/public/favicon.svg", render: (themes) => renderMark(themes.light) },
   { path: "frontend/public/favicon-dark.svg", render: (themes) => renderMark(themes.dark) },
   // The API origin's static root, for MCP clients and anything else that asks it for an icon.

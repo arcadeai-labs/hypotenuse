@@ -142,7 +142,7 @@ Then, in the app's settings:
 1. Confirm **Agent session events**, **Inbox notifications**, and **Permission changes** are enabled, and enable
    **OAuth app revoked** if it is offered as a separate toggle (it is not in the manifest's resource-type enum).
    **Enabling agent session events turns on the agent-session UI for every workspace that installs the app.**
-   Upload the icon here too; the manifest carries none.
+   Upload [`design/app-icon.png`](../design/app-icon.png) as the icon here too; the manifest carries none.
 2. The name and icon are how `@hypotenuse` appears in Linear's mention, assignee, and filter menus. If the name
    collides with a workspace member, Linear appends a number.
 3. Copy the **client ID**, **client secret**, and **webhook signing secret** into `hypotenuse-shared` as
