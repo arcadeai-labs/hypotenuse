@@ -289,9 +289,51 @@ lapses while waiting goes back to the queue with its answers turned into a `prom
 
 ### `daemon:linear-*` and `daemon:dispatch`
 
-The Linear proxy behind `hypotenuse mcp`. Same auth, same header, one extra required field: `agentSessionId`,
-which must name a session with a non-terminal work item claimed by this runner. The full list and each tool's
-input are in [the Hypotenuse MCP plan](./plans/phase-13-hypotenuse-mcp.md).
+The Linear proxy behind `hypotenuse mcp`: one `POST` action per agent tool, eighteen in all. The tool names,
+routes (`/api/daemon/linear/<verb>`, `/api/daemon/dispatch`), roles, and input schemas are one table,
+`protocol/src/tools.ts`, which the daemon's MCP server and the server both read. Same auth and header as every
+daemon action; the body is the tool's input plus `agentSessionId`. Additive to protocol 1.
+
+The server re-derives the call's scope from the session row on every request:
+
+| Check | Refused with |
+|---|---|
+| the session exists and is in the runner's project | the uniform 403 |
+| its live turn (`claimed` or `running`, no stop requested) is held by **this** runner | the uniform 403 |
+| its integration is `active` | the uniform 403 |
+| the tool is in the session's role's list (worker ⊂ manager) | the uniform 403 |
+| the target rule (`session-issue`, `readable`, `managed`) | 403 saying why |
+| input the tool cannot use (an unknown state or label, a body over 64 KB, a pull request on another repository) | 406 saying why |
+| something Linear has no record of, as the app sees it | 404 |
+| the integration's Linear budget stayed empty (a read waits up to 5 s, a write 30 s) | 429 *"Linear rate limit reached; try again shortly"* |
+
+The uniform 403 is byte-identical whatever the reason, so a runner cannot probe which sessions exist:
+
+```json
+{ "error": { "message": "not permitted for this session" } }
+```
+
+A success answers Markdown for the model (at most 16 KB, cut at a line boundary) and the same facts as data:
+
+```json
+{ "result": { "text": "# ENG-123: Fix checkout rounding\n…", "data": { "issue": { "identifier": "ENG-123" } } } }
+```
+
+The plan, a question (`daemon:linear-ask-user`), and a pull request link go through the activity outbox, in the
+session's order. A question answers the turn and marks it waiting (so a reply before the turn ends is delivered,
+reported unconsumed, and becomes the next turn); the daemon then ends the turn **without** a `response`, which
+would take the session out of `awaitingInput`. Every successful write is appended to the work item's
+`linearWrites`.
+
+### The control socket's `mcp.hello` and `mcp.call`
+
+`hypotenuse mcp` does not speak to the server: it calls the daemon over the `0600` control socket with the session
+id and the turn's nonce (128 random bits, minted at claim and forgotten when the turn ends).
+
+| Method | Params | Answers |
+|---|---|---|
+| `mcp.hello` | `{ agentSessionId, nonce }` | `{ role, tools, issueIdentifier }`, or JSON-RPC error `-32001` for an unknown nonce, another session's, or an ended turn |
+| `mcp.call` | `{ agentSessionId, nonce, tool, input }` | `{ text, data?, isError? }` — a tool error is a result, not an RPC error; the nonce refusal is `-32001` |
 
 ## The WebSocket
 

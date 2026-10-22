@@ -276,8 +276,10 @@ The map is [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md). What follows is the
   `beforeAll` — boots finear in process with this server's OAuth client (the `LINEAR_*_TEST` values) registered
   against the server's real callback and webhook URLs, points `config.linear` at it, and exposes finear's control
   routes. `linear.install(projectId, sessionId)` drives connect → finear's consent screen → callback. finear sits
-  behind a small proxy that records every request and can stamp Linear's rate-limit headers, answer one request
-  `RATELIMITED`, or lose one response — the things finear does not do. Every Linear call goes through
+  behind a small proxy that records every request (with its variables) and can stamp Linear's rate-limit headers,
+  answer one request `RATELIMITED`, or lose one response — the things finear does not do. It also stands in for
+  finear's missing documents (validated against Linear's full schema first) and takes `createAsUser` off an
+  `issueCreate`, which finear refuses. Every Linear call goes through
   `ops/LinearOps.ts` `linearRequest`, with documents in `ops/linear/operations.ts`, each executed against finear in
   `linear-ops.test.ts`. finear signs and delivers webhooks to the server for real; `__tests__/linear/inject.ts`
   signs what finear cannot send, typed with `@linear/sdk/webhooks`. Suites run processing and the outbox in-process
@@ -372,6 +374,12 @@ Lessons from building it, kept here so the next session starts with them.
 - **A daemon test waits on what crosses a process, never on a timer of ours.** Spawn the daemon, then poll the
   database or its log (`DaemonHome.waitForLog`, `until`); move leases by writing columns and running `work:reap`.
   A CLI process that holds a socket or timer open never exits — close every connection on every outcome.
+- **A refusal that must be byte-identical cannot be a `TypedError`.** Keryx's error envelope carries a timestamp,
+  and middleware can only throw. The agent tools' scope middleware records its verdict on the connection and the
+  action answers the fixed 403 itself (`notPermittedResponse`).
+- **Nothing may follow a question in a Linear session.** Linear derives the session's state from its last activity,
+  so a thought or an action after an `elicitation` takes it out of `awaitingInput`. A turn that asked with
+  `linear_ask_user` emits no further activity at all.
 - **Keryx reports a schema failure by the param's first path segment.** When a caller must know which element of
   an array was refused (`daemon:events`), validate the elements in the action.
 - **Signatures and footers** follow the repository owner's global rules for commits and PR text.

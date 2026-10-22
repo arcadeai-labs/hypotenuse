@@ -10,6 +10,7 @@ import {
   personSays,
   withoutRunnerRateLimits,
 } from "../routing/helpers";
+import { runnerRow } from "../runners/helpers";
 import { buildTestUniverse, HOOK_TIMEOUT, type TestUniverse } from "../setup";
 import { DaemonHome, outbound, until } from "./helpers";
 
@@ -50,6 +51,11 @@ beforeAll(async () => {
     { scenario: "mcp-probe" },
   );
   await home.startForeground();
+  // Delegate only once the runner is online: no routing clock runs here.
+  await until(async () => {
+    const row = await runnerRow(home.runner.id);
+    return row.status === "online" ? row : null;
+  });
 }, HOOK_TIMEOUT);
 
 /**

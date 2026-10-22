@@ -281,7 +281,7 @@ describe("refusal is uniform", () => {
 });
 
 describe("a worker's tools", () => {
-  test("linear_get_issue reads its own issue by default", async () => {
+  test("LC-MCP-02 linear_get_issue reads its own issue by default", async () => {
     const answer = await call(mario, "linear_get_issue", worker.sessionId);
     expect(answer.status).toBe(200);
     expect(answer.body.result!.text).toContain(
@@ -320,6 +320,7 @@ describe("a worker's tools", () => {
       }),
     ]);
 
+    // LC-MCP-04 the comment above; LC-MCP-03 reading it back.
     const listed = await call(mario, "linear_list_comments", worker.sessionId);
     expect(listed.body.result!.text).toContain("A question for the reviewer");
   });
@@ -343,7 +344,7 @@ describe("a worker's tools", () => {
     expect(answer.body.error!.message).toContain("70000 bytes");
   });
 
-  test("linear_set_issue_state moves its issue, but never to a canceled state", async () => {
+  test("LC-MCP-07 linear_set_issue_state moves its issue, but never to a canceled state", async () => {
     const moved = await call(
       mario,
       "linear_set_issue_state",
@@ -386,7 +387,7 @@ describe("a worker's tools", () => {
     await api.redis.redis.del(catalogKey(integration.id));
   });
 
-  test("linear_search_issues finds issues by text", async () => {
+  test("LC-MCP-05 linear_search_issues finds issues by text", async () => {
     const answer = await call(mario, "linear_search_issues", worker.sessionId, {
       query: "webhook launch",
     });
@@ -401,7 +402,7 @@ describe("a worker's tools", () => {
     expect(empty.status).toBe(406);
   });
 
-  test("linear_set_plan replaces the whole plan through the outbox", async () => {
+  test("LC-MCP-11 linear_set_plan replaces the whole plan through the outbox", async () => {
     for (const steps of [
       [
         { content: "Reproduce", status: "completed" },
@@ -435,6 +436,10 @@ describe("a worker's tools", () => {
       url: "https://github.com/acme/web/pull/42",
     });
     expect(answer.status).toBe(200);
+    const again = await call(mario, "linear_report_pr", worker.sessionId, {
+      url: "https://github.com/acme/web/pull/42",
+    });
+    expect(again.body.result!.data.linked).toBe(false);
     await settle();
     const link = (await activityRows(worker.sessionId)).find(
       (r) =>
@@ -492,7 +497,7 @@ describe("a worker's tools", () => {
 });
 
 describe("a manager's tools", () => {
-  test("LC-OAUTH-07 linear_create_issue creates as the app, attributed to the person", async () => {
+  test("LC-OAUTH-07 LC-MCP-06 linear_create_issue creates as the app, attributed to the person", async () => {
     linear.clearRequests();
     const answer = await call(mario, "linear_create_issue", manager.sessionId, {
       title: "Write the launch checklist",
@@ -551,7 +556,7 @@ describe("a manager's tools", () => {
     expect(updated.body.result!.text).toContain("priority, estimate");
   });
 
-  test("sub-issues, relations, labels, and dispatch", async () => {
+  test("LC-MCP-08 sub-issues, relations, labels, and dispatch", async () => {
     const sub = await call(
       mario,
       "linear_create_sub_issue",
@@ -597,7 +602,7 @@ describe("a manager's tools", () => {
     expect(writes).toContain("linear_create_relation");
   });
 
-  test("the project's PRD, status, and documents", async () => {
+  test("LC-MCP-09 LC-MCP-10 the project's PRD, status, and documents", async () => {
     const statuses = await linear.graphql<{
       organization: { projectStatuses: { id: string; type: string }[] };
     }>(FINEAR_PRIMARY_KEY, `{ organization { projectStatuses { id type } } }`);

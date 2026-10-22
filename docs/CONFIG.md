@@ -189,6 +189,11 @@ listed in `runner.roles`.
 | `url` | string | HTTP MCP server; only passed to agents that advertise HTTP MCP support |
 | `headers` | table of strings | `$VAR` allowed |
 
+Every turn's agent gets the built-in `hypotenuse` server first (the agent tools: `/docs/agent-tools` on the dashboard),
+then these, each passed straight into ACP `session/new`: a stdio `command` resolved to an absolute path, `$VAR` in
+`env` and `headers` read from the daemon's environment at turn start (an unset one fails the turn naming it). A
+`url` server is skipped, with a thought in the session, when the agent does not advertise HTTP MCP.
+
 Adding Linear's own MCP server (`mcp.linear.app`) with a personal API key is allowed and warned about. The agent
 would act in Linear **as you**, outside the session's scope, instead of through the scoped tools of the built-in
 `hypotenuse` server.

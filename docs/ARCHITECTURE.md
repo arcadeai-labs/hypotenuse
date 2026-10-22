@@ -324,6 +324,19 @@ row: which integration, which issue, which role. The two tool sets:
 |---|---|
 | `linear_get_issue`, `linear_list_comments`, `linear_comment`, `linear_set_issue_state` (own issue), `linear_set_plan`, `linear_ask_user` (elicitation, optional `select` options), `linear_report_pr`, `linear_search_issues` | `linear_create_issue`, `linear_update_issue`, `linear_create_sub_issue`, `linear_create_relation`, `linear_get_project`, `linear_update_project` (PRD), `linear_create_document`, `linear_update_document`, `linear_list_labels`, `hypotenuse_dispatch` (delegate an issue to a worker) |
 
+The tools are one table in `protocol/src/tools.ts`, read by both sides. On the server, every `daemon:linear-*` call
+passes `DaemonSessionScopeMiddleware` (the session's live turn must be this runner's, its integration active, the
+tool in its role's list — else one byte-identical 403), then the tool's target rule against Linear's data
+(`ops/DaemonScopeOps.ts`), then `ops/DaemonToolOps.ts`. Inline Linear calls spend the integration's token bucket
+first; the plan, a question, and a pull request link go through the activity outbox. Every write is appended to
+the work item's `linearWrites`. In the daemon, `daemon/mcp-broker.ts` holds the nonces, caches reads per turn for
+60 s, and lets a turn's queued events land before a write to the session's own activity.
+
+`linear_ask_user` ends the turn on the question: the server marks it answered and waiting, and the daemon emits no
+further activity — no `response`, no trailing thought — because anything after the elicitation would take the
+session out of `awaitingInput`. A nonce the daemon does not know (an ended turn) still starts the MCP server, with
+no tools and `instructions` saying why.
+
 ## Tables
 
 | Table | Holds |
@@ -337,7 +350,7 @@ row: which integration, which issue, which role. The two tool sets:
 | `agent_activities` | inbound prompts and the outbound outbox, with client UUIDs, delivery status, and attempts |
 | `runners` | registered daemons: owner, token sha256 and last four, status (`online`, `offline`, `draining`, `revoked`) and `enabled`, machine id, last heartbeat and connect, parallel-job limits, roles, agents, repositories, the hash of the last reported capabilities. A name is unique among a project's unrevoked runners; a machine id among its live (`online` or `draining`) ones. A revoked row is kept with its reason |
 | `runner_subscriptions` | the teams, projects, and labels (per trigger `type`) each runner accepts, replaced whenever a heartbeat's capability hash changes |
-| `work_items` | one per turn: kind, role, repository, status, the merged follow-ups, issuer, offered/claimed runner and agent, lease, attempts, the cancel, the daemon's usage and state, the outcome |
+| `work_items` | one per turn: kind, role, repository, status, the merged follow-ups, issuer, offered/claimed runner and agent, lease, attempts, the cancel, the daemon's usage and state, the outcome, and every write its agent tools made in Linear (`linearWrites`) |
 | `routing_rules` | a project's ordered role-selection rules |
 
 ## WebSocket channels

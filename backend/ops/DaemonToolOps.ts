@@ -1,7 +1,11 @@
 import { normalizeRemote, type PLAN_STEP_STATUSES } from "@hypotenuse/protocol";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { api, config } from "keryx";
-import type { AgentSession } from "../schema/agent_sessions";
+import { agentActivities } from "../schema/agent_activities";
+import type {
+  AgentSession,
+  AgentSessionExternalUrl,
+} from "../schema/agent_sessions";
 import { HELD_WORK_STATUSES, workItems } from "../schema/work_items";
 import {
   enqueueActivity,
@@ -1139,8 +1143,29 @@ export async function reportPr(
     );
   }
   const label = await inHeldTurn(ts, async (tx, session) => {
-    if (session.externalUrls.some((l) => l.url === input.url)) return null;
-    const prior = session.externalUrls.filter((l) =>
+    // Linked already, or on its way: the session's links as last sent, and
+    // any still waiting in the outbox (the daemon's own detection, say).
+    const pending = await tx
+      .select({ content: agentActivities.content })
+      .from(agentActivities)
+      .where(
+        and(
+          eq(agentActivities.agentSessionId, session.id),
+          eq(agentActivities.kind, "session_update"),
+          eq(agentActivities.deliveryStatus, "pending"),
+        ),
+      );
+    const links = [
+      ...session.externalUrls,
+      ...pending.flatMap(
+        (r) =>
+          (r.content.addedExternalUrls as
+            | AgentSessionExternalUrl[]
+            | undefined) ?? [],
+      ),
+    ];
+    if (links.some((l) => l.url === input.url)) return null;
+    const prior = links.filter((l) =>
       l.label.startsWith(PULL_REQUEST_LABEL),
     ).length;
     const label =
