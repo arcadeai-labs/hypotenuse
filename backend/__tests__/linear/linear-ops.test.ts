@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { join } from "node:path";
 import { api } from "keryx";
 import { LinearGraphQLError, linearRequest } from "../../ops/LinearOps";
 import {
@@ -39,6 +40,9 @@ import type { Integration } from "../../schema/integrations";
 import { buildTestUniverse, HOOK_TIMEOUT, type TestUniverse } from "../setup";
 import { FINEAR_FIXTURES, FINEAR_PRIMARY_KEY, useFinear } from "./finear";
 import { integrationRow } from "./helpers";
+
+/** The backend workspace. */
+const BACKEND = join(import.meta.dir, "..", "..");
 
 let universe: TestUniverse;
 beforeAll(async () => {
@@ -309,5 +313,31 @@ describe("every Linear operation document executes against finear", () => {
     expect([...executed].sort()).toEqual(
       LINEAR_OPERATIONS.map((op) => op.name).sort(),
     );
+  });
+  test("LC-SES-03 LC-SES-22 LC-SES-19 LC-DEL-05 what no product path uses: sessions on comments, reading a session back, its links, and delegate filters", async () => {
+    // Declared and proven against Linear's schema above, but nothing calls
+    // them: a manager starts sessions by dispatching an issue, and history
+    // and links come from the server's own mirror, never read back.
+    const glob = new Bun.Glob("{actions,ops,initializers}/**/*.ts");
+    const callers: string[] = [];
+    for await (const file of glob.scan({ cwd: BACKEND })) {
+      if (file === "ops/linear/operations.ts") continue;
+      const text = await Bun.file(join(BACKEND, file)).text();
+      for (const name of [
+        "CreateAgentSessionOnComment",
+        "GetAgentSessionActivities",
+      ]) {
+        if (text.includes(name)) callers.push(`${file}: ${name}`);
+      }
+      // Nor is an issue filtered by its delegate: the dashboard counts
+      // delegations from the mirror, and the tools search by text and team.
+      if (/delegatedIssues|delegate:\s*\{/.test(text)) {
+        callers.push(`${file}: delegate filter`);
+      }
+    }
+    expect(callers).toEqual([]);
+    for (const op of LINEAR_OPERATIONS) {
+      expect(op.query, op.name).not.toMatch(/\bexternal(Links|Urls)\b/);
+    }
   });
 });

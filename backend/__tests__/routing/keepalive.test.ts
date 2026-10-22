@@ -69,7 +69,7 @@ async function keepalive(): Promise<number[]> {
 describe("sessions:keepalive", () => {
   let daemon: ScriptedDaemon;
 
-  test("LC-BP-03 a queued session quiet for 25 minutes gets an ephemeral thought; a recent one does not", async () => {
+  test("LC-BP-03 LC-SES-09 a queued session quiet for 25 minutes gets an ephemeral thought; a recent one does not", async () => {
     const { session: waiting } = await delegatedSession(
       linear,
       appUserId,

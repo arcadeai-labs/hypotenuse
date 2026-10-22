@@ -211,6 +211,17 @@ describe("the schema", () => {
     );
   });
 
+  test("LC-CTX-05 guidance is Linear's to configure: no key anywhere in the config holds it", () => {
+    // Workspace and team guidance arrive with each session; a second copy
+    // here would drift from what the person set in Linear.
+    expect(JSON.stringify(configJsonSchema())).not.toMatch(/guidance/i);
+    const { config, issues } = parse(
+      `${minimal}[roles.worker.guidance]\nbody = "x"\n`,
+    );
+    expect(config).toBeNull();
+    expect(issues.map((i) => i.path)).toEqual(["roles.worker.guidance"]);
+  });
+
   test("one schema per file: relative paths follow the file", () => {
     const a = buildConfigSchema({ ...ctx, baseDir: "/a" }).parse({
       config_version: 1,

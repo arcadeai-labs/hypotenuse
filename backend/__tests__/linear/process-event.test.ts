@@ -149,6 +149,8 @@ describe("AgentSessionEvent created", () => {
     ]);
     expect(finear.status).toBe("active");
 
+    // LC-SES-15: the acknowledgement is a thought a person can read, not a
+    // link — no session update has been sent before a runner claims.
     const rows = await activityRows(session.id);
     expect(
       rows.map((r) => [r.seq, r.direction, r.contentType, r.priority]),

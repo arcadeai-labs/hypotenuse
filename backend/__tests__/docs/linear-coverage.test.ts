@@ -6,29 +6,21 @@ import { join } from "node:path";
  * `docs/LINEAR_COVERAGE.md` claims, row by row, that a Linear behaviour is
  * handled and names the test that proves it. A claim nobody checks drifts, so
  * this checks the part that is mechanical: every row is well-formed, every ID
- * is unique, and every row that says it is done names a test file that exists
- * and mentions the row's ID — in a test name or an `// LC-…` comment.
- *
- * A `planned` row's test file usually does not exist yet, so it is not
- * resolved. When conformance is finished, the last test here flips to refusing
- * any `planned` row at all.
+ * is unique, no row is merely planned, every row names a test file that
+ * exists and mentions the row's ID — in a test name or an `// LC-…` comment —
+ * and a row that is `not applicable` says why.
  */
 
 const REPO_ROOT = join(import.meta.dir, "..", "..", "..");
 const MATRIX = readFileSync(join(REPO_ROOT, "docs/LINEAR_COVERAGE.md"), "utf8");
 
 /** The statuses a row may carry. */
-const STATUSES = [
-  "planned",
-  "planned (not applicable once confirmed)",
-  "covered",
-  "covered (finear gap)",
-  "not applicable",
-];
+const STATUSES = ["covered", "covered (finear gap)", "not applicable"];
 
 /** One parsed matrix row. */
 interface Row {
   id: string;
+  handling: string;
   test: string;
   status: string;
   cells: number;
@@ -48,6 +40,7 @@ function rows(): Row[] {
         .split(" | ");
       return {
         id: cells[0].trim(),
+        handling: (cells[3] ?? "").trim(),
         test: (cells[5] ?? "").replace(/`/g, "").trim(),
         status: (cells[6] ?? "").trim(),
         cells: cells.length,
@@ -70,15 +63,27 @@ describe("docs/LINEAR_COVERAGE.md", () => {
     }
   });
 
-  test("every row that is not planned names a test that exists and mentions its ID", () => {
-    const done = rows().filter((r) => !r.status.startsWith("planned"));
-    expect(done.length).toBeGreaterThan(0);
-    for (const row of done) {
+  test("no row is planned: each lands with the test that proves it", () => {
+    expect(
+      rows()
+        .filter((r) => /planned/i.test(r.status))
+        .map((r) => r.id),
+    ).toEqual([]);
+  });
+
+  test("every row names a test that exists and mentions its ID", () => {
+    for (const row of rows()) {
       const path = join(REPO_ROOT, row.test);
       expect(existsSync(path), `${row.id}: ${row.test}`).toBe(true);
       expect(readFileSync(path, "utf8"), `${row.id}: ${row.test}`).toContain(
         row.id,
       );
+    }
+  });
+
+  test("a row that is not applicable says why in its Handling cell", () => {
+    for (const row of rows().filter((r) => r.status === "not applicable")) {
+      expect(row.handling, row.id).toMatch(/\bnot (used|needed)\b/);
     }
   });
 });

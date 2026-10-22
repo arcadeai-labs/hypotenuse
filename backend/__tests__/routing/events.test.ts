@@ -89,7 +89,7 @@ function event(
 }
 
 describe("events reach Linear", () => {
-  test("activities and session updates, each keyed by its eventId", async () => {
+  test("LC-SES-17 LC-SES-18 activities and session updates, each keyed by its eventId", async () => {
     const { externalSessionId, session, workItemId } =
       await claimed("Every event");
     expect((await itemRow(workItemId)).status).toBe("claimed");

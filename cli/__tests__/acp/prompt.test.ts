@@ -53,7 +53,7 @@ function text(blocks: ReturnType<typeof buildPrompt>): string {
 }
 
 describe("prompt", () => {
-  test("a new session: every section, in order, with the issue linked", () => {
+  test("LC-CTX-01 LC-CTX-02 a new session: every section, in order, with the issue linked", () => {
     const blocks = buildPrompt(
       assignment({
         repository: { remote: "github.com/acme/web", baseBranch: "main" },
@@ -87,7 +87,7 @@ describe("prompt", () => {
     });
   });
 
-  test("a mention's instruction is the request; a follow-up's prompts are, without echoing them in the history", () => {
+  test("LC-ACT-14 a mention's instruction is the request; a follow-up's prompts are, without echoing them in the history", () => {
     expect(
       text(
         buildPrompt(assignment({ instruction: "plan the launch" }), null, ctx),
