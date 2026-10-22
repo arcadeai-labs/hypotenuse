@@ -204,6 +204,27 @@ signing secret, token storage and decryption across api and worker, and the acti
 
 Finally: `hypotenuse login --url https://api.hypotenuse.cloud` completes in a browser, and `hypotenuse whoami` answers.
 
+## Release check against real Linear
+
+CI drives every Linear interaction through finear, which cannot produce a few of Linear's own behaviours
+([known finear gaps](./LINEAR_COVERAGE.md#known-finear-gaps)). Before announcing a release that touched Linear
+handling, run this on staging, with staging's own Linear app installed into a test workspace and one runner
+registered on a machine with a coding agent. Each step names the [coverage rows](./LINEAR_COVERAGE.md) it
+exercises; a step that fails is a release blocker and a missing test.
+
+| # | Do | Expect | Rows |
+|---|---|---|---|
+| 1 | Connect the workspace as a workspace admin, granting one team | the integration shows the workspace and that team | LC-OAUTH-01, LC-OAUTH-02, LC-OAUTH-03 |
+| 2 | Try the same as a non-admin member | Linear refuses; the dashboard says why | LC-OAUTH-03 |
+| 3 | Delegate a backlog issue to `@hypotenuse` | a thought within 10 s; the issue moves to the team's first started state; the delegate is set and the assignee untouched; a plan, actions, a pull request link, and a response | LC-SES-01, LC-WH-12, LC-BP-01, LC-DEL-01, LC-DEL-02, LC-SES-12, LC-SES-16 |
+| 4 | Mention `@hypotenuse` in a comment on another issue | a session starts from the comment, with the thread's earlier comments in its context | LC-SES-01, LC-WH-16, LC-CTX-03 |
+| 5 | Set workspace and team guidance in Linear, then delegate | the turn's prompt carries the structured `promptContext` and the team's guidance before the workspace's | LC-CTX-01, LC-CTX-02, LC-CTX-05 |
+| 6 | Reply in a session's thread | a `prompted` follow-up on the same runner | LC-WH-13, LC-BP-10 |
+| 7 | Press Stop during a turn | the turn halts; a final response says where it stopped; nothing follows it | LC-SIG-01, LC-BP-11 |
+| 8 | Dismiss a session | the turn is cancelled silently; nothing re-engages until a new prompt | LC-SES-20 |
+| 9 | Change the app's team access in Settings → AI & Agents | the integration's teams update; live sessions on a removed team are cancelled | LC-WH-20, LC-OAUTH-25 |
+| 10 | Revoke the app from the workspace | the integration shows disconnected; no further calls to Linear | LC-WH-21 |
+
 ## Rollback
 
 Render's *Rollback to this deploy* on the failing service. Because the worker owns migrations, a rollback that

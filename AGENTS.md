@@ -315,6 +315,14 @@ The map is [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md). What follows is the
   real ACP agent on the SDK's agent side playing a JSON scenario from `fixtures/scenarios/` (`FAKE_ACP_SCENARIO`)
   and recording every request it receives (`FAKE_ACP_RECORD`); `cli/__tests__/acp/` drives the agent host against
   it directly. No test in CI launches a real coding agent.
+- **End to end:** `backend/__tests__/e2e/` drives every interaction a person has with `@hypotenuse` across all
+  three process boundaries at once, and judges it where the person would — the session as finear holds it.
+  `useE2E()` (`e2e/harness.ts`) boots the server and finear, starts real daemons in `DaemonHome`s, and runs a
+  **pump** (`settle()` every 100 ms) in place of the worker's queues; tests never `settle()` themselves, and
+  still move the lease and queue clocks by writing columns. Teardown fails a file whose daemon left a child
+  process alive. CI runs `__tests__/daemon` and `__tests__/e2e` as **E2E Daemon**, and **Backend Test** skips
+  both. `e2e/real-agent.test.ts` is skipped unless `HYPOTENUSE_E2E_AGENT=claude`, which only the nightly
+  workflow (`nightly-real-agent.yml`, outside the gate) sets.
 - **Control time by writing columns or advancing finear's clock, never by waiting.** A test that advances
   finear's clock aligns `webhookClock` (`ops/LinearWebhookOps.ts`) to it, or the server refuses finear's
   deliveries as replays.
@@ -323,7 +331,8 @@ The map is [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md). What follows is the
   runner, and dispatch keys and the queue.
 - **Assert the property, not the symptom** — byte-identical refusal bodies, whole-set comparisons of allowlists,
   exact Linear activity sequences.
-- **Docs are tested:** links, the Learnings heading, and the Linear coverage matrix.
+- **Docs are tested:** links, the Learnings heading, and the Linear coverage matrix — which refuses a `planned`
+  row, so a new Linear behaviour lands with its test.
 
 ## Commands
 
@@ -344,6 +353,7 @@ cd backend && bun keryx.ts linear:manifest-url  # the pre-filled Linear app-crea
 cd backend && bun keryx.ts integrations:refresh-tokens # run the token refresh clock once
 cd cli && bun test                            # CLI + daemon unit tests
 cd backend && bun test __tests__/daemon       # the real daemon against the real server and finear
+cd backend && bun test __tests__/e2e          # every process at once, judged by what finear holds
 bun run --cwd cli hypotenuse --help
 bun run --cwd cli hypotenuse -c ./examples/config.toml config validate --offline
 bun run --cwd cli hypotenuse config schema > frontend/public/schemas/config-v1.json   # after a schema change

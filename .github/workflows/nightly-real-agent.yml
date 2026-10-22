@@ -1,0 +1,92 @@
+name: Nightly Real Agent
+
+# The end-to-end suite's real-agent file against the current
+# `@agentclientprotocol/claude-agent-acp`, to catch the ACP adapter or SDK
+# changing under the agent host. A nightly is not a check: it is outside CI's
+# `complete` gate, and it opens an issue when it fails.
+
+on:
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  real-agent:
+    name: Real Agent
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+    services:
+      redis:
+        image: redis
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: hypotenuse_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    steps:
+      - name: Skip without an API key
+        id: key
+        working-directory: .
+        run: |
+          if [ -z "$ANTHROPIC_API_KEY" ]; then
+            echo "ANTHROPIC_API_KEY is not set; skipping."
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@v5
+        if: steps.key.outputs.present == 'true'
+      - uses: oven-sh/setup-bun@v2
+        if: steps.key.outputs.present == 'true'
+      - uses: actions/setup-node@v5
+        if: steps.key.outputs.present == 'true'
+        with:
+          node-version: "22"
+      - run: bun install --frozen-lockfile
+        if: steps.key.outputs.present == 'true'
+        working-directory: .
+      - run: cp .env.example .env
+        if: steps.key.outputs.present == 'true'
+      - run: bun run finear:fetch
+        if: steps.key.outputs.present == 'true'
+      - run: bun test __tests__/e2e/real-agent.test.ts --timeout 900000
+        if: steps.key.outputs.present == 'true'
+        env:
+          HYPOTENUSE_E2E_AGENT: claude
+          DATABASE_URL_TEST: postgres://postgres:postgres@localhost:5432/hypotenuse_test
+          DATABASE_AUTO_MIGRATE_TEST: "true"
+          REDIS_URL_TEST: redis://localhost:6379/1
+      - name: Open an issue
+        if: failure()
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh issue create --repo "$GITHUB_REPOSITORY" \
+            --title "Nightly real-agent run failed" \
+            --body "The real-agent end-to-end run failed: $RUN_URL"

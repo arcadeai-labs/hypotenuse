@@ -229,6 +229,40 @@ describe("ci.yml", () => {
     );
     expect(ci.jobs.complete?.needs).toContain("cli-upgrade");
   });
+
+  test("E2E Daemon runs the daemon and e2e suites inside the gate, and Backend Test skips them", () => {
+    const job = ci.jobs["e2e-daemon"] as Job & { name?: string };
+    expect(job.name).toBe("E2E Daemon");
+    expect(job.steps.map((s) => s.run ?? "")).toContain(
+      "bun test __tests__/daemon __tests__/e2e",
+    );
+    expect(ci.jobs.complete?.needs).toContain("e2e-daemon");
+    // Every suite runs in exactly one job.
+    const backend = ci.jobs["backend-test"].steps.map((s) => s.run ?? "");
+    expect(backend).toContain(
+      "bun test --path-ignore-patterns '__tests__/daemon/**' --path-ignore-patterns '__tests__/e2e/**'",
+    );
+  });
+
+  test("the nightly real-agent run is outside the gate and runs only the real-agent file", () => {
+    const nightly = Bun.YAML.parse(
+      read(".github/workflows/nightly-real-agent.yml"),
+    ) as { on: Record<string, unknown>; jobs: Record<string, Job> };
+    expect(Object.keys(nightly.on).sort()).toEqual([
+      "schedule",
+      "workflow_dispatch",
+    ]);
+    expect(Object.keys(nightly.jobs)).not.toContain("complete");
+    const ciNeeds = ci.jobs.complete?.needs as string[];
+    for (const name of Object.keys(nightly.jobs)) {
+      expect(ciNeeds, name).not.toContain(name);
+    }
+    const run = nightly.jobs["real-agent"].steps.find((s) =>
+      s.run?.startsWith("bun test"),
+    );
+    expect(run?.run).toContain("__tests__/e2e/real-agent.test.ts");
+    expect(run?.env?.HYPOTENUSE_E2E_AGENT).toBe("claude");
+  });
 });
 
 describe("install scripts", () => {

@@ -55,6 +55,14 @@ export interface DaemonHomeOptions {
   extraConfig?: string;
   /** The server origin the daemon talks to (a proxy, say). */
   serverUrl?: string;
+  /** The runner's roles; `["worker"]` unless set. */
+  roles?: ("manager" | "worker")[];
+  /** `[roles.manager]` keys, when the runner plays the manager. */
+  manager?: string;
+  /** More environment for the daemon and so its agents (a `FAKE_ACP_*`). */
+  env?: Record<string, string>;
+  /** The `[agents.claude]` table's keys; the fake agent's command unless set. */
+  agent?: string;
 }
 
 /** A registered runner with a home directory its daemon runs in. */
@@ -70,6 +78,7 @@ export class DaemonHome {
    * @param machine - The raw machine id this home reports.
    * @param turnMs - How long each turn runs.
    * @param scenario - The fake agent's scenario, if not the one `turnMs` picks.
+   * @param extraEnv - More environment for the daemon and its agents.
    */
   constructor(
     readonly root: string,
@@ -78,6 +87,7 @@ export class DaemonHome {
     readonly machine: string,
     readonly turnMs: number,
     readonly scenario: string | null = null,
+    readonly extraEnv: Record<string, string> = {},
   ) {}
 
   /**
@@ -172,12 +182,15 @@ export class DaemonHome {
         "[runner]",
         `name = "${name}"`,
         "max_parallel_jobs = 2",
-        'roles = ["worker"]',
+        `roles = ${JSON.stringify(options.roles ?? ["worker"])}`,
         "[agents.claude]",
-        `command = ["bun", "${FAKE_AGENT}"]`,
+        options.agent ?? `command = ["bun", "${FAKE_AGENT}"]`,
         "[roles.worker]",
         'agent = "claude"',
         options.worker ?? "",
+        ...(options.roles?.includes("manager")
+          ? ["[roles.manager]", 'agent = "claude"', options.manager ?? ""]
+          : []),
         "[[repositories]]",
         'path = "~/web"',
         'base_branch = "main"',
@@ -198,6 +211,7 @@ export class DaemonHome {
       `test-machine-${runner.id}`,
       options.turnMs ?? 0,
       options.scenario ?? null,
+      options.env ?? {},
     );
   }
 
@@ -255,6 +269,7 @@ export class DaemonHome {
       HYPOTENUSE_PROJECT: undefined,
       NO_COLOR: "1",
       FORCE_COLOR: undefined,
+      ...this.extraEnv,
     };
   }
 
