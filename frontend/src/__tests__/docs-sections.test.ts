@@ -36,6 +36,31 @@ describe("docs sections", () => {
     ).toEqual(["One", "Two"]);
   });
 
+  test("every /docs link names a page, and every #anchor a heading on it", () => {
+    const broken: string[] = [];
+    for (const section of DOCS_SECTIONS) {
+      for (const [, slug, anchor] of section.markdown.matchAll(
+        /\]\(\/docs(?:\/([a-z0-9-]+))?(?:#([a-z0-9-]+))?\)/g,
+      )) {
+        const target = findSection(slug);
+        if (!target) {
+          broken.push(`${section.slug}: /docs/${slug}`);
+          continue;
+        }
+        if (
+          anchor &&
+          !target.markdown
+            .split("\n")
+            .filter((line) => /^#{2,4} /.test(line))
+            .some((line) => slugify(line.replace(/^#+ /, "")) === anchor)
+        ) {
+          broken.push(`${section.slug}: /docs/${slug ?? ""}#${anchor}`);
+        }
+      }
+    }
+    expect(broken).toEqual([]);
+  });
+
   test("heading ids are stable slugs", () => {
     expect(slugify("How it fits together")).toBe("how-it-fits-together");
     expect(slugify("Agents where `your` code is!")).toBe(

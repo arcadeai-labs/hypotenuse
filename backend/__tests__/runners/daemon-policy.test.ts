@@ -81,6 +81,7 @@ const SUPERSET = {
   role: "worker",
   ids: [1],
   externalUserId: "wall",
+  issue: "WALL-1",
 };
 
 /**

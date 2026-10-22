@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { and, desc, eq } from "drizzle-orm";
 import { api } from "keryx";
 import {
+  dashboardStoppedBody,
   STOP_UNCONFIRMED_BODY,
   STOPPED_BEFORE_START_BODY,
   STOPPED_NOTHING_BODY,
@@ -32,7 +33,9 @@ import {
   itemsOf,
   personSays,
   reap,
+  route,
   ScriptedDaemon,
+  sessionById,
   setItem,
   withoutRunnerRateLimits,
 } from "./helpers";
@@ -284,10 +287,14 @@ describe("agent-session:cancel", () => {
     const body = (await res.json()) as { agentSession: { id: number } };
     expect(body.agentSession.id).toBe(session.id);
     expect(
-      (await itemsOf(session.id)).map((i) => [i.status, i.cancelReason]),
-    ).toEqual([["cancelled", "dashboard"]]);
+      (await itemsOf(session.id)).map((i) => [
+        i.status,
+        i.cancelReason,
+        i.cancelledByUserId,
+      ]),
+    ).toEqual([["cancelled", "dashboard", universe.toad.userId]]);
     expect(await lastInLinear(externalSessionId)).toBe(
-      STOPPED_BEFORE_START_BODY,
+      dashboardStoppedBody(universe.toad.name, true),
     );
 
     const [audit] = await api.db.db
@@ -305,5 +312,82 @@ describe("agent-session:cancel", () => {
       userId: universe.toad.userId,
       targetType: "agent_session",
     });
+  });
+
+  test("a running turn's cancel names who stopped it, for the daemon to say so", async () => {
+    await laptop.heartbeat();
+    const { session } = await delegatedSession(
+      linear,
+      appUserId,
+      "Running when cancelled from the dashboard",
+    );
+    const turn = await laptop.claim();
+    const res = await fetch(
+      `${universe.url}/api/agent-session/${session.id}/cancel`,
+      {
+        method: "POST",
+        headers: authHeaders(universe.mario.sessionId),
+        body: JSON.stringify({ projectId: universe.projectId }),
+      },
+    );
+    expect(res.status).toBe(200);
+    expect((await laptop.heartbeat()).cancels).toEqual([
+      {
+        workItemId: turn!.workItemId,
+        reason: "dashboard",
+        by: universe.mario.name,
+      },
+    ]);
+    expect((await itemRow(turn!.workItemId)).cancelledByUserId).toBe(
+      universe.mario.userId,
+    );
+    await laptop.complete(turn!.workItemId, "cancelled");
+  });
+
+  test("LC-SES-25 nothing live: refused unless the session waits on a person, who is then answered", async () => {
+    await laptop.heartbeat();
+    const { externalSessionId, session } = await delegatedSession(
+      linear,
+      appUserId,
+      "Finished, then cancelled",
+    );
+    const turn = await laptop.claim();
+    await laptop.events(turn!.workItemId, [
+      { type: "response", body: "All done." },
+    ]);
+    await laptop.complete(turn!.workItemId, "completed");
+    await settle();
+    const cancel = () =>
+      fetch(`${universe.url}/api/agent-session/${session.id}/cancel`, {
+        method: "POST",
+        headers: authHeaders(universe.toad.sessionId),
+        body: JSON.stringify({ projectId: universe.projectId }),
+      });
+
+    expect((await cancel()).status).toBe(406);
+
+    // A turn that ended on a question leaves the session waiting on a person
+    // with no turn behind it.
+    await personSays(linear, externalSessionId, "One more thing");
+    await laptop.heartbeat();
+    await route();
+    const asking = await laptop.claim();
+    await laptop.events(asking!.workItemId, [
+      { type: "elicitation", body: "Which branch should I use?" },
+    ]);
+    await laptop.complete(asking!.workItemId, "completed");
+    await settle();
+    expect((await sessionById(session.id)).status).toBe("awaitingInput");
+    expect((await cancel()).status).toBe(200);
+    expect(await lastOutbound(session.id)).toMatchObject({
+      contentType: "response",
+      content: {
+        type: "response",
+        body: dashboardStoppedBody(universe.toad.name, false),
+      },
+    });
+    expect(await lastInLinear(externalSessionId)).toBe(
+      dashboardStoppedBody(universe.toad.name, false),
+    );
   });
 });

@@ -242,6 +242,10 @@ The map is [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md). What follows is the
 
 - **Postgres is the source of truth; WebSocket frames are content-free pings.** A runner that misses a ping finds the
   work on its next heartbeat. A dashboard reconnect re-reads.
+- **A change to a turn tells the dashboard through `WorkEffects.sessions`.** Anything that writes a work item adds its
+  session there, and `applyEffects` publishes `project:<id>:sessions` after commit. A turn that cannot be placed
+  records why as a sentence and a code (`waitingCode`); the codes are `routing-rule:preview`'s, and both come from
+  `RoutingOps.evaluateRunners`, which must keep `eligibleRunners`' conditions one for one (a test holds them).
 - **One turn under way per agent session** (a partial unique index over `offered`, `claimed`, `running`). A turn ends in exactly one place (`WorkItemOps.finishWorkItem`, reached from `daemon:complete`, cancellation, lease expiry, and the queue timeout), which
   releases the runner slot and answers the session if the turn did not.
 - **Lock a session before its work items, and both before a runner row.** Cancellation starts from the session and

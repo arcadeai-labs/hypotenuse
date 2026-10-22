@@ -107,6 +107,51 @@ to Linear is not available yet.
 
 A session started by an automation or another agent has no person behind it, so no runner is preferred.
 
+## Previewing a route
+
+The **Routing** page's preview answers "what would happen if this issue were delegated now?". Give it an issue
+(`ENG-123`) and, optionally, the text of a mention (`/manage plan the launch`), and it shows:
+
+- the rule that matched, and the role it chose;
+- **every runner** in the project, whether it could take the work, and if not, every reason why (below);
+- the repository: pinned by a rule, the only candidate, Linear's suggestion, or a question a person would be asked.
+
+The preview runs the same rules and the same runner checks as real routing, against the issue as Linear has it now
+and the runners as they are now. It changes nothing, and any member may run it. Ranking repositories asks Linear,
+which spends the workspace's API budget, so the preview does it only when you ask ("Ask Linear to rank
+repositories", or `--with-repository`). From the terminal:
+
+```bash
+hypotenuse routing preview ENG-123
+hypotenuse routing preview ENG-123 --prompt "/manage plan the launch" --with-repository
+```
+
+## Why work waits
+
+When no runner can take a piece of work, the reason is recorded on it as a code. The session page's **Turns**, the
+project home's queue, `hypotenuse session view`, and the preview all use the same codes.
+
+A runner is ruled out for any of these, and the preview lists every one that applies:
+
+| Code | The runner |
+|---|---|
+| `role_not_served` | does not play this role, or has no available agent for it |
+| `subscription_mismatch` | subscribes to teams, projects, or labels the issue is not in |
+| `offline` | has not heartbeated recently |
+| `draining` | is finishing its work and taking no more |
+| `paused` | was paused by its owner or an admin |
+| `repository_missing` | does not have the repository checked out |
+| `no_capacity` | has every slot for this work taken — on the machine, for the role, or for the agent |
+
+A waiting piece of work carries one code: the reason of the runner that came closest, in the order above (a busy
+runner is closer than an offline one). Three more are about the work, not a runner:
+
+| Code | Means |
+|---|---|
+| `no_runners` | the project has no runners at all |
+| `sticky_runner` | a follow-up is waiting for the runner that holds the session's worktree (up to the sticky timeout) |
+| `offer_lapsed` | every runner that could take it just let an offer lapse; it is offered again shortly |
+
 ## What you see in Linear
 
 | When | The session shows |
@@ -126,7 +171,7 @@ stale. A session waiting on *you* — the repository question — is left alone.
 
 ## Stopping
 
-Press **Stop** in Linear (or run `hypotenuse session cancel <id>`) and:
+Press **Stop** in Linear and:
 
 | If the work | The session shows |
 |---|---|
@@ -134,6 +179,16 @@ Press **Stop** in Linear (or run `hypotenuse session cancel <id>`) and:
 | was running | the agent stops and says what state it left things in |
 | was running, and the runner does not confirm within the **stop grace** (30 seconds) | *Stopped. The runner didn't confirm; its last state is unknown.* |
 | there was nothing to stop | *Stopped. Nothing was running.* |
+
+**Cancel** on a session's page in the dashboard (or `hypotenuse session cancel <id>`) stops work the same way, and
+names you:
+
+| If the work | The session shows |
+|---|---|
+| had not started | *Stopped from the Hypotenuse dashboard by Mario before starting.* |
+| was running | *Cancelled from the Hypotenuse dashboard by Mario.*, and where the changes so far are |
+| was waiting on a question the agent asked | *Stopped from the Hypotenuse dashboard by Mario.* — which also takes the session out of "awaiting input" |
+| there was nothing to stop | nothing: Cancel is refused |
 
 Replies waiting behind the stopped work are dropped too: a stop means stop. Nothing starts again until someone
 prompts the session or delegates the issue anew. Removing `@hypotenuse` as the delegate, dismissing the session,

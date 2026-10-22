@@ -87,6 +87,12 @@ export const CANCEL_REASONS = [
 export const Cancel = z.looseObject({
   workItemId: z.number().int().positive(),
   reason: z.union([z.enum(CANCEL_REASONS), z.string().min(1).max(64)]),
+  /**
+   * Who cancelled it, by name, when a person did so from the dashboard or
+   * the CLI (`reason: "dashboard"`); the daemon names them in its final
+   * activity. Absent from older servers.
+   */
+  by: z.string().min(1).max(200).optional(),
 });
 export type Cancel = z.infer<typeof Cancel>;
 

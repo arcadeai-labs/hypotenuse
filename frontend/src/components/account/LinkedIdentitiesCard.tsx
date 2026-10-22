@@ -11,7 +11,7 @@ type LinkedIdentity =
   ActionResponse<ExternalIdentityList>["externalIdentities"][number];
 
 /** How each link was made, in words. */
-const LINKED_VIA: Record<string, string> = {
+export const LINKED_VIA: Record<string, string> = {
   email: "E-mail match",
   oauth: "Linear sign-in",
   admin: "Linked by an admin",

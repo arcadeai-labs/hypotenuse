@@ -15,6 +15,7 @@ import {
   OfflineGlyph,
   OnlineGlyph,
   Property,
+  Table,
 } from "../../../ui";
 import { apiFetch } from "../../../utils/client";
 import SectionCard from "../../sections/SectionCard";
@@ -356,7 +357,14 @@ export default function LinearIntegrationCard() {
                 </span>
               </Property>
             )}
+            <Property label="Last webhook">
+              <span data-testid="linear-last-webhook">
+                {when(data?.deliveries?.lastReceivedAt ?? null)}
+              </span>
+            </Property>
           </dl>
+
+          <RecentDeliveries deliveries={data?.deliveries ?? null} />
 
           <div className="d-flex gap-2 flex-wrap">
             {integration.status === "error" && mayConnect && connectControl}
@@ -406,5 +414,52 @@ export default function LinearIntegrationCard() {
         </Modal.Footer>
       </Modal>
     </SectionCard>
+  );
+}
+
+/**
+ * The webhook's recent deliveries and what processing made of each — the
+ * first place to look when Linear says it delegated and nothing happened.
+ * @param props - `integration:view`'s `deliveries`.
+ * @returns The table, or a line saying none arrived.
+ */
+function RecentDeliveries({
+  deliveries,
+}: {
+  deliveries: IntegrationResponse["deliveries"];
+}) {
+  if (!deliveries || deliveries.recent.length === 0) {
+    return (
+      <p className="text-muted mb-0" data-testid="linear-deliveries-empty">
+        No webhook deliveries yet.
+      </p>
+    );
+  }
+  return (
+    <Table size="sm" responsive data-testid="linear-deliveries">
+      <thead>
+        <tr>
+          <th scope="col">Received</th>
+          <th scope="col">Event</th>
+          <th scope="col">Outcome</th>
+        </tr>
+      </thead>
+      <tbody>
+        {deliveries.recent.map((d) => (
+          <tr key={d.id} data-testid={`linear-delivery-${d.id}`}>
+            <td className="tabular">{when(d.receivedAt)}</td>
+            <td>
+              {d.eventType} · {d.action}
+            </td>
+            <td>
+              <Badge bg={d.outcome === "failed" ? "danger" : "secondary"}>
+                {d.outcome}
+              </Badge>
+              {d.error && <span className="text-muted"> {d.error}</span>}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </Table>
   );
 }

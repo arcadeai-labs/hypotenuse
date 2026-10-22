@@ -29,6 +29,7 @@ import {
   UpdateAgentSession,
 } from "./linear/operations";
 import type { TxHandle } from "./ProjectOps";
+import { broadcastSessionActivity } from "./SessionChannelOps";
 
 /**
  * The activity outbox: **everything Hypotenuse writes to a Linear agent
@@ -524,6 +525,19 @@ export function isDuplicateActivityError(e: LinearGraphQLError): boolean {
 export async function deliverSession(
   agentSessionId: number,
 ): Promise<DeliveryRun> {
+  const run = await deliverRows(agentSessionId);
+  // A sent or failed row changed what the dashboard shows: the transcript,
+  // and the status, plan, or links the mirror took from it.
+  if (run.sent + run.failed > 0) await broadcastSessionActivity(agentSessionId);
+  return run;
+}
+
+/**
+ * {@link deliverSession}'s loop, without the dashboard frame.
+ * @param agentSessionId - The session.
+ * @returns What was done.
+ */
+async function deliverRows(agentSessionId: number): Promise<DeliveryRun> {
   const run: DeliveryRun = { ran: false, sent: 0, failed: 0, deferred: false };
   const key = deliveryLockKey(agentSessionId);
   // One row can take a refresh and two attempts, each up to the request

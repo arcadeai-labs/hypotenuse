@@ -390,7 +390,8 @@ $narrow: 767.98px;
   padding: var(--space-2) 0;
 }
 
-.shell-placeholder {
+// A list's empty state: what will be here and how to get it there.
+.shell-empty {
   max-width: 60ch;
   padding: var(--space-7) var(--space-5);
   color: var(--text-secondary);

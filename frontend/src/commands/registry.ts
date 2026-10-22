@@ -16,6 +16,8 @@ export interface CommandContext {
    * than offered and refused.
    */
   may: (actionName: string) => boolean;
+  /** The current route's path, for commands that act on the page on screen. */
+  pathname?: string;
 }
 
 /**
@@ -66,6 +68,25 @@ export const COMMANDS: Command[] = [
     run: (c) => c.navigate("/routing"),
   },
   {
+    id: "go-identities",
+    title: "Go to Identities",
+    group: "Navigation",
+    keywords: ["linear", "account", "link"],
+    run: (c) => c.navigate("/identities"),
+  },
+  {
+    id: "go-session",
+    title: "Go to session…",
+    group: "Navigation",
+    keywords: ["issue", "find"],
+    when: (c) => c.may("agent-session:list"),
+    run: (c) => {
+      c.navigate("/sessions");
+      // The list's search field takes an issue identifier.
+      setTimeout(() => c.focusSearch(), 0);
+    },
+  },
+  {
     id: "go-settings",
     title: "Go to Settings",
     group: "Navigation",
@@ -99,6 +120,40 @@ export const COMMANDS: Command[] = [
     keywords: ["history", "changes"],
     when: (c) => c.may("audit:list"),
     run: (c) => c.navigate("/audit"),
+  },
+  {
+    id: "cancel-session",
+    title: "Cancel session",
+    group: "Project",
+    keywords: ["stop"],
+    when: (c) =>
+      /^\/sessions\/\d+$/.test(c.pathname ?? "") &&
+      c.may("agent-session:cancel"),
+    run: (c) => c.navigate(`${c.pathname}?cancel=1`),
+  },
+  {
+    id: "register-runner",
+    title: "Register runner",
+    group: "Project",
+    keywords: ["machine", "token"],
+    when: (c) => c.may("runner:register"),
+    run: (c) => c.navigate("/runners?register=1"),
+  },
+  {
+    id: "revoke-runner",
+    title: "Revoke runner",
+    group: "Project",
+    keywords: ["machine", "remove"],
+    when: (c) => c.may("runner:revoke"),
+    run: (c) => c.navigate("/runners"),
+  },
+  {
+    id: "edit-routing-rules",
+    title: "Edit routing rules",
+    group: "Project",
+    keywords: ["role", "manager", "worker"],
+    when: (c) => c.may("routing-rule:edit"),
+    run: (c) => c.navigate("/routing"),
   },
   {
     id: "new-project",

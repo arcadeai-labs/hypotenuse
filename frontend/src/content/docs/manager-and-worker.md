@@ -29,6 +29,9 @@ matches decides, and the session's first note names it:
 
 > Routing as **manager** (rule: /manage).
 
+To check which role an issue would get before delegating it, use the preview on the **Routing** page, or
+`hypotenuse routing preview ENG-123 --prompt "/manage plan it"`.
+
 ## Changing your mind
 
 The role cannot change mid-session, because the agent's context, tools, and working copy all follow from it. To get

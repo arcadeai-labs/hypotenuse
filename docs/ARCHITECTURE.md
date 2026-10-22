@@ -139,7 +139,10 @@ What each event does:
 
 The acknowledgement is *"On it — finding a runner for ENG-123."*; routing then names the role it chose, the
 repository, and — while no runner can take the turn — why it waits, so a session never looks unresponsive. A
-`stop` with nothing running is answered *"Stopped. Nothing was running."*; a team-access change marks sessions on
+`stop` with nothing running is answered *"Stopped. Nothing was running."*. A cancel from the dashboard or CLI
+(`agent-session:cancel`) takes the same path, records who on the work item, and names them in every answer — the
+server's for work not started, the daemon's (from the heartbeat cancel's `by`) for a running turn; a session waiting
+on a question with no turn behind it is answered by the server, and one with nothing to stop is refused. A team-access change marks sessions on
 removed teams `error` and cancels their work; a removed delegate is recorded on the session (`delegateRemovedAt`)
 and its work cancelled without a word, because the person disengaged. "Without a word" is enforced on the server:
 after a disengagement cancel (`delegate_removed`, `issue_closed`, `integration_revoked`) every event the daemon
@@ -221,6 +224,15 @@ suggestion wins, otherwise the session receives a `select` elicitation listing t
 for the person's answer, which arrives as an ordinary prompt and is matched without a model (a value, a label,
 `owner/name`, or exactly one repository named in the text; two misses end the turn with an `error`). A rule may
 pin the repository instead, and a manager with no candidates works without one.
+
+**Why a turn waits, as a code.** While no runner can take a turn, `work:route` records the sentence it told the
+session (`work_items.waitingReason`) and a machine code (`waitingCode`): one of the per-runner reasons —
+`role_not_served`, `subscription_mismatch`, `offline`, `draining`, `paused`, `repository_missing`, `no_capacity` —
+or a turn-level wait, `no_runners`, `sticky_runner`, `offer_lapsed`. `RoutingOps.evaluateRunners` judges every
+runner of the project with `eligibleRunners`' own conditions and gives each one it rules out its reasons;
+`waitingCodeFor` folds them to the reason of the runner that came closest. `routing-rule:preview` runs the same
+role and repository decisions and the same evaluation over a live issue, writing nothing, so the session page's
+"why is it pending" and the routing preview speak one language.
 
 ## State machines
 
@@ -363,19 +375,21 @@ no tools and `instructions` saying why.
 | `agent_activities` | inbound prompts and the outbound outbox, with client UUIDs, delivery status, and attempts |
 | `runners` | registered daemons: owner, token sha256 and last four, status (`online`, `offline`, `draining`, `revoked`) and `enabled`, machine id, last heartbeat and connect, parallel-job limits, roles, agents, repositories, the hash of the last reported capabilities. A name is unique among a project's unrevoked runners; a machine id among its live (`online` or `draining`) ones. A revoked row is kept with its reason |
 | `runner_subscriptions` | the teams, projects, and labels (per trigger `type`) each runner accepts, replaced whenever a heartbeat's capability hash changes |
-| `work_items` | one per turn: kind, role, repository, status, the merged follow-ups, issuer, offered/claimed runner and agent, lease, attempts, the cancel, the daemon's usage and state, the outcome, and every write its agent tools made in Linear (`linearWrites`) |
+| `work_items` | one per turn: kind, role, repository, status, the merged follow-ups, issuer, offered/claimed runner and agent, lease, attempts, why it waits (a sentence and a code), the cancel and who made it, the daemon's usage and state, the outcome, and every write its agent tools made in Linear (`linearWrites`) |
 | `routing_rules` | a project's ordered role-selection rules |
 
 ## WebSocket channels
 
 Frames are **content-free**: they name what changed and the client re-reads over HTTP. Postgres is the source of
-truth and a reconnect hydrates.
+truth and a reconnect hydrates. The project channels share one subscribe gate (`ChannelOps.projectMemberChannelMiddleware`:
+a session and a membership, refused identically whether the project exists or not). A session frame may name its
+id because every member can read every session of the project; if that ever changes, the id leaves the frame.
 
 | Channel | Subscriber | Frames |
 |---|---|---|
 | `runner:<runnerId>` | the daemon holding that runner's session cookie | `{ event: "work" }`, `{ event: "cancel" }`, `{ event: "revoked" }` |
-| `project:<projectId>:sessions` | project members | `{ event: "sessions" }`, `{ event: "session", id }` |
-| `project:<projectId>:runners` | project members | `{ event: "runners" }` |
+| `project:<projectId>:sessions` | project members | `{ event: "sessions" }`, `{ event: "session", id }` — from every work change (`WorkEffects.sessions`, applied after commit), each processed webhook, and the outbox, coalesced to one frame per session per second with a trailing `sessions:broadcast` |
+| `project:<projectId>:runners` | project members | `{ event: "runners" }` — registration, edit, revocation, the reaper, and a heartbeat only when it changed status or capabilities |
 | `project:<projectId>:notifications` | project members | `{ event: "notifications" }` |
 
 The daemon's heartbeat (`daemon:heartbeat`, every 15 s) also returns pending offers and cancels, so a lost socket
@@ -391,6 +405,7 @@ costs latency, never correctness.
 | `work:reap` | 15 s | marks runners `offline` after `runners.offlineAfterMs` (45 s) without a heartbeat; returns claims with lapsed leases to `queued`; ends stopped turns whose runner did not confirm within `routing.stopGraceMs` |
 | `sessions:keepalive` | 60 s | an ephemeral `thought` for sessions waiting on Hypotenuse (a queued turn) that have been quiet for 25 minutes; never for one waiting on a person |
 | `integrations:refresh-tokens` | 5 min | refreshes access tokens within 30 minutes of expiry under a row lock (refresh tokens rotate; a lost response is replayed inside Linear's 30-minute grace; `invalid_grant` marks the integration `error` and notifies its admins). A 401 anywhere refreshes inline through the same function |
+| `sessions:broadcast` | enqueued 1 s after a coalesced burst | the trailing `{ event: "session", id }` frame of a burst of outbox sends |
 | `notifications:dispatch` | 30 s | delivers queued notifications: a ping on the project channel, and the e-mail (logged when `SMTP_HOST` is empty) |
 | `trigger-events:sweep`, `audit:sweep`, `notifications:sweep`, `invites:sweep` | daily | retention |
 

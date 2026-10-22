@@ -62,11 +62,13 @@ The session also links to its page in the dashboard (**Hypotenuse**), and to the
 
 Any member of the project can list its sessions and read each one's conversation, including whether each thing
 Hypotenuse wrote has reached Linear yet (`pending`, `sent`, `failed`, or `superseded` — replaced by something
-newer before it was sent). People outside the project cannot.
+newer before it was sent). People outside the project cannot. The dashboard's **Sessions** page and each session's
+own page show it live, with the runner, the turns, and why any of them waits — see [the dashboard](/docs/dashboard).
 
 ```bash
-hypotenuse session list                  # newest first; --type, --status, --role, --issue ENG-123 to narrow
-hypotenuse session view 42               # one session and its conversation, in order
+hypotenuse session list                  # newest first; --type, --status, --role, --issue ENG-123, --runner to narrow
+hypotenuse session view 42               # one session, its turns, and its conversation, in order
+hypotenuse session view ENG-123 --follow # the newest session on an issue, printing new activities as they arrive
 hypotenuse session cancel 42             # stop its work, as Stop in Linear does
 ```
 

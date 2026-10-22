@@ -68,7 +68,11 @@ After Linear's consent screen you always land back on **Settings → Integration
 
 Once connected: the workspace and its address, the name `@hypotenuse` has there (Linear adds a number if it
 clashes with a member's name), the permissions granted, how many teams it can see, when its access token expires
-and was last renewed, and — once Hypotenuse has talked to Linear — how much of Linear's rate limit is left.
+and was last renewed, and — once Hypotenuse has talked to Linear — how much of Linear's rate limit is left. It
+also shows when Linear's last webhook arrived and what became of the most recent ones: `handled`, `ignored` (an
+event Hypotenuse has no use for), or `failed` (Hypotenuse could not process it — the card says why). A workspace
+that has gone quiet for longer than you expect, or a run of failures, is the first thing to look at when
+`@hypotenuse` does not answer.
 
 ## Staying connected
 

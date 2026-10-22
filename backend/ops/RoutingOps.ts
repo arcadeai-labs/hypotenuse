@@ -650,6 +650,176 @@ export function rankRunners(
 }
 
 /**
+ * Why a runner cannot take a turn, as machine codes. `routing-rule:preview`
+ * gives each runner it rules out these; `work:route` records the one that
+ * explains a waiting turn ({@link waitingCodeFor}), so "why is it pending" and
+ * the preview speak the same language.
+ */
+export const RUNNER_REASON_CODES = [
+  "role_not_served",
+  "subscription_mismatch",
+  "offline",
+  "draining",
+  "paused",
+  "repository_missing",
+  "no_capacity",
+] as const;
+
+/** One of {@link RUNNER_REASON_CODES}. */
+export type RunnerReasonCode = (typeof RUNNER_REASON_CODES)[number];
+
+/** Each reason code as a sentence about one runner. */
+export const RUNNER_REASON_SENTENCES: Record<RunnerReasonCode, string> = {
+  role_not_served:
+    "It does not play this role, or has no available agent for it.",
+  subscription_mismatch:
+    "It subscribes to teams, projects, or labels this issue is not in.",
+  offline: "It is offline: no heartbeat recently.",
+  draining: "It is draining: finishing its work and taking no more.",
+  paused: "It is paused, and takes no new work.",
+  repository_missing: "It does not have the repository checked out.",
+  no_capacity: "It is busy: every slot it has for this work is taken.",
+};
+
+/** One runner of a project, judged against one piece of work. */
+export interface RunnerEvaluation {
+  runnerId: number;
+  name: string;
+  userId: number;
+  eligible: boolean;
+  /** Every reason it is ruled out, in {@link RUNNER_REASON_CODES} order; empty when eligible. */
+  reasons: RunnerReasonCode[];
+}
+
+/**
+ * Judge **every** unrevoked runner of a project against a piece of work, and
+ * say why each one that cannot take it cannot — every reason, not the first
+ * (a runner that has never heartbeated is only `offline`: it has reported
+ * nothing else to judge).
+ * The conditions are {@link eligibleRunners}'s, one for one, so a runner is
+ * `eligible` here exactly when that query returns it (a test holds the two
+ * to it) — except that a `repository` of `undefined` (one is still being
+ * chosen) asks for a runner with *some* repository checked out, as
+ * {@link explainUnplaceable} does, where eligibility ignores repositories.
+ * @param db - Where to read.
+ * @param query - What is being placed.
+ * @returns One evaluation per runner, by id.
+ */
+export async function evaluateRunners(
+  db: Db,
+  query: EligibilityQuery,
+): Promise<RunnerEvaluation[]> {
+  const labels = query.issue.labels.map((l) => l.toLowerCase());
+  const repositoryOk =
+    query.repository === null
+      ? sql`TRUE`
+      : query.repository === undefined
+        ? sql`jsonb_array_length(r.repositories) > 0`
+        : sql`r.repositories @> ${JSON.stringify([{ remote: query.repository }])}::jsonb`;
+  const subscription = (kind: string, matches: ReturnType<typeof sql>) => sql`(
+      NOT EXISTS (SELECT 1 FROM runner_subscriptions s WHERE s.runner_id = r.id AND s.kind = ${kind})
+      OR EXISTS (SELECT 1 FROM runner_subscriptions s WHERE s.runner_id = r.id AND s.kind = ${kind} AND ${matches}))`;
+  const result = await db.execute<{
+    id: number;
+    user_id: number;
+    name: string;
+    status: string;
+    enabled: boolean;
+    serves_role: boolean;
+    subscribed: boolean;
+    has_repository: boolean;
+    has_room: boolean;
+    reported: boolean;
+  }>(sql`
+    SELECT c.id, c.user_id, c.name, c.status, c.enabled, c.serves_role,
+      c.limits IS NOT NULL AS reported,
+      c.subscribed, c.has_repository,
+      (c.max_parallel IS NOT NULL AND c.used < c.max_parallel
+        AND (c.limits->'roles'->>${query.role} IS NULL OR c.used_role < (c.limits->'roles'->>${query.role})::int)
+        AND (c.agent_id IS NULL OR c.limits->'agents'->>c.agent_id IS NULL OR c.used_agent < (c.limits->'agents'->>c.agent_id)::int)
+      ) AS has_room
+    FROM (
+      SELECT r.id, r.user_id, r.name, r.status, r.enabled, r.limits, agent.id AS agent_id,
+        (r.roles ? ${query.role} AND agent.id IS NOT NULL) AS serves_role,
+        (${subscription("team", sql`s.value = ${query.issue.teamKey ?? ""}`)}
+          AND ${subscription("project", sql`s.value = ${query.issue.project?.id ?? ""}`)}
+          AND ${subscription("label", sql`s.value = ANY(${textArray(labels)})`)}) AS subscribed,
+        (${repositoryOk}) AS has_repository,
+        (r.limits->>'maxParallelJobs')::int AS max_parallel,
+        ${liveCount()} AS used,
+        ${liveCount(sql`w.role = ${query.role}`)} AS used_role,
+        ${liveCount(sql`w.agent_id = agent.id`)} AS used_agent
+      FROM runners r
+      LEFT JOIN LATERAL (
+        SELECT a.value->>'id' AS id
+        FROM jsonb_array_elements(r.agents) WITH ORDINALITY AS a(value, ord)
+        WHERE (a.value->>'available')::boolean
+          AND (a.value->'roles' IS NULL OR a.value->'roles' ? ${query.role})
+        ORDER BY a.ord
+        LIMIT 1
+      ) agent ON TRUE
+      WHERE r.project_id = ${query.projectId}
+        AND r.status <> 'revoked'
+    ) c
+    ORDER BY c.id
+  `);
+  return result.rows.map((row) => {
+    const reasons: RunnerReasonCode[] = [];
+    // A runner that has never heartbeated has reported nothing to judge.
+    if (!row.reported) {
+      return {
+        runnerId: Number(row.id),
+        name: row.name,
+        userId: Number(row.user_id),
+        eligible: false,
+        reasons: ["offline"],
+      };
+    }
+    if (!row.serves_role) reasons.push("role_not_served");
+    if (!row.subscribed) reasons.push("subscription_mismatch");
+    if (row.status === "offline") reasons.push("offline");
+    if (row.status === "draining") reasons.push("draining");
+    if (!row.enabled) reasons.push("paused");
+    if (!row.has_repository) reasons.push("repository_missing");
+    if (!row.has_room) reasons.push("no_capacity");
+    return {
+      runnerId: Number(row.id),
+      name: row.name,
+      userId: Number(row.user_id),
+      eligible: reasons.length === 0,
+      reasons,
+    };
+  });
+}
+
+/**
+ * The one code that explains why nothing could take a turn: `no_runners`
+ * when the project has none, else the first reason of the runner that came
+ * closest — the one whose first failing check is furthest along
+ * {@link RUNNER_REASON_CODES}, which runs from "could never" to "not right
+ * now". Null when some runner is eligible.
+ * @param evaluations - {@link evaluateRunners}'s answer.
+ * @returns The code, or null.
+ */
+export function waitingCodeFor(
+  evaluations: RunnerEvaluation[],
+): RunnerReasonCode | "no_runners" | null {
+  if (evaluations.length === 0) return "no_runners";
+  if (evaluations.some((e) => e.eligible)) return null;
+  let best: RunnerReasonCode = RUNNER_REASON_CODES[0];
+  for (const e of evaluations) {
+    const first = e.reasons[0];
+    if (
+      first &&
+      RUNNER_REASON_CODES.indexOf(first) > RUNNER_REASON_CODES.indexOf(best)
+    ) {
+      best = first;
+    }
+  }
+  return best;
+}
+
+/**
  * Plural helper.
  * @param n - The count.
  * @param one - The singular noun phrase.

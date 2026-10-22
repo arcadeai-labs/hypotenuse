@@ -302,17 +302,67 @@ Manually with `bun dev`, finear, and a daemon running the fake agent:
 
 ## Definition of done
 
-- [ ] `project:<id>:sessions` and `project:<id>:runners` channels, membership-gated, content-free, publishers never throw
-- [ ] Heartbeat publishes only on change; activity frames coalesced per session
-- [ ] Session page: transcript (ephemeral shown, collapsed), plan, links, turns with reason codes, parent/children, cancel
-- [ ] Runners page with register-once token modal, drain, revoke, live status
-- [ ] Routing editor with reorder guard and `routing-rule:preview` sharing reason codes with `work:route`
-- [ ] Identities page with explicit OAuth link and admin management
-- [ ] Linear settings section and project home (`project:overview`)
-- [ ] CLI parity for every new route; spawn tests for each
-- [ ] Seven user docs pages registered in `sections.ts`
-- [ ] Playwright specs green in CI
+- [x] `project:<id>:sessions` and `project:<id>:runners` channels, membership-gated, content-free, publishers never throw
+- [x] Heartbeat publishes only on change; activity frames coalesced per session
+- [x] Session page: transcript (ephemeral shown, collapsed), plan, links, turns with reason codes, parent/children, cancel
+- [x] Runners page with register-once token modal, drain, revoke, live status
+- [x] Routing editor with reorder guard and `routing-rule:preview` sharing reason codes with `work:route`
+- [x] Identities page with explicit OAuth link and admin management
+- [x] Linear settings section and project home (`project:overview`)
+- [x] CLI parity for every new route; spawn tests for each
+- [x] Seven user docs pages registered in `sections.ts`
+- [x] Playwright specs green in CI
 
 ## Learnings from the build
 
-_Nothing yet — this phase has not been built._
+**Built.** The Definition of done, at CLI 0.11.0, with the departures below. Much of the plan's action list already
+existed (`agent-session:cancel`, `routing-rule:reorder`, `external-identity:*`, the runners channel); this phase
+added the sessions channel, `routing-rule:preview`, `project:overview`, reason codes, and the pages. The manual
+walk-through under Verification has not been run against a real daemon and finear in a browser; the e2e specs drive
+the pages against seeded rows instead, because e2e has no Linear.
+
+### Where the pieces live
+
+- **Server:** `ops/SessionChannelOps.ts` (frames, the per-session coalescing window), `ops/ChannelOps.ts` (the one
+  membership gate both project channels use), `channels/projectSessions.ts`, `actions/agent-session/sessions-broadcast.ts`
+  (the trailing frame); `evaluateRunners`, `waitingCodeFor`, and the reason sentences in `ops/RoutingOps.ts`;
+  `decideRole` and the exported `decideRepository` in `ops/WorkRouteOps.ts`; `actions/routing-rule/routing-rule-preview.ts`,
+  `actions/project/project-overview.ts`; `recentDeliveries` in `ops/TriggerEventOps.ts`; `linkedIssuer` in
+  `ops/IdentityOps.ts`. Migration `0011` (`work_items.waiting_code`, `cancelled_by_user_id`).
+- **Protocol:** `Cancel.by` (additive; no version bump).
+- **Daemon:** a cancel's `by` rides as the stop's note (`cli/src/daemon/supervisor.ts`) into `stopActivity`.
+- **Frontend:** `pages/{ProjectHome,Sessions,Session,Routing,Identities,Runners}Page.tsx`; `components/session/`,
+  `components/runners/`, `components/routing/`; the pure passes in `utils/transcript.ts` and `utils/sessions.ts`.
+- **CLI:** `routing preview`, `project overview`, `session view <id|ENG-123> --transcript --follow`,
+  `session list --runner`, deliveries in `integration view`.
+
+### Where the build departs from the plan
+
+| Plan | Built | Why |
+|---|---|---|
+| Six reason codes | **seven per-runner codes** (`paused` beside `draining`) **plus three turn-level waits** (`no_runners`, `sticky_runner`, `offer_lapsed`), stored in `work_items.waiting_code` beside the sentence | a paused runner (`enabled = false`) is a person's choice and a draining one the daemon's; a turn can wait for reasons no runner has |
+| Publishers listed per action | **`WorkEffects.sessions`**: every function that changes a turn adds its session, and `applyEffects` publishes after commit; the webhook path and the outbox publish too | a list of actions misses the next writer; the effects object is already the one place every turn change passes through |
+| Activity frames coalesced with `SET NX PX 1000` | the same, **plus one trailing `sessions:broadcast` task** enqueued for the window's end | `SET NX` alone drops a burst's last frame, and the dashboard would show the burst's middle |
+| `GET /project/:id/overview` | **`GET /project/overview?projectId=`** | matches `/project/settings` |
+| The daemon's final `response` names the person | an **`error`** naming them (the daemon's dashboard answer has been an `error` since the ACP host); the server's answer for work not started, or for a session waiting on a question, is a `response` | unchanged daemon behavior; only the name is new |
+| — | **`agent-session:cancel` refuses (406)** with nothing live and nothing asked | a cancel that does nothing should not write an audit row or look like it worked |
+| `agent-session:view` resolves the issuer | through **`linkedIssuer`, never `resolveIssuer`** | `resolveIssuer` writes an e-mail link as it goes; a read must not write |
+| Identities: link by Linear `actor=user` OAuth | **admins link by Linear user id; members see and remove their own links** | there is no self-service OAuth link action yet; the page offers what the API has |
+| Runners: drain from the dashboard | **pause / resume** (`runner:edit enabled`) | draining is the daemon's state, reported, not a server command |
+| Register shows the `hypotenuse runner register` command | the modal mints a token and shows it once with the **`credentials.json` entry**, recommending `runner register` on the machine as the usual path | `runner register` mints its own token; there is no CLI command that installs one minted elsewhere |
+| Seven new user docs pages | **`security.md` and `dashboard.md` new**; the others map onto pages that already existed (`connecting-linear.md`, `runners.md`, `config.md`, `manager-and-worker.md`, `routing.md`) | one page per topic |
+| `session list --mine` | **not built** | the list has no owner filter; `--runner` is |
+
+### What the build taught
+
+- **Keryx publishes presence frames on every channel** (`{ event: "join" | "leave", presenceKey }`). A frame-shape
+  assertion, and a client's payload guard, must skip them (`isSessionsPayload`, `isRunnersPayload`).
+- **finear refuses an activity on a terminal session** ("Terminal sessions require a human prompt to reopen"), as
+  Linear does. A test of the `awaitingInput` cancel reaches that state with a real `elicitation`; setting the
+  mirror's status alone sends a response finear rejects.
+- **A runner that has never heartbeated has reported nothing to judge.** The preview gives it `offline` only, not
+  the four codes its empty capabilities would otherwise produce.
+- **Medians are clamped at zero.** A session row written after its first activity (seeded data, or skew between
+  processes) made "time to acknowledge" negative on the home page; the screenshot showed it, no test did.
+- **The full e2e run's `notifications.spec.ts` "reaches an open page without a reload" failed locally on a clean
+  `main` checkout too**; it passes in CI.

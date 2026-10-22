@@ -1,4 +1,5 @@
-import { type ActionParams, HTTP_METHOD } from "keryx";
+import { and, eq, notInArray } from "drizzle-orm";
+import { type ActionParams, ErrorType, HTTP_METHOD, TypedError } from "keryx";
 import { z } from "zod";
 import {
   AuditedAction,
@@ -16,6 +17,8 @@ import {
   lockSession,
   type WorkEffects,
 } from "../../ops/WorkItemOps";
+import { users } from "../../schema/users";
+import { TERMINAL_WORK_STATUSES, workItems } from "../../schema/work_items";
 
 /** The effects each in-flight cancel leaves for its `afterCommit`. */
 const pending = new WeakMap<AuditedConnection, WorkEffects>();
@@ -25,7 +28,11 @@ const pending = new WeakMap<AuditedConnection, WorkEffects>();
  * Stop does: a turn not yet taken is cancelled and the session told so; a
  * running turn's runner is told to stop and answer, and the server answers if
  * it does not within the project's stop grace. Queued follow-ups go too.
- * Audited: it is a person's decision. Requires membership.
+ * Every answer names the person (`by` on the runner's cancel). A session
+ * waiting on a question has no turn to stop and is answered by the server, so
+ * Linear's status leaves `awaitingInput`; one with nothing live and nothing
+ * asked is refused (406). Audited: it is a person's decision. Requires
+ * membership.
  */
 export class AgentSessionCancel extends AuditedAction {
   name = "agent-session:cancel";
@@ -47,7 +54,9 @@ export class AgentSessionCancel extends AuditedAction {
    * @param params - The session.
    * @param connection - The caller's connection.
    * @returns The session.
-   * @throws {TypedError} `CONNECTION_ACTION_NOT_FOUND` when it is not in the project.
+   * @throws {TypedError} `CONNECTION_ACTION_NOT_FOUND` when it is not in the
+   *   project; `CONNECTION_ACTION_PARAM_VALIDATION` when there is nothing to
+   *   cancel.
    */
   async runWithAudit(
     tx: TxHandle,
@@ -56,9 +65,32 @@ export class AgentSessionCancel extends AuditedAction {
   ) {
     const found = await sessionInProject(params.projectId, params.id);
     const before = await lockSession(tx, found.id);
+    const [live] = await tx
+      .select({ id: workItems.id })
+      .from(workItems)
+      .where(
+        and(
+          eq(workItems.agentSessionId, before.id),
+          notInArray(workItems.status, [...TERMINAL_WORK_STATUSES]),
+        ),
+      )
+      .limit(1);
+    if (!live && before.status !== "awaitingInput") {
+      throw new TypedError({
+        message:
+          "Nothing to cancel: no turn is queued or running, and the session is not waiting on anyone",
+        type: ErrorType.CONNECTION_ACTION_PARAM_VALIDATION,
+      });
+    }
+    const userId = connection.session!.data.userId!;
+    const [person] = await tx
+      .select({ name: users.name })
+      .from(users)
+      .where(eq(users.id, userId));
     const effects = await cancelSessionWork(tx, before.id, {
       reason: "dashboard",
       announce: true,
+      by: { userId, name: person?.name ?? "a project member" },
     });
     pending.set(connection, effects);
     const after = await lockSession(tx, found.id);

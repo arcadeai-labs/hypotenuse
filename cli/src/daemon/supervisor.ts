@@ -401,8 +401,12 @@ export class Supervisor {
    */
   private async onBeat(answer: HeartbeatResponse): Promise<void> {
     for (const id of answer.unknownActive) this.silence(id);
-    for (const cancel of answer.cancels)
+    for (const cancel of answer.cancels) {
+      const slot = this.slots.get(cancel.workItemId);
+      // Who stopped it from the dashboard rides as the stop's note.
+      if (slot && !slot.reason && cancel.by) slot.killNote = cancel.by;
       this.stop(cancel.workItemId, cancel.reason as StopReason);
+    }
     for (const reply of answer.answers ?? []) this.deliver(reply);
     if (this.draining || this.claimsHalted || this.diskWasLow) return;
     // A claim repeated for an item this runner already holds answers the same

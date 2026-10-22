@@ -1,5 +1,6 @@
 import type { RunnerList } from "@backend/actions/runner/runner-list";
 import type { ActionResponse } from "keryx";
+import type { CapacitySegment } from "../ui/CapacityBar";
 import type { RunnerPresence } from "../ui/PresenceDot";
 
 /** A runner as `runner:list` serializes it. */
@@ -60,4 +61,54 @@ export function availableAgents(
   runner: Pick<ListedRunner, "agents">,
 ): string[] {
   return runner.agents.filter((a) => a.available).map((a) => a.id);
+}
+
+/** One live session a runner holds, for its capacity bar. */
+export interface HeldSession {
+  id: number;
+  issueIdentifier: string | null;
+}
+
+/**
+ * A runner's slots as capacity segments: one per `maxParallelJobs`, the
+ * held sessions first, each linking to its session page. A runner that went
+ * offline while holding work turns those segments stale — the one loud state
+ * on the page.
+ * @param runner - The runner.
+ * @param held - The sessions it holds.
+ * @returns The segments.
+ */
+export function capacitySegments(
+  runner: Pick<ListedRunner, "limits" | "activeCount" | "status">,
+  held: HeldSession[],
+): CapacitySegment[] {
+  const total = Math.max(runner.limits?.maxParallelJobs ?? 0, held.length);
+  const busy = runner.status === "offline" ? "stale" : "busy";
+  return Array.from({ length: total }, (_, i) => {
+    const session = held[i];
+    if (session) {
+      return {
+        state: busy,
+        label: session.issueIdentifier ?? `#${session.id}`,
+        href: `/sessions/${session.id}`,
+      };
+    }
+    return i < runner.activeCount ? { state: busy } : { state: "free" };
+  });
+}
+
+/**
+ * Group runners by owner, owners by name.
+ * @param runners - The runners.
+ * @returns `[owner name, runners]` pairs.
+ */
+export function groupByOwner(
+  runners: ListedRunner[],
+): [string, ListedRunner[]][] {
+  const groups = new Map<string, ListedRunner[]>();
+  for (const runner of runners) {
+    const owner = runner.owner?.name ?? "Unknown owner";
+    groups.set(owner, [...(groups.get(owner) ?? []), runner]);
+  }
+  return [...groups.entries()].sort(([a], [b]) => a.localeCompare(b));
 }

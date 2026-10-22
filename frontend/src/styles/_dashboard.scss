@@ -1,0 +1,337 @@
+// The operator pages: project home, sessions and the session transcript, the
+// runner fleet, routing, and identities. Tokens only — every colour semantic,
+// every size a ratio of `--font-size` or a space step. See docs/DESIGN.md for
+// the transcript and fleet, the two signature surfaces drawn here.
+
+// ---------------------------------------------------------------------------
+// Shared
+// ---------------------------------------------------------------------------
+
+.page-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: 0 var(--space-5) var(--space-7);
+}
+
+.session-filters,
+.home-window {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.session-filters .ui-form-select {
+  width: auto;
+}
+
+// ---------------------------------------------------------------------------
+// Project home
+// ---------------------------------------------------------------------------
+
+.home-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: var(--space-4);
+  padding: 0 var(--space-5) var(--space-7);
+}
+
+.home-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  margin: 0 0 var(--space-3);
+
+  dd {
+    margin: 0;
+    font-size: var(--text-md);
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+}
+
+.home-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.home-chip-link {
+  text-decoration: none;
+  color: inherit;
+}
+
+.home-queue {
+  list-style: none;
+  margin: 0 0 var(--space-3);
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+// ---------------------------------------------------------------------------
+// Session page and transcript
+// ---------------------------------------------------------------------------
+
+.session-summary {
+  color: var(--text-secondary);
+}
+
+.session-section-title {
+  margin-top: var(--space-6);
+}
+
+.session-links {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.transcript,
+.transcript-lines {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.transcript {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  background: var(--bg-panel);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+}
+
+.transcript-lines {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.transcript-separator {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+  padding-bottom: var(--space-1);
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+  font-weight: 500;
+}
+
+.transcript-separator-label {
+  color: var(--text-secondary);
+}
+
+.transcript-line {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.transcript-mark {
+  flex: none;
+  margin-top: var(--space-1);
+  color: var(--text-tertiary);
+}
+
+.transcript-body {
+  min-width: 0;
+  flex: 1;
+}
+
+.transcript-who {
+  font-weight: 600;
+  margin-right: var(--space-2);
+}
+
+.transcript-thought {
+  color: var(--text-tertiary);
+}
+
+.transcript-toggle {
+  border: 0;
+  padding: 0;
+  background: none;
+  color: var(--text-tertiary);
+  text-align: left;
+  cursor: pointer;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: inherit;
+}
+
+// Linear has replaced it; it stays in the log, struck through.
+.transcript-replaced {
+  color: var(--text-disabled);
+}
+
+// The single live line at the bottom, replaced in place.
+.transcript-live {
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+.transcript-verb {
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.transcript-result {
+  margin: var(--space-1) 0 0;
+  padding: var(--space-2);
+  max-width: 100%;
+  overflow-x: auto;
+  background: var(--bg-sunken);
+  border-radius: var(--radius);
+  color: var(--text-secondary);
+}
+
+// The only accented card: an agent is waiting on a person.
+.transcript-elicitation {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--status-waiting);
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+}
+
+.transcript-options {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.transcript-error .transcript-body {
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--status-error) 12%, var(--bg-panel));
+}
+
+.transcript-failed {
+  color: var(--status-error);
+}
+
+.transcript-plan {
+  margin-bottom: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+
+  ol {
+    list-style: none;
+    margin: var(--space-2) 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+}
+
+.transcript-plan-step {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.transcript-plan-canceled span {
+  text-decoration: line-through;
+  color: var(--text-tertiary);
+}
+
+// ---------------------------------------------------------------------------
+// Runner fleet
+// ---------------------------------------------------------------------------
+
+.runner-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-5) var(--space-4);
+}
+
+.runner-card .ui-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+// A runner that went offline holding work: the one loud state on the page.
+.runner-card-stranded {
+  border-color: var(--status-stale);
+}
+
+.runner-card-alert {
+  margin: 0;
+  color: var(--status-stale);
+  font-size: var(--text-xs);
+}
+
+.runner-card-head,
+.runner-card-chips,
+.runner-card-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.runner-card-foot {
+  justify-content: space-between;
+}
+
+.runner-token,
+.runner-snippet {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+
+  code,
+  pre {
+    flex: 1;
+    min-width: 0;
+    margin: 0;
+    padding: var(--space-2);
+    overflow-x: auto;
+    background: var(--bg-sunken);
+    border-radius: var(--radius);
+    word-break: break-all;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Routing and identities
+// ---------------------------------------------------------------------------
+
+.routing-rule-toggle {
+  display: inline-block;
+  margin-right: var(--space-2);
+}
+
+.routing-preview-form,
+.identity-link-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: var(--space-3);
+  align-items: end;
+}
+
+.routing-preview-result {
+  margin-top: var(--space-4);
+}

@@ -54,6 +54,10 @@ const EXPECTED_LEVELS: Record<string, RbacLevel> = {
   "agent-session:view": "member",
   "agent-session:activities": "member",
   "routing-rule:list": "member",
+  // Any member may ask how an issue would route: it reads, and names only
+  // the project's own runners.
+  "routing-rule:preview": "member",
+  "project:overview": "member",
   "external-identity:list": "member",
   // Cancelling a session's work is any member's call, as Stop in Linear is.
   "agent-session:cancel": "member",
@@ -133,6 +137,7 @@ const EXPECTED_LEVELS: Record<string, RbacLevel> = {
   "trigger-events:sweep": "none",
   "activities:deliver": "none",
   "activities:deliver-due": "none",
+  "sessions:broadcast": "none",
   // The daemon's surface: the runner token is the gate, and it carries its
   // project — no `projectId` param.
   "daemon:connect": "none",
@@ -339,6 +344,7 @@ describe("MCP publish policy", () => {
         "project:delete",
         "project:edit",
         "project:list",
+        "project:overview",
         "project:settings-edit",
         "project:settings-view",
         "project:view",
@@ -346,6 +352,7 @@ describe("MCP publish policy", () => {
         "routing-rule:delete",
         "routing-rule:edit",
         "routing-rule:list",
+        "routing-rule:preview",
         "routing-rule:reorder",
         "runner:edit",
         "runner:list",
