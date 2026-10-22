@@ -390,7 +390,7 @@ Manually, against finear and the fake agent scripted for a long turn:
 
 ## Learnings from the build
 
-**Built.** The Definition of done, at CLI 0.12.0, with the departures below. Much of the plan was already in place
+**Built.** The Definition of done, at CLI 0.13.0, with the departures below. Much of the plan was already in place
 when the phase started — the stop path end to end with its server deadline and `stopping` rule, permission and
 form `select`s, repository choice, both keepalives, the token bucket with priorities and `RATELIMITED` backoff, the
 locked token refresh, and the webhook robustness table — built by the phases that needed them. This phase closed
@@ -403,7 +403,8 @@ by hand; `backend/__tests__/daemon/acp.test.ts` drives the auth path against the
   `triggers:check-notifications` clock; `ops/AuthSignalOps.ts` (`resolveAuthMetadata`, `isPublicUrl`,
   `runnerAuthUrl`), called from `recordEvent` in `ops/WorkItemOps.ts`; `supersedeNonFinal` in
   `ops/ActivityOutboxOps.ts`, called by `cancelSessionWork`; `ipAllowed` / `webhookSender` in
-  `ops/LinearWebhookOps.ts`. Migration `0012` (`trigger_events.check_after`, `work_items.cancel_note`).
+  `ops/LinearWebhookOps.ts`. Migration `0013` (`trigger_events.check_after`, `work_items.cancel_note`). Each notification outcome
+  carries an event-log `summary`, and a settled check pings `project:<id>:events`.
 - **Protocol:** `Cancel.said`, the `unassigned` cancel reason, `stopQuote`, and `AuthMetadata.provider` (with `url`
   now optional) — all additive; no version bump.
 - **Daemon:** `cli/src/acp/preflight.ts` (git remote and GitHub CLI checks); `AuthRequired` and

@@ -125,6 +125,10 @@ answers 200 well inside Linear's 5-second budget, and enqueues `triggers:process
 timestamp are the same 401, byte for byte. A verified delivery for no live integration is still answered 200
 and recorded `unknown_integration`: one webhook serves every workspace, and Linear disables a webhook that keeps
 failing. The row is the delivery; the `triggers:process-pending` clock processes any row whose job was lost.
+Processing writes back the outcome, one sentence saying what it did, and the agent session and turn it touched, so
+the row is also the project's **event log**: `trigger-event:list` joins the session (its role, and the routing rule
+that chose it) and the turn (its status, runner, or waiting code) live, and `trigger-event:view` adds the payload for
+admins only — Linear sends every issue change in the workspace, not just the ones `@hypotenuse` works on.
 
 What each event does:
 
@@ -375,9 +379,9 @@ no tools and `instructions` saying why.
 | `users`, `projects`, `project_memberships`, `tags`, `user_tags`, `project_invites`, `audit_logs`, `notifications`, `project_settings` | ported from ToolExec: tenancy, RBAC, audit, notifications, and one settings row per project whose columns arrive with the features that read them (`routing`: the routing timers and thresholds, sparse over their defaults) |
 | `cli_tokens` | one per signed-in `hypotenuse` CLI: owner, device name, token sha256 and last four, last use, sliding expiry, revocation. The sign-in hand-offs themselves (one-time and device codes) live in Redis, by hash |
 | `integrations` | one per project and trigger `type`: the external workspace id, name, and URL key; the app user's external id, name, and capabilities (in the per-type `details`, with team access); sealed tokens, expiry, refresh error; when an admin last completed the install; scopes, team access, status; the last-seen rate-limit headers. Live workspace ids are unique; a disconnected row is kept `revoked` with its tokens nulled. The install's `state` and PKCE verifier live in Redis for ten minutes |
-| `trigger_events` | every verified webhook delivery of any trigger type, deduplicated on `(type, deliveryId)`, with its processing outcome |
+| `trigger_events` | every verified webhook delivery of any trigger type, deduplicated on `(type, deliveryId)`, with its processing outcome, a one-sentence summary of what it did, and the session and turn it touched — the project's event log (`trigger-event:list` / `view`, the dashboard's Events page), kept `LINEAR_EVENT_RETENTION_DAYS` (14) |
 | `external_identities` | trigger-system user (`externalUserId`) ⇄ Hypotenuse user (`userId`) links, per integration |
-| `agent_sessions` | the mirror of each agent session, typed (`type`, `externalSessionId`): issue (and the snapshot routing read), role, the mention's instruction, repository, a pending repository question, sticky runner, plan, external URLs, status |
+| `agent_sessions` | the mirror of each agent session, typed (`type`, `externalSessionId`): issue (and the snapshot routing read), role and the routing rule that chose it (id and name), the mention's instruction, repository, a pending repository question, sticky runner, plan, external URLs, status |
 | `agent_activities` | inbound prompts and the outbound outbox, with client UUIDs, delivery status, and attempts |
 | `runners` | registered daemons: owner, token sha256 and last four, status (`online`, `offline`, `draining`, `revoked`) and `enabled`, machine id, last heartbeat and connect, parallel-job limits, roles, agents, repositories, the hash of the last reported capabilities. A name is unique among a project's unrevoked runners; a machine id among its live (`online` or `draining`) ones. A revoked row is kept with its reason |
 | `runner_subscriptions` | the teams, projects, and labels (per trigger `type`) each runner accepts, replaced whenever a heartbeat's capability hash changes |
@@ -397,6 +401,7 @@ id because every member can read every session of the project; if that ever chan
 | `project:<projectId>:sessions` | project members | `{ event: "sessions" }`, `{ event: "session", id }` — from every work change (`WorkEffects.sessions`, applied after commit), each processed webhook, and the outbox, coalesced to one frame per session per second with a trailing `sessions:broadcast` |
 | `project:<projectId>:runners` | project members | `{ event: "runners" }` — registration, edit, revocation, the reaper, and a heartbeat only when it changed status or capabilities |
 | `project:<projectId>:notifications` | project members | `{ event: "notifications" }` |
+| `project:<projectId>:events` | project members | `{ event: "events" }` — a webhook delivery recorded, and again when it is processed |
 
 The daemon's heartbeat (`daemon:heartbeat`, every 15 s) also returns pending offers and cancels, so a lost socket
 costs latency, never correctness.
@@ -442,3 +447,4 @@ clocks run on `routing`, next.
 | Signals, notifications, rate limits, AIG | [`phase-16-signals-and-hardening.md`](./plans/phase-16-signals-and-hardening.md) |
 | Coverage conformance and the end-to-end suite | [`phase-17-conformance-and-e2e.md`](./plans/phase-17-conformance-and-e2e.md) |
 | Per-project OpenTelemetry export | [`phase-18-opentelemetry-export.md`](./plans/phase-18-opentelemetry-export.md) |
+| The event log: every webhook and how it was routed | [`phase-19-event-log.md`](./plans/phase-19-event-log.md) |

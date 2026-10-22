@@ -1,5 +1,5 @@
 {
-  "id": "1aac1bd2-1612-491e-b079-04b3ef89a853",
+  "id": "94e9dfa8-d8b3-43ba-94f4-62dc1a87c956",
   "prevId": "dec0d9db-bedd-45d0-871d-75eba4f7ab3d",
   "version": "7",
   "dialect": "postgresql",
@@ -348,6 +348,18 @@
           "primaryKey": false,
           "notNull": false
         },
+        "routing_rule_id": {
+          "name": "routing_rule_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "routing_rule_name": {
+          "name": "routing_rule_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "repository": {
           "name": "repository",
           "type": "text",
@@ -547,6 +559,15 @@
           "columnsFrom": ["integration_id"],
           "columnsTo": ["id"],
           "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "agent_sessions_routing_rule_id_routing_rules_id_fk": {
+          "name": "agent_sessions_routing_rule_id_routing_rules_id_fk",
+          "tableFrom": "agent_sessions",
+          "tableTo": "routing_rules",
+          "columnsFrom": ["routing_rule_id"],
+          "columnsTo": ["id"],
+          "onDelete": "set null",
           "onUpdate": "no action"
         },
         "agent_sessions_runner_id_runners_id_fk": {
@@ -2315,9 +2336,21 @@
           "primaryKey": false,
           "notNull": false
         },
-        "check_after": {
-          "name": "check_after",
-          "type": "timestamp with time zone",
+        "summary": {
+          "name": "summary",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "agent_session_id": {
+          "name": "agent_session_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "work_item_id": {
+          "name": "work_item_id",
+          "type": "integer",
           "primaryKey": false,
           "notNull": false
         }
@@ -2360,25 +2393,30 @@
           "method": "btree",
           "with": {}
         },
-        "trigger_events_check_idx": {
-          "name": "trigger_events_check_idx",
+        "trigger_events_received_idx": {
+          "name": "trigger_events_received_idx",
           "columns": [
             {
-              "expression": "check_after",
+              "expression": "received_at",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
             }
           ],
           "isUnique": false,
-          "where": "\"trigger_events\".\"check_after\" IS NOT NULL",
           "concurrently": false,
           "method": "btree",
           "with": {}
         },
-        "trigger_events_received_idx": {
-          "name": "trigger_events_received_idx",
+        "trigger_events_integration_received_idx": {
+          "name": "trigger_events_integration_received_idx",
           "columns": [
+            {
+              "expression": "integration_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
             {
               "expression": "received_at",
               "isExpression": false,
@@ -2398,6 +2436,24 @@
           "tableFrom": "trigger_events",
           "tableTo": "integrations",
           "columnsFrom": ["integration_id"],
+          "columnsTo": ["id"],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "trigger_events_agent_session_id_agent_sessions_id_fk": {
+          "name": "trigger_events_agent_session_id_agent_sessions_id_fk",
+          "tableFrom": "trigger_events",
+          "tableTo": "agent_sessions",
+          "columnsFrom": ["agent_session_id"],
+          "columnsTo": ["id"],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "trigger_events_work_item_id_work_items_id_fk": {
+          "name": "trigger_events_work_item_id_work_items_id_fk",
+          "tableFrom": "trigger_events",
+          "tableTo": "work_items",
+          "columnsFrom": ["work_item_id"],
           "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
@@ -2722,12 +2778,6 @@
         },
         "cancel_reason": {
           "name": "cancel_reason",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "cancel_note": {
-          "name": "cancel_note",
           "type": "text",
           "primaryKey": false,
           "notNull": false

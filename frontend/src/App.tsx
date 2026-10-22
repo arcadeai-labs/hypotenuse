@@ -20,6 +20,8 @@ import { CliActivatePage } from "./pages/cli/CliActivatePage";
 import { CliAuthorizePage } from "./pages/cli/CliAuthorizePage";
 import { DocsLayout } from "./pages/docs/DocsLayout";
 import { DocsPage } from "./pages/docs/DocsPage";
+import EventPage from "./pages/EventPage";
+import EventsPage from "./pages/EventsPage";
 import IdentitiesPage from "./pages/IdentitiesPage";
 import InvitesPage from "./pages/InvitesPage";
 import { HomePage } from "./pages/marketing/HomePage";
@@ -83,6 +85,8 @@ export function App() {
                   element={<RunnerAuthPage />}
                 />
                 <Route path="/routing" element={<RoutingPage />} />
+                <Route path="/events" element={<EventsPage />} />
+                <Route path="/events/:id" element={<EventPage />} />
                 <Route path="/identities" element={<IdentitiesPage />} />
                 <Route path="/projects/new" element={<NewProjectPage />} />
                 <Route path="/invites" element={<InvitesPage />} />

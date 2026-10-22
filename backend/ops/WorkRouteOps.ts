@@ -472,7 +472,13 @@ async function applyPreparation(
   if (session.role === null && decision) {
     await tx
       .update(agentSessions)
-      .set({ role, instruction: decision.text, issueSnapshot: snapshot })
+      .set({
+        role,
+        instruction: decision.text,
+        issueSnapshot: snapshot,
+        routingRuleId: decision.rule?.id ?? null,
+        routingRuleName: decision.rule?.name ?? null,
+      })
       .where(eq(agentSessions.id, session.id));
     await enqueueActivity(tx, session.id, {
       type: "thought",

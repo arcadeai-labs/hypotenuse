@@ -10,7 +10,11 @@ import { linearRequest } from "./LinearOps";
 import { CLOSED_STATE_TYPES, sessionsWithLiveWork } from "./LinearWebhookOps";
 import { GetIssue } from "./linear/operations";
 import type { TxHandle } from "./ProjectOps";
-import { afterProcessing, type HandlerResult } from "./TriggerEventOps";
+import {
+  afterProcessing,
+  type HandlerResult,
+  publishEventsChanged,
+} from "./TriggerEventOps";
 import {
   cancelSessionWork,
   mergeEffects,
@@ -111,11 +115,16 @@ export async function handleAppUserNotification(
   integration: Integration,
 ): Promise<HandlerResult> {
   const payload = event.payload;
+  const kind = event.action || "notification";
   if (
     typeof payload.appUserId === "string" &&
     payload.appUserId !== integration.externalAppUserId
   ) {
-    return { outcome: "ignored", deliver: [] };
+    return {
+      outcome: "ignored",
+      deliver: [],
+      summary: "Ignored: a notification for another app user.",
+    };
   }
   const issueId = notificationIssueId(payload);
   const actorId = (payload.notification as NotificationFields | undefined)
@@ -126,14 +135,28 @@ export async function handleAppUserNotification(
       return {
         outcome: "noted",
         deliver: [],
+        summary: issueId
+          ? "Noted a mention; checking in 30 seconds that Linear started a session for it."
+          : "Noted a mention.",
         ...(issueId
           ? { checkAfter: new Date(Date.now() + MENTION_CHECK_DELAY_MS) }
           : {}),
       };
     case "issueAssignedToYou":
-      return { outcome: "assigned_not_delegated", deliver: [] };
+      return {
+        outcome: "assigned_not_delegated",
+        deliver: [],
+        summary:
+          "The issue was assigned to the app, not delegated; no work starts. Delegate it to start a session.",
+      };
     case "issueUnassignedFromYou": {
-      if (!issueId) return { outcome: "noted", deliver: [] };
+      if (!issueId) {
+        return {
+          outcome: "noted",
+          deliver: [],
+          summary: "Noted an unassignment.",
+        };
+      }
       const { effects, cancelled } = await disengageIssue(
         tx,
         integration,
@@ -144,22 +167,44 @@ export async function handleAppUserNotification(
         outcome: cancelled ? "disengaged" : "noted",
         deliver: [],
         effects,
+        summary: cancelled
+          ? "The app was unassigned; the issue's running work stopped, quietly."
+          : "The app was unassigned; nothing was running.",
       };
     }
     case "issueStatusChanged": {
       if (!issueId || actorId === integration.externalAppUserId) {
-        return { outcome: "ignored", deliver: [] };
+        return {
+          outcome: "ignored",
+          deliver: [],
+          summary: "Ignored: a status change the app made, or with no issue.",
+        };
       }
       const live = await sessionsWithLiveWork(tx, {
         integrationId: integration.id,
         externalIssueId: issueId,
       });
       return live.length > 0
-        ? { outcome: "noted", deliver: [], checkAfter: new Date() }
-        : { outcome: "ignored", deliver: [] };
+        ? {
+            outcome: "noted",
+            deliver: [],
+            checkAfter: new Date(),
+            summary:
+              "A person changed the status of an issue with live work; reading its new state.",
+          }
+        : {
+            outcome: "ignored",
+            deliver: [],
+            summary:
+              "Ignored: a status change on an issue with nothing running.",
+          };
     }
     default:
-      return { outcome: "ignored", deliver: [] };
+      return {
+        outcome: "ignored",
+        deliver: [],
+        summary: `Ignored: a ${kind} notification; notifications start no work.`,
+      };
   }
 }
 
@@ -226,41 +271,74 @@ export async function checkNotification(
   eventId: number,
   now = new Date(),
 ): Promise<NotificationCheck> {
+  const { result, projectId } = await checkRow(eventId, now);
+  // A settled check changed the row the event log shows.
+  if (projectId !== null && result !== "skipped" && result !== "deferred") {
+    await publishEventsChanged(projectId);
+  }
+  return result;
+}
+
+/**
+ * One check, as {@link checkNotification} describes.
+ * @param eventId - The `trigger_events` row.
+ * @param now - The current time.
+ * @returns What was decided, and the project.
+ */
+async function checkRow(
+  eventId: number,
+  now: Date,
+): Promise<{ result: NotificationCheck; projectId: number | null }> {
   const [peek] = await api.db.db
     .select({ event: triggerEvents, integration: integrations })
     .from(triggerEvents)
     .innerJoin(integrations, eq(integrations.id, triggerEvents.integrationId))
     .where(eq(triggerEvents.id, eventId));
-  if (!peek?.event.checkAfter || peek.event.checkAfter > now) return "skipped";
+  if (!peek?.event.checkAfter || peek.event.checkAfter > now) {
+    return { result: "skipped", projectId: null };
+  }
   const { event, integration } = peek;
+  const done = (result: NotificationCheck) => ({
+    result,
+    projectId: integration.projectId,
+  });
   const issueId = notificationIssueId(event.payload);
   if (!issueId || integration.status !== "active") {
     await clearCheck(api.db.db, eventId);
-    return "skipped";
+    return done("skipped");
   }
 
   if (event.action !== "issueStatusChanged") {
-    return api.db.db.transaction(async (tx) => {
-      if (!(await takeCheck(tx, eventId))) return "skipped";
+    const decided = await api.db.db.transaction(async (tx) => {
+      if (!(await takeCheck(tx, eventId))) return "skipped" as const;
       const followed = await sessionFollowed(
         tx,
         integration.id,
         issueId,
         new Date(event.receivedAt.getTime() - 60_000),
       );
-      await clearCheck(
-        tx,
-        eventId,
-        followed ? undefined : "mention_without_session",
-      );
+      if (followed) {
+        await tx
+          .update(triggerEvents)
+          .set({
+            checkAfter: null,
+            summary: "Noted a mention; Linear started a session for it.",
+          })
+          .where(eq(triggerEvents.id, eventId));
+      } else {
+        await clearCheck(tx, eventId, "mention_without_session");
+      }
       if (!followed) {
         api.logger.warn("a mention started no agent session", {
           integrationId: integration.id,
           deliveryId: event.deliveryId,
         });
       }
-      return followed ? "session_followed" : "mention_without_session";
+      return followed
+        ? ("session_followed" as const)
+        : ("mention_without_session" as const);
     });
+    return done(decided);
   }
 
   let stateType: string;
@@ -274,7 +352,7 @@ export async function checkNotification(
   } catch (e) {
     if (now.getTime() - event.receivedAt.getTime() > STATUS_CHECK_GIVE_UP_MS) {
       await clearCheck(api.db.db, eventId, "ignored");
-      return "given_up";
+      return done("given_up");
     }
     api.logger.warn("reading an issue for a status notification failed", {
       eventId,
@@ -284,12 +362,12 @@ export async function checkNotification(
       .update(triggerEvents)
       .set({ checkAfter: new Date(now.getTime() + STATUS_RETRY_MS) })
       .where(eq(triggerEvents.id, eventId));
-    return "deferred";
+    return done("deferred");
   }
 
   if (!CLOSED_STATE_TYPES.has(stateType)) {
     await clearCheck(api.db.db, eventId, "ignored");
-    return "still_open";
+    return done("still_open");
   }
   const effects = await api.db.db.transaction(async (tx) => {
     if (!(await takeCheck(tx, eventId))) return null;
@@ -302,9 +380,9 @@ export async function checkNotification(
     await clearCheck(tx, eventId, result.cancelled ? "disengaged" : "ignored");
     return result.effects;
   });
-  if (!effects) return "skipped";
+  if (!effects) return done("skipped");
   await afterProcessing({ outcome: "disengaged", deliver: [], effects });
-  return "disengaged";
+  return done("disengaged");
 }
 
 /**
@@ -324,6 +402,14 @@ async function takeCheck(tx: TxHandle, eventId: number): Promise<boolean> {
   return Boolean(row);
 }
 
+/** What the event log says once a check settles an outcome. */
+const CHECK_SUMMARIES = {
+  mention_without_session:
+    "A mention started no session; the app may have lost its mentionable scope.",
+  disengaged: "A person closed the issue; its running work stopped, quietly.",
+  ignored: "The issue is still open; nothing to do.",
+} as const;
+
 /**
  * Mark a check done, with the outcome it settled on.
  * @param tx - The transaction (or the pool).
@@ -337,7 +423,10 @@ async function clearCheck(
 ): Promise<void> {
   await tx
     .update(triggerEvents)
-    .set({ checkAfter: null, ...(outcome ? { outcome } : {}) })
+    .set({
+      checkAfter: null,
+      ...(outcome ? { outcome, summary: CHECK_SUMMARIES[outcome] } : {}),
+    })
     .where(eq(triggerEvents.id, eventId));
 }
 

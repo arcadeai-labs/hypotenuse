@@ -80,7 +80,8 @@ inbox notifications to `@hypotenuse` are listed too, and none of them starts wor
 | `assigned_not_delegated` | someone *assigned* the issue to `@hypotenuse`. It works by delegation: set it as the issue's agent instead |
 | `disengaged` | the app was unassigned, or a person closed the issue, so its running work stopped, quietly | A workspace
 that has gone quiet for longer than you expect, or a run of failures, is the first thing to look at when
-`@hypotenuse` does not answer.
+`@hypotenuse` does not answer. The dashboard's [Events](/docs/dashboard#events) page lists every delivery of the
+last 14 days, with what each did and how its work was routed.
 
 ## Staying connected
 

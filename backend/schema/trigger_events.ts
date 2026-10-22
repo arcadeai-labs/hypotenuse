@@ -9,7 +9,9 @@ import {
   timestamp,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
+import { agentSessions } from "./agent_sessions";
 import { integrations, type TriggerType } from "./integrations";
+import { workItems } from "./work_items";
 
 /** Every outcome a recorded delivery can reach. */
 export const TRIGGER_EVENT_OUTCOMES = [
@@ -51,8 +53,12 @@ export type TriggerEventOutcome = (typeof TRIGGER_EVENT_OUTCOMES)[number];
  *   the same, because one webhook serves every workspace and Linear disables a
  *   webhook that keeps failing.
  *
- * Retention is short (`LINEAR_EVENT_RETENTION_DAYS`): the session mirror, not
- * this table, is the record.
+ * - **It is the project's event log** (`trigger-event:list`): every delivery,
+ *   what it did (`summary`), and the session and turn it touched, whose
+ *   routing is read live from those rows.
+ *
+ * Retention is `LINEAR_EVENT_RETENTION_DAYS` (14 by default): the session
+ * mirror is the lasting record; this is the recent one.
  */
 export const triggerEvents = pgTable(
   "trigger_events",
@@ -90,6 +96,20 @@ export const triggerEvents = pgTable(
      * Linear. Null when nothing is due.
      */
     checkAfter: timestamp("check_after", { withTimezone: true }),
+    /**
+     * What processing did, in one sentence for the event log: "Started a
+     * session on ENG-123 and queued its first turn", "Ignored: …".
+     */
+    summary: text("summary"),
+    /** The agent session the delivery was about, once processing knows it. */
+    agentSessionId: integer("agent_session_id").references(
+      () => agentSessions.id,
+      { onDelete: "set null" },
+    ),
+    /** The turn it queued, joined, answered, or cancelled, when there is one. */
+    workItemId: integer("work_item_id").references(() => workItems.id, {
+      onDelete: "set null",
+    }),
   },
   (t) => ({
     deliveryIndex: uniqueIndex("trigger_events_delivery_idx").on(
@@ -106,6 +126,10 @@ export const triggerEvents = pgTable(
       .where(sql`${t.checkAfter} IS NOT NULL`),
     // Retention deletes by age.
     receivedIndex: index("trigger_events_received_idx").on(t.receivedAt),
+    // The event log: one integration's deliveries, newest first.
+    integrationReceivedIndex: index(
+      "trigger_events_integration_received_idx",
+    ).on(t.integrationId, t.receivedAt),
   }),
 );
 
