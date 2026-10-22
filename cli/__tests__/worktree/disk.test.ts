@@ -1,7 +1,9 @@
 import { expect, test } from "bun:test";
+import { WorktreeCleaner } from "../../src/worktree/cleanup";
 import { formatBytes, freeBytes } from "../../src/worktree/disk";
+import { KeyedMutex } from "../../src/worktree/lock";
 import { WorkspaceError } from "../../src/worktree/manager";
-import { fixture, request } from "./repo";
+import { fixture, request, work } from "./repo";
 
 const GB = 1024 ** 3;
 
@@ -55,4 +57,42 @@ test("still short after cleanup: the turn fails saying how much is free and how 
     enough: false,
   });
   expect(f.state.worktrees()).toEqual([]);
+});
+
+test("the cleanup the disk guard runs takes the repository's mutex without deadlocking", async () => {
+  let free = 1 * GB;
+  const mutex = new KeyedMutex();
+  let cleaner: WorktreeCleaner | null = null;
+  const f = fixture({
+    manager: {
+      mutex,
+      statfs: () => ({ bavail: free, bsize: 1 }),
+      freeSpace: async () => {
+        await cleaner?.run({ all: true });
+        free = 3 * GB;
+      },
+    },
+  });
+  cleaner = new WorktreeCleaner(f.state, () => f.config, {
+    mutex,
+    repositories: () => [f.repository],
+  });
+  // An idle worktree of the same repository for the cleanup to consider.
+  free = 5 * GB;
+  const older = await f.manager.acquire(request(f));
+  await older.release();
+  f.state.setSessionState(42, "idle");
+  free = 1 * GB;
+  const ws = await Promise.race([
+    f.manager.acquire(request(f, work({ agentSessionId: 43, workItemId: 2 }))),
+    Bun.sleep(10_000).then(() => {
+      throw new Error(
+        "acquire hung: cleanup is waiting on the mutex acquire holds",
+      );
+    }),
+  ]);
+  expect(ws.mode).toBe("worktree");
+  // Cleanup removed the idle one, so the new session took its directory.
+  expect(f.state.worktree(older.worktreeId as number)).toBeNull();
+  expect(ws.cwd).toBe(older.cwd);
 });

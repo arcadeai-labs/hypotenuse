@@ -256,7 +256,7 @@ that have it, matched by normalized `remote`.
 | `branch_prefix` | string | `"hypotenuse"` | branches are `<prefix>/<issue-id>-<slug>`; a name taken by anything else gets `-2`, `-3`, … |
 | `worktrees` | `"always"` \| `"never"` | `[sessions] worktrees` | `"never"` runs the agent in `path` itself, one session at a time (the next waits), on its own branch from a clean tree only, switching back afterwards; never stashes, resets, or cleans; nothing is ever removed (warned) |
 | `cleanup` | as `[sessions] cleanup` | `[sessions] cleanup` | per-repository override |
-| `pr_url_patterns` | array of strings (regex) | `[]` | extra PR URL patterns for self-hosted forges; GitHub, GitLab, and Bitbucket are built in. A match counts only when its named group `repo` (or, without one, the whole URL) contains the remote's `owner/name` |
+| `pr_url_patterns` | array of strings (regex) | `[]` | extra PR URL patterns for self-hosted forges; GitHub, GitLab, and Bitbucket are built in. A match counts only when its named group `repo` equals the remote's `owner/name` (or, without one, the URL's path holds it as whole segments — `acme/web` never matches `acme/web-old`) |
 
 ## `[sessions]`
 

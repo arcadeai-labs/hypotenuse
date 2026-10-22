@@ -59,6 +59,24 @@ describe("PrDetector", () => {
       },
     ]);
     expect(d.scan("https://review.acme.dev/acme/api/changes/9")).toEqual([]);
+    expect(d.scan("https://review.acme.dev/acme/web-old/changes/9")).toEqual(
+      [],
+    );
+  });
+
+  test("a pr_url_pattern without a repo group needs owner/name as whole path segments", () => {
+    const d = new PrDetector("git.acme.dev/acme/web", [
+      "^https://review\\.acme\\.dev/.+/changes/\\d+$",
+    ]);
+    expect(d.scan("https://review.acme.dev/acme/web-old/changes/1")).toEqual(
+      [],
+    );
+    expect(d.scan("https://review.acme.dev/acme/web/changes/2")).toEqual([
+      {
+        label: "Pull Request",
+        url: "https://review.acme.dev/acme/web/changes/2",
+      },
+    ]);
   });
 
   test("no repository, nothing to link", () => {

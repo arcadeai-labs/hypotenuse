@@ -8,7 +8,7 @@
  * | GitHub | `https://github.com/<owner>/<repo>/pull/<n>` |
  * | GitLab | `https://<host>/<group>/<project>/-/merge_requests/<n>` |
  * | Bitbucket | `https://bitbucket.org/<ws>/<repo>/pull-requests/<n>` |
- * | anything else | `repositories[].pr_url_patterns` regexes |
+ * | anything else | `repositories[].pr_url_patterns` regexes: the named group `repo` must equal the remote's `owner/name`, or without one, the URL's path must hold it as whole segments |
  *
  * A URL counts only when it is of the session's own repository (the remote,
  * normalized to `host/owner/name`): an agent citing someone else's pull request
@@ -81,7 +81,11 @@ export class PrDetector {
       const match = pattern.exec(url);
       if (!match) return false;
       const repo = match.groups?.repo;
-      return (repo ?? url).toLowerCase().includes(path);
+      if (repo !== undefined)
+        return repo.toLowerCase().replace(/^\/+|\/+$/g, "") === path;
+      // No `repo` group: the URL must name the whole `owner/name` as path
+      // segments, so `acme/web` does not match `acme/web-old`.
+      return `${new URL(url).pathname.toLowerCase()}/`.includes(`/${path}/`);
     });
   }
 

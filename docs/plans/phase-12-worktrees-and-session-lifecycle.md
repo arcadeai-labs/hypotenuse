@@ -468,7 +468,7 @@ checked against a scripted `gh` and a real `git ls-remote`, not against GitHub.
 | `worktrees list` / `cleanup` with no daemon | nothing counts as in use (no daemon, no agent). A daemon that holds its lock but does not answer is *not* "not running": the command exits 3 rather than racing its turns |
 | What `gh` answers | `MERGED` and `CLOSED` count; `OPEN` does not; anything else (no `gh`, not logged in, no pull request) falls back to `ls-remote`; an `unknown` answer is not cached |
 | Worktrees `state.db` does not know | adopted `idle` on every `list` and full `cleanup`, from `git worktree list` and each one's `hypotenuse.session` |
-| `pr_url_patterns` | regexes; a match counts when its named group `repo` (or the whole URL) contains the remote's `owner/name` |
+| `pr_url_patterns` | regexes; a match counts when its named group `repo` equals the remote's `owner/name`, or, without one, the URL's path holds it as whole segments |
 | Labels of later pull requests | `Pull Request (2)`, … counted per session across turns (`local_sessions.pull_requests`) |
 | An automation's session in tests | finear cannot start one (a gap, recorded); the test clears the mirror row's creator columns |
 

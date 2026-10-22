@@ -333,13 +333,12 @@ export class WorktreeManager {
   }
 
   /**
-   * The disk guard: free space below `min_free_disk` runs cleanup, and if
-   * that is not enough, fails the turn.
+   * The disk guard, once cleanup has had its chance: fail the turn when free
+   * space is still below `min_free_disk`.
    * @param request - The turn.
+   * @throws {WorkspaceError} When space is short.
    */
-  private async guardDisk(request: AcquireRequest): Promise<void> {
-    if (this.diskStatus(request.config).enough) return;
-    await this.options.freeSpace?.();
+  private refuseIfShort(request: AcquireRequest): void {
     const { free, enough } = this.diskStatus(request.config);
     if (enough || free === null) return;
     throw new WorkspaceError(
@@ -464,8 +463,59 @@ export class WorktreeManager {
     repoConfig: RepositoryConfig | null,
     baseBranch: string,
   ): Promise<Workspace> {
+    // Short on disk, cleanup runs *outside* the repository's mutex — it takes
+    // that mutex itself for each worktree it considers — and then the
+    // acquisition starts over.
+    let cleaned = false;
+    for (;;) {
+      const outcome = await this.createOrReuse(
+        request,
+        repository,
+        repoConfig,
+        baseBranch,
+        cleaned,
+      );
+      if (outcome === "short") {
+        cleaned = true;
+        await this.options.freeSpace?.();
+        continue;
+      }
+      const { row, reused } = outcome;
+      if (!row.setupDone) await this.setup(request, row, repoConfig);
+      return {
+        mode: "worktree",
+        cwd: row.path,
+        branch: row.branch,
+        baseBranch: row.baseBranch,
+        worktreeId: row.id,
+        repository,
+        repositoryConfig: repoConfig,
+        reused,
+        release: async () => this.idle(row.id),
+      };
+    }
+  }
+
+  /**
+   * Under the repository's mutex: reuse the session's worktree, or fetch and
+   * create one — unless a new one is needed and the disk is short.
+   * @param request - The turn.
+   * @param repository - The repository.
+   * @param repoConfig - Its config entry.
+   * @param baseBranch - The base branch.
+   * @param cleaned - Whether cleanup already ran for this acquisition.
+   * @returns The worktree, or `short` when cleanup should run first.
+   * @throws {WorkspaceError} When space is still short after cleanup.
+   */
+  private createOrReuse(
+    request: AcquireRequest,
+    repository: ResolvedRepository,
+    repoConfig: RepositoryConfig | null,
+    baseBranch: string,
+    cleaned: boolean,
+  ): Promise<{ row: LocalWorktree; reused: boolean } | "short"> {
     const id = request.assignment.agentSessionId;
-    const { row, reused } = await this.mutex.run(repository.path, async () => {
+    return this.mutex.run(repository.path, async () => {
       const previous = this.reusable(id);
       if (previous) {
         const head = await this.git(["rev-parse", "--abbrev-ref", "HEAD"], {
@@ -483,8 +533,11 @@ export class WorktreeManager {
           `not reusing ${previous.path}: HEAD is ${head.stdout.trim() || "unreadable"}, not ${previous.branch}`,
         );
       }
+      if (!this.diskStatus(request.config).enough) {
+        if (!cleaned) return "short" as const;
+        this.refuseIfShort(request);
+      }
       const reachable = await this.fetchBase(request, repository, baseBranch);
-      await this.guardDisk(request);
       const { branch, local, remote } = await this.chooseBranch(
         request,
         repository,
@@ -546,19 +599,6 @@ export class WorktreeManager {
       );
       return { row: created, reused: false };
     });
-
-    if (!row.setupDone) await this.setup(request, row, repoConfig);
-    return {
-      mode: "worktree",
-      cwd: row.path,
-      branch: row.branch,
-      baseBranch: row.baseBranch,
-      worktreeId: row.id,
-      repository,
-      repositoryConfig: repoConfig,
-      reused,
-      release: async () => this.idle(row.id),
-    };
   }
 
   /**
