@@ -175,7 +175,9 @@ the deployment changes. Listing Hypotenuse in Linear's integration directory is 
    1. publish from the merge commit — `git checkout main && git pull && cd cli && npm publish --access public`
       (`prepack` builds `dist/hypotenuse.js`, so Bun must be on `PATH`; `--provenance` works only inside Actions);
    2. on npmjs.com, add a trusted publisher for `@arcadeai/hypotenuse` pointing at `arcadeai-labs/hypotenuse` and
-      `.github/workflows/auto-release.yml`;
+      `.github/workflows/auto-release.yml` — the repository field is `hypotenuse`, not the organization again. A
+      publisher that names the wrong repository is not refused by name: every publish fails `ENEEDAUTH`, and npm
+      shows it "Pending validation" until one succeeds;
    3. **re-run the failed jobs of that same workflow run.** `publish-npm` finds the version on npm and skips, and
       `finalize` un-drafts the release. A run from a later commit instead refuses, because npm's copy was built from
       the draft's commit — bump the version, or un-draft by hand.
