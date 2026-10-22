@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { api, config } from "keryx";
 import { reviewingThought } from "../../ops/DispatchOps";
+import { applyEffects, cancelSessionWork } from "../../ops/WorkItemOps";
 import type { WorkItemReviewPayload } from "../../schema/work_items";
 import { useFinear } from "../linear/finear";
 import { integrationRow } from "../linear/helpers";
@@ -275,6 +276,31 @@ describe("a finished worker", () => {
     expect(await thoughts(manager.sessionId)).not.toContain(
       reviewingThought(review(stale)),
     );
+  });
+
+  test("a manager a person stopped is not woken by a child that finishes afterwards", async () => {
+    const manager = await managerSession("Plan the billing");
+    const first = await dispatchAndClaim(manager, "Invoices");
+    const second = await dispatchAndClaim(manager, "Receipts");
+    await finishWorker(first.itemId, "Invoices done.");
+    const [queued] = await reviewsOf(manager.sessionId);
+
+    // The person presses Stop on the planning session: its running turn is
+    // stopped and the queued review swept away as superseded.
+    const effects = await api.db.db.transaction((tx) =>
+      cancelSessionWork(tx, manager.sessionId, {
+        reason: "stop",
+        announce: true,
+      }),
+    );
+    await applyEffects(effects);
+    expect(await itemRow(queued.id)).toMatchObject({
+      status: "cancelled",
+      cancelReason: "superseded",
+    });
+
+    await finishWorker(second.itemId, "Receipts done.");
+    expect(await reviewsOf(manager.sessionId)).toHaveLength(1);
   });
 
   test("a worker that ends its turn on a question queues no review", async () => {

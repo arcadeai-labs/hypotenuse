@@ -144,15 +144,23 @@ export async function writeDispatchIntent(
   intent: DispatchIntent,
 ): Promise<void> {
   const redis = api.redis.redis;
+  // Only one dispatch of an issue at a time, across every manager: the
+  // intent is what the `created` webhook trusts, so it is never overwritten.
+  const taken = await redis.set(
+    dispatchIntentKey(intent.integrationId, intent.externalIssueId),
+    JSON.stringify(intent),
+    "EX",
+    DISPATCH_INTENT_TTL_SECONDS,
+    "NX",
+  );
+  if (taken !== "OK") {
+    throw toolInputRefused(
+      "That issue is being dispatched by another planning session right now; wait for its result.",
+    );
+  }
   const inflight = dispatchInflightKey(intent.managerSessionId);
   await redis
     .multi()
-    .set(
-      dispatchIntentKey(intent.integrationId, intent.externalIssueId),
-      JSON.stringify(intent),
-      "EX",
-      DISPATCH_INTENT_TTL_SECONDS,
-    )
     .hset(inflight, intent.externalIssueId, String(Date.now()))
     .expire(inflight, DISPATCH_INTENT_TTL_SECONDS)
     .exec();
@@ -184,11 +192,20 @@ export async function clearDispatchIntent(
     "integrationId" | "externalIssueId" | "managerSessionId"
   >,
 ): Promise<void> {
-  await api.redis.redis
-    .multi()
-    .del(dispatchIntentKey(intent.integrationId, intent.externalIssueId))
-    .hdel(dispatchInflightKey(intent.managerSessionId), intent.externalIssueId)
-    .exec();
+  const redis = api.redis.redis;
+  const key = dispatchIntentKey(intent.integrationId, intent.externalIssueId);
+  // Another manager's intent for the issue is theirs to clear.
+  const current = await readDispatchIntent(
+    intent.integrationId,
+    intent.externalIssueId,
+  );
+  if (current?.managerSessionId === intent.managerSessionId) {
+    await redis.del(key);
+  }
+  await redis.hdel(
+    dispatchInflightKey(intent.managerSessionId),
+    intent.externalIssueId,
+  );
 }
 
 /**
@@ -752,6 +769,9 @@ export async function adoptDispatchedSession(
     session.externalIssueId,
   );
   if (!intent || intent.mode !== "new") return null;
+  // A dispatch's session is the app's own; one a person started on the issue
+  // meanwhile is theirs, and routes as usual.
+  if (session.creatorExternalUserId !== null) return null;
   if (
     intent.externalSessionId !== null &&
     intent.externalSessionId !== session.externalSessionId
@@ -883,7 +903,7 @@ export async function buildReviewPayload(
  * | the session has no parent | it was not dispatched |
  * | the turn was cancelled | a person stopped it, or it was superseded — re-dispatching would re-engage what they stopped |
  * | the turn ended on a question | the worker waits on a person; the turn that follows the answer is reviewed |
- * | the manager session was stopped or un-delegated | nothing re-engages it without a person |
+ * | the manager session was stopped or un-delegated (its latest turn not swept as `superseded` carries the reason) | nothing re-engages it without a person |
  *
  * The review's acknowledgement thought is posted when it is offered, not
  * here, so a manager mid-turn does not show "Reviewing" while busy.
@@ -913,17 +933,21 @@ export async function enqueueReviewIfChild(
     .from(agentSessions)
     .where(eq(agentSessions.id, child.parentAgentSessionId));
   if (!parent || parent.delegateRemovedAt) return false;
+  // The manager's latest turn that a stop did not merely sweep away: a stop
+  // cancels the turn it hit with its reason and every queued one behind it
+  // as `superseded`, and a turn still winding down carries the reason too.
   const [last] = await tx
-    .select({ status: workItems.status, cancelReason: workItems.cancelReason })
+    .select({ cancelReason: workItems.cancelReason })
     .from(workItems)
-    .where(eq(workItems.agentSessionId, parent.id))
+    .where(
+      and(
+        eq(workItems.agentSessionId, parent.id),
+        sql`${workItems.cancelReason} IS DISTINCT FROM 'superseded'`,
+      ),
+    )
     .orderBy(desc(workItems.id))
     .limit(1);
-  if (
-    last?.status === "cancelled" &&
-    last.cancelReason &&
-    PARENT_DISENGAGED_REASONS.has(last.cancelReason)
-  ) {
+  if (last?.cancelReason && PARENT_DISENGAGED_REASONS.has(last.cancelReason)) {
     return false;
   }
 

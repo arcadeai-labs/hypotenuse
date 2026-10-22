@@ -522,6 +522,12 @@ Linear workspace.
   manager's outbox. The manager is now locked first, inside the same transaction.
 - **Redis survived the tables between runs**: a reservation keyed by manager session 1 from an earlier file made the
   next file's session 1 look busy. `clearLinearRedisState` now clears `dispatch:*`.
+- **A stop's own reason is not on the latest row.** Stopping a manager cancels the turn it hit with `stop` and
+  sweeps queued reviews as `superseded`; "is the manager disengaged?" must read the latest turn that was not
+  swept, or a child finishing afterwards wakes the session the person stopped (found in review).
+- **An intent keyed by issue is shared by every manager.** It is written `NX` — a second manager's dispatch of the
+  issue is refused while one is in flight — cleared only by its owner, and adopts only a session with no creator:
+  a person's own delegation of the issue in that window routes as theirs (found in review).
 - **finear starts a session on an app's own delegation** and delivers `created` for sessions the app creates, so
   both of the plan's webhook orders are reachable; the "webhook first" order is driven by losing the delegation's
   response at the proxy.

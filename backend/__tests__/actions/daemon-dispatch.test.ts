@@ -4,15 +4,24 @@ import { api, config } from "keryx";
 import { NOT_PERMITTED_MESSAGE } from "../../middleware/daemonSessionScope";
 import {
   changesThought,
+  clearDispatchIntent,
+  type DispatchIntent,
   dispatchedThought,
   dispatchInflightKey,
+  writeDispatchIntent,
 } from "../../ops/DispatchOps";
 import { ackBody } from "../../ops/WorkItemOps";
 import { auditLogs } from "../../schema/audit_logs";
 import { triggerEvents } from "../../schema/trigger_events";
 import { FINEAR_PRIMARY_KEY, useFinear } from "../linear/finear";
 import { appToken, integrationRow } from "../linear/helpers";
-import { activityRows, finearSession, settle } from "../linear/sessions";
+import {
+  activityRows,
+  delegate,
+  finearSession,
+  recordedEvent,
+  settle,
+} from "../linear/sessions";
 import {
   itemsOf,
   ScriptedDaemon,
@@ -375,6 +384,54 @@ describe("the guards", () => {
     expect(again.body.error?.message).toContain("already dispatched");
     await deliverAndSettle();
     expect(await sessionsOnIssue(issue)).toHaveLength(1);
+  });
+
+  test("while one manager dispatches an issue, another cannot, and a person's own session there is not taken as the worker", async () => {
+    const other = await managerSession("Another plan");
+    const issue = await subIssue(universe.url, mario, manager, "Contested");
+    const integration = await integrationRow(universe.projectId);
+    const issueId = (
+      await linear.graphql<{ issue: { id: string } }>(
+        FINEAR_PRIMARY_KEY,
+        `query($id: String!) { issue(id: $id) { id } }`,
+        { id: issue },
+      )
+    ).data!.issue.id;
+    // The other manager's dispatch is in flight: reserved, its Linear session
+    // not yet known.
+    const intent: DispatchIntent = {
+      managerSessionId: other.sessionId,
+      projectId: universe.projectId,
+      integrationId: integration.id,
+      externalIssueId: issueId,
+      mode: "new",
+      reviewRound: 0,
+      instructions: null,
+      agentPreference: null,
+      preferredUserId: null,
+      parentIssueIdentifier: other.issue.identifier,
+      parentIssueUrl: null,
+      externalSessionId: null,
+    };
+    await writeDispatchIntent(intent);
+
+    const refused = await dispatch(manager, { issue });
+    expect(refused.status).toBe(406);
+    expect(refused.body.error?.message).toContain("another planning session");
+
+    // A person delegates the issue meanwhile: an ordinary session.
+    const externalSessionId = await delegate(linear, issueId, appUserId);
+    await recordedEvent(
+      (e) =>
+        (e.payload as { agentSession?: { id?: string } }).agentSession?.id ===
+        externalSessionId,
+    );
+    await settle();
+    const [mine] = await sessionsOnIssue(issue);
+    expect(mine).toMatchObject({ parentAgentSessionId: null });
+    expect(await thoughts(mine.id)).toContain(ackBody(issue));
+
+    await clearDispatchIntent(intent);
   });
 
   test("changes on an issue never dispatched are refused", async () => {
