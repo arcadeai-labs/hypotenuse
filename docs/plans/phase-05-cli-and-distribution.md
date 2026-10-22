@@ -542,3 +542,10 @@ sequence — merge, publish from the merge commit, add the publisher, re-run the
   the body inside the handler.
 - **`test-upgrade.sh` installs globally.** It gives itself a temporary `XDG_CONFIG_HOME` so the update cache it
   clears is never a person's, but the installs are real: CI or a throwaway machine only.
+- **Bun can miss a version minutes after it is published.** Bun keeps the registry's version list in its manifest
+  cache, so `bun install -g @arcadeai/hypotenuse@<new>` answered `No version matching … (but package exists)`
+  right after a release. upgradr hid it as `bun exited with code 1`; since upgradr 0.4.1 the bun upgrade runs with
+  `--no-cache` and a failed install's error carries the command and its output
+  ([evantahler/upgradr#9](https://github.com/evantahler/upgradr/pull/9)).
+- **Re-running an old Auto Release run publishes that run's version.** A re-run checks out its original commit, so
+  re-running the first run tried to publish 0.1.0 over 0.2.0. Re-run the latest run, or dispatch one on `main`.
