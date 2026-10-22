@@ -10,7 +10,7 @@ config_version = 1
 [runner]
 # name = "{{hostname}}"          # display only
 # max_parallel_jobs = {{jobs}}            # jobs (turns) at once on this machine
-roles = ["worker"]               # add "manager" to plan and dispatch work too
+roles = ["manager", "worker"]    # drop "manager" to only implement issues
 
 [subscriptions]
 # teams = ["ENG"]                # only these Linear teams (empty: every team)
@@ -25,11 +25,11 @@ agent = "{{agent}}"
 # prompt_file = "prompts/worker.md"   # relative to this file; the built-in template otherwise
 # permission_policy = "allow"         # or "ask" to approve tool calls from Linear
 
-# [roles.manager]
-# agent = "{{agent}}"
-# # read-only by default: edits, deletes, moves, and commands are refused
-# # permission_policy = { default = "allow", edit = "deny", delete = "deny", move = "deny", execute = "deny" }
-# max_parallel = 1
+[roles.manager]
+agent = "{{agent}}"
+# read-only by default: edits, deletes, moves, and commands are refused
+# permission_policy = { default = "allow", edit = "deny", delete = "deny", move = "deny", execute = "deny" }
+# max_parallel = 1               # manager turns at once
 
 {{repositories}}
 

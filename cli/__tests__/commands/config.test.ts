@@ -148,6 +148,13 @@ describe("config init, schema, path", () => {
     expect(text).toContain(
       '[[repositories]]\nname = "web"\npath = "~/code/web"\nremote = "github.com/acme/web"\nbase_branch = "main"',
     );
+    const parsed = Bun.TOML.parse(text) as {
+      runner: { roles: string[] };
+      roles: Record<string, { agent: string }>;
+    };
+    expect(parsed.runner.roles).toEqual(["manager", "worker"]);
+    expect(Object.keys(parsed.roles).sort()).toEqual(["manager", "worker"]);
+    expect(parsed.roles.manager.agent).toBe(parsed.roles.worker.agent);
     const again = await run(root, ["config", "init"]);
     expect(again.code).toBe(1);
     expect(again.stderr).toContain(
