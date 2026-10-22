@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { eq } from "drizzle-orm";
-import { api } from "keryx";
+import { api, config } from "keryx";
 import { agentSessions } from "../../schema/agent_sessions";
 import { useFinear } from "../linear/finear";
 import { appToken, integrationRow } from "../linear/helpers";
@@ -15,7 +15,7 @@ import {
 } from "../routing/helpers";
 import { runnerRow } from "../runners/helpers";
 import { buildTestUniverse, HOOK_TIMEOUT, type TestUniverse } from "../setup";
-import { DaemonHome, outbound, until } from "./helpers";
+import { DaemonHome, outbound, signed, until } from "./helpers";
 
 /**
  * The agent host end to end: a real backend, finear, the real daemon, and the
@@ -23,8 +23,8 @@ import { DaemonHome, outbound, until } from "./helpers";
  * plan, and response in Linear; an `ask` policy's permission request waits on
  * a person in Linear and resumes on their answer; free text instead becomes
  * the next turn's request; a Stop ends a running agent within its grace; and
- * an agent that is not logged in says how to fix it and is reported
- * unavailable until a reload.
+ * an agent that is not logged in asks for a login with an `auth` elicitation
+ * and is reported unavailable until a reload.
  */
 
 let universe: TestUniverse;
@@ -136,7 +136,10 @@ describe("acp host end to end", () => {
       ],
       [
         "response",
-        { type: "response", body: "Fixed the rounding in `src/a.ts`." },
+        {
+          type: "response",
+          body: signed("Fixed the rounding in `src/a.ts`.", "acp-laptop"),
+        },
       ],
     ]);
     expect(persisted[0]?.[0]).toBe("thought");
@@ -157,8 +160,9 @@ describe("acp host end to end", () => {
     expect(row.outcome?.acpSessionId).toMatch(/^fake-session-/);
     const finear = await finearSession(linear, token, externalSessionId);
     expect(finear.status).toBe("complete");
+    // LC-AIG-01: the answer in Linear discloses the agent behind it.
     expect(finear.activities.at(-1)?.content.body).toBe(
-      "Fixed the rounding in `src/a.ts`.",
+      signed("Fixed the rounding in `src/a.ts`.", "acp-laptop"),
     );
     const [mirrored] = await api.db.db
       .select()
@@ -211,7 +215,7 @@ describe("acp host end to end", () => {
     const last = (await outbound(session.id)).at(-1);
     expect(last?.content).toEqual({
       type: "response",
-      body: "Removed build/.",
+      body: signed("Removed build/.", "acp-laptop"),
     });
     await settle();
     expect((await finearSession(linear, token, externalSessionId)).status).toBe(
@@ -244,7 +248,7 @@ describe("acp host end to end", () => {
     const responses = (await outbound(session.id))
       .filter((r) => r.contentType === "response")
       .map((r) => (r.content as { body: string }).body);
-    expect(responses[0]).toBe("I did not remove build/.");
+    expect(responses[0]).toBe(signed("I did not remove build/.", "acp-laptop"));
     expect(responses[1]).toContain(
       "<request>\nrun the tests instead\n</request>",
     );
@@ -326,21 +330,29 @@ describe("acp host end to end", () => {
     );
   }, 60_000);
 
-  test("not logged in: the fix is named, and the agent is reported unavailable", async () => {
+  test("LC-SIG-02 not logged in: an auth elicitation links the runner's auth page, and the agent is reported unavailable", async () => {
     await playing("auth-terminal");
     const { session } = await delegatedSession(
       linear,
       appUserId,
       "Needs a login",
     );
-    const failed = await itemReaches(session.id, "failed");
-    expect(failed.outcome?.error).toBe(
-      "claude on runner acp-laptop is not logged in. On that machine, run: `hypotenuse agents login claude`",
-    );
-    expect((await outbound(session.id)).at(-1)?.content).toEqual({
-      type: "error",
-      body: "claude on runner acp-laptop is not logged in. On that machine, run: `hypotenuse agents login claude`",
+    // The turn ends on the question; nothing follows it.
+    await itemReaches(session.id, "completed");
+    await settle();
+    const last = (await outbound(session.id)).at(-1);
+    expect(last).toMatchObject({
+      contentType: "elicitation",
+      signal: "auth",
+      signalMetadata: {
+        url: `${config.notifications.appUrl}/runners/${home.runner.id}/auth/claude`,
+        userId: session.creatorExternalUserId,
+        providerName: "Fake Agent",
+      },
     });
+    expect((last?.content as { body: string }).body).toStartWith(
+      "Fake Agent on runner acp-laptop is not logged in. Its owner can sign in on that machine with `hypotenuse agents login claude`",
+    );
     const row = await until(async () => {
       const r = await runnerRow(home.runner.id);
       return r.agents?.[0]?.available === false ? r : null;

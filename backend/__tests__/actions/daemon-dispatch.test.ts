@@ -306,9 +306,23 @@ describe("a dispatch", () => {
       parentAgentSessionId: manager.sessionId,
       dispatchMode: "new",
     });
-    expect((await itemsOf(rows[0].id)).map((i) => i.kind)).toEqual([
-      "dispatch",
-    ]);
+    const items = await itemsOf(rows[0].id);
+    expect(items.map((i) => i.kind)).toEqual(["dispatch"]);
+    // The event log links the adopted session and the dispatch's turn.
+    const [adoption] = await api.db.db
+      .select()
+      .from(triggerEvents)
+      .where(
+        and(
+          eq(triggerEvents.agentSessionId, rows[0].id),
+          eq(triggerEvents.action, "created"),
+        ),
+      );
+    expect(adoption).toMatchObject({
+      outcome: "handled",
+      workItemId: items[0].id,
+      summary: expect.stringContaining("Adopted as the worker session"),
+    });
     const childThoughts = await thoughts(rows[0].id);
     expect(
       childThoughts.filter((t) => t.startsWith("Dispatched by")),

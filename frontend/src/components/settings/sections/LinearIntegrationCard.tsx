@@ -3,7 +3,7 @@ import type { IntegrationView } from "@backend/actions/integration/integration-v
 import type { LinearCallbackError } from "@backend/ops/LinearOAuthOps";
 import type { ActionResponse } from "keryx";
 import { useCallback, useEffect, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { useAuth } from "../../../context/AuthContext";
 import { useFirstLoad } from "../../../hooks/useFirstLoad";
 import {
@@ -18,6 +18,7 @@ import {
   Table,
 } from "../../../ui";
 import { apiFetch } from "../../../utils/client";
+import { outcomeView } from "../../../utils/deliveryOutcomes";
 import SectionCard from "../../sections/SectionCard";
 import { useSectionSave } from "../../sections/useSectionSave";
 import { useProjectSettings } from "../context";
@@ -420,6 +421,7 @@ export default function LinearIntegrationCard() {
 /**
  * The webhook's recent deliveries and what processing made of each — the
  * first place to look when Linear says it delegated and nothing happened.
+ * The full log, with routing, is `/events`.
  * @param props - `integration:view`'s `deliveries`.
  * @returns The table, or a line saying none arrived.
  */
@@ -436,30 +438,39 @@ function RecentDeliveries({
     );
   }
   return (
-    <Table size="sm" responsive data-testid="linear-deliveries">
-      <thead>
-        <tr>
-          <th scope="col">Received</th>
-          <th scope="col">Event</th>
-          <th scope="col">Outcome</th>
-        </tr>
-      </thead>
-      <tbody>
-        {deliveries.recent.map((d) => (
-          <tr key={d.id} data-testid={`linear-delivery-${d.id}`}>
-            <td className="tabular">{when(d.receivedAt)}</td>
-            <td>
-              {d.eventType} · {d.action}
-            </td>
-            <td>
-              <Badge bg={d.outcome === "failed" ? "danger" : "secondary"}>
-                {d.outcome}
-              </Badge>
-              {d.error && <span className="text-muted"> {d.error}</span>}
-            </td>
+    <>
+      <Table size="sm" responsive data-testid="linear-deliveries">
+        <thead>
+          <tr>
+            <th scope="col">Received</th>
+            <th scope="col">Event</th>
+            <th scope="col">Outcome</th>
           </tr>
-        ))}
-      </tbody>
-    </Table>
+        </thead>
+        <tbody>
+          {deliveries.recent.map((d) => {
+            const view = outcomeView(d.outcome);
+            return (
+              <tr key={d.id} data-testid={`linear-delivery-${d.id}`}>
+                <td className="tabular">{when(d.receivedAt)}</td>
+                <td>
+                  {d.eventType} · {d.action}
+                </td>
+                <td>
+                  <Badge bg={view.tone}>{d.outcome}</Badge>
+                  {d.error && <span className="text-muted"> {d.error}</span>}
+                  {view.hint && (
+                    <span className="text-muted"> {view.hint}</span>
+                  )}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </Table>
+      <Link to="/events" data-testid="linear-deliveries-all">
+        Every event and how it was routed →
+      </Link>
+    </>
   );
 }

@@ -116,25 +116,35 @@ Hypotenuse project** with `actor=app` and scopes `read,write,app:assignable,app:
 comments:create`. The app user's id (`viewer.id`) is unique per workspace and stored as the integration's `externalAppUserId`.
 
 Every Linear webhook arrives at one endpoint, `POST /api/webhooks/linear`, and is identified to a `linear`
-integration by its `organizationId` (the integration's `externalWorkspaceId`). The handler caps the body (5 MiB, 413 beyond), verifies `Linear-Signature` (HMAC-SHA256 of the
+integration by its `organizationId` (the integration's `externalWorkspaceId`). When `LINEAR_WEBHOOK_IP_ALLOWLIST` is set, a delivery from another address is
+refused first, with the same 401 as a bad signature (`LINEAR_WEBHOOK_TRUST_FORWARDED` reads the sender from the
+deployment proxy's last `X-Forwarded-For` hop). The handler caps the body (5 MiB, 413 beyond), verifies `Linear-Signature` (HMAC-SHA256 of the
 raw body, constant time; `LINEAR_WEBHOOK_SECRET_PREVIOUS` also verifies during a rotation), checks the signed
 body's `webhookTimestamp` is within ±60 s, deduplicates on `Linear-Delivery`, inserts a `trigger_events` row,
 answers 200 well inside Linear's 5-second budget, and enqueues `triggers:process-event`. A bad signature and a stale
 timestamp are the same 401, byte for byte. A verified delivery for no live integration is still answered 200
 and recorded `unknown_integration`: one webhook serves every workspace, and Linear disables a webhook that keeps
 failing. The row is the delivery; the `triggers:process-pending` clock processes any row whose job was lost.
+Processing writes back the outcome, one sentence saying what it did, and the agent session and turn it touched, so
+the row is also the project's **event log**: `trigger-event:list` joins the session (its role, and the routing rule
+that chose it) and the turn (its status, runner, or waiting code) live, and `trigger-event:view` adds the payload for
+admins only — Linear sends every issue change in the workspace, not just the ones `@hypotenuse` works on.
 
 What each event does:
 
 | Event | Effect |
 |---|---|
 | `AgentSessionEvent` / `created` | upsert `agent_sessions`; enqueue an immediate acknowledgement `thought` (Linear marks a session unresponsive after 10 s without one); select a role and repository; insert a `work_items` row; ping eligible runners |
-| `AgentSessionEvent` / `prompted` | record the inbound `prompt` activity; if `signal = stop`, cancel the live work item; otherwise insert a follow-up work item sticky to the session's runner |
+| `AgentSessionEvent` / `prompted` | record the inbound `prompt` activity; if `signal = stop`, cancel the live work item, withdraw every queued activity that is not a `response` or `error`, and quote any text typed with the stop in the final answer; otherwise (including `signal = continue`, a plain prompt) insert a follow-up work item sticky to the session's runner |
 | `PermissionChange` / `teamAccessChanged` | update the integration's team access; cancel sessions on teams it lost |
 | `OAuthApp` / `revoked` | mark the integration revoked; cancel every live session; notify project admins |
 | `Issue` / `update` with `delegateId` removed | cancel live work for that issue, quietly (`delegate_removed`; a dismissed session removes the delegate) |
 | `Issue` / `update` to a `completed` or `canceled` state, or `remove` | cancel live work for that issue, quietly (`issue_closed`) |
-| `AppUserNotification` / * | recorded and surfaced in the dashboard; no work is started (sessions are the work trigger) |
+| `AppUserNotification` / `issueMention`, `issueCommentMention` | `noted`; 30 s later the `triggers:check-notifications` clock records `mention_without_session` if no session followed (the app may have lost `app:mentionable`) |
+| `AppUserNotification` / `issueAssignedToYou` | `assigned_not_delegated`, explained on the integration card; no work (Hypotenuse works by delegation) |
+| `AppUserNotification` / `issueUnassignedFromYou` | cancel live work for that issue, quietly (`unassigned`); `disengaged` |
+| `AppUserNotification` / `issueStatusChanged` by a person, with live work | the clock reads the issue's state from Linear (the notification carries none); `completed` or `canceled` cancels it quietly (`issue_closed`) |
+| `AppUserNotification` / anything else (reactions, new comments, `pullRequest*`, …) | recorded, `ignored`; sessions are the work trigger |
 | anything else | recorded, `outcome = ignored` |
 
 The acknowledgement is *"On it — finding a runner for ENG-123."*; routing then names the role it chose, the
@@ -145,7 +155,7 @@ server's for work not started, the daemon's (from the heartbeat cancel's `by`) f
 on a question with no turn behind it is answered by the server, and one with nothing to stop is refused. A team-access change marks sessions on
 removed teams `error` and cancels their work; a removed delegate is recorded on the session (`delegateRemovedAt`)
 and its work cancelled without a word, because the person disengaged. "Without a word" is enforced on the server:
-after a disengagement cancel (`delegate_removed`, `issue_closed`, `integration_revoked`) every event the daemon
+after a disengagement cancel (`delegate_removed`, `issue_closed`, `unassigned`, `integration_revoked`) every event the daemon
 still sends for the turn is dropped, and its end posts no fallback answer.
 
 **Issue hygiene runs at claim**, on the server (`ops/IssueHygieneOps.ts`), so no daemon holds `issueUpdate` rights:
@@ -369,9 +379,9 @@ no tools and `instructions` saying why.
 | `users`, `projects`, `project_memberships`, `tags`, `user_tags`, `project_invites`, `audit_logs`, `notifications`, `project_settings` | ported from ToolExec: tenancy, RBAC, audit, notifications, and one settings row per project whose columns arrive with the features that read them (`routing`: the routing timers and thresholds, sparse over their defaults) |
 | `cli_tokens` | one per signed-in `hypotenuse` CLI: owner, device name, token sha256 and last four, last use, sliding expiry, revocation. The sign-in hand-offs themselves (one-time and device codes) live in Redis, by hash |
 | `integrations` | one per project and trigger `type`: the external workspace id, name, and URL key; the app user's external id, name, and capabilities (in the per-type `details`, with team access); sealed tokens, expiry, refresh error; when an admin last completed the install; scopes, team access, status; the last-seen rate-limit headers. Live workspace ids are unique; a disconnected row is kept `revoked` with its tokens nulled. The install's `state` and PKCE verifier live in Redis for ten minutes |
-| `trigger_events` | every verified webhook delivery of any trigger type, deduplicated on `(type, deliveryId)`, with its processing outcome |
+| `trigger_events` | every verified webhook delivery of any trigger type, deduplicated on `(type, deliveryId)`, with its processing outcome, a one-sentence summary of what it did, and the session and turn it touched — the project's event log (`trigger-event:list` / `view`, the dashboard's Events page), kept `LINEAR_EVENT_RETENTION_DAYS` (14) |
 | `external_identities` | trigger-system user (`externalUserId`) ⇄ Hypotenuse user (`userId`) links, per integration |
-| `agent_sessions` | the mirror of each agent session, typed (`type`, `externalSessionId`): issue (and the snapshot routing read), role, the mention's instruction, repository, a pending repository question, sticky runner, plan, external URLs, status |
+| `agent_sessions` | the mirror of each agent session, typed (`type`, `externalSessionId`): issue (and the snapshot routing read), role and the routing rule that chose it (id and name), the mention's instruction, repository, a pending repository question, sticky runner, plan, external URLs, status |
 | `agent_activities` | inbound prompts and the outbound outbox, with client UUIDs, delivery status, and attempts |
 | `runners` | registered daemons: owner, token sha256 and last four, status (`online`, `offline`, `draining`, `revoked`) and `enabled`, machine id, last heartbeat and connect, parallel-job limits, roles, agents, repositories, the hash of the last reported capabilities. A name is unique among a project's unrevoked runners; a machine id among its live (`online` or `draining`) ones. A revoked row is kept with its reason |
 | `runner_subscriptions` | the teams, projects, and labels (per trigger `type`) each runner accepts, replaced whenever a heartbeat's capability hash changes |
@@ -391,6 +401,7 @@ id because every member can read every session of the project; if that ever chan
 | `project:<projectId>:sessions` | project members | `{ event: "sessions" }`, `{ event: "session", id }` — from every work change (`WorkEffects.sessions`, applied after commit), each processed webhook, and the outbox, coalesced to one frame per session per second with a trailing `sessions:broadcast` |
 | `project:<projectId>:runners` | project members | `{ event: "runners" }` — registration, edit, revocation, the reaper, and a heartbeat only when it changed status or capabilities |
 | `project:<projectId>:notifications` | project members | `{ event: "notifications" }` |
+| `project:<projectId>:events` | project members | `{ event: "events" }` — a webhook delivery recorded, and again when it is processed |
 
 The daemon's heartbeat (`daemon:heartbeat`, every 15 s) also returns pending offers and cancels, so a lost socket
 costs latency, never correctness.
@@ -400,6 +411,7 @@ costs latency, never correctness.
 | Task | Every | Does |
 |---|---|---|
 | `triggers:process-event` | enqueued per delivery; `triggers:process-pending` every 5 s for a lost job | the event table above |
+| `triggers:check-notifications` | 10 s | the second look a notification asked for (`trigger_events.checkAfter`): did a session follow a mention; did a status change close an issue with live work |
 | `activities:deliver` | enqueued per session; `activities:deliver-due` every 1 s | drains the outbound outbox under the token bucket |
 | `work:route` | enqueued + 5 s | lapses expired offers; prepares new sessions (reads the issue, chooses the role and repository); offers each session's next queued turn; expires work with no eligible runner after `routing.queueTimeoutMs` |
 | `work:reap` | 15 s | marks runners `offline` after `runners.offlineAfterMs` (45 s) without a heartbeat; returns claims with lapsed leases to `queued`; ends stopped turns whose runner did not confirm within `routing.stopGraceMs` |
@@ -435,3 +447,4 @@ clocks run on `routing`, next.
 | Signals, notifications, rate limits, AIG | [`phase-16-signals-and-hardening.md`](./plans/phase-16-signals-and-hardening.md) |
 | Coverage conformance and the end-to-end suite | [`phase-17-conformance-and-e2e.md`](./plans/phase-17-conformance-and-e2e.md) |
 | Per-project OpenTelemetry export | [`phase-18-opentelemetry-export.md`](./plans/phase-18-opentelemetry-export.md) |
+| The event log: every webhook and how it was routed | [`phase-19-event-log.md`](./plans/phase-19-event-log.md) |

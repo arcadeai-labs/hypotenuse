@@ -47,12 +47,32 @@ export const SelectMetadata = z.strictObject({
     .max(25),
 });
 
-/** An `auth` elicitation's link. */
-export const AuthMetadata = z.strictObject({
-  url: z.url(),
-  userId: z.string().max(255).optional(),
-  providerName: z.string().max(255).optional(),
-});
+/**
+ * What a login is needed for, as a runner auth page's path segment: an agent
+ * id, `github`, or a git host.
+ */
+export const AuthProvider = z
+  .string()
+  .regex(/^[a-z0-9][a-z0-9._-]{0,63}$/)
+  .describe("An agent id, `github`, or a git host");
+
+/**
+ * An `auth` elicitation's link. A daemon names the `provider` and the server
+ * links the runner's auth page for it (`/runners/<id>/auth/<provider>`) — the
+ * login has to happen on the runner's machine. A `url` is passed through
+ * only when it is a public `https` link (an agent's own URL login); the
+ * server sets `userId` itself, to the person who can fix it.
+ */
+export const AuthMetadata = z
+  .strictObject({
+    url: z.url().optional(),
+    provider: AuthProvider.optional(),
+    userId: z.string().max(255).optional(),
+    providerName: z.string().max(255).optional(),
+  })
+  .refine((m) => m.url !== undefined || m.provider !== undefined, {
+    message: "an auth elicitation needs a url or a provider",
+  });
 
 /** The agent is thinking. */
 export const ThoughtEvent = z.strictObject({

@@ -130,3 +130,55 @@ export async function seedSession(
     { projectId, nonce, awaiting: Boolean(options.awaiting) },
   );
 }
+
+/** The events seeded for one session. */
+export interface SeededEvents {
+  session: SeededSession;
+  /** The delegation that started the session, handled and routed. */
+  createdId: number;
+  /** An issue change Hypotenuse did not act on. */
+  ignoredId: number;
+}
+
+/**
+ * Seed a session (see {@link seedSession}) and the two webhook deliveries an
+ * event log would hold for it: the `AgentSessionEvent` `created` that started
+ * it, linked to the session and its turn and routed by a rule, and an `Issue`
+ * update that was ignored. Both already processed, as `triggers:process-event`
+ * leaves them.
+ * @param page - The signed-in page.
+ * @returns The session and the two event ids.
+ */
+export async function seedEvents(page: Page): Promise<SeededEvents> {
+  const session = await seedSession(page);
+  const ids = runSql<{ createdId: number; ignoredId: number }>(
+    `
+    const { sessionId } = input;
+    const [s] = await sql\`SELECT integration_id, issue_identifier FROM agent_sessions WHERE id = \${sessionId}\`;
+    const [turn] = await sql\`SELECT id FROM work_items WHERE agent_session_id = \${sessionId} ORDER BY id LIMIT 1\`;
+    await sql\`UPDATE agent_sessions SET routing_rule_name = '/work' WHERE id = \${sessionId}\`;
+    const at = new Date(Date.now() - 600000);
+    const created = { type: 'AgentSessionEvent', action: 'created', agentSession: { id: 's', issue: { identifier: s.issue_identifier } } };
+    const [c] = await sql\`INSERT INTO trigger_events
+      (type, delivery_id, integration_id, event_type, action, webhook_timestamp, payload, received_at,
+       processed_at, outcome, summary, agent_session_id, work_item_id)
+      VALUES ('linear', \${crypto.randomUUID()}, \${s.integration_id}, 'AgentSessionEvent', 'created', \${at},
+       \${JSON.stringify(created)}::text::jsonb, \${at}, \${at}, 'handled',
+       \${'Started a session on ' + s.issue_identifier + ', acknowledged it, and queued its first turn for routing.'},
+       \${sessionId}, \${turn.id})
+      RETURNING id\`;
+    const later = new Date(Date.now() - 60000);
+    const issue = { type: 'Issue', action: 'update', data: { identifier: s.issue_identifier, title: 'Renamed' }, updatedFrom: { title: 'Old' } };
+    const [i] = await sql\`INSERT INTO trigger_events
+      (type, delivery_id, integration_id, event_type, action, webhook_timestamp, payload, received_at,
+       processed_at, outcome, summary)
+      VALUES ('linear', \${crypto.randomUUID()}, \${s.integration_id}, 'Issue', 'update', \${later},
+       \${JSON.stringify(issue)}::text::jsonb, \${later}, \${later}, 'ignored',
+       \${'Ignored: a change to ' + s.issue_identifier + ' that neither removed @hypotenuse as delegate nor closed it.'})
+      RETURNING id\`;
+    return { createdId: c.id, ignoredId: i.id };
+  `,
+    { sessionId: session.id },
+  );
+  return { session, ...ids };
+}

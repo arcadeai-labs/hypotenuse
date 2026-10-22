@@ -71,7 +71,7 @@ import {
   sessionLogPath,
   stopActivity,
 } from "./lifecycle";
-import { type MapperOptions, TurnMapper } from "./mapping";
+import { type MapperOptions, responseSignature, TurnMapper } from "./mapping";
 import { turnMcpServers, UnsetVariableError } from "./mcp-servers";
 import {
   automaticOption,
@@ -80,6 +80,14 @@ import {
   READ_ONLY_MESSAGE,
 } from "./permissions";
 import { PrDetector } from "./pr-detect";
+import {
+  type AuthNeed,
+  type CommandRunner,
+  checkRepositoryAuth,
+  isGitAuthFailure,
+  providerSlug,
+  remoteProvider,
+} from "./preflight";
 import {
   resolveAgentLaunch,
   sessionEnvironment,
@@ -113,6 +121,26 @@ class TurnFailure extends Error {
   }
 }
 
+/**
+ * A login the turn needs and lacks: the turn ends on an `auth` elicitation
+ * naming the provider, and resumes when the person replies.
+ */
+class AuthRequired extends Error {
+  /**
+   * @param need - The provider and what the person reads.
+   * @param unavailable - Mark the agent unavailable with this reason.
+   */
+  constructor(
+    readonly need: AuthNeed,
+    readonly unavailable?: string,
+  ) {
+    super(need.body);
+  }
+}
+
+/** What a turn says when it starts again after an `auth` elicitation. */
+export const SIGNED_IN_BODY = "Signed in — continuing.";
+
 /** Options for the host (tests shorten its timers). */
 export interface HostOptions {
   /** The timer tick. */
@@ -121,6 +149,23 @@ export interface HostOptions {
   killGraceMs?: number;
   /** The clock. */
   now?: () => number;
+  /** How preflight checks run commands. */
+  run?: CommandRunner;
+}
+
+/**
+ * Whether a turn starts again after the session's last word was an `auth`
+ * elicitation — the person replied, so the login is presumably done.
+ * @param assignment - The turn.
+ * @returns True when the last outbound activity asked for a login.
+ */
+export function resumesAfterAuth(assignment: {
+  history?: { direction: string; type: string; signal: string | null }[];
+}): boolean {
+  const last = (assignment.history ?? [])
+    .filter((h) => h.direction === "outbound")
+    .at(-1);
+  return last?.type === "elicitation" && last.signal === "auth";
 }
 
 /** The daemon's executor. */
@@ -180,6 +225,8 @@ class Turn {
   private conn: AcpConnection | null = null;
   private acpSessionId: string | null = null;
   private agentTitle: string;
+  /** The agent's version, as `initialize` reported it. */
+  private agentVersion: string | null = null;
   private endReason: EndReason | null = null;
   private ended!: Promise<EndReason>;
   private endNow!: (reason: EndReason) => void;
@@ -322,9 +369,31 @@ class Turn {
       });
       await this.prepare();
       await this.start();
+      // Linear's docs: resume after an auth signal with a thought, which also
+      // dismisses the login prompt.
+      if (resumesAfterAuth(ctx.assignment))
+        this.emit({ type: "thought", body: SIGNED_IN_BODY, ephemeral: false });
       timer = setInterval(() => this.tick(), this.options.tickMs ?? TICK_MS);
       return await this.prompt();
     } catch (error) {
+      if (error instanceof AuthRequired && !this.endReason) {
+        if (error.unavailable) ctx.agentAvailability(false, error.unavailable);
+        this.log.note(`needs a login: ${error.need.provider}`);
+        this.emitAll(this.mapper.flushThought(false));
+        // A question ends the turn; nothing may follow it in Linear.
+        this.emit({
+          type: "elicitation",
+          body: error.need.body,
+          signal: "auth",
+          signalMetadata: {
+            provider: error.need.provider,
+            providerName: error.need.providerName.slice(0, 255),
+          },
+        });
+        this.mapper.askedUser = true;
+        return this.result("completed");
+      }
+      if (error instanceof AuthRequired) return await this.stopped();
       if (error instanceof TurnFailure) {
         if (error.unavailable) ctx.agentAvailability(false, error.unavailable);
         this.log.note(`failed: ${error.body}`);
@@ -367,6 +436,18 @@ class Turn {
             sessionEnvironment(ctx.env, sessionVariables(assignment, branch)),
         });
       } catch (error) {
+        const remote = ctx.assignment.repository?.remote ?? null;
+        if (
+          error instanceof WorkspaceError &&
+          remote &&
+          isGitAuthFailure(error.body)
+        ) {
+          const provider = remoteProvider(remote);
+          throw new AuthRequired({
+            ...provider,
+            body: `Runner ${ctx.runnerName} can't sign in to ${provider.providerName} to fetch \`${remote}\`. Its owner can fix it on that machine — the link says how. Reply here once it's done and I'll carry on.`,
+          });
+        }
         if (error instanceof WorkspaceError) throw new TurnFailure(error.body);
         throw error;
       }
@@ -375,6 +456,18 @@ class Turn {
     } else {
       mkdirSync(this.cwd, { recursive: true, mode: 0o700 });
     }
+    if (this.endReason) throw new TurnFailure("stopped");
+    const need = await checkRepositoryAuth(
+      {
+        remote: this.workspace?.repository?.remote ?? null,
+        cwd: this.cwd,
+        env: ctx.env,
+        runnerName: ctx.runnerName,
+        pullRequests: (assignment.role ?? "worker") === "worker",
+      },
+      this.options.run,
+    );
+    if (need) throw new AuthRequired(need);
     if (this.endReason) throw new TurnFailure("stopped");
     this.mapperOptions.cwd = this.cwd;
     const remote = this.workspace?.repository?.remote ?? null;
@@ -479,7 +572,13 @@ class Turn {
             }
           },
           createElicitation: (params) =>
-            this.questions.ask(elicitationQuestion(params, this.agentTitle)),
+            this.questions.ask(
+              elicitationQuestion(
+                params,
+                this.agentTitle,
+                providerSlug(this.agentId),
+              ),
+            ),
           unknown: (method) => this.log.note(`unhandled ${method}`),
         },
       });
@@ -499,6 +598,7 @@ class Turn {
     );
     this.agentTitle =
       init.agentInfo?.title ?? init.agentInfo?.name ?? this.agentId;
+    this.agentVersion = init.agentInfo?.version ?? null;
     ctx.log.debug(
       `${this.agentId} initialized: ${init.agentInfo?.name ?? "?"} ${init.agentInfo?.version ?? ""}`,
       { session: assignment.agentSessionId },
@@ -591,7 +691,10 @@ class Turn {
         await this.chooseSession(init.agentCapabilities ?? {});
         return;
       } catch (error) {
-        if (!isAuthRequired(error) || authenticated) {
+        if (isAuthRequired(error) && authenticated) {
+          throw new AuthRequired(this.loginNeed(), "not logged in");
+        }
+        if (!isAuthRequired(error)) {
           if (error instanceof TurnFailure) throw error;
           throw new TurnFailure(
             `${this.agentId} could not open a session: ${errorMessage(error)}${quoteTail(this.log.tail())}`,
@@ -601,12 +704,7 @@ class Turn {
           init.authMethods ?? [],
           configuredMethod,
         );
-        if (!method) {
-          throw new TurnFailure(
-            `${this.agentId} on runner ${this.ctx.runnerName} is not logged in. On that machine, run: \`hypotenuse agents login ${this.agentId}\``,
-            "not logged in",
-          );
-        }
+        if (!method) throw new AuthRequired(this.loginNeed(), "not logged in");
         this.log.note(`authenticate ${method}`);
         await this.guard(
           (this.conn as AcpConnection).authenticate(method),
@@ -616,6 +714,18 @@ class Turn {
         authenticated = true;
       }
     }
+  }
+
+  /**
+   * The agent's own login, as an `auth` elicitation.
+   * @returns The need: the agent as provider, and the command that fixes it.
+   */
+  private loginNeed(): AuthNeed {
+    return {
+      provider: providerSlug(this.agentId),
+      providerName: this.agentTitle,
+      body: `${this.agentTitle} on runner ${this.ctx.runnerName} is not logged in. Its owner can sign in on that machine with \`hypotenuse agents login ${this.agentId}\` — the link has the steps. Reply here once it's done and I'll carry on.`,
+    };
   }
 
   /**
@@ -853,7 +963,18 @@ class Turn {
       this.log.note(
         `said after asking (kept out of Linear): ${this.mapper.message().slice(0, 2000)}`,
       );
-    this.emitAll(this.mapper.finish(stop, { branch: this.branch }));
+    this.emitAll(
+      this.mapper.finish(stop, {
+        branch: this.branch,
+        signature: responseSignature({
+          role: this.ctx.assignment.role ?? "worker",
+          agentId: this.agentId,
+          agentTitle: this.agentTitle,
+          agentVersion: this.agentVersion,
+          runnerName: this.ctx.runnerName,
+        }),
+      }),
+    );
     return stop === "end_turn"
       ? this.result("completed")
       : this.result("failed", `stopReason: ${stop}`);

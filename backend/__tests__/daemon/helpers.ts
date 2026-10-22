@@ -383,3 +383,19 @@ export async function outbound(agentSessionId: number) {
     .filter((r) => r.direction === "outbound")
     .sort((a, b) => a.seq - b.seq);
 }
+
+/**
+ * A final response as the daemon signs it (`responseSignature`), for the
+ * fake agent playing `claude` on a runner.
+ * @param body - What the agent said.
+ * @param runnerName - The runner.
+ * @param role - The role.
+ * @returns The body with its disclosure block.
+ */
+export function signed(
+  body: string,
+  runnerName: string,
+  role = "worker",
+): string {
+  return `${body}\n\n+++ — Hypotenuse (${role}, Fake Agent)\nAn AI coding agent: \`claude\` 1.2.3 on runner \`${runnerName}\`, delegated through Hypotenuse.\n+++`;
+}

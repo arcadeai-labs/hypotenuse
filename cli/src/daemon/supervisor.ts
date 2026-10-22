@@ -403,8 +403,10 @@ export class Supervisor {
     for (const id of answer.unknownActive) this.silence(id);
     for (const cancel of answer.cancels) {
       const slot = this.slots.get(cancel.workItemId);
-      // Who stopped it from the dashboard rides as the stop's note.
-      if (slot && !slot.reason && cancel.by) slot.killNote = cancel.by;
+      // Who stopped it from the dashboard, or what the person typed with a
+      // Linear stop, rides as the stop's note.
+      const note = cancel.by ?? cancel.said;
+      if (slot && !slot.reason && note) slot.killNote = note;
       this.stop(cancel.workItemId, cancel.reason as StopReason);
     }
     for (const reply of answer.answers ?? []) this.deliver(reply);

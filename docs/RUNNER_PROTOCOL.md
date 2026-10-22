@@ -126,7 +126,8 @@ costs one row update per beat.
 
 `offers` lists every offer standing for this runner (unexpired), oldest first; `cancels` lists every item it holds
 whose session asked to stop. A cancel a person made from the dashboard or the CLI (`reason: "dashboard"`) also
-carries `by`, their name, which the daemon puts in its final activity; the field is additive and absent otherwise.
+carries `by`, their name, which the daemon puts in its final activity; a Linear stop with text carries `said`, which
+the daemon quotes. Both fields are additive and absent otherwise.
 Every `active` item the runner does hold has its lease renewed.
 
 A dry run's answer has empty `offers`, `cancels`, and `unknownActive`, plus two fields no other heartbeat carries:
@@ -246,7 +247,12 @@ Rules, enforced by the schema and the server:
 
 - `ephemeral` is legal only on `thought` and `action` — Linear's own rule.
 - `signalMetadata` for `select` is `{ options: [{ label?, value }] }`; for `auth` it is
-  `{ url, userId?, providerName? }`.
+  `{ url?, provider?, providerName? }` with at least one of `url` and `provider`. `provider` is what needs a login —
+  an agent id, `github`, or a git host. **The server decides the link and its audience:** a `url` that is public
+  `https` passes through (an agent's own URL login); otherwise Linear gets the runner's auth page,
+  `<FRONTEND_URL>/runners/<runnerId>/auth/<provider>`, which tells the runner's owner the command to run on that
+  machine. `userId` is set by the server to the runner owner's linked Linear identity, else the session's creator;
+  a daemon's own value is ignored.
 - Markdown is allowed in every `body`. A Linear URL to an issue or profile renders as a mention.
 - `eventId` is the idempotency key end to end: it becomes `agent_activities.clientActivityId` and Linear's
   `agentActivityCreate(input.id)`. Resend a batch freely.
@@ -290,6 +296,17 @@ signal), and the agent process stays blocked on the answer.
 
 A second reply while the first is unread is an ordinary follow-up, queued behind the turn. A turn whose lease
 lapses while waiting goes back to the queue with its answers turned into a `prompt` turn behind it.
+
+**A login is a question that ends the turn.** A turn that finds a login missing — the agent's own (`auth_required`
+with no method the daemon can run), the git remote's (`git ls-remote` refused on credentials), or the GitHub CLI's
+for a worker on github.com — posts an `auth` elicitation naming the `provider` and completes; the agent is
+reported unavailable for the agent's own login until `hypotenuse agents login` reloads the daemon. The person's
+reply is the next turn, and a turn whose session's last outbound activity was an `auth` elicitation opens with the
+thought "Signed in — continuing." (Linear's docs: resume with a thought) once the agent's session opens.
+
+**A turn's final `response` is signed.** The agent's own end-of-turn answer ends with a collapsed block,
+`+++ — Hypotenuse (<role>, <agent>)`, naming the agent, its version, and the runner (Linear's AIG #1). Stop and
+error activities are not signed.
 
 ### `daemon:linear-*` and `daemon:dispatch`
 
@@ -420,9 +437,9 @@ any `daemon:events` response — so it is delivered as long as *any* request suc
 
 | `reason` | Final activity |
 |---|---|
-| `stop` | `response`: "Stopped at your request. Changes so far are …" — where the work is, and how many files changed |
+| `stop` | `response`: "Stopped at your request. Changes so far are …" — where the work is, and how many files changed — then the cancel's `said`, quoted (`stopQuote`) |
 | `dashboard` | `error`: "Cancelled from the Hypotenuse dashboard by <`by`>. Changes so far are …" |
-| `delegate_removed`, `issue_closed`, `integration_revoked` | none — the person disengaged, so the daemon stays quiet. The server enforces it: once one of these is requested, every event for the item is dropped (`dropped` in the answer), and its end posts no fallback |
+| `delegate_removed`, `issue_closed`, `unassigned`, `integration_revoked` | none — the person disengaged, so the daemon stays quiet. The server enforces it: once one of these is requested, every event for the item is dropped (`dropped` in the answer), and its end posts no fallback |
 | `superseded` | none — the item is no longer this runner's |
 
 The daemon ends turns of its own the same way: `agents kill` (an `error` naming it), a drain with `--cancel` or a
@@ -431,7 +448,9 @@ shutdown (an `error` saying the runner shut down mid-turn), and `turn_timeout` /
 
 `reason` values: `stop` (a person pressed Stop in Linear), `dashboard`, `delegate_removed` (un-delegated, or the
 session dismissed), `issue_closed` (the issue moved to a completed or canceled state, or was deleted),
-`integration_revoked`, `superseded`. The list may grow without a version bump: a daemon stops the turn for a reason
+`unassigned` (the app was unassigned from the issue), `integration_revoked`, `superseded`. A `stop` cancel carries
+`said` when the person typed something with the stop: the daemon quotes it in its final answer and never acts on
+it, and a bare "Stop" is not quoted. The list may grow without a version bump: a daemon stops the turn for a reason
 it does not know and says nothing.
 
 ## Error codes

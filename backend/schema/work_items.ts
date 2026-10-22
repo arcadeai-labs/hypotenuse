@@ -60,6 +60,7 @@ export const WORK_CANCEL_REASONS = [
   "stop",
   "delegate_removed",
   "issue_closed",
+  "unassigned",
   "integration_revoked",
   "dashboard",
   "superseded",
@@ -255,6 +256,11 @@ export const workItems = pgTable(
     waitingCode: text("waiting_code").$type<WaitingCode | null>(),
     cancelRequestedAt: timestamp("cancel_requested_at", { withTimezone: true }),
     cancelReason: text("cancel_reason").$type<WorkCancelReason | null>(),
+    /**
+     * What the person typed along with a Linear stop: quoted in the turn's
+     * final answer, never sent to the agent as a prompt.
+     */
+    cancelNote: text("cancel_note"),
     /** The person who cancelled it from the dashboard or CLI. */
     cancelledByUserId: integer("cancelled_by_user_id").references(
       () => users.id,

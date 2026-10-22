@@ -20,12 +20,15 @@ import { CliActivatePage } from "./pages/cli/CliActivatePage";
 import { CliAuthorizePage } from "./pages/cli/CliAuthorizePage";
 import { DocsLayout } from "./pages/docs/DocsLayout";
 import { DocsPage } from "./pages/docs/DocsPage";
+import EventPage from "./pages/EventPage";
+import EventsPage from "./pages/EventsPage";
 import IdentitiesPage from "./pages/IdentitiesPage";
 import InvitesPage from "./pages/InvitesPage";
 import { HomePage } from "./pages/marketing/HomePage";
 import NewProjectPage from "./pages/NewProjectPage";
 import ProjectHomePage from "./pages/ProjectHomePage";
 import RoutingPage from "./pages/RoutingPage";
+import RunnerAuthPage from "./pages/RunnerAuthPage";
 import RunnersPage from "./pages/RunnersPage";
 import SessionPage from "./pages/SessionPage";
 import SessionsPage from "./pages/SessionsPage";
@@ -77,7 +80,13 @@ export function App() {
                 <Route path="/sessions" element={<SessionsPage />} />
                 <Route path="/sessions/:id" element={<SessionPage />} />
                 <Route path="/runners" element={<RunnersPage />} />
+                <Route
+                  path="/runners/:runnerId/auth/:provider"
+                  element={<RunnerAuthPage />}
+                />
                 <Route path="/routing" element={<RoutingPage />} />
+                <Route path="/events" element={<EventsPage />} />
+                <Route path="/events/:id" element={<EventPage />} />
                 <Route path="/identities" element={<IdentitiesPage />} />
                 <Route path="/projects/new" element={<NewProjectPage />} />
                 <Route path="/invites" element={<InvitesPage />} />

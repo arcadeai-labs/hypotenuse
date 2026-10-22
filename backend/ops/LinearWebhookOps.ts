@@ -1,5 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { and, eq, inArray, isNull, notInArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, notInArray, sql } from "drizzle-orm";
 import { api, config } from "keryx";
 import {
   ACTIVITY_SIGNALS,
@@ -20,6 +20,7 @@ import {
   type WebhookAgentActivity,
 } from "./AgentSessionOps";
 import { adoptDispatchedSession } from "./DispatchOps";
+import { handleAppUserNotification } from "./LinearNotificationOps";
 import { getAdminUserIds } from "./MembershipOps";
 import { enqueueNotification } from "./NotificationOps";
 import type { TxHandle } from "./ProjectOps";
@@ -85,6 +86,71 @@ export function verifySignature(
     if (timingSafeEqual(presented, expected)) matched = true;
   }
   return matched;
+}
+
+/**
+ * An IPv4 address as a 32-bit number, or null.
+ * @param ip - Dotted quad.
+ * @returns The number.
+ */
+function v4(ip: string): number | null {
+  const parts = ip.split(".");
+  if (parts.length !== 4) return null;
+  let n = 0;
+  for (const part of parts) {
+    if (!/^\d{1,3}$/.test(part) || Number(part) > 255) return null;
+    n = n * 256 + Number(part);
+  }
+  return n;
+}
+
+/**
+ * Whether an address is on the webhook allowlist: an IPv4 address matches an
+ * entry that is the same address or a CIDR containing it (an IPv4-mapped IPv6
+ * address counts as its IPv4 form); an IPv6 address matches the same address.
+ * An empty list allows everything — the check is off.
+ * @param ip - The sender.
+ * @param allowlist - Comma-separated entries.
+ * @returns True when allowed.
+ */
+export function ipAllowed(ip: string, allowlist: string): boolean {
+  const entries = allowlist
+    .split(",")
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean);
+  if (entries.length === 0) return true;
+  const host = ip
+    .trim()
+    .toLowerCase()
+    .replace(/^::ffff:(?=\d+\.)/, "");
+  const address = v4(host);
+  return entries.some((entry) => {
+    const [base, bits] = entry.split("/");
+    if (address === null || v4(base) === null) return entry === host;
+    const prefix = bits === undefined ? 32 : Number(bits);
+    if (!Number.isInteger(prefix) || prefix < 0 || prefix > 32) return false;
+    const mask = prefix === 0 ? 0 : (0xffffffff << (32 - prefix)) >>> 0;
+    return (address & mask) >>> 0 === ((v4(base) as number) & mask) >>> 0;
+  });
+}
+
+/**
+ * Who sent a request, for the allowlist: the socket's peer, or with
+ * `trustForwarded` the last `X-Forwarded-For` entry — the one the
+ * deployment's own proxy appended, which a sender cannot forge.
+ * @param socketIp - The connection's peer address.
+ * @param forwardedFor - The `X-Forwarded-For` header.
+ * @param trustForwarded - Whether a proxy in front of us sets it.
+ * @returns The address.
+ */
+export function webhookSender(
+  socketIp: string,
+  forwardedFor: string | null,
+  trustForwarded = Boolean(config.linear.webhookTrustForwarded),
+): string {
+  if (!trustForwarded || !forwardedFor) return socketIp;
+  const last = forwardedFor.split(",").at(-1)?.trim();
+  return last || socketIp;
 }
 
 /**
@@ -158,8 +224,7 @@ export async function handleLinearEvent(
     case "Issue":
       return handleIssueEvent(tx, integration, payload);
     case "AppUserNotification":
-      // Recorded for the dashboard. Sessions, not notifications, start work.
-      return { outcome: "handled", deliver: [] };
+      return handleAppUserNotification(tx, event, integration);
     default:
       return ignored(event);
   }
@@ -178,7 +243,36 @@ function ignored(event: TriggerEvent): HandlerResult {
       action: event.action,
     });
   }
-  return { outcome: "ignored", deliver: [] };
+  return ignoredBecause(
+    `Hypotenuse does not act on ${event.eventType}${event.action ? ` ${event.action}` : ""}.`,
+  );
+}
+
+/**
+ * The result for an event nothing acts on, and why.
+ * @param why - The sentence after "Ignored: ".
+ * @param agentSessionId - The session it was about, when known.
+ * @returns `ignored`.
+ */
+function ignoredBecause(
+  why: string,
+  agentSessionId: number | null = null,
+): HandlerResult {
+  return {
+    outcome: "ignored",
+    deliver: [],
+    summary: `Ignored: ${why}`,
+    agentSessionId,
+  };
+}
+
+/**
+ * How the event log names an issue.
+ * @param identifier - The issue identifier, when known.
+ * @returns `ENG-123`, or "the issue".
+ */
+function issueName(identifier: string | null | undefined): string {
+  return identifier ?? "the issue";
 }
 
 /**
@@ -209,7 +303,8 @@ async function hasOutbound(
  * | `created`, a session a dispatch already recorded | nothing more (`duplicate_of_dispatch`) |
  * | `created`, a session a dispatch is starting (its intent is in Redis) | the dispatch's worker session and turn instead of the acknowledgement (`completeDispatch`) |
  * | `created`, another session on an issue whose dispatch already has one | nothing (`duplicate_of_dispatch`) |
- * | `prompted`, `stop` signal | record the prompt; cancel the session's work (see `cancelSessionWork`) |
+ * | `prompted`, `stop` signal | record the prompt; cancel the session's work (see `cancelSessionWork`), quoting any text typed with it |
+ * | `prompted`, `continue` signal | a plain follow-up, as below; an empty body reads "continue" |
  * | `prompted`, a repository question pending | record the prompt; take it as the answer |
  * | `prompted`, otherwise | record the prompt; merge it into a queued follow-up or queue a new turn, sticky to the session's runner |
  * | anything else | `ignored` |
@@ -230,38 +325,67 @@ export async function handleAgentSessionEvent(
     api.logger.warn("an AgentSessionEvent action Hypotenuse does not know", {
       action: payload.action,
     });
-    return { outcome: "ignored", deliver: [] };
+    return ignoredBecause(
+      `Hypotenuse does not act on AgentSessionEvent ${String(payload.action)}.`,
+    );
+  }
+  if (!payload.agentSession?.id) {
+    return ignoredBecause("the event names no agent session.");
   }
   if (
-    !payload.agentSession?.id ||
-    (payload.appUserId && payload.appUserId !== integration.externalAppUserId)
+    payload.appUserId &&
+    payload.appUserId !== integration.externalAppUserId
   ) {
-    return { outcome: "ignored", deliver: [] };
+    return ignoredBecause("the event is for another Linear app.");
   }
 
   const { session } = await upsertFromWebhook(tx, integration, payload);
 
+  const issue = issueName(session.issueIdentifier);
+  const about = { agentSessionId: session.id };
   if (payload.action === "created") {
     if (await hasOutbound(tx, session.id)) {
-      return {
-        outcome:
-          session.parentAgentSessionId !== null
-            ? "duplicate_of_dispatch"
-            : "handled",
-        deliver: [],
-      };
+      return session.parentAgentSessionId !== null
+        ? {
+            outcome: "duplicate_of_dispatch",
+            deliver: [],
+            summary: `The session a manager's dispatch already started on ${issue}; nothing more to do.`,
+            ...about,
+          }
+        : {
+            outcome: "handled",
+            deliver: [],
+            summary: `A repeat of a session on ${issue} already acknowledged; nothing more to do.`,
+            ...about,
+          };
     }
     // Linear's `created` for a session a manager's dispatch started, before
     // the dispatch recorded it: it becomes the dispatch's worker session.
     const adopted = await adoptDispatchedSession(tx, integration, session);
     if (adopted?.kind === "duplicate") {
-      return { outcome: "duplicate_of_dispatch", deliver: [] };
+      return {
+        outcome: "duplicate_of_dispatch",
+        deliver: [],
+        summary: `Another session on ${issue}, whose dispatch already has one; left alone.`,
+        ...about,
+      };
     }
     if (adopted) {
+      // The dispatch's turn, when it queued one (a sibling already holding
+      // the issue's dispatch means it did not).
+      const [turn] = await tx
+        .select({ id: workItems.id })
+        .from(workItems)
+        .where(eq(workItems.agentSessionId, session.id))
+        .orderBy(desc(workItems.id))
+        .limit(1);
       return {
         outcome: "handled",
         deliver: [...adopted.effects.deliver],
         effects: adopted.effects,
+        summary: `Adopted as the worker session a manager's dispatch started on ${issue}.`,
+        ...about,
+        workItemId: turn?.id ?? null,
       };
     }
     await enqueueActivity(
@@ -270,14 +394,23 @@ export async function handleAgentSessionEvent(
       { type: "thought", body: ackBody(session.issueIdentifier) },
       { priority: "ack" },
     );
-    await createSessionCreatedItem(tx, session);
+    const item = await createSessionCreatedItem(tx, session);
     const effects = noEffects();
     effects.route = true;
-    return { outcome: "handled", deliver: [session.id], effects };
+    return {
+      outcome: "handled",
+      deliver: [session.id],
+      effects,
+      summary: `Started a session on ${issue}, acknowledged it, and queued its first turn for routing.`,
+      ...about,
+      workItemId: item.id,
+    };
   }
 
   const activity = payload.agentActivity ?? null;
-  if (!activity?.id) return { outcome: "ignored", deliver: [] };
+  if (!activity?.id) {
+    return ignoredBecause("the prompt carries no activity.", session.id);
+  }
   const signal = (ACTIVITY_SIGNALS as readonly string[]).includes(
     activity.signal ?? "",
   )
@@ -292,16 +425,52 @@ export async function handleAgentSessionEvent(
     externalSourceCommentId: activity.sourceCommentId ?? null,
     externalUserId: activity.userId ?? activity.user?.id ?? null,
   });
-  if (!recorded.created) return { outcome: "handled", deliver: [] };
+  if (!recorded.created) {
+    return {
+      outcome: "handled",
+      deliver: [],
+      summary: `A prompt on ${issue} already recorded; nothing more to do.`,
+      ...about,
+    };
+  }
 
-  const effects =
-    signal === "stop"
-      ? await cancelSessionWork(tx, session.id, {
-          reason: "stop",
-          announce: true,
-        })
-      : await followUp(tx, session.id, recorded.row.id, body);
-  return { outcome: "handled", deliver: [...effects.deliver], effects };
+  if (signal === "stop") {
+    const effects = await cancelSessionWork(tx, session.id, {
+      reason: "stop",
+      announce: true,
+      said: body,
+    });
+    return {
+      outcome: "handled",
+      deliver: [...effects.deliver],
+      effects,
+      summary: `Stop on ${issue}: cancelled the session's work.`,
+      ...about,
+    };
+  }
+  // `continue` is in Linear's schema and not its docs: it is read as a plain
+  // prompt (its body, or the word), never as a resume of a stopped session.
+  const work = await followUp(
+    tx,
+    session.id,
+    recorded.row.id,
+    signal === "continue" && !body.trim() ? "continue" : body,
+  );
+  return {
+    outcome: "handled",
+    deliver: [...work.effects.deliver],
+    effects: work.effects,
+    summary: work.summary,
+    ...about,
+    workItemId: work.workItemId,
+  };
+}
+
+/** What a follow-up did, for the event log. */
+interface FollowUpResult {
+  effects: WorkEffects;
+  summary: string;
+  workItemId: number | null;
 }
 
 /**
@@ -315,23 +484,34 @@ export async function handleAgentSessionEvent(
  * @param agentSessionId - The session.
  * @param activityId - The recorded inbound prompt.
  * @param body - What the person typed.
- * @returns The effects to apply.
+ * @returns The effects to apply, and what was done.
  */
 async function followUp(
   tx: TxHandle,
   agentSessionId: number,
   activityId: number,
   body: string,
-): Promise<WorkEffects> {
+): Promise<FollowUpResult> {
   const session = await lockSession(tx, agentSessionId);
+  const issue = issueName(session.issueIdentifier);
   if (session.pendingRepositoryChoice) {
-    return answerRepositoryChoice(tx, session, body);
+    return {
+      effects: await answerRepositoryChoice(tx, session, body),
+      summary: `Took the follow-up on ${issue} as the answer to which repository to use.`,
+      workItemId: null,
+    };
   }
   const answered = await answerWaitingTurn(tx, session.id, {
     activityId,
     body,
   });
-  if (answered) return answered;
+  if (answered) {
+    return {
+      effects: answered,
+      summary: `Delivered the follow-up on ${issue} to the running turn, as the answer to its question.`,
+      workItemId: null,
+    };
+  }
   const effects = noEffects();
   let text = body;
   if (session.role) {
@@ -358,7 +538,12 @@ async function followUp(
     effects.deliver.add(session.id);
   }
   effects.route = true;
-  return effects;
+  const summary = work.merged
+    ? `Merged the follow-up on ${issue} into the turn already queued.`
+    : work.behind
+      ? `Queued the follow-up on ${issue} as a new turn, behind one that has not ended.`
+      : `Queued the follow-up on ${issue} as a new turn for routing.`;
+  return { effects, summary, workItemId: work.item.id };
 }
 
 /**
@@ -433,9 +618,28 @@ export async function handlePermissionChange(
       );
       await failPending(tx, { agentSessionId: id }, "team access removed");
     }
-    return { outcome: "handled", deliver: [], effects: undelivered(effects) };
+    return {
+      outcome: "handled",
+      deliver: [],
+      effects: undelivered(effects),
+      summary: `Team access changed; ${plural(cut.length, "session")} on a removed team ended.`,
+    };
   }
-  return { outcome: "handled", deliver: [] };
+  return {
+    outcome: "handled",
+    deliver: [],
+    summary: "Team access changed; the integration's team list follows.",
+  };
+}
+
+/**
+ * A count and a noun, pluralized.
+ * @param n - The count.
+ * @param noun - The singular noun.
+ * @returns `1 session`, `2 sessions`.
+ */
+function plural(n: number, noun: string): string {
+  return `${n} ${noun}${n === 1 ? "" : "s"}`;
 }
 
 /**
@@ -474,9 +678,10 @@ export async function handleOAuthAppRevoked(
     })
     .where(eq(integrations.id, integration.id));
   const effects = noEffects();
-  for (const id of await sessionsWithLiveWork(tx, {
+  const live = await sessionsWithLiveWork(tx, {
     integrationId: integration.id,
-  })) {
+  });
+  for (const id of live) {
     mergeEffects(
       effects,
       await cancelSessionWork(tx, id, {
@@ -502,6 +707,7 @@ export async function handleOAuthAppRevoked(
     deliver: [],
     revokedIntegrationId: integration.id,
     effects: undelivered(effects),
+    summary: `The app was uninstalled in Linear: the integration is revoked and ${plural(live.length, "session")} with live work cancelled.`,
   };
 }
 
@@ -512,7 +718,7 @@ export async function handleOAuthAppRevoked(
  * @param where - The integration, and optionally the issue.
  * @returns Session ids.
  */
-async function sessionsWithLiveWork(
+export async function sessionsWithLiveWork(
   tx: TxHandle,
   where: { integrationId: number; externalIssueId?: string },
 ): Promise<number[]> {
@@ -533,7 +739,7 @@ async function sessionsWithLiveWork(
 }
 
 /** The state types that end an issue: the person is done with it. */
-const CLOSED_STATE_TYPES = new Set(["completed", "canceled"]);
+export const CLOSED_STATE_TYPES = new Set(["completed", "canceled"]);
 
 /**
  * `Issue` data events. Two disengage the agent, and are handled the same way
@@ -562,7 +768,12 @@ export async function handleIssueEvent(
     string,
     unknown
   > | null;
-  if (typeof data.id !== "string") return { outcome: "ignored", deliver: [] };
+  if (typeof data.id !== "string") {
+    return ignoredBecause("the issue event names no issue.");
+  }
+  const issue = issueName(
+    typeof data.identifier === "string" ? data.identifier : null,
+  );
   const updated = payload.action === "update" && updatedFrom !== null;
   const wasOurs =
     updated &&
@@ -577,7 +788,11 @@ export async function handleIssueEvent(
       "stateId" in updatedFrom &&
       typeof stateType === "string" &&
       CLOSED_STATE_TYPES.has(stateType));
-  if (!undelegated && !closed) return { outcome: "ignored", deliver: [] };
+  if (!undelegated && !closed) {
+    return ignoredBecause(
+      `a change to ${issue} that neither removed @hypotenuse as delegate nor closed it.`,
+    );
+  }
 
   if (undelegated) {
     await tx
@@ -592,10 +807,11 @@ export async function handleIssueEvent(
       );
   }
   const effects = noEffects();
-  for (const id of await sessionsWithLiveWork(tx, {
+  const live = await sessionsWithLiveWork(tx, {
     integrationId: integration.id,
     externalIssueId: data.id,
-  })) {
+  });
+  for (const id of live) {
     mergeEffects(
       effects,
       await cancelSessionWork(tx, id, {
@@ -604,5 +820,29 @@ export async function handleIssueEvent(
       }),
     );
   }
-  return { outcome: "handled", deliver: [...effects.deliver], effects };
+  const why = undelegated
+    ? `@hypotenuse is no longer the delegate on ${issue}`
+    : payload.action === "remove"
+      ? `${issue} was deleted`
+      : `${issue} was closed`;
+  return {
+    outcome: "handled",
+    deliver: [...effects.deliver],
+    effects,
+    summary:
+      live.length === 0
+        ? `${capitalize(why)}; no work was running.`
+        : `${capitalize(why)}: cancelled the work of ${plural(live.length, "session")}.`,
+    // One session is the usual case; several on one issue link to none.
+    agentSessionId: live.length === 1 ? live[0] : null,
+  };
+}
+
+/**
+ * A sentence's first letter in capitals.
+ * @param text - The sentence.
+ * @returns It, capitalized.
+ */
+function capitalize(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
 }

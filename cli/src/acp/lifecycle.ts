@@ -12,6 +12,7 @@
  */
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
+import { stopQuote } from "../../../protocol/src/index";
 import { formatDuration } from "../config/durations";
 import type { EventInput } from "../daemon/event-sink";
 import type { StopReason } from "../daemon/executor";
@@ -126,8 +127,8 @@ export interface StopContext {
   /** The branch, if any. */
   branch: string | null;
   /**
-   * What the person who stopped it said (`agents kill --reason`), or who they
-   * are (a dashboard cancel's `by`).
+   * What the person who stopped it said (`agents kill --reason`, or the text
+   * typed with a Linear stop), or who they are (a dashboard cancel's `by`).
    */
   note?: string | null;
   /** The turn timeout (for `timeout`) or idle timeout (for `idle`), ms. */
@@ -143,8 +144,8 @@ export interface StopContext {
  *
  * | Reason | Final activity |
  * |---|---|
- * | `stop` | `response`: stopped at your request, and where the changes are |
- * | `delegate_removed`, `issue_closed`, `integration_revoked`, `superseded`, `revoked` | none — the person disengaged, the server decided not to speak, or the turn is not ours |
+ * | `stop` | `response`: stopped at your request, where the changes are, and what the person typed with the stop (the note), quoted |
+ * | `delegate_removed`, `issue_closed`, `unassigned`, `integration_revoked`, `superseded`, `revoked` | none — the person disengaged, the server decided not to speak, or the turn is not ours |
  * | `kill`, `dashboard` | `error`: cancelled, and from where |
  * | `timeout` | `error`: stopped after the turn timeout |
  * | `idle` | `error`: waited for an answer, or the agent was silent |
@@ -166,7 +167,7 @@ export function stopActivity(ctx: StopContext): EventInput | null {
     case "stop":
       return {
         type: "response",
-        body: `Stopped at your request. Changes so far are ${where}.`,
+        body: `Stopped at your request. Changes so far are ${where}.${stopQuote(ctx.note)}`,
       };
     case "kill":
       return {

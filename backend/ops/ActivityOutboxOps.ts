@@ -1,4 +1,4 @@
-import { and, asc, eq, lte, sql } from "drizzle-orm";
+import { and, asc, eq, lte, notInArray, sql } from "drizzle-orm";
 import { api, config } from "keryx";
 import {
   type ActivityContentType,
@@ -284,6 +284,36 @@ export async function enqueueActivity(
     })
     .returning();
   return row;
+}
+
+/**
+ * Withdraw every activity of a session still waiting to be sent, except a
+ * `response` or an `error` — what a stop, or any disengagement, does to the
+ * outbox. A queued "Editing src/cart.ts" delivered after a person pressed
+ * Stop would read, in Linear, as the agent ignoring them. Session updates (a
+ * plan, a pull request link) are state rather than chatter, and stay.
+ * @param tx - The caller's transaction (the session is locked).
+ * @param agentSessionId - The session.
+ * @returns How many rows were superseded.
+ */
+export async function supersedeNonFinal(
+  tx: TxHandle,
+  agentSessionId: number,
+): Promise<number> {
+  const rows = await tx
+    .update(agentActivities)
+    .set({ deliveryStatus: "superseded" })
+    .where(
+      and(
+        eq(agentActivities.agentSessionId, agentSessionId),
+        eq(agentActivities.direction, "outbound"),
+        eq(agentActivities.kind, "activity"),
+        eq(agentActivities.deliveryStatus, "pending"),
+        notInArray(agentActivities.contentType, ["response", "error"]),
+      ),
+    )
+    .returning({ id: agentActivities.id });
+  return rows.length;
 }
 
 /**

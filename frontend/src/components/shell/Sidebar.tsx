@@ -7,6 +7,7 @@ import {
   PanelLeft,
   Route,
   Settings,
+  Webhook,
   X,
 } from "lucide-react";
 import { NavLink } from "react-router-dom";
@@ -29,6 +30,7 @@ export const NAV_ITEMS: NavItem[] = [
   { id: "sessions", to: "/sessions", label: "Sessions", Icon: MessagesSquare },
   { id: "runners", to: "/runners", label: "Runners", Icon: Cpu },
   { id: "routing", to: "/routing", label: "Routing", Icon: Route },
+  { id: "events", to: "/events", label: "Events", Icon: Webhook },
 ];
 
 /** See {@link Sidebar}. */

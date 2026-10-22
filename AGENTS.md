@@ -54,8 +54,8 @@ and that is where to read before changing something load-bearing, and where to w
    `connection.metadata.auditBefore` / `auditAfter` from `serializeX()` output. A new secret-bearing param means
    adding its key to `SENSITIVE_KEYS` in the same commit. The unaudited writers are a closed list, argued in
    [`phase-04-users-tenancy-and-audit.md`](./docs/plans/phase-04-users-tenancy-and-audit.md): reads, sweeps,
-   `session:create` / `session:destroy`, `webhooks:linear` and `triggers:process-event` (machine ingress, recorded in
-   `trigger_events`), `cli-auth:device` / `cli-auth:exchange` and a CLI token's sliding-expiry touch (the CLI's
+   `session:create` / `session:destroy`, `webhooks:linear`, `triggers:process-event`, and `triggers:check-notifications` (machine
+   ingress, recorded in `trigger_events`), `cli-auth:device` / `cli-auth:exchange` and a CLI token's sliding-expiry touch (the CLI's
    sign-in ingress — the person's `cli-auth:approve` / `cli-auth:activate` is the audited decision), the outbox and
    clocks, and the daemon half (`daemon:*`, recorded in `agent_activities` and
    `work_items`) — save `daemon:dispatch`, which writes an `agent:dispatch` row through `writeAuditLog` because it
@@ -268,10 +268,19 @@ The map is [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md). What follows is the
 - **History comes from activities, not comments.** Comments can be edited; activities are frozen.
 - **Acknowledge within 10 seconds.** Every `created` session gets a server-emitted `thought` before routing, so a
   slow runner never makes the agent look unresponsive.
-- **Respect disengagement.** `stop`, un-delegation, session dismissal, and an issue moving to a completed or canceled
-  state (or being deleted) each cancel the live turn, and nothing re-engages without a new prompt or delegation.
-  The ones where the person stepped away (`DISENGAGED_CANCEL_REASONS`) are silent **on the server**: later events
-  are dropped and the turn's end posts no fallback, whatever the daemon does.
+- **Respect disengagement.** `stop`, un-delegation, session dismissal, unassigning the app, and an issue moving to a
+  completed or canceled state (or being deleted) each cancel the live turn, and nothing re-engages without a new
+  prompt or delegation. Every cancellation withdraws the session's queued activities that are not a `response` or
+  `error` (`supersedeNonFinal`). The ones where the person stepped away (`DISENGAGED_CANCEL_REASONS`) are silent
+  **on the server**: later events are dropped and the turn's end posts no fallback, whatever the daemon does. A
+  stop's text is quoted back (`stopQuote`), never acted on.
+- **Every inbox notification has a decided outcome, and none starts work.** `ops/LinearNotificationOps.ts` holds the
+  table; a notification that needs a second look (a mention, a status change, whose new state Linear does not send)
+  sets `trigger_events.checkAfter` for the `triggers:check-notifications` clock, because processing never calls
+  Linear inside its transaction.
+- **An `auth` link is the server's call.** The daemon names what needs a login (`provider`); the server links the
+  runner's auth page (`/runners/:id/auth/:provider`), passes through only a public `https` URL (`isPublicUrl`), and
+  sets `userId` to the runner owner's linked identity. A login is a question that ends the turn.
 - **Issue hygiene is the server's, at claim.** `ops/IssueHygieneOps.ts` moves a person's delegation to started and
   sets a missing delegate; it never touches the assignee, never fails a claim, and no daemon gets `issueUpdate`.
 - **A worktree is removed only when the safety rules allow** (`cli/src/worktree/cleanup.ts`): never one in use;

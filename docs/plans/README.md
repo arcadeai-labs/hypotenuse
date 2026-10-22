@@ -43,6 +43,7 @@ Much of this is a port, and each port says so in its phase:
 | [16](./phase-16-signals-and-hardening.md) | Signals and hardening | Every signal (`stop`, `auth`, `select`, `continue`); `AppUserNotification`; rate-limit and replay hardening; the AIG checklist |
 | [17](./phase-17-conformance-and-e2e.md) | Conformance and end to end | Every `LINEAR_COVERAGE.md` row closed; the full daemon + finear + fake-agent suite; an optional nightly real-agent run |
 | [18](./phase-18-opentelemetry-export.md) | OpenTelemetry export | Per-project OTLP exporters; one trace per turn joining server, daemon, and the agent's native telemetry; content levels, a runner-side cap, redaction; relayed through the server so collector credentials never reach a runner |
+| [19](./phase-19-event-log.md) | Event log | Every webhook delivery a project's workspace sent, what it did, and how its work was routed — role, rule, runner, or why it waits; the dashboard's Events page, `hypotenuse event`, kept 14 days |
 
 Each phase doc is named `phase-NN-<kebab-title>.md`, so searching for "routing" or "worktree" finds the file without
 opening this index.
@@ -58,6 +59,7 @@ Each phase ends in a reviewable, deployable state. **Phase 1 halts for review be
                                    └─► 15 (after 9; grows with 12–14)
                                                      16, 17 (last)
                                                      18 (after 9 and 11–15)
+                                                     19 (after 7, 9, and 15)
 ```
 
 - **The look comes before any page.** The [design system](./phase-03-design-system.md) lands ToolExec's UI-kit API
@@ -77,7 +79,7 @@ Each phase ends in a reviewable, deployable state. **Phase 1 halts for review be
 
 ## Status
 
-**Phases 1–15 are built** (phase 2 is not yet deployed, the CLI has not had its first release, no real
+**Phases 1–16 and 19 are built** (phase 2 is not yet deployed, the CLI has not had its first release, no real
 Linear workspace has been connected yet, and no real coding agent has run a turn outside a person's own machine);
 the rest are plans. Every document here is a plan with the open questions settled as **decisions so far**. Each
 ends in an empty **Learnings from the build** section that fills in as the phase ships. From then on that section,

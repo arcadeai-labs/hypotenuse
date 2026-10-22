@@ -73,6 +73,27 @@ export interface MapperOptions {
 export interface FinishContext {
   /** The branch the work is on, if any. */
   branch: string | null;
+  /** The disclosure appended to the turn's response ({@link responseSignature}). */
+  signature?: string;
+}
+
+/**
+ * The block a turn's final response ends with: a collapsed `+++` section
+ * whose title says an AI agent wrote it and in which role, and whose body
+ * names the runner and the agent (Linear's AIG #1: always disclose being an
+ * agent). Linear already badges the app's activities; this survives a copy.
+ * @param who - The role, the agent's id, name, and version, and the runner.
+ * @returns `\n\n+++ — Hypotenuse (<role>, <agent>)\n…\n+++`.
+ */
+export function responseSignature(who: {
+  role: string;
+  agentId: string;
+  agentTitle: string;
+  agentVersion?: string | null;
+  runnerName: string;
+}): string {
+  const version = who.agentVersion ? ` ${who.agentVersion}` : "";
+  return `\n\n+++ — Hypotenuse (${who.role}, ${who.agentTitle})\nAn AI coding agent: \`${who.agentId}\`${version} on runner \`${who.runnerName}\`, delegated through Hypotenuse.\n+++`;
 }
 
 /** One coding agent turn's mapping. */
@@ -275,12 +296,13 @@ export class TurnMapper {
     switch (stopReason) {
       case "end_turn": {
         const last = this.lastActionSummary;
+        const signature = context.signature ?? "";
         events.push({
           type: "response",
-          body: truncate(
+          body: `${truncate(
             said || (last ? `Done. Last step: ${last}.` : "Done."),
-            60_000,
-          ),
+            60_000 - signature.length,
+          )}${signature}`,
         });
         break;
       }

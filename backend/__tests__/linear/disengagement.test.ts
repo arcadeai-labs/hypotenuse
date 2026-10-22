@@ -1,6 +1,8 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import type { Cancel } from "@hypotenuse/protocol";
+import { eq } from "drizzle-orm";
 import { api } from "keryx";
+import { agentSessions } from "../../schema/agent_sessions";
 import {
   delegatedSession,
   itemRow,
@@ -9,10 +11,15 @@ import {
   ScriptedDaemon,
   withoutRunnerRateLimits,
 } from "../routing/helpers";
-import { buildTestUniverse, HOOK_TIMEOUT, type TestUniverse } from "../setup";
+import {
+  buildTestUniverse,
+  HOOK_TIMEOUT,
+  runAction,
+  type TestUniverse,
+} from "../setup";
 import { FINEAR_FIXTURES, FINEAR_PRIMARY_KEY, useFinear } from "./finear";
 import { appToken, integrationRow } from "./helpers";
-import { finearSession, recordedEvent, settle } from "./sessions";
+import { activityRows, finearSession, recordedEvent, settle } from "./sessions";
 
 /**
  * Disengagement: a person un-delegating the issue, closing it, or deleting it
@@ -127,7 +134,7 @@ async function quietlyCancelled(
 }
 
 describe("LC-WH-23 disengagement through Issue webhooks", () => {
-  test("un-delegating the issue cancels the turn quietly (delegate_removed)", async () => {
+  test("LC-SES-20 un-delegating the issue (as dismissing the session does) cancels the turn quietly (delegate_removed)", async () => {
     const s = await running("Un-delegate me");
     await updateIssue(s.issue.id, { delegateId: null });
     await recordedEvent(
@@ -189,5 +196,39 @@ describe("LC-WH-23 disengagement through Issue webhooks", () => {
     await settle();
     expect((await itemRow(s.workItemId)).status).toBe("running");
     await laptop.complete(s.workItemId, "completed");
+  });
+
+  test("LC-AIG-05 after a disengagement nothing on the server re-engages: no routing, keepalive, or retry makes work or speaks", async () => {
+    const s = await running("Leave me be");
+    await updateIssue(s.issue.id, { delegateId: null });
+    await recordedEvent(
+      (e) =>
+        e.eventType === "Issue" &&
+        (e.payload as { data?: { id?: string } }).data?.id === s.issue.id &&
+        (e.payload as { updatedFrom?: { delegateId?: string } }).updatedFrom
+          ?.delegateId === appUserId,
+    );
+    await settle();
+    await quietlyCancelled(s, "delegate_removed");
+    const items = (await itemsOf(s.session.id)).length;
+    const outbound = (await activityRows(s.session.id)).filter(
+      (r) => r.direction === "outbound",
+    ).length;
+    // Every server-originated path, with time moved past their thresholds.
+    await api.db.db
+      .update(agentSessions)
+      .set({ updatedAt: new Date(Date.now() - 2 * 60 * 60 * 1000) })
+      .where(eq(agentSessions.id, s.session.id));
+    await runAction("sessions:keepalive");
+    await route();
+    await runAction("work:reap");
+    await laptop.heartbeat();
+    await settle();
+    expect((await itemsOf(s.session.id)).length).toBe(items);
+    expect(
+      (await activityRows(s.session.id)).filter(
+        (r) => r.direction === "outbound",
+      ).length,
+    ).toBe(outbound);
   });
 });

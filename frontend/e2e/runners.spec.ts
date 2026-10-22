@@ -56,4 +56,34 @@ test.describe("runners", () => {
       timeout: 15_000,
     });
   });
+
+  test("LC-SIG-02 an auth link opens the runner's auth page with the commands for its owner", async ({
+    page,
+  }) => {
+    await signUp(page, "Auth Ada");
+    await page.getByTestId("nav-runners").click();
+    await page.getByTestId("register-runner").click();
+    await page.getByTestId("register-runner-name").fill("auth-box");
+    await page.getByTestId("register-runner-submit").click();
+    await expect(page.getByTestId("register-runner-token")).toHaveText(
+      /^hyp_rt_/,
+      LANDED,
+    );
+    await page.getByTestId("register-runner-close").click();
+    const card = page.locator('[data-testid^="runner-card-"]').first();
+    await expect(card).toContainText("auth-box", LANDED);
+    const id = (await card.getAttribute("data-testid"))?.replace(
+      "runner-card-",
+      "",
+    );
+
+    await page.goto(`/runners/${id}/auth/github`);
+    await expect(page.getByTestId("runner-auth-card")).toContainText(
+      "auth-box",
+      LANDED,
+    );
+    await expect(page.getByTestId("runner-auth-commands")).toHaveText(
+      "gh auth login\ngh auth setup-git",
+    );
+  });
 });
