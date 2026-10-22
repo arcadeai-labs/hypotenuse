@@ -42,7 +42,10 @@ gets `-2`, `-3`, … — an existing branch is never reused silently.
 4. **Follow-ups** reuse the worktree, with whatever the last turn left in it, committed or not.
 
 The agent opens pull requests itself, with your git and forge credentials (`git push`, `gh pr create`). Hypotenuse
-never merges. When a pull request of the session's own repository appears in what the agent ran or said, the session
+never merges. Its commits are yours, with a `Co-Authored-By: Hypotenuse <noreply@hypotenuse.cloud>` trailer saying an
+agent wrote them — set `sessions.co_author` to name it differently, or to `""` for none. The trailer comes from a hook
+only the agent's git sees: your checkout's config and your own commits are untouched, and your repository's hooks still
+run. When a pull request of the session's own repository appears in what the agent ran or said, the session
 links it as **Pull Request** in Linear — a link to someone else's pull request is ignored. Every session also links
 its page in the dashboard as **Hypotenuse**.
 

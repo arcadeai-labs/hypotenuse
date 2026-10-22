@@ -89,6 +89,12 @@ describe("the worktree lifecycle", () => {
     expect(
       git(dir, "config", "--worktree", "--get", "hypotenuse.session"),
     ).toBe(String(session.id));
+    // The agent's commit says an agent wrote it, through a hook that reached
+    // only the agent: the checkout's own config does not point at it.
+    expect(git(dir, "log", "-1", "--format=%B")).toContain(
+      "Co-Authored-By: Hypotenuse <noreply@hypotenuse.cloud>",
+    );
+    expect(git(dir, "config", "--get", "core.hooksPath")).toBe("");
     // The agent pushed its branch to origin.
     const origin = join(home.root, "origin.git");
     expect(git(origin, "branch", "--list", branch)).toContain(branch);

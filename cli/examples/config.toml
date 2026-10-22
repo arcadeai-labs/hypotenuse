@@ -59,6 +59,7 @@ cleanup = "on-complete"
 turn_timeout = "90m"
 idle_timeout = "20m"
 keepalive_interval = "10m"
+co_author = "Hypotenuse <noreply@hypotenuse.cloud>"   # "" for no Co-Authored-By trailer
 
 [log]
 level = "info"

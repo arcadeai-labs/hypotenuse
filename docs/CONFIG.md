@@ -290,6 +290,7 @@ that have it, matched by normalized `remote`.
 | `keepalive_interval` | duration | `"10m"` | a "still working" thought after this much silence; must be under 30m, Linear's stale window |
 | `stop_grace` | duration | `"10s"` | after a stop, how long the agent gets to wind down before it is terminated |
 | `min_free_disk` | size | `"2GB"` | free space required under `worktree_root` to start a new worktree; below it the daemon runs cleanup, then fails the turn and claims nothing (heartbeats report `draining`) until space recovers |
+| `co_author` | string | `"Hypotenuse <noreply@hypotenuse.cloud>"` | `Name <email>` added as a `Co-Authored-By` trailer to every commit the agent makes in a repository; `""` adds none. A `commit-msg` hook reached only through the agent's environment (`GIT_CONFIG_COUNT` → `core.hooksPath`), so your checkout's config and your own commits are untouched; the repository's own hooks still run first. `git commit --no-verify` skips it |
 
 ## `[log]`
 
@@ -384,6 +385,7 @@ cleanup = "on-complete"
 turn_timeout = "90m"
 idle_timeout = "20m"
 keepalive_interval = "10m"
+co_author = "Hypotenuse <noreply@hypotenuse.cloud>"   # "" for no Co-Authored-By trailer
 
 [log]
 level = "info"

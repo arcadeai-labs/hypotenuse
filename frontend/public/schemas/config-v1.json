@@ -738,6 +738,11 @@
           "default": "2GB",
           "type": "string",
           "pattern": "^(\\d+(?:\\.\\d+)?)\\s*(B|KB|MB|GB|TB)$"
+        },
+        "co_author": {
+          "default": "Hypotenuse <noreply@hypotenuse.cloud>",
+          "description": "Co-Authored-By trailer on the agent's commits; empty for none",
+          "type": "string"
         }
       },
       "additionalProperties": false
