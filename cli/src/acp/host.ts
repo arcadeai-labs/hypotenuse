@@ -39,6 +39,10 @@ import type {
   TurnContext,
   TurnResult,
 } from "../daemon/executor";
+import {
+  coAuthorEnvironment,
+  installCoAuthorHooks,
+} from "../worktree/co-author";
 import { type Workspace, WorkspaceError } from "../worktree/manager";
 import {
   AcpConnection,
@@ -405,6 +409,17 @@ class Turn {
     if (!launch) {
       throw new TurnFailure(
         `Runner ${ctx.runnerName} has no agent \`${this.agentId}\` configured for the ${assignment.role} role.`,
+      );
+    }
+    const coAuthor = ctx.config.sessions.co_author.trim();
+    if (coAuthor && this.workspace?.repository) {
+      Object.assign(
+        launch.env,
+        coAuthorEnvironment(
+          launch.env,
+          installCoAuthorHooks(ctx.stateDir),
+          coAuthor,
+        ),
       );
     }
     this.log.note(`spawn ${launch.command.join(" ")} in ${this.cwd}`);

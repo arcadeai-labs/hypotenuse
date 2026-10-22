@@ -350,6 +350,12 @@ export function buildConfigSchema(ctx: SchemaContext) {
         min_free_disk: size()
           .prefault("2GB")
           .describe("Free space needed for a new worktree"),
+        co_author: z
+          .string()
+          .default("Hypotenuse <noreply@hypotenuse.cloud>")
+          .describe(
+            "Co-Authored-By trailer on the agent's commits; empty for none",
+          ),
       })
       .prefault({}),
     log: z

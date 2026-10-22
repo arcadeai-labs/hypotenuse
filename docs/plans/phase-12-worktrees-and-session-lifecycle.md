@@ -409,6 +409,17 @@ git -C ~/.hypotenuse/worktrees/web/ENG-123 config --worktree --get hypotenuse.se
 
 ## Learnings from the build
 
+### The agent's commits carry a co-author trailer
+
+A coding agent commits as the person, with their identity and credentials, and on a developer machine nothing can make
+it push as anyone else — so a bot identity could be offered but never enforced. What can be said honestly is that an
+agent wrote it: `sessions.co_author` (default `Hypotenuse <noreply@hypotenuse.cloud>`) is appended as a
+`Co-Authored-By` trailer by a `commit-msg` hook (`cli/src/worktree/co-author.ts`). The hook reaches only the agent:
+`core.hooksPath` arrives as `GIT_CONFIG_COUNT` / `GIT_CONFIG_KEY_n` / `GIT_CONFIG_VALUE_n` in its environment, appended
+after any entries already there, so the person's checkout and config are never written. Because that hides the
+repository's own hooks, every hook name is a shim that asks git for the hooks directory again without our entry and
+runs the repository's hook — `commit-msg` first, then the trailer, so a commit-message linter sees what the agent wrote.
+
 **Built.** Everything in the Definition of done, at CLI 0.8.0, with the departures below. Every real-daemon suite
 (`backend/__tests__/daemon/`) now runs its turns in real git worktrees of a clone whose origin is a local bare
 repository. No real coding agent has opened a real pull request through it yet, and the `on-merge` policy has been

@@ -91,6 +91,7 @@ describe("the schema", () => {
         keepalive_interval: 600_000,
         stop_grace: 10_000,
         min_free_disk: 2 * 1024 ** 3,
+        co_author: "Hypotenuse <noreply@hypotenuse.cloud>",
       },
       log: { level: "info" },
     });
