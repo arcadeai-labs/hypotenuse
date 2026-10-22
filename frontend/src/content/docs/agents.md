@@ -81,7 +81,12 @@ When an agent asks before running a tool, the role's `permission_policy` answers
 |---|---|
 | `allow` (workers' default) | allowed once — never "always", which would outlive your view of it |
 | `deny` | rejected once; the agent sees the refusal and carries on without it |
-| `ask` (managers' default) | the session asks you: *"The agent wants to run `rm -rf build/` in acme/web. Allow it?"* with the agent's own choices |
+| `ask` | the session asks you: *"The agent wants to run `rm -rf build/` in acme/web. Allow it?"* with the agent's own choices |
+
+A manager is **read-only** by default — `{ default = "allow", edit = "deny", delete = "deny", move = "deny",
+execute = "deny" }`: it reads the code to plan, never changes it or runs commands, and a file write through the
+daemon is refused with *"this session is read-only"*. Its own Hypotenuse tools stay allowed. `hypotenuse config
+validate` warns about a manager that may write.
 
 Policies can differ by kind of tool:
 

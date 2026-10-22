@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import type { AssignmentDispatch } from "../../../protocol/src/index";
 import {
   buildPrompt,
   DEFAULT_TEMPLATES,
@@ -8,6 +9,28 @@ import {
 } from "../../src/acp/prompt";
 import { PROMPT_VARIABLES } from "../../src/config/validate";
 import { assignment } from "./harness";
+
+/**
+ * A manager's dispatch, as an assignment carries it.
+ * @param overrides - Fields to change.
+ * @returns The dispatch.
+ */
+function dispatch(
+  overrides: Partial<AssignmentDispatch> = {},
+): AssignmentDispatch {
+  return {
+    mode: "new",
+    reviewRound: 0,
+    instructions: null,
+    agentPreference: null,
+    parent: {
+      agentSessionId: 40,
+      issueIdentifier: "ENG-0",
+      issueUrl: "https://linear.app/acme/issue/ENG-0/plan",
+    },
+    ...overrides,
+  };
+}
 
 /** The one prompt builder: golden prompts, guidance order, and variables. */
 
@@ -151,16 +174,104 @@ describe("prompt", () => {
 
   test("a dispatched turn renders the dispatch variable", () => {
     const blocks = buildPrompt(
-      assignment({
-        kind: "dispatch",
-        dispatch: { parentIdentifier: "ENG-0" },
-      } as never),
+      assignment({ kind: "dispatch", dispatch: dispatch() }),
       { prompt: "Part of {{dispatch.parent_identifier}}." },
       ctx,
     );
     expect(text(blocks)).toContain(
       "<role-instructions>\nPart of ENG-0.\n</role-instructions>",
     );
+  });
+
+  test("a dispatched worker's first turn names the planning session and carries its instructions", () => {
+    const prompt = text(
+      buildPrompt(
+        assignment({
+          kind: "dispatch",
+          dispatch: dispatch({ instructions: "Reuse the money helper." }),
+        }),
+        null,
+        ctx,
+      ),
+    );
+    expect(prompt).toContain(
+      "This issue was dispatched to you by the planning agent's session on https://linear.app/acme/issue/ENG-0/plan.",
+    );
+    expect(prompt).toContain(
+      "<request>\nBegin.\n\n## Instructions from the planning agent\n\nReuse the money helper.\n</request>",
+    );
+  });
+
+  test("changes requested are the request, on a resumed turn too", () => {
+    const changes = assignment({
+      kind: "prompt",
+      dispatch: dispatch({
+        mode: "changes",
+        reviewRound: 1,
+        instructions: "Handle EUR too.",
+      }),
+    });
+    for (const resumed of [false, true]) {
+      expect(text(buildPrompt(changes, null, { ...ctx, resumed }))).toContain(
+        "<request>\n## Changes requested by the planning agent\n\nHandle EUR too.\n</request>",
+      );
+    }
+  });
+
+  test("a review turn carries the worker's result in a fence its text cannot close", () => {
+    const review = assignment({
+      kind: "review",
+      role: "manager",
+      review: {
+        childAgentSessionId: 7,
+        childIssueIdentifier: "ENG-2",
+        childIssueUrl: "https://linear.app/acme/issue/ENG-2/eur",
+        reviewRound: 0,
+        outcome: "completed",
+        finalResponse: "Done. See ```diff``` above.",
+        plan: [{ content: "Write the test", status: "completed" }],
+        pullRequests: [
+          { label: "Pull Request", url: "https://github.com/acme/web/pull/9" },
+        ],
+      },
+    });
+    const prompt = text(buildPrompt(review, null, { ...ctx, resumed: true }));
+    expect(prompt).toContain(
+      [
+        "<request>",
+        "## Worker result for ENG-2 (round 1)",
+        "",
+        "Issue: https://linear.app/acme/issue/ENG-2/eur",
+        "",
+        "````",
+        "outcome: completed",
+        "pull requests:",
+        "- Pull Request: https://github.com/acme/web/pull/9",
+        "plan:",
+        "- [completed] Write the test",
+        "final response:",
+        "Done. See ```diff``` above.",
+        "````",
+      ].join("\n"),
+    );
+    expect(prompt).toContain("accept it, request changes, or file follow-ups");
+  });
+
+  test("a read-only checkout and a repository-less turn say where they are", () => {
+    const manager = assignment({
+      role: "manager",
+      repository: { remote: "github.com/acme/web", baseBranch: "main" },
+    });
+    expect(
+      text(
+        buildPrompt(manager, null, { ...ctx, branch: null, readOnly: true }),
+      ),
+    ).toContain(
+      "This is a read-only checkout of main (detached, no branch): read the code, do not change it.",
+    );
+    expect(
+      text(buildPrompt(assignment({ role: "manager" }), null, ctx)),
+    ).toContain("No repository applies to this session");
   });
 
   test("the built-in templates are used when the role has none, and use only known variables", () => {

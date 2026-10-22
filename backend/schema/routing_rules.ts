@@ -26,6 +26,11 @@ export interface RoutingMatch {
   promptPrefix?: string;
   /** The issue is (or is not) a sub-issue. */
   hasParent?: boolean;
+  /**
+   * The issue's project has (or has not) any content — the long description
+   * a PRD is written in. An issue in no project matches neither.
+   */
+  projectHasContent?: boolean;
   /** How the session started. */
   origin?: "delegation" | "mention";
 }
@@ -33,9 +38,9 @@ export interface RoutingMatch {
 /**
  * A `routing_rule` decides which role answers a new session. A project's
  * enabled rules are evaluated in `position` order and the first that matches
- * wins; when none does, the role is `worker`. Two prefix rules (`/manage` →
- * manager, `/work` → worker) are seeded when a project first connects Linear,
- * so the whole decision is one list an admin can read and edit.
+ * wins; when none does, the role is `worker`. Four rules are seeded when a
+ * project first connects Linear (`SEEDED_RULES` in `ops/RoutingOps.ts`), so
+ * the whole decision is one list an admin can read and edit.
  *
  * `repository` optionally pins the repository too, bypassing repository
  * selection.

@@ -30,6 +30,7 @@ import {
   type WorkAssignment,
 } from "../../../protocol/src/index";
 import pkg from "../../package.json";
+import { agentForTurn } from "../acp/agent-choice";
 import { ApiError } from "../api/client";
 import type { MachineEnv, ResolvedRepository } from "../config/machine";
 import type { Config } from "../config/schema";
@@ -526,8 +527,13 @@ export class Supervisor {
    */
   private startTurn(assignment: WorkAssignment): void {
     const { state, log } = this.options;
-    const agentId =
-      assignment.agentId ?? this.agentFor(assignment.role) ?? "unknown";
+    const agentId = agentForTurn(
+      {
+        ...assignment,
+        agentId: assignment.agentId ?? this.agentFor(assignment.role),
+      },
+      this.config,
+    ).agentId;
     const previousAcpSessionId =
       state.session(assignment.agentSessionId)?.acpSessionId ?? null;
     state.claimSession({

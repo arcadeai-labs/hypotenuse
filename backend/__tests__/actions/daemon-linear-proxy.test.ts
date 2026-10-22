@@ -590,11 +590,14 @@ describe("a manager's tools", () => {
       manager.sessionId,
       {
         issue: child.identifier,
-        instruction: "Keep it short.",
+        instructions: "Keep it short.",
       },
     );
     expect(dispatched.status).toBe(200);
-    expect(dispatched.body.result!.data.dispatched).toBe(false);
+    expect(dispatched.body.result!.data.dispatch).toMatchObject({
+      issueIdentifier: child.identifier,
+      mode: "new",
+    });
     const writes = (await itemRow(manager.workItemId)).linearWrites.map(
       (w) => w.tool,
     );

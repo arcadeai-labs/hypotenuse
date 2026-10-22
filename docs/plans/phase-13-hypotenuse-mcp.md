@@ -405,8 +405,8 @@ psql hypotenuse -c "select id, payload->'linearWrites' from work_items where age
 
 **Built.** Everything in the Definition of done, at CLI 0.9.0, with the departures below. A real daemon's agent
 (the fake ACP agent, now an MCP client) reads its finear issue through `hypotenuse mcp` and asks with
-`linear_ask_user` in `backend/__tests__/daemon/mcp.test.ts`. No real coding agent has called the tools yet, and
-`hypotenuse_dispatch` records a hand-off without starting a worker — that is the manager plan's.
+`linear_ask_user` in `backend/__tests__/daemon/mcp.test.ts`. No real coding agent has called the tools yet;
+`hypotenuse_dispatch` now starts a worker (the manager plan's learnings).
 
 ### Where the pieces live
 
@@ -455,7 +455,7 @@ psql hypotenuse -c "select id, payload->'linearWrites' from work_items where age
 | `linear_report_pr`'s label | *Pull Request*, then *Pull Request (n)*, as the daemon's detection labels them; a URL already linked is a no-op, and the daemon's detector remembers a reported one |
 | Names to ids (teams, labels, projects, states) | from the integration's cached catalog (which now records whether a team is private), re-read once on a miss |
 | `createAsUser`'s icon | the deployment's `favicon.svg` (`FRONTEND_URL`) |
-| `hypotenuse_dispatch` before the manager plan | checks `managed`, records the hand-off in the ledger, and **says no worker has started** |
+| `hypotenuse_dispatch` before the manager plan | checked `managed`, recorded the hand-off in the ledger, and said no worker had started; it now starts one (see [the manager plan's learnings](./phase-14-manager-and-dispatch.md#learnings-from-the-build)) |
 | How a tool call counts against a runner's budget | as any daemon request (`RUNNER_REQUEST_LIMIT`), plus one bucket token per Linear call it makes |
 | Where `hypotenuse mcp` finds the socket | `HYPOTENUSE_STATE_DIR` from the server's `env`, else the usual state-directory rules |
 

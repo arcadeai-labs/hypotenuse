@@ -166,10 +166,12 @@ async function rules(): Promise<Rule[]> {
 }
 
 describe("hypotenuse routing", () => {
-  test("list shows the seeded prefix rules and the fallthrough", async () => {
-    expect((await rules()).map((r) => [r.name, r.role])).toEqual([
-      ["/manage", "manager"],
-      ["/work", "worker"],
+  test("list shows the seeded rules and the fallthrough", async () => {
+    expect((await rules()).map((r) => [r.name, r.role, r.enabled])).toEqual([
+      ["/manage", "manager", true],
+      ["/work", "worker", true],
+      ["hypotenuse:manager label", "manager", true],
+      ["plan an empty project", "manager", false],
     ]);
     const human = await run("luigi", ["routing", "list"]);
     expect(human.stdout).toContain("prefix=/manage");
@@ -211,7 +213,7 @@ describe("hypotenuse routing", () => {
       .routingRule;
     expect(rule).toEqual(
       expect.objectContaining({
-        position: 2,
+        position: 4,
         role: "manager",
         enabled: true,
         repository: "github.com/acme/web",
@@ -252,7 +254,7 @@ describe("hypotenuse routing", () => {
   });
 
   test("edit replaces the match, disables, and clears the pin", async () => {
-    const target = (await rules())[2];
+    const target = (await rules()).find((r) => r.name === "Team subissues")!;
     const res = await run("peach", [
       "--json",
       "routing",
@@ -340,6 +342,41 @@ describe("hypotenuse routing", () => {
     ]);
     expect(JSON.parse(reset.stdout).routing.queueTimeoutMs).toBe(1_800_000);
     expect(JSON.parse(reset.stdout).routing.stickyTimeoutMs).toBe(0);
+  });
+
+  test("settings carry what a manager may do", async () => {
+    const shown = await run("luigi", ["routing", "settings"]);
+    expect(shown.stdout).toContain("max parallel dispatch  3");
+    expect(shown.stdout).toContain("manager completes      no");
+
+    const changed = await run("peach", [
+      "--json",
+      "routing",
+      "settings",
+      "--max-parallel-dispatch",
+      "5",
+      "--manager-can-complete",
+      "yes",
+    ]);
+    expect(changed.code).toBe(0);
+    expect(JSON.parse(changed.stdout).manager).toEqual({
+      canCompleteIssues: true,
+      maxParallelDispatch: 5,
+    });
+
+    const reset = await run("peach", [
+      "--json",
+      "routing",
+      "settings",
+      "--reset",
+      "canCompleteIssues",
+      "--reset",
+      "maxParallelDispatch",
+    ]);
+    expect(JSON.parse(reset.stdout).manager).toEqual({
+      canCompleteIssues: false,
+      maxParallelDispatch: 3,
+    });
   });
 });
 

@@ -19,6 +19,7 @@ import {
   upsertFromWebhook,
   type WebhookAgentActivity,
 } from "./AgentSessionOps";
+import { adoptDispatchedSession } from "./DispatchOps";
 import { getAdminUserIds } from "./MembershipOps";
 import { enqueueNotification } from "./NotificationOps";
 import type { TxHandle } from "./ProjectOps";
@@ -205,6 +206,9 @@ async function hasOutbound(
  * | Action | Effect |
  * |---|---|
  * | `created` | upsert the session; enqueue the `ack` thought and the session's first turn (routing prepares and places it) |
+ * | `created`, a session a dispatch already recorded | nothing more (`duplicate_of_dispatch`) |
+ * | `created`, a session a dispatch is starting (its intent is in Redis) | the dispatch's worker session and turn instead of the acknowledgement (`completeDispatch`) |
+ * | `created`, another session on an issue whose dispatch already has one | nothing (`duplicate_of_dispatch`) |
  * | `prompted`, `stop` signal | record the prompt; cancel the session's work (see `cancelSessionWork`) |
  * | `prompted`, a repository question pending | record the prompt; take it as the answer |
  * | `prompted`, otherwise | record the prompt; merge it into a queued follow-up or queue a new turn, sticky to the session's runner |
@@ -239,7 +243,26 @@ export async function handleAgentSessionEvent(
 
   if (payload.action === "created") {
     if (await hasOutbound(tx, session.id)) {
-      return { outcome: "handled", deliver: [] };
+      return {
+        outcome:
+          session.parentAgentSessionId !== null
+            ? "duplicate_of_dispatch"
+            : "handled",
+        deliver: [],
+      };
+    }
+    // Linear's `created` for a session a manager's dispatch started, before
+    // the dispatch recorded it: it becomes the dispatch's worker session.
+    const adopted = await adoptDispatchedSession(tx, integration, session);
+    if (adopted?.kind === "duplicate") {
+      return { outcome: "duplicate_of_dispatch", deliver: [] };
+    }
+    if (adopted) {
+      return {
+        outcome: "handled",
+        deliver: [...adopted.effects.deliver],
+        effects: adopted.effects,
+      };
     }
     await enqueueActivity(
       tx,

@@ -10,12 +10,15 @@ import { type Integration, integrations } from "../schema/integrations";
 import { runners } from "../schema/runners";
 import { type WorkItem, workItems } from "../schema/work_items";
 import { enqueueActivity } from "./ActivityOutboxOps";
+import { reviewingThought, reviewSuperseded } from "./DispatchOps";
 import { linearRequest } from "./LinearOps";
 import { acquireLock, releaseLock } from "./LockOps";
 import {
   GetComment,
   GetIssue,
+  GetProjectContent,
   IssueRepositorySuggestions,
+  type LinearIssue,
 } from "./linear/operations";
 import type { TxHandle } from "./ProjectOps";
 import { getRoutingSettings } from "./ProjectSettingsOps";
@@ -32,6 +35,7 @@ import {
   repositoryOption,
   roleThought,
   routingFacts,
+  rulesNeedProjectContent,
   selectRole,
 } from "./RoutingOps";
 import {
@@ -93,6 +97,15 @@ export async function fetchIssueSnapshot(
     { id: issueId },
     { idempotent: true },
   );
+  return snapshotFromIssue(issue);
+}
+
+/**
+ * The snapshot of an issue already read from Linear.
+ * @param issue - The issue.
+ * @returns The snapshot.
+ */
+export function snapshotFromIssue(issue: LinearIssue): IssueSnapshot {
   return {
     id: issue.id,
     identifier: issue.identifier,
@@ -299,6 +312,25 @@ export async function prepareSession(
       if (session.role === null) {
         const text = await fetchMentionText(integration, session);
         const rules = await listRoutingRules(api.db.db, session.projectId);
+        if (
+          snapshot.project &&
+          snapshot.project.hasContent === undefined &&
+          rulesNeedProjectContent(rules)
+        ) {
+          const { project } = await linearRequest(
+            integration,
+            GetProjectContent,
+            { id: snapshot.project.id },
+            { idempotent: true },
+          );
+          snapshot = {
+            ...snapshot,
+            project: {
+              ...snapshot.project,
+              hasContent: Boolean(project.content?.trim()),
+            },
+          };
+        }
         decision = selectRole(
           rules,
           routingFacts(snapshot, session.origin, text),
@@ -599,6 +631,8 @@ async function setWaiting(
  * 2. Past the project's `queueTimeoutMs` since it was queued → `expired`, with
  *    an `error` naming the reason the data supports.
  * 3. Not yet prepared → nothing (preparation runs first in the same pass).
+ *    A review whose child was sent back since, or that a newer review of the
+ *    same child replaces → `cancelled` as `superseded`, silently.
  * 4. No repository yet (no runner has one checked out) → waiting.
  * 5. The session's runner holds its worktree but cannot take it → waiting for
  *    that runner, until `stickyTimeoutMs`; then anyone, and the claimant
@@ -639,6 +673,12 @@ async function offerItem(itemId: number, now: Date): Promise<WorkEffects> {
       });
     }
     if (item.role === null) return effects;
+    if (item.kind === "review" && (await reviewSuperseded(tx, item))) {
+      return finishWorkItem(tx, item, {
+        status: "cancelled",
+        cancelReason: "superseded",
+      });
+    }
     if (!item.repositoryResolved) {
       await setWaiting(
         tx,
@@ -698,6 +738,23 @@ async function offerItem(itemId: number, now: Date): Promise<WorkEffects> {
       })
       .where(eq(workItems.id, item.id));
     effects.frames.set(chosen.id, "work");
+    // A review says why the manager woke — once, when it is offered (not
+    // when queued behind a turn still running).
+    if (
+      item.kind === "review" &&
+      item.payload &&
+      "review" in item.payload &&
+      item.lapsedOffers &&
+      Object.keys(item.lapsedOffers).length === 0
+    ) {
+      await enqueueActivity(
+        tx,
+        session.id,
+        { type: "thought", body: reviewingThought(item.payload.review) },
+        { priority: "ack" },
+      );
+      effects.deliver.add(session.id);
+    }
     return effects;
   });
 }

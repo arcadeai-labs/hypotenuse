@@ -246,6 +246,31 @@ describe("pass 2 — references", () => {
     ]);
   });
 
+  test("a manager that may write or run commands is a warning; the read-only default is not", () => {
+    const roles = (policy: string) =>
+      config(
+        `[runner]\nroles = ["manager"]\n[roles.manager]\nagent = "claude"\n${policy}`,
+      );
+    const warning = {
+      path: "roles.manager.permission_policy",
+      message:
+        "a manager with write permission can change code; this is allowed but unusual",
+      hint: 'the default denies edit, delete, move, and execute: { default = "allow", edit = "deny", delete = "deny", move = "deny", execute = "deny" }',
+    };
+    expect(validateReferences(roles("")).warnings).toEqual([]);
+    expect(
+      validateReferences(roles('permission_policy = "deny"')).warnings,
+    ).toEqual([]);
+    expect(
+      validateReferences(roles('permission_policy = "ask"')).warnings,
+    ).toEqual([warning]);
+    expect(
+      validateReferences(
+        roles('permission_policy = { default = "allow", edit = "deny" }'),
+      ).warnings,
+    ).toEqual([warning]);
+  });
+
   test("an inline prompt's variables are known", () => {
     const c = config(
       '[roles.worker]\nagent = "claude"\nprompt = "Fix {{issue.titel}} on {{ runner.name }}"\n',

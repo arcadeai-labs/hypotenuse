@@ -45,6 +45,28 @@ export const TOOL_KINDS = [
 /** What a permission request can be answered with. */
 export const POLICIES = ["allow", "ask", "deny"] as const;
 
+/** A `permission_policy`: one answer for every request, or one per ACP tool kind. */
+export type PermissionPolicyConfig =
+  | (typeof POLICIES)[number]
+  | Partial<
+      Record<"default" | (typeof TOOL_KINDS)[number], (typeof POLICIES)[number]>
+    >;
+
+/**
+ * The manager's default: read-only. Writes, deletes, moves, and commands are
+ * refused without asking anyone; everything else is allowed. Not the bare
+ * string `deny`: ACP agents ask permission for MCP tool calls too (kind
+ * `other` or `fetch`), and a blanket deny would refuse the manager its own
+ * Hypotenuse tools — the only way it does its job.
+ */
+export const MANAGER_DEFAULT_POLICY = {
+  default: "allow",
+  edit: "deny",
+  delete: "deny",
+  move: "deny",
+  execute: "deny",
+} as const satisfies PermissionPolicyConfig;
+
 /** Linear's stale window: an agent session silent this long looks stuck. */
 export const LINEAR_STALE_MS = 30 * 60_000;
 
@@ -111,7 +133,7 @@ export function buildConfigSchema(ctx: SchemaContext) {
   const strings = () => z.array(z.string().trim().min(1));
   const stringTable = () => z.record(z.string(), z.string());
 
-  const permissionPolicy = (fallback: (typeof POLICIES)[number]) =>
+  const permissionPolicy = (fallback: PermissionPolicyConfig) =>
     z
       .union([
         z.enum(POLICIES),
@@ -129,9 +151,9 @@ export function buildConfigSchema(ctx: SchemaContext) {
           >
         >,
       ])
-      .default(fallback)
+      .default(typeof fallback === "string" ? fallback : { ...fallback })
       .describe(
-        'allow, ask, or deny every permission request — or a table by ACP tool kind, e.g. { default = "allow", execute = "ask" }',
+        'allow, ask, or deny every permission request — or a table by ACP tool kind, e.g. { default = "allow", execute = "ask" }. Defaults: worker "allow"; manager read-only, { default = "allow", edit = "deny", delete = "deny", move = "deny", execute = "deny" }',
       );
 
   const mcpServer = z.strictObject({
@@ -151,7 +173,7 @@ export function buildConfigSchema(ctx: SchemaContext) {
     headers: stringTable().optional().describe("HTTP headers; $VAR allowed"),
   });
 
-  const role = (fallbackPolicy: (typeof POLICIES)[number]) =>
+  const role = (fallbackPolicy: PermissionPolicyConfig) =>
     z.strictObject({
       agent: z
         .string()
@@ -317,7 +339,7 @@ export function buildConfigSchema(ctx: SchemaContext) {
       .default({}),
     roles: z
       .strictObject({
-        manager: role("ask").optional(),
+        manager: role(MANAGER_DEFAULT_POLICY).optional(),
         worker: role("allow").optional(),
       })
       .prefault({}),

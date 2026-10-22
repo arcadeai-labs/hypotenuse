@@ -19,6 +19,7 @@ import {
   targetRefused,
   toolInputRefused,
 } from "./DaemonScopeOps";
+import { runDispatch } from "./DispatchOps";
 import type { LinearCatalog } from "./LinearCatalogOps";
 import { bodyForLinear, capDescription, personLink } from "./LinearMarkdownOps";
 import {
@@ -43,6 +44,7 @@ import {
   UpdateProject,
 } from "./linear/operations";
 import type { TxHandle } from "./ProjectOps";
+import { getManagerSettings } from "./ProjectSettingsOps";
 import { lockItemWithSession } from "./WorkItemOps";
 
 /**
@@ -645,10 +647,22 @@ export async function setIssueState(
       `${target.team.key} has no state "${input.state}". Its states: ${states.map((s) => `${s.name} (${s.type})`).join(", ")}.`,
     );
   }
-  if (state.type === "canceled" && ts.role === "worker") {
-    throw toolInputRefused(
-      "A worker cannot cancel an issue. If it should be canceled, ask the person with linear_ask_user.",
+  if (state.type === "completed" || state.type === "canceled") {
+    const verb = state.type === "completed" ? "complete" : "cancel";
+    if (ts.role === "worker") {
+      throw toolInputRefused(
+        `A worker cannot ${verb} an issue: a person decides that. Move it to a review state if there is one, and say what you did in your response.`,
+      );
+    }
+    const { canCompleteIssues } = await getManagerSettings(
+      api.db.db,
+      ts.session.projectId,
     );
+    if (!canCompleteIssues) {
+      throw toolInputRefused(
+        `This project does not let a manager ${verb} issues: a person decides that. Move ${target.identifier} to a started state such as "In Review" if the team has one, and say in your response that it is ready for them.`,
+      );
+    }
   }
   await ts.linear(
     UpdateIssue,
@@ -838,29 +852,30 @@ export async function createRelation(
 }
 
 /**
- * `hypotenuse_dispatch`. Validates and records the hand-off; the worker turn
- * itself is created by the manager's dispatch, which this server does not
- * run yet — and the answer says so, so the agent does not report work that
- * has not started.
+ * `hypotenuse_dispatch`: start a worker on an issue the manager manages, or
+ * send a finished one back with changes (`ops/DispatchOps.ts`).
  * @param ts - The call.
  * @param input - The tool input.
- * @returns What was recorded.
+ * @returns What was dispatched.
  */
 export async function dispatch(
   ts: ToolScope,
-  input: { issue: string; instruction?: string },
+  input: {
+    issue: string;
+    instructions?: string;
+    agentPreference?: string;
+    mode?: "new" | "changes";
+  },
 ): Promise<ToolOutput> {
-  const target = await ts.issue(input.issue);
-  await ts.assertManaged(target);
-  await ts.recordWrite(target.identifier, target.id);
-  return {
-    text: `Recorded the hand-off of ${target.identifier}. This server does not start worker turns from a dispatch yet, so no worker has started on it — say so to the person if it matters.`,
-    data: {
-      issue: target.identifier,
-      dispatched: false,
-      instruction: input.instruction ?? null,
-    },
-  };
+  const result = await runDispatch(ts, input);
+  const where = result.externalSessionUrl
+    ? ` (${result.externalSessionUrl})`
+    : "";
+  const text =
+    result.mode === "changes"
+      ? `Sent ${result.issueIdentifier} back to its worker with your changes (review round ${result.reviewRound + 1})${where}. You will get a review turn when it finishes.`
+      : `Dispatched ${result.issueIdentifier} to a worker${where}. You will get a review turn with its result when it finishes; there is nothing to wait for in this turn.`;
+  return { text, data: { dispatch: result } };
 }
 
 // ── Writes to projects and documents ─────────────────────────────────────

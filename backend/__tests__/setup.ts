@@ -300,8 +300,9 @@ export async function retryClearDatabase(): Promise<void> {
 
 /**
  * Forget what Redis holds per Linear installation — token buckets, rate-limit
- * snapshots, cached catalogs, outbox leases — and per runner (rate limits,
- * minted sessions), and the jobs still queued on the
+ * snapshots, cached catalogs, outbox leases — per runner (rate limits,
+ * minted sessions), per manager session (dispatch reservations), and the
+ * jobs still queued on the
  * `triggers` queue. Clearing the database restarts every id, so the next file's
  * installation 1 would otherwise inherit the previous file's empty bucket, and
  * its event 1 a job queued for someone else's.
@@ -316,6 +317,8 @@ export async function clearLinearRedisState(): Promise<void> {
     // by runner ids that restart with the tables.
     "runner-ratelimit:*",
     "runner:sessions:*",
+    // Dispatch intents and in-flight reservations, keyed by session ids.
+    "dispatch:*",
   ]) {
     let cursor = "0";
     do {

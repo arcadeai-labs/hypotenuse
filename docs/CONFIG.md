@@ -172,7 +172,7 @@ listed in `runner.roles`.
 | `agent` | string | — (required) | an `[agents.<id>]` id or a preset name; `config validate` suggests near misses |
 | `prompt` | string | the built-in template for the role | exactly one of `prompt` / `prompt_file` may be set; neither means the built-in |
 | `prompt_file` | path | — | Markdown template; must exist; variables must be known |
-| `permission_policy` | `"allow"` \| `"ask"` \| `"deny"`, or a table | worker: `"allow"`, manager: `"ask"` | the table form is `{ default = "allow", execute = "ask", fetch = "deny" }` with keys `default`, `read`, `edit`, `delete`, `move`, `search`, `execute`, `think`, `fetch`, `other` (ACP tool kinds) |
+| `permission_policy` | `"allow"` \| `"ask"` \| `"deny"`, or a table | worker: `"allow"`, manager: read-only, `{ default = "allow", edit = "deny", delete = "deny", move = "deny", execute = "deny" }` | the table form is `{ default = "allow", execute = "ask", fetch = "deny" }` with keys `default`, `read`, `edit`, `delete`, `move`, `search`, `execute`, `think`, `fetch`, `other` (ACP tool kinds) |
 | `max_parallel` | integer | — (no role limit) | 1–32. Jobs of this role running at once, inside `runner.max_parallel_jobs`; a value ≥ the machine cap is a warning (no effect) |
 | `mode` | string | — | ACP session mode / `mode` config option to select after creating the session, if the agent offers it |
 | `turn_timeout` | duration | `[sessions] turn_timeout` | overrides the session default for this role |
@@ -206,6 +206,16 @@ would act in Linear **as you**, outside the session's scope, instead of through 
 | `deny` | rejected once; the agent sees the refusal |
 | `ask` | posted to the Linear session as a choice (`select` elicitation); the agent waits until someone answers, up to `idle_timeout`. A free-text reply instead of a choice rejects the call and becomes the next instruction |
 
+**The manager is read-only.** Its default policy denies the `edit`, `delete`, `move`, and `execute` kinds without
+asking anyone and allows the rest — not a bare `"deny"`, because agents ask permission for MCP tool calls too, and
+the manager's own Hypotenuse tools must stay allowed. While a role's policy denies `edit`, `fs/write_text_file`
+through the daemon is refused with *"this session is read-only"*. A manager turn on a repository works in a
+**detached** checkout of the base branch (`git worktree add --detach`, no branch), removed when the turn ends
+whatever `cleanup` says — there is never anything in it to keep (a dirty one is left to the usual cleanup and its
+safety rules). Without a repository it works in an empty scratch directory. `config validate` warns when a runner
+plays `manager` with a policy that does not deny `edit` and `execute`: *a manager with write permission can change
+code; this is allowed but unusual*.
+
 ### Prompt templates
 
 `prompt` and `prompt_file` are Markdown with `{{dotted.variable}}` substitutions and no logic. The rendered text
@@ -235,9 +245,12 @@ guidance, conversation history, the request, and environment notes) is added by 
   plan current; commit in small steps that reference the issue identifier; push the branch and open a pull
   request that links the issue; ask once and stop when a decision belongs to a person; finish with a short
   summary of what changed, what was tested, and what to review first.
-- **Manager:** own the shape of the work; write or refine the plan; break it into issues small enough for one
-  session each, with acceptance criteria; ask before changing scope; never write code itself; finish with what
-  was decided and what happens next.
+- **Manager:** the planning agent. Write the PRD (Problem, Goals, Non-goals, User stories, Requirements, Open
+  questions, Rollout) into the project's content or a project document; break it into issues with an
+  **Acceptance criteria** checklist, labels from `linear_list_labels`, and `blocks` / `related` relations; ask
+  everything at once with `linear_ask_user`; dispatch only issues whose acceptance criteria are written, one
+  `hypotenuse_dispatch` each; on a review turn accept, request changes (`mode: "changes"`), or file follow-ups,
+  and say which and why; never write code, run commands, merge, or complete issues unless a tool says it may.
 
 Whatever the template, the prompt opens by telling the agent which issue and session it works for and that it
 is an AI agent that must never claim to be a person. A follow-up that resumes the agent's own session gets only
@@ -336,7 +349,7 @@ env = { CODEX_API_KEY = "$OPENAI_API_KEY" }
 [roles.manager]
 agent = "claude"
 prompt_file = "prompts/manager.md"   # relative to this file
-permission_policy = "ask"            # every tool call that needs approval goes to Linear
+permission_policy = { default = "allow", edit = "deny", delete = "deny", move = "deny", execute = "deny" }   # read-only, the default
 turn_timeout = "30m"
 
 [roles.worker]

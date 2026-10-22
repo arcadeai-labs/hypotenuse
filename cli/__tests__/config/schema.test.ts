@@ -100,7 +100,13 @@ describe("the schema", () => {
     const { config } = parse(
       `${minimal}[roles.manager]\nagent = "claude"\n[agents.claude]\npreset = "claude"\n[[repositories]]\npath = "~/web"\n`,
     );
-    expect(config?.roles.manager?.permission_policy).toBe("ask");
+    expect(config?.roles.manager?.permission_policy).toEqual({
+      default: "allow",
+      edit: "deny",
+      delete: "deny",
+      move: "deny",
+      execute: "deny",
+    });
     expect(config?.agents.claude).toEqual({
       preset: "claude",
       args: [],

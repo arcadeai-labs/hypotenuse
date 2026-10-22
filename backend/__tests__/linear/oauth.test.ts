@@ -298,7 +298,12 @@ describe("linear:callback", () => {
       type: "linear",
       externalWorkspaceId: FINEAR_FIXTURES.primary.organization,
       reconnect: false,
-      seededRoutingRules: ["/manage", "/work"],
+      seededRoutingRules: [
+        "/manage",
+        "/work",
+        "hypotenuse:manager label",
+        "plan an empty project",
+      ],
     });
     const text = JSON.stringify(row);
     expect(text).not.toContain(await appToken(universe.projectId));

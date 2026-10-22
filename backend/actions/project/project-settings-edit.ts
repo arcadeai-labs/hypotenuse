@@ -8,22 +8,26 @@ import {
 } from "../../classes/AuditedAction";
 import { AdminMiddleware } from "../../middleware/rbac";
 import {
+  applySectionEdit,
   getOrCreateSettings,
+  ManagerSettingsEditInput,
   RoutingSettingsEditInput,
   serializeProjectSettings,
 } from "../../ops/ProjectSettingsOps";
 import { projectSettings } from "../../schema/project_settings";
 
 /**
- * `project:settings-edit` — change a project's settings. Today that is the
- * `routing` section: the queue, sticky, offer, and stop timers and the
- * repository-confidence threshold. Keys left out keep their value; a key set
- * to `null` returns to its default. Admin only.
+ * `project:settings-edit` — change a project's settings: the `routing`
+ * section (the queue, sticky, offer, and stop timers, the
+ * repository-confidence threshold, the review-round limit) and the `manager`
+ * section (whether a manager may complete issues, how many dispatches it may
+ * have under way). Keys left out keep their value; a key set to `null`
+ * returns to its default. Admin only.
  */
 export class ProjectSettingsEdit extends AuditedAction {
   name = "project:settings-edit";
   description =
-    "Change a project's settings: the routing section's timers (queueTimeoutMs, stickyTimeoutMs, offerTtlMs, stopGraceMs), repositoryConfidence, and maxReviewRounds. Keys left out keep their value; null restores the default. Requires the admin tag on the project.";
+    "Change a project's settings: the routing section's timers (queueTimeoutMs, stickyTimeoutMs, offerTtlMs, stopGraceMs), repositoryConfidence, and maxReviewRounds; and the manager section (canCompleteIssues, maxParallelDispatch). Keys left out keep their value; null restores the default. Requires the admin tag on the project.";
   middleware = [AdminMiddleware()];
   web = { route: "/project/settings", method: HTTP_METHOD.POST };
   inputs = z.object({
@@ -34,6 +38,9 @@ export class ProjectSettingsEdit extends AuditedAction {
       .describe("The project whose settings to change"),
     routing: RoutingSettingsEditInput.optional().describe(
       "Routing settings to change; null restores a key's default",
+    ),
+    manager: ManagerSettingsEditInput.optional().describe(
+      "Manager settings to change; null restores a key's default",
     ),
   });
 
@@ -49,21 +56,20 @@ export class ProjectSettingsEdit extends AuditedAction {
     connection: AuditedConnection,
   ) {
     const before = await getOrCreateSettings(tx, params.projectId);
-    const routing: Record<string, unknown> = { ...before.routing };
-    for (const [key, value] of Object.entries(params.routing ?? {})) {
-      if (value === undefined) continue;
-      if (value === null) delete routing[key];
-      else routing[key] = value;
-    }
+    const routing = applySectionEdit(before.routing, params.routing);
+    const manager = applySectionEdit(before.manager, params.manager);
     const [after] = await tx
       .update(projectSettings)
-      .set({ routing })
+      .set({ routing, manager })
       .where(eq(projectSettings.id, before.id))
       .returning();
     connection.metadata.auditBefore = serializeProjectSettings(before);
     connection.metadata.auditAfter = serializeProjectSettings(after);
     connection.metadata.auditTargetType = "project_settings";
-    connection.metadata.auditTargetPath = "routing";
+    connection.metadata.auditTargetPath =
+      [params.routing ? "routing" : null, params.manager ? "manager" : null]
+        .filter(Boolean)
+        .join(",") || undefined;
     return { settings: serializeProjectSettings(after) };
   }
 }

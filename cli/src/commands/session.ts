@@ -34,8 +34,43 @@ export interface AgentSession {
   status: string;
   summary: string | null;
   externalUrls: { label: string; url: string }[];
+  /** The manager session that dispatched this one, if any. */
+  parentAgentSessionId?: number | null;
+  /** How it was dispatched: `new`, `changes`, or null when no manager did. */
+  dispatchMode?: "new" | "changes" | null;
+  /** How many times its manager has sent it back for changes. */
+  reviewRound?: number;
   createdAt: number;
   endedAt: number | null;
+}
+
+/** The manager session that dispatched a session, as `agent-session:view` summarizes it. */
+export interface ParentSession {
+  id: number;
+  issueIdentifier: string | null;
+  issueUrl: string | null;
+  status: string;
+  role: "manager" | "worker" | null;
+}
+
+/** A session a manager dispatched, as `agent-session:view` summarizes it. */
+export interface ChildSession {
+  id: number;
+  issueIdentifier: string | null;
+  issueTitle: string | null;
+  issueUrl: string | null;
+  status: string;
+  dispatchMode: "new" | "changes" | null;
+  reviewRound: number;
+  pullRequests: { label: string; url: string }[];
+  /** The latest turn's status, or null. */
+  workStatus: string | null;
+}
+
+/** The dispatch tree around a session, as the server decides it. */
+export interface SessionTree {
+  parent?: ParentSession | null;
+  children?: ChildSession[];
 }
 
 /** An activity as `agent-session:activities` serializes it. */
@@ -87,11 +122,13 @@ export function activitySummary(activity: AgentActivity): string {
  * The human rendering of one session and its conversation.
  * @param session - The session.
  * @param activities - Its activities, in order.
+ * @param tree - The manager that dispatched it and the sessions it dispatched.
  * @returns Lines for stdout.
  */
 export function describeSession(
   session: AgentSession,
   activities: AgentActivity[],
+  tree: SessionTree = {},
 ): string {
   const lines = [
     `${session.issueIdentifier ?? "-"}  ${session.issueTitle ?? ""}`.trim(),
@@ -107,6 +144,41 @@ export function describeSession(
     lines.push(`${session.type.padEnd(10)} ${session.externalUrl}`);
   for (const link of session.externalUrls) {
     lines.push(`link       ${link.label}: ${link.url}`);
+  }
+  const parent = tree.parent;
+  if (parent) {
+    // `reviewRound` counts change requests; a person reads round 1 first.
+    const round = `, round ${(session.reviewRound ?? 0) + 1}`;
+    lines.push(
+      `dispatched by session ${parent.id} on ${parent.issueIdentifier ?? "-"} (${parent.status}${round})${parent.issueUrl ? ` ${parent.issueUrl}` : ""}`,
+    );
+  }
+  const children = tree.children ?? [];
+  if (children.length > 0) {
+    lines.push(
+      "",
+      "Dispatched",
+      table(
+        children.map((c) => ({
+          id: c.id,
+          issue: c.issueIdentifier ?? "-",
+          title: c.issueTitle ?? "",
+          status: c.status,
+          turn: c.workStatus ?? "-",
+          round: c.reviewRound + 1,
+          "pull requests": c.pullRequests.map((p) => p.url).join(" ") || "-",
+        })),
+        [
+          { key: "id" },
+          { key: "issue" },
+          { key: "title", maxWidth: 30 },
+          { key: "status" },
+          { key: "turn" },
+          { key: "round" },
+          { key: "pull requests", maxWidth: 60 },
+        ],
+      ),
+    );
   }
   if (activities.length > 0) {
     lines.push(
@@ -218,9 +290,9 @@ export function registerSessionCommands(program: Command): void {
       await runCommand(this, async (ctx) => {
         const projectId = await ctx.projectId();
         const client = ctx.signedInClient();
-        const { agentSession } = await client.request<{
-          agentSession: AgentSession;
-        }>("GET", `/agent-session/${encodeURIComponent(id)}`, {
+        const { agentSession, parent, children } = await client.request<
+          { agentSession: AgentSession } & SessionTree
+        >("GET", `/agent-session/${encodeURIComponent(id)}`, {
           query: { projectId },
         });
         const activities: AgentActivity[] = [];
@@ -234,8 +306,15 @@ export function registerSessionCommands(program: Command): void {
           activities.push(...result.activities);
           if (page >= result.pagination.pages) break;
         }
-        emit(ctx, { agentSession, activities }, () =>
-          describeSession(agentSession, activities),
+        emit(
+          ctx,
+          {
+            agentSession,
+            parent: parent ?? null,
+            children: children ?? [],
+            activities,
+          },
+          () => describeSession(agentSession, activities, { parent, children }),
         );
       });
     });

@@ -74,6 +74,12 @@ export const RoutingMatchInput = z.strictObject({
     .boolean()
     .optional()
     .describe("The issue is (true) or is not (false) a sub-issue"),
+  projectHasContent: z
+    .boolean()
+    .optional()
+    .describe(
+      "The issue's project has (true) or has no (false) content yet; an issue in no project matches neither",
+    ),
   origin: z
     .enum(["delegation", "mention"])
     .optional()
@@ -91,14 +97,43 @@ export const pinnedRepositoryInput = z
     message: "A repository is hostname/owner/name, or a git remote",
   });
 
-/** The two rules every project starts with when it connects Linear. */
+/**
+ * The rules every project starts with when it connects Linear: the two
+ * prefixes a person types, a label that marks a planning issue, and — off
+ * until an admin turns it on, because a heuristic that silently changes what
+ * kind of agent answers is worse than none — top-level issues in a project
+ * with no PRD yet.
+ */
 export const SEEDED_RULES: {
   name: string;
   match: RoutingMatch;
   role: AgentSessionRole;
+  enabled: boolean;
 }[] = [
-  { name: "/manage", match: { promptPrefix: "/manage" }, role: "manager" },
-  { name: "/work", match: { promptPrefix: "/work" }, role: "worker" },
+  {
+    name: "/manage",
+    match: { promptPrefix: "/manage" },
+    role: "manager",
+    enabled: true,
+  },
+  {
+    name: "/work",
+    match: { promptPrefix: "/work" },
+    role: "worker",
+    enabled: true,
+  },
+  {
+    name: "hypotenuse:manager label",
+    match: { labels: ["hypotenuse:manager"] },
+    role: "manager",
+    enabled: true,
+  },
+  {
+    name: "plan an empty project",
+    match: { hasParent: false, projectHasContent: false },
+    role: "manager",
+    enabled: false,
+  },
 ];
 
 /**
@@ -127,6 +162,7 @@ export async function seedRoutingRules(
         name: rule.name,
         match: rule.match,
         role: rule.role,
+        enabled: rule.enabled,
       })),
     )
     .returning();
@@ -178,6 +214,8 @@ export interface RoutingFacts {
   teamKey: string | null;
   projectId: string | null;
   hasParent: boolean;
+  /** Null when the issue is in no project, or no rule needed it read. */
+  projectHasContent: boolean | null;
   origin: "delegation" | "mention" | "proactive";
   /** The mention's text; null for a delegation, which has no prompt. */
   text: string | null;
@@ -200,6 +238,7 @@ export function routingFacts(
     teamKey: issue.teamKey,
     projectId: issue.project?.id ?? null,
     hasParent: issue.parent !== null,
+    projectHasContent: issue.project?.hasContent ?? null,
     origin,
     text,
   };
@@ -233,6 +272,18 @@ export function stripPrefix(text: string, prefix: string): string {
 }
 
 /**
+ * Whether any enabled rule matches on the project's content, so routing must
+ * read it.
+ * @param rules - The project's rules.
+ * @returns True when one does.
+ */
+export function rulesNeedProjectContent(rules: RoutingRule[]): boolean {
+  return rules.some(
+    (r) => r.enabled && r.match.projectHasContent !== undefined,
+  );
+}
+
+/**
  * Whether one rule matches the facts. Every present field must match.
  * @param match - The rule's match.
  * @param facts - The facts.
@@ -260,6 +311,12 @@ export function ruleMatches(match: RoutingMatch, facts: RoutingFacts): boolean {
     }
   }
   if (match.hasParent !== undefined && match.hasParent !== facts.hasParent) {
+    return false;
+  }
+  if (
+    match.projectHasContent !== undefined &&
+    match.projectHasContent !== facts.projectHasContent
+  ) {
     return false;
   }
   if (match.origin !== undefined && match.origin !== facts.origin) {

@@ -284,6 +284,28 @@ async function play(
           },
         },
       });
+    } else if (step.write) {
+      // An `fs/write_text_file` through the client; the outcome is said.
+      const cwd = cwds.get(sessionId) ?? process.cwd();
+      const { path, content } = step.write as { path: string; content: string };
+      let text: string;
+      try {
+        await client.request(acp.methods.client.fs.writeTextFile, {
+          sessionId,
+          path: path.replaceAll("$CWD", cwd),
+          content,
+        });
+        text = `Wrote ${path}.`;
+      } catch (error) {
+        text = `Write failed: ${(error as { message?: string }).message ?? String(error)}`;
+      }
+      await client.notify(acp.methods.client.session.update, {
+        sessionId,
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text },
+        },
+      });
     } else if (typeof step.shell === "string") {
       const cwd = cwds.get(sessionId) ?? process.cwd();
       const toolCallId = `shell-${crypto.randomUUID()}`;

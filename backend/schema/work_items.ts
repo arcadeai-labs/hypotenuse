@@ -119,6 +119,33 @@ export interface LinearWrite {
   at: number;
 }
 
+/** What a `dispatch` turn, or a `changes` `prompt` turn, carries for the worker. */
+export interface WorkItemDispatchPayload {
+  mode: "new" | "changes";
+  reviewRound: number;
+  instructions: string | null;
+  agentPreference: string | null;
+  /** The manager session that dispatched it. */
+  dispatchedBy: number;
+}
+
+/** What a `review` turn carries for the manager: one worker's result. */
+export interface WorkItemReviewPayload {
+  childSessionId: number;
+  childIssueIdentifier: string | null;
+  childIssueUrl: string | null;
+  reviewRound: number;
+  outcome: "completed" | "failed" | "cancelled";
+  finalResponse: string | null;
+  plan: { content: string; status: string }[] | null;
+  pullRequests: { label: string; url: string }[];
+}
+
+/** A turn's payload: what a manager handed a worker, or a worker's result for review. */
+export type WorkItemPayload =
+  | { dispatch: WorkItemDispatchPayload }
+  | { review: WorkItemReviewPayload };
+
 /**
  * A `work_item` is one **turn** of an agent session: the session's creation, a
  * follow-up prompt (possibly several merged), a manager's dispatch, or a
@@ -166,6 +193,12 @@ export const workItems = pgTable(
     repositoryResolved: boolean("repository_resolved").notNull().default(false),
     /** For `prompt`: the merged follow-ups in order. */
     prompt: jsonb("prompt").$type<WorkItemPrompt[] | null>(),
+    /**
+     * What a manager handed a worker (`dispatch`, or a `prompt` requesting
+     * changes) or a worker's result (`review`). Linear lets no agent write a
+     * prompt, so a review's input exists only here.
+     */
+    payload: jsonb("payload").$type<WorkItemPayload | null>(),
     /** The issuer's Hypotenuse user, when one was resolved. */
     preferredUserId: integer("preferred_user_id"),
     /** The runner holding the session's worktree when this item was created. */

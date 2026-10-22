@@ -195,8 +195,14 @@
               "minLength": 1
             },
             "permission_policy": {
-              "default": "ask",
-              "description": "allow, ask, or deny every permission request — or a table by ACP tool kind, e.g. { default = \"allow\", execute = \"ask\" }",
+              "default": {
+                "default": "allow",
+                "edit": "deny",
+                "delete": "deny",
+                "move": "deny",
+                "execute": "deny"
+              },
+              "description": "allow, ask, or deny every permission request — or a table by ACP tool kind, e.g. { default = \"allow\", execute = \"ask\" }. Defaults: worker \"allow\"; manager read-only, { default = \"allow\", edit = \"deny\", delete = \"deny\", move = \"deny\", execute = \"deny\" }",
               "anyOf": [
                 {
                   "type": "string",
@@ -397,7 +403,7 @@
             },
             "permission_policy": {
               "default": "allow",
-              "description": "allow, ask, or deny every permission request — or a table by ACP tool kind, e.g. { default = \"allow\", execute = \"ask\" }",
+              "description": "allow, ask, or deny every permission request — or a table by ACP tool kind, e.g. { default = \"allow\", execute = \"ask\" }. Defaults: worker \"allow\"; manager read-only, { default = \"allow\", edit = \"deny\", delete = \"deny\", move = \"deny\", execute = \"deny\" }",
               "anyOf": [
                 {
                   "type": "string",

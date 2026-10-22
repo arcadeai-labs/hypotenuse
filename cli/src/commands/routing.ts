@@ -1,8 +1,8 @@
 /**
  * `hypotenuse routing` — the selected project's routing rules
  * (`routing-rule:*`) and routing settings (`project:settings-view` /
- * `project:settings-edit`): which role answers a new session, and how long
- * work waits for a runner.
+ * `project:settings-edit`): which role answers a new session, how long
+ * work waits for a runner, and what a manager session may do.
  *
  * Rules are evaluated in order; the first enabled rule whose match holds
  * decides the role (and may pin a repository). With no match the role is
@@ -27,6 +27,7 @@ export interface RoutingMatch {
   projectIds?: string[];
   promptPrefix?: string;
   hasParent?: boolean;
+  projectHasContent?: boolean;
   origin?: "delegation" | "mention";
 }
 
@@ -54,6 +55,12 @@ export interface RoutingSettings {
   maxReviewRounds: number;
 }
 
+/** The manager section of a project's settings, resolved. */
+export interface ManagerSettings {
+  canCompleteIssues: boolean;
+  maxParallelDispatch: number;
+}
+
 /** The page envelope every list answers with. */
 interface Pagination {
   page: number;
@@ -70,6 +77,12 @@ export const ROUTING_SETTING_KEYS = [
   "repositoryConfidence",
   "stopGraceMs",
   "maxReviewRounds",
+] as const;
+
+/** The manager settings keys `--reset` accepts. */
+export const MANAGER_SETTING_KEYS = [
+  "canCompleteIssues",
+  "maxParallelDispatch",
 ] as const;
 
 /**
@@ -137,13 +150,15 @@ export interface RuleFlags {
   project?: string[];
   prefix?: string;
   hasParent?: boolean;
+  projectHasContent?: boolean;
   origin?: string;
   repository?: string;
 }
 
 /**
  * The match a rule's flags describe. `--has-parent` and `--no-parent` set
- * `hasParent` true and false; absent fields are left out.
+ * `hasParent` true and false, `--project-has-content` and
+ * `--project-empty` `projectHasContent`; absent fields are left out.
  * @param flags - The parsed flags.
  * @returns The match.
  * @throws {Error} For an unknown origin.
@@ -158,6 +173,9 @@ export function matchFromFlags(flags: RuleFlags): RoutingMatch {
   if (projectIds) match.projectIds = projectIds;
   if (flags.prefix !== undefined) match.promptPrefix = flags.prefix;
   if (flags.hasParent !== undefined) match.hasParent = flags.hasParent;
+  if (flags.projectHasContent !== undefined) {
+    match.projectHasContent = flags.projectHasContent;
+  }
   if (flags.origin !== undefined) {
     if (flags.origin !== "delegation" && flags.origin !== "mention") {
       throw new Error("--origin is delegation or mention.");
@@ -171,7 +189,8 @@ export function matchFromFlags(flags: RuleFlags): RoutingMatch {
  * Whether a set of flags names any match field.
  * @param flags - The parsed flags.
  * @returns True when `--label`, `--team`, `--project`, `--prefix`,
- *   `--has-parent`/`--no-parent`, or `--origin` was given.
+ *   `--has-parent`/`--no-parent`, `--project-has-content`/`--project-empty`,
+ *   or `--origin` was given.
  */
 export function hasMatchFlags(flags: RuleFlags): boolean {
   return Object.keys(matchFromFlags(flags)).length > 0;
@@ -192,6 +211,11 @@ export function describeMatch(match: RoutingMatch): string {
   if (match.promptPrefix) parts.push(`prefix=${match.promptPrefix}`);
   if (match.hasParent !== undefined) {
     parts.push(match.hasParent ? "sub-issue" : "not sub-issue");
+  }
+  if (match.projectHasContent !== undefined) {
+    parts.push(
+      match.projectHasContent ? "project has content" : "project empty",
+    );
   }
   if (match.origin) parts.push(`origin=${match.origin}`);
   return parts.length > 0 ? parts.join(" ") : "anything";
@@ -231,7 +255,10 @@ export function describeRules(rules: RoutingRule[]): string {
  * @param settings - The resolved settings.
  * @returns Lines for stdout.
  */
-export function describeRoutingSettings(settings: RoutingSettings): string {
+export function describeRoutingSettings(
+  settings: RoutingSettings,
+  manager?: ManagerSettings,
+): string {
   return [
     `queue timeout          ${formatDuration(settings.queueTimeoutMs)}`,
     `sticky timeout         ${settings.stickyTimeoutMs === 0 ? "off" : formatDuration(settings.stickyTimeoutMs)}`,
@@ -239,6 +266,12 @@ export function describeRoutingSettings(settings: RoutingSettings): string {
     `stop grace             ${formatDuration(settings.stopGraceMs)}`,
     `repository confidence  ${settings.repositoryConfidence}`,
     `max review rounds      ${settings.maxReviewRounds}`,
+    ...(manager
+      ? [
+          `max parallel dispatch  ${manager.maxParallelDispatch}`,
+          `manager completes      ${manager.canCompleteIssues ? "yes" : "no"}`,
+        ]
+      : []),
   ].join("\n");
 }
 
@@ -250,6 +283,8 @@ export interface SettingsFlags {
   stopGrace?: string;
   repositoryConfidence?: string;
   maxReviewRounds?: string;
+  maxParallelDispatch?: string;
+  managerCanComplete?: string;
   reset?: string[];
 }
 
@@ -291,12 +326,46 @@ export function settingsBody(
     body.maxReviewRounds = n;
   }
   for (const key of listOption(flags.reset) ?? []) {
+    if ((MANAGER_SETTING_KEYS as readonly string[]).includes(key)) continue;
     if (!(ROUTING_SETTING_KEYS as readonly string[]).includes(key)) {
       throw new Error(
-        `Unknown setting "${key}". One of: ${ROUTING_SETTING_KEYS.join(", ")}.`,
+        `Unknown setting "${key}". One of: ${[...ROUTING_SETTING_KEYS, ...MANAGER_SETTING_KEYS].join(", ")}.`,
       );
     }
     body[key] = null;
+  }
+  return Object.keys(body).length > 0 ? body : null;
+}
+
+/**
+ * The `manager` body a settings edit sends, the same way as
+ * {@link settingsBody}.
+ * @param flags - The parsed flags.
+ * @returns The body, or null when nothing was asked to change.
+ * @throws {Error} For a bad number or yes/no.
+ */
+export function managerSettingsBody(
+  flags: SettingsFlags,
+): Record<string, number | boolean | null> | null {
+  const body: Record<string, number | boolean | null> = {};
+  if (flags.maxParallelDispatch !== undefined) {
+    const n = Number(flags.maxParallelDispatch);
+    if (!Number.isInteger(n) || n < 1) {
+      throw new Error("--max-parallel-dispatch is a whole number, at least 1.");
+    }
+    body.maxParallelDispatch = n;
+  }
+  if (flags.managerCanComplete !== undefined) {
+    const v = flags.managerCanComplete.trim().toLowerCase();
+    if (!["yes", "no", "true", "false"].includes(v)) {
+      throw new Error("--manager-can-complete is yes or no.");
+    }
+    body.canCompleteIssues = v === "yes" || v === "true";
+  }
+  for (const key of listOption(flags.reset) ?? []) {
+    if ((MANAGER_SETTING_KEYS as readonly string[]).includes(key)) {
+      body[key] = null;
+    }
   }
   return Object.keys(body).length > 0 ? body : null;
 }
@@ -394,6 +463,14 @@ function withRuleFlags(command: Command): Command {
     )
     .option("--has-parent", "match only sub-issues")
     .option("--no-parent", "match only issues that are not sub-issues")
+    .option(
+      "--project-has-content",
+      "match only issues in a project whose content (PRD) is written",
+    )
+    .option(
+      "--project-empty",
+      "match only issues in a project with no content yet",
+    )
     .option("--origin <origin>", "match delegation or mention")
     .option(
       "--repository <repo>",
@@ -422,6 +499,14 @@ function ruleFlags(command: Command): RuleFlags & {
       throw new Error("Pass --has-parent or --no-parent, not both.");
     hasParent = false;
   }
+  if (raw.projectHasContent && raw.projectEmpty) {
+    throw new Error("Pass --project-has-content or --project-empty, not both.");
+  }
+  const projectHasContent = raw.projectHasContent
+    ? true
+    : raw.projectEmpty
+      ? false
+      : undefined;
   return {
     name: raw.name as string | undefined,
     role: raw.role as string | undefined,
@@ -430,6 +515,7 @@ function ruleFlags(command: Command): RuleFlags & {
     project: raw.linearProject as string[] | undefined,
     prefix: raw.prefix as string | undefined,
     hasParent,
+    projectHasContent,
     origin: raw.origin as string | undefined,
     repository: raw.repository as string | undefined,
     disabled: raw.disabled as boolean | undefined,
@@ -611,7 +697,7 @@ export function registerRoutingCommands(program: Command): void {
   routing
     .command("settings")
     .description(
-      "Show the routing timers and thresholds, or change them (admin)",
+      "Show the routing timers and thresholds and the manager settings, or change them (admin)",
     )
     .option(
       "--queue-timeout <duration>",
@@ -635,28 +721,43 @@ export function registerRoutingCommands(program: Command): void {
       "how many review rounds a manager runs on one dispatch",
     )
     .option(
+      "--max-parallel-dispatch <n>",
+      "how many dispatched workers one manager session may have under way",
+    )
+    .option(
+      "--manager-can-complete <yes|no>",
+      "whether a manager may move an issue to a completed or canceled state",
+    )
+    .option(
       "--reset <key>",
-      `return a setting to its default (repeatable): ${ROUTING_SETTING_KEYS.join(", ")}`,
+      `return a setting to its default (repeatable): ${[...ROUTING_SETTING_KEYS, ...MANAGER_SETTING_KEYS].join(", ")}`,
       collect,
     )
     .action(async function (this: Command) {
       await runCommand(this, async (ctx) => {
-        const routingBody = settingsBody(this.opts() as SettingsFlags);
+        const flags = this.opts() as SettingsFlags;
+        const routingBody = settingsBody(flags);
+        const managerBody = managerSettingsBody(flags);
         const projectId = await ctx.projectId();
         const client = ctx.signedInClient();
-        const result = routingBody
-          ? await client.request<{ settings: { routing: RoutingSettings } }>(
-              "POST",
-              "/project/settings",
-              { body: { projectId, routing: routingBody } },
-            )
-          : await client.request<{ settings: { routing: RoutingSettings } }>(
-              "GET",
-              "/project/settings",
-              { query: { projectId } },
-            );
-        emit(ctx, { routing: result.settings.routing }, () =>
-          describeRoutingSettings(result.settings.routing),
+        type Settings = {
+          settings: { routing: RoutingSettings; manager: ManagerSettings };
+        };
+        const result =
+          routingBody || managerBody
+            ? await client.request<Settings>("POST", "/project/settings", {
+                body: {
+                  projectId,
+                  ...(routingBody ? { routing: routingBody } : {}),
+                  ...(managerBody ? { manager: managerBody } : {}),
+                },
+              })
+            : await client.request<Settings>("GET", "/project/settings", {
+                query: { projectId },
+              });
+        const { routing: r, manager } = result.settings;
+        emit(ctx, { routing: r, manager }, () =>
+          describeRoutingSettings(r, manager),
         );
       });
     });

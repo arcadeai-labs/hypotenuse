@@ -40,6 +40,7 @@ import type {
   TurnResult,
 } from "../daemon/executor";
 import { type Workspace, WorkspaceError } from "../worktree/manager";
+import { agentForTurn } from "./agent-choice";
 import {
   AcpConnection,
   AcpError,
@@ -68,7 +69,12 @@ import {
 } from "./lifecycle";
 import { type MapperOptions, TurnMapper } from "./mapping";
 import { turnMcpServers, UnsetVariableError } from "./mcp-servers";
-import { automaticOption, decide } from "./permissions";
+import {
+  automaticOption,
+  decide,
+  isReadOnly,
+  READ_ONLY_MESSAGE,
+} from "./permissions";
 import { PrDetector } from "./pr-detect";
 import {
   resolveAgentLaunch,
@@ -182,6 +188,8 @@ class Turn {
   private noiseFailure: string | null = null;
   private fs: ConfinedFs;
   private where: string;
+  private readonly readOnly: boolean;
+  private readonly agentNote: string | null;
 
   /**
    * @param ctx - The turn.
@@ -194,7 +202,10 @@ class Turn {
     this.now = options.now ?? Date.now;
     const assignment = ctx.assignment;
     this.role = ctx.config.roles[assignment.role];
-    this.agentId = assignment.agentId ?? this.role?.agent ?? "unknown";
+    const chosen = agentForTurn(assignment, ctx.config);
+    this.agentId = chosen.agentId;
+    this.agentNote = chosen.note;
+    this.readOnly = isReadOnly(this.role?.permission_policy ?? "allow");
     this.agentTitle = this.agentId;
     this.cwd = join(
       ctx.stateDir,
@@ -298,6 +309,8 @@ class Turn {
 
     let timer: ReturnType<typeof setInterval> | undefined;
     try {
+      if (this.agentNote)
+        this.emit({ type: "thought", body: this.agentNote, ephemeral: false });
       this.emit({
         type: "thought",
         body: `Starting ${this.agentId} in ${this.where}…`,
@@ -438,6 +451,12 @@ class Turn {
             }
           },
           writeTextFile: async (params) => {
+            if (this.readOnly) {
+              this.log.note(`refused a write (read-only): ${params.path}`);
+              throw new AcpError(RESOURCE_REFUSED, READ_ONLY_MESSAGE, {
+                path: params.path,
+              });
+            }
             try {
               this.fs.write(params.path, params.content);
             } catch (error) {
@@ -791,6 +810,7 @@ class Turn {
         runnerName: ctx.runnerName,
         resumed: this.resumed,
         templateText,
+        readOnly: this.workspace?.mode === "readonly",
       },
       (name) =>
         ctx.log.warn(

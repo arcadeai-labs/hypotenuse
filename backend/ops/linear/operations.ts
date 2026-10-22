@@ -334,6 +334,8 @@ export const CreateAgentActivity = operation<
 export interface LinearAgentSession {
   id: string;
   status: string;
+  /** Linear's page for the session. */
+  url?: string | null;
   issue: { id: string } | null;
 }
 
@@ -375,7 +377,7 @@ export const CreateAgentSessionOnIssue = operation<
   `mutation CreateAgentSessionOnIssue($input: AgentSessionCreateOnIssue!) {
   agentSessionCreateOnIssue(input: $input) {
     success
-    agentSession { id status issue { id } }
+    agentSession { id status url issue { id } }
   }
 }`,
 );
@@ -693,6 +695,17 @@ export const GetProjectDetail = operation<
     teams(first: 50) { nodes { id key private } }
     issues(first: 250) { nodes { state { type } } }
   }
+}`,
+);
+
+/** Whether a project has content yet: what a routing rule may match on. */
+export const GetProjectContent = operation<
+  { project: { id: string; content: string | null } },
+  { id: string }
+>(
+  "GetProjectContent",
+  `query GetProjectContent($id: String!) {
+  project(id: $id) { id content }
 }`,
 );
 
