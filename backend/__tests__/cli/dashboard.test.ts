@@ -379,3 +379,71 @@ describe("hypotenuse integration view", () => {
     expect(human.stdout).toContain("AgentSessionEvent");
   });
 });
+
+describe("hypotenuse event", () => {
+  test("list shows the delegation, how it was routed, and where its turn waits", async () => {
+    const json = await run("luigi", [
+      "--json",
+      "event",
+      "list",
+      "--session",
+      String(sessionId),
+    ]);
+    expect(json.code).toBe(0);
+    const body = JSON.parse(json.stdout) as {
+      triggerEvents: {
+        eventType: string;
+        action: string;
+        outcome: string;
+        issueIdentifier: string | null;
+        session: { id: number; role: string | null } | null;
+        turn: { status: string; waitingCode: string | null } | null;
+      }[];
+      pagination: { total: number };
+    };
+    expect(body.pagination.total).toBe(1);
+    expect(body.triggerEvents[0]).toMatchObject({
+      eventType: "AgentSessionEvent",
+      action: "created",
+      outcome: "handled",
+      issueIdentifier: identifier,
+      session: { id: sessionId, role: "worker" },
+      turn: { status: "queued", waitingCode: expect.any(String) },
+    });
+
+    const human = await run("luigi", ["event", "list", "--hide-ignored"]);
+    expect(human.code).toBe(0);
+    expect(human.stdout).toContain("AgentSessionEvent created");
+    expect(human.stdout).toContain(identifier);
+    expect(human.stdout).toContain("worker (default)");
+  });
+
+  test("view shows the routing, and the payload only to an admin", async () => {
+    const list = JSON.parse(
+      (
+        await run("luigi", [
+          "--json",
+          "event",
+          "list",
+          "--session",
+          String(sessionId),
+        ])
+      ).stdout,
+    ) as { triggerEvents: { id: number }[] };
+    const id = String(list.triggerEvents[0].id);
+    const human = await run("luigi", ["event", "view", id]);
+    expect(human.code).toBe(0);
+    expect(human.stdout).toContain("routed as  worker (default)");
+    expect(human.stdout).toContain("payload    (project admins only)");
+    const json = JSON.parse(
+      (await run("luigi", ["--json", "event", "view", id])).stdout,
+    ) as { payload: unknown };
+    expect(json.payload).toBeNull();
+
+    homes.peach ??= await signIn(universe.peach);
+    const admin = JSON.parse(
+      (await run("peach", ["--json", "event", "view", id])).stdout,
+    ) as { payload: { type?: string } | null };
+    expect(admin.payload?.type).toBe("AgentSessionEvent");
+  });
+});

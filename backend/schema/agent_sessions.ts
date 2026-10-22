@@ -11,6 +11,7 @@ import {
 } from "drizzle-orm/pg-core";
 import { integrations, type TriggerType } from "./integrations";
 import { projects } from "./projects";
+import { routingRules } from "./routing_rules";
 import { runners } from "./runners";
 
 /**
@@ -173,6 +174,17 @@ export const agentSessions = pgTable(
       Record<string, unknown>[] | null
     >(),
     role: text("role").$type<AgentSessionRole | null>(),
+    /**
+     * The routing rule that chose `role`, null for the fallthrough to worker
+     * (or a role a dispatch set). Cleared if the rule is deleted; the name
+     * below is kept, so the event log still says which rule it was.
+     */
+    routingRuleId: integer("routing_rule_id").references(
+      () => routingRules.id,
+      { onDelete: "set null" },
+    ),
+    /** The deciding rule's name when it decided. */
+    routingRuleName: text("routing_rule_name"),
     /** `hostname/owner/name`. */
     repository: text("repository"),
     runnerId: integer("runner_id").references(() => runners.id, {

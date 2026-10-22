@@ -53,6 +53,10 @@ const EXPECTED_LEVELS: Record<string, RbacLevel> = {
   "agent-session:list": "member",
   "agent-session:view": "member",
   "agent-session:activities": "member",
+  // The event log is any member's; its payload is admin-only inside the
+  // action, because Linear sends every issue change in the workspace.
+  "trigger-event:list": "member",
+  "trigger-event:view": "member",
   "routing-rule:list": "member",
   // Any member may ask how an issue would route: it reads, and names only
   // the project's own runners.
@@ -362,6 +366,8 @@ describe("MCP publish policy", () => {
         "tag:delete",
         "tag:edit",
         "tag:list",
+        "trigger-event:list",
+        "trigger-event:view",
         "user-tag:assign",
         "user-tag:remove",
         "user:edit",

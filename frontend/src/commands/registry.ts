@@ -68,6 +68,15 @@ export const COMMANDS: Command[] = [
     run: (c) => c.navigate("/routing"),
   },
   {
+    id: "go-events",
+    title: "Go to Events",
+    group: "Navigation",
+    shortcut: "g e",
+    keywords: ["webhook", "linear", "log", "deliveries"],
+    when: (c) => c.may("trigger-event:list"),
+    run: (c) => c.navigate("/events"),
+  },
+  {
     id: "go-identities",
     title: "Go to Identities",
     group: "Navigation",

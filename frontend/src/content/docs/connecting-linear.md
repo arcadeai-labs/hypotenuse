@@ -72,7 +72,8 @@ and was last renewed, and — once Hypotenuse has talked to Linear — how much 
 also shows when Linear's last webhook arrived and what became of the most recent ones: `handled`, `ignored` (an
 event Hypotenuse has no use for), or `failed` (Hypotenuse could not process it — the card says why). A workspace
 that has gone quiet for longer than you expect, or a run of failures, is the first thing to look at when
-`@hypotenuse` does not answer.
+`@hypotenuse` does not answer. The dashboard's [Events](/docs/dashboard#events) page lists every delivery of the
+last 14 days, with what each did and how its work was routed.
 
 ## Staying connected
 

@@ -98,6 +98,7 @@ hypotenuse --project 12 member list   # or name it for one command (also HYPOTEN
 | `audit list [--since 7d] [--until <time>] [--action tag:edit]` | the audit log; times are ISO-8601, epoch milliseconds, or `7d` / `12h` / `30m` ago |
 | `integration list`, `view <type>`, `connect <type> [--no-browser] [--timeout <seconds>]`, `disconnect <type> [--yes]` | the selected project's integrations — today `linear` — below |
 | `session list [--type linear] [--status <status>] [--role <role>] [--issue ENG-123] [--runner <id>]`, `view <id\|ENG-123> [--transcript] [--follow]`, `cancel <id>` | the selected project's agent sessions, below |
+| `event list [--type <eventType>] [--outcome <outcome>] [--hide-ignored] [--session <id>] [--since 7d]`, `view <id>` | the selected project's event log: Linear's webhooks and how each was routed, below |
 | `runner register [--name <name>] [--replace] [--force]`, `list [--status <status>] [--all]`, `view <runner>`, `edit <runner> [--name] [--enable\|--disable]`, `revoke <runner> [--yes]` | the selected project's runners, below |
 | `routing list`, `add --name <name> --role manager\|worker [match flags] [--repository <repo>] [--disabled]`, `edit <id> [...]`, `remove <id>`, `reorder <id...>`, `preview <ENG-123> [--prompt <text>] [--with-repository]`, `settings [...]` | the selected project's routing rules and settings, below |
 | `identity list [--user <id>]`, `link --user <id> --linear-user <id> [--name] [--email]`, `unlink <id>` | links between Linear users and project members, below |
@@ -160,6 +161,18 @@ it lists every issue it dispatched with the worker's status, its review round, a
 started is cancelled and the session says so; a running turn is told to stop and report the state it left things in.
 What Linear shows names you. A session waiting on a question it asked is answered and stopped; a session with
 nothing to stop is refused. Any member can do it.
+
+### Events
+
+`hypotenuse event list` is the project's event log: every webhook its Linear workspace sent in the last 14 days,
+newest first — the event, the issue, its outcome (`handled`, `ignored`, `duplicate_of_dispatch`, `failed`,
+`pending`), how the session was **routed as** (`worker (default)`, `manager (rule /manage)`, `worker
+(dispatched)`), where its **turn** is now (`queued: no_capacity`, `running on dev-laptop`, `cancelled: stop`), and a
+one-line summary of what Hypotenuse did. `--type Issue`, `--outcome failed`, `--session <id>`, and `--since 12h`
+narrow it; `--hide-ignored` leaves out the issue changes Hypotenuse does not act on.
+
+`hypotenuse event view <id>` shows one event in full. Project admins also get the payload exactly as Linear sent
+it; members are told it is for admins, because it can describe issues `@hypotenuse` was never asked about.
 
 ### The project at a glance
 

@@ -63,6 +63,29 @@ the whole list, so a stale tab cannot drop a rule someone else added.
 **Preview** answers "what would happen if this issue were delegated now?" for any issue, with every runner's
 eligibility and reasons. See [routing](/docs/routing#previewing-a-route).
 
+## Events
+
+Every webhook the connected Linear workspace sent, newest first, kept for 14 days: what each one was (a session
+started, a follow-up, an issue changed, team access changed, the app uninstalled), and in one sentence what
+Hypotenuse did about it. For an event that touched work it also shows how that work was **routed**:
+
+- the **role** the session got, and why — the routing rule that chose it, a manager's dispatch, or the default
+  (worker);
+- where its **turn** is now — waiting (with the [reason](/docs/routing#why-work-waits)), offered to or running on a
+  runner, finished, or cancelled. This is read live, so an event from an hour ago shows where its work is now.
+
+Linear sends every issue change in the workspace, and most of them Hypotenuse does not act on; those are marked
+**ignored** and hidden unless you switch on **Show ignored** or filter by outcome. Narrow the list by event type or
+outcome. Open an event for the whole of it and a link to its session. Project admins also see the **payload** —
+the body exactly as Linear sent it; members do not, because it can describe issues `@hypotenuse` was never asked
+about.
+
+Deliveries Hypotenuse refused (a bad signature, a stale timestamp, a body too large) are not here: nothing about
+them can be trusted, including which workspace they claim to be from. Neither are deliveries for a workspace no
+project has connected.
+
+`hypotenuse event list` and `hypotenuse event view <id>` show the same in the terminal.
+
 ## Identities
 
 Hypotenuse prefers the runners of the person who started a session; it knows who that is through a link between
@@ -72,4 +95,5 @@ which you can remove; admins also see every link in the project, link a Linear u
 ## Settings → Integrations
 
 One card per kind of integration — today, Linear: connect, reconnect, or disconnect, and the connection's health,
-including recent webhook deliveries. See [Connecting Linear](/docs/connecting-linear).
+including recent webhook deliveries; the [Events](#events) page has all of them, with how each was routed. See
+[Connecting Linear](/docs/connecting-linear).
