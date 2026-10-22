@@ -16,7 +16,7 @@ export const OVERVIEW_WINDOWS = { "24h": 86_400_000, "7d": 604_800_000 };
  * | Card | What |
  * |---|---|
  * | `linear` | connected workspace, status, last webhook received, failed deliveries in the window |
- * | `runners` | online / draining / offline counts, slots used / total, the oldest live heartbeat |
+ * | `runners` | online / draining / offline counts, slots used / total over online and draining runners, the oldest live heartbeat |
  * | `sessions` | sessions started in the window by status and role; median time to the acknowledgement and to the first claim |
  * | `queue` | turns queued or offered now, each with why it waits and how long; turns expired in the window |
  *
@@ -87,8 +87,10 @@ export class ProjectOverview implements Action {
           coalesce(sum((SELECT count(*) FROM work_items w
             WHERE w.runner_id = r.id AND w.status IN ('claimed', 'running')))
             FILTER (WHERE r.status IN ('online', 'draining')), 0)::int AS used,
+          -- The same runners as used, so the fraction never passes one: a
+          -- paused or draining runner still holds its slots until its work ends.
           coalesce(sum((r.limits->>'maxParallelJobs')::int)
-            FILTER (WHERE r.status = 'online' AND r.enabled), 0)::int AS total,
+            FILTER (WHERE r.status IN ('online', 'draining')), 0)::int AS total,
           min(r.last_heartbeat_at) FILTER (WHERE r.status IN ('online', 'draining')) AS oldest
         FROM runners r
         WHERE r.project_id = ${projectId} AND r.status <> 'revoked'`)

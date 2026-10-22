@@ -162,7 +162,9 @@ describe("project:overview", () => {
       draining: 1,
       offline: 1,
       used: 0,
-      total: 3,
+      // The draining runner's two slots count beside the online one's three,
+      // as its held work would count in `used`.
+      total: 5,
     });
     expect(day.runners.oldestHeartbeatAt).not.toBeNull();
     expect(day.sessions.total).toBe(2);
