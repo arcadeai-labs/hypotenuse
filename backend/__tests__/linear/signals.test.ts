@@ -1,13 +1,19 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { api, config } from "keryx";
-import { STOPPED_BEFORE_START_BODY } from "../../ops/WorkItemOps";
 import {
+  STOP_UNCONFIRMED_BODY,
+  STOPPED_BEFORE_START_BODY,
+} from "../../ops/WorkItemOps";
+import {
+  ago,
   delegatedSession,
   itemRow,
   itemsOf,
   personSays,
+  reap,
   route,
   ScriptedDaemon,
+  setItem,
   withoutRunnerRateLimits,
 } from "../routing/helpers";
 import {
@@ -164,6 +170,18 @@ describe("LC-SIG-01 stop", () => {
       .filter((r) => r.direction === "outbound")
       .at(-1);
     expect(answer?.content.body).toBe(STOPPED_BEFORE_START_BODY);
+  });
+
+  test("a stop the runner never confirms is answered by the server, still quoting the stop", async () => {
+    const s = await running("Unconfirmed stop");
+    await personSays(linear, s.externalSessionId, "not that branch", "stop");
+    await setItem(s.workItemId, { cancelRequestedAt: ago(31_000) });
+    expect((await reap()).stopped).toContain(s.workItemId);
+    await settle();
+    const inLinear = await finearSession(linear, token, s.externalSessionId);
+    expect(inLinear.activities.at(-1)?.content.body).toBe(
+      `${STOP_UNCONFIRMED_BODY}\n\n> You said: not that branch`,
+    );
   });
 
   test("LC-SES-10 a stopping status Linear reports is mirrored, never set", async () => {

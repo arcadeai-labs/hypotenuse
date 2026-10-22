@@ -729,7 +729,10 @@ export async function requeueRunnerWork(
         effects,
         await finishWorkItem(tx, item, {
           status: "cancelled",
-          fallback: { type: "response", body: STOPPED_FALLBACK_BODY },
+          fallback: {
+            type: "response",
+            body: `${STOPPED_FALLBACK_BODY}${stopQuote(item.cancelNote)}`,
+          },
           urgent: true,
         }),
       );
@@ -1804,7 +1807,10 @@ export async function reapWork(): Promise<ReapResult> {
           { ...item, answeredAt: answeredSinceCancel ? item.answeredAt : null },
           {
             status: "cancelled",
-            fallback: { type: "response", body: STOP_UNCONFIRMED_BODY },
+            fallback: {
+              type: "response",
+              body: `${STOP_UNCONFIRMED_BODY}${stopQuote(item.cancelNote)}`,
+            },
             urgent: true,
           },
         ),
