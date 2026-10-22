@@ -14,10 +14,14 @@
  *   "authRequired": "until-authenticate" | "always",
  *   "ignoreCancel": false,
  *   "replay": [<SessionUpdate>, ...],          // sent on session/load
- *   "turns": [[<step>, ...], ...] }            // turn n plays turns[min(n, last)]
+ *   "turns": [[<step>, ...], ...],             // turn n plays turns[min(n, last)]
+ *   "roleTurns": { "manager": [[<step>, ...], ...] } }  // per HYPOTENUSE_ROLE
  *
  * Every turn is a new agent process, so "turn n" counts the prompts this
  * Hypotenuse session (`HYPOTENUSE_SESSION_ID`) already sent, from the record.
+ * `roleTurns`, when it has the session's role (`HYPOTENUSE_ROLE`), is played
+ * instead of `turns` — one scenario for a manager and the workers it
+ * dispatches.
  * ```
  *
  * Steps: `{ "update": <SessionUpdate> }`, `{ "sleep": ms }` (or
@@ -68,6 +72,7 @@ interface Scenario {
   ignoreCancel?: boolean;
   replay?: acp.SessionUpdate[];
   turns?: Step[][];
+  roleTurns?: Record<string, Step[][]>;
 }
 
 const scenario: Scenario = (() => {
@@ -477,7 +482,8 @@ const app = acp
   .onRequest(acp.methods.agent.session.prompt, async ({ params, client }) => {
     const index = previousTurns();
     record("session/prompt", params);
-    const turns = scenario.turns ?? [[{ stop: "end_turn" }]];
+    const turns = scenario.roleTurns?.[process.env.HYPOTENUSE_ROLE ?? ""] ??
+      scenario.turns ?? [[{ stop: "end_turn" }]];
     const steps = turns[Math.min(index, turns.length - 1)] ?? [];
     turn++;
     const controller = new AbortController();

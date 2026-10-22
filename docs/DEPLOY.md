@@ -223,7 +223,8 @@ exercises; a step that fails is a release blocker and a missing test.
 | 7 | Press Stop during a turn | the turn halts; a final response says where it stopped; nothing follows it | LC-SIG-01, LC-BP-11 |
 | 8 | Dismiss a session | the turn is cancelled silently; nothing re-engages until a new prompt | LC-SES-20 |
 | 9 | Change the app's team access in Settings → AI & Agents | the integration's teams update; live sessions on a removed team are cancelled | LC-WH-20, LC-OAUTH-25 |
-| 10 | Revoke the app from the workspace | the integration shows disconnected; no further calls to Linear | LC-WH-21 |
+| 10 | Label an issue `hypotenuse:manager` and let it dispatch two sub-issues | each worker session opens by linking the planning issue; when a worker finishes, its review turn shows on the manager's already-complete session ("Reviewing ENG-n…"), and a requested change shows on the worker's. If Linear refuses these activities, the review loop is a product bug, not a finear gap | LC-SES-08, LC-SES-11 |
+| 11 | Revoke the app from the workspace | the integration shows disconnected; no further calls to Linear | LC-WH-21 |
 
 ## Rollback
 

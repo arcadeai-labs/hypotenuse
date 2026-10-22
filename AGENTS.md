@@ -264,7 +264,8 @@ The map is [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md). What follows is the
 - **The agent host owns the ACP SDK through one module.** `cli/src/acp/connection.ts` is the only importer of
   `@agentclientprotocol/sdk` (pinned exactly); everything else imports its types from there.
 - **A session is sticky to its runner** because its worktree lives there. Re-offering it elsewhere means a fresh
-  worktree and replayed history, and is visible in the session as a thought.
+  worktree and replayed history. While it waits, an ephemeral thought names the runner it waits for; after the
+  move, only the response's signature names the new runner.
 - **History comes from activities, not comments.** Comments can be edited; activities are frozen.
 - **Acknowledge within 10 seconds.** Every `created` session gets a server-emitted `thought` before routing, so a
   slow runner never makes the agent look unresponsive.

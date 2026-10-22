@@ -169,13 +169,19 @@ export function useE2E(): E2E {
 
   /**
    * Wait until the server sees a runner online — a session delegated before
-   * a new daemon's first heartbeat would find no runner.
+   * a new daemon's first heartbeat would find no runner — from a heartbeat
+   * after `since`, so a restart is not satisfied by the row its previous
+   * daemon left behind.
    * @param home - The home.
+   * @param since - The heartbeat must be later than this.
    */
-  async function online(home: DaemonHome): Promise<void> {
+  async function online(home: DaemonHome, since = 0): Promise<void> {
     await until(async () => {
       const row = await runnerRow(home.runner.id);
-      return row.status === "online" ? row : null;
+      return row.status === "online" &&
+        (row.lastHeartbeatAt?.getTime() ?? 0) > since
+        ? row
+        : null;
     });
   }
 
@@ -216,8 +222,9 @@ export function useE2E(): E2E {
         home.extraEnv,
       );
       homes.add(next);
+      const since = Date.now();
       await next.startForeground();
-      await online(next);
+      await online(next, since);
       return next;
     },
     async delegate(title) {

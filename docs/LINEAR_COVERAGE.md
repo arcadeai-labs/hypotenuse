@@ -291,6 +291,7 @@ exists.
 | Every session is started by a fixture person; none can be started by an automation (no `creator`) | LC-DEL-03, LC-BP-05 | the test clears the mirror row's creator columns before the claim | to file |
 | A session never reports the schema's `stopping` status | LC-SES-10, LC-DIFF-03 | injected `prompted` carrying `status: "stopping"` | to file |
 | The control routes can prompt or stop, but not send a `continue` signal | LC-SIG-04 | injected `prompted` with `signal: "continue"` | to file |
+| Refuses an app's activity on a `complete` or `error` session until a person prompts it ("Terminal sessions require a human prompt to reopen"); Linear's docs say only that status follows the last activity — **unconfirmed** which one real Linear does | LC-SES-08, LC-SES-11 | none: a manager's review turns and a "changes" round are recorded but not delivered; `e2e/manager-dispatch-review.test.ts` pins it with two `test.failing` cases, and the [release check](./DEPLOY.md#release-check-against-real-linear) decides whether it is this gap or a product bug | to file |
 
 ## Adding a row
 
