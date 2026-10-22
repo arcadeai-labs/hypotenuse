@@ -130,7 +130,8 @@ needs the tunnel's URL (below). The manifest sets:
 - `oauth.redirect_uris` — `${APPLICATION_URL}/api/linear/callback`; `oauth.grant_types` — `authorization_code` only;
 - `webhook.url` — `${APPLICATION_URL}/api/webhooks/linear`, with `AgentSessionEvent`, `AppUserNotification`,
   `PermissionChange`, `Issue`, and `Comment`;
-- `distribution` — `private`.
+- `distribution` — `public`, so any Linear workspace can install it: every project connects its own workspace to
+  this one app. Public is not listed — the app appears in Linear's integration directory only if you submit it.
 
 The command runs without the three Linear secrets, so it works before the app exists. **The api and worker do
 not**: in production they refuse to boot until `LINEAR_CLIENT_ID`, `LINEAR_CLIENT_SECRET`, and
@@ -154,8 +155,9 @@ The scopes are requested at install time, not configured on the app:
 `actor=app`, and Hypotenuse never asks for it. Installing requires a **Linear workspace admin**, who also chooses
 which teams the agent can access.
 
-To list Hypotenuse publicly later, submit it to Linear's integration directory and switch `distribution` to
-`public`; nothing in the deployment changes.
+An app created from an older manifest is `private`, and only the workspace that created it can install it —
+another project's Connect fails at Linear's consent screen. Turn on **Public** in the app's settings; nothing in
+the deployment changes. Listing Hypotenuse in Linear's integration directory is a separate submission.
 
 ## First deploy
 

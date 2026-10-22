@@ -58,7 +58,7 @@ describe("the Linear app manifest", () => {
         "Comment",
       ],
     });
-    expect(manifest.distribution).toBe("private");
+    expect(manifest.distribution).toBe("public");
   });
 
   test("bun keryx.ts linear:manifest-url answers the same link", async () => {

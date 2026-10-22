@@ -26,7 +26,7 @@ export const LINEAR_WEBHOOK_RESOURCE_TYPES = [
 export interface LinearAppManifest {
   $schema: string;
   schemaVersion: "1.0.0";
-  distribution: "private";
+  distribution: "public";
   developer: { name: string };
   oauth: {
     client_name: string;
@@ -112,7 +112,10 @@ export function buildAppManifest(
   return {
     $schema: LINEAR_MANIFEST_SCHEMA_URL,
     schemaVersion: "1.0.0",
-    distribution: "private",
+    // Public means other workspaces may install it — each project connects its
+    // own workspace to this one app. It does not list the app in Linear's
+    // integration directory; that is a separate submission.
+    distribution: "public",
     developer: { name: options.developer ?? name },
     oauth: {
       client_name: name,
