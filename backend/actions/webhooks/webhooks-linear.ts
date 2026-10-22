@@ -4,6 +4,10 @@ import { z } from "zod";
 import { liveIntegrationForWorkspace } from "../../ops/IntegrationOps";
 import { checkTimestamp, verifySignature } from "../../ops/LinearWebhookOps";
 import { rawRequestOf, readCappedBody } from "../../ops/RawRequestOps";
+import {
+  publishEventsChanged,
+  UNKNOWN_INTEGRATION_SUMMARY,
+} from "../../ops/TriggerEventOps";
 import { triggerEvents } from "../../schema/trigger_events";
 
 /**
@@ -158,7 +162,11 @@ export class WebhooksLinear implements Action {
         payload,
         ...(integration
           ? {}
-          : { outcome: "unknown_integration", processedAt: new Date() }),
+          : {
+              outcome: "unknown_integration",
+              processedAt: new Date(),
+              summary: UNKNOWN_INTEGRATION_SUMMARY,
+            }),
       })
       .onConflictDoNothing({
         target: [triggerEvents.type, triggerEvents.deliveryId],
@@ -173,6 +181,7 @@ export class WebhooksLinear implements Action {
     }
 
     if (integration) {
+      await publishEventsChanged(integration.projectId);
       try {
         await api.actions.enqueue("triggers:process-event", {
           eventId: inserted.id,
