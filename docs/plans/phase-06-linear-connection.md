@@ -455,6 +455,15 @@ Hypotenuse user. What this section calls by its old name is now:
 `linear:callback`, `linear:manifest-url`, `webhooks:linear`, and `ops/LinearOps.ts` are Linear's own and keep
 their names. Migration `0003` copies `linear_installations` into `integrations` (ids kept) and `0004` drops it.
 
+### The app is public
+
+The manifest above says `distribution` = `private`. A private Linear app can be installed only by the workspace
+that created it, which makes "one app, many workspace installs" one workspace per deployment: a second project's
+Connect fails at Linear's consent screen. The manifest now writes `public` — Linear's schema describes it as
+"allow this application to be installed by other workspaces" — which is not the same as being listed in Linear's
+integration directory. Nothing else changed: webhooks were already routed by `organizationId` and tokens were
+already per integration.
+
 ### What is built
 
 All eleven Definition of done items. The backend gained `linear_installations` (one migration), `LinearOps` (the
