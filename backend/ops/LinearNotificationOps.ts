@@ -50,6 +50,12 @@ export const MENTION_CHECK_DELAY_MS = 30_000;
 /** How long a status check keeps being retried before it is given up. */
 export const STATUS_CHECK_GIVE_UP_MS = 60 * 60 * 1000;
 
+/**
+ * How long a tick holds a check it claimed: past one Linear read with its
+ * refresh and retry. A tick that dies mid-check leaves it due again after.
+ */
+export const CHECK_LEASE_MS = 2 * 60 * 1000;
+
 /** How long a status check waits after a refused Linear read. */
 const STATUS_RETRY_MS = 60_000;
 
@@ -258,8 +264,10 @@ export type NotificationCheck =
 /**
  * Re-check one processed notification whose `checkAfter` is due.
  *
- * A mention is settled in one transaction. A status change first reads the
- * issue from Linear (spending a bucket token, outside any transaction), then
+ * A tick first claims the row (`CHECK_LEASE_MS`), so two clocks never work
+ * one notification at once. A mention is settled in one transaction. A status
+ * change first reads the issue from Linear (spending a bucket token, outside
+ * any transaction), then
  * takes the row again and cancels the issue's live turns if the state is
  * `completed` or `canceled`. A refused or rate-limited read tries again a
  * minute later, for an hour.
@@ -289,14 +297,27 @@ async function checkRow(
   eventId: number,
   now: Date,
 ): Promise<{ result: NotificationCheck; projectId: number | null }> {
+  // Claim the check: one conditional update moves `checkAfter` past the
+  // longest a check takes, so a second tick finds it not yet due and skips.
+  // Every later write here is this tick's alone.
+  const [claimed] = await api.db.db
+    .update(triggerEvents)
+    .set({ checkAfter: new Date(now.getTime() + CHECK_LEASE_MS) })
+    .where(
+      and(
+        eq(triggerEvents.id, eventId),
+        isNotNull(triggerEvents.checkAfter),
+        lte(triggerEvents.checkAfter, now),
+      ),
+    )
+    .returning({ id: triggerEvents.id });
+  if (!claimed) return { result: "skipped", projectId: null };
   const [peek] = await api.db.db
     .select({ event: triggerEvents, integration: integrations })
     .from(triggerEvents)
     .innerJoin(integrations, eq(integrations.id, triggerEvents.integrationId))
     .where(eq(triggerEvents.id, eventId));
-  if (!peek?.event.checkAfter || peek.event.checkAfter > now) {
-    return { result: "skipped", projectId: null };
-  }
+  if (!peek) return { result: "skipped", projectId: null };
   const { event, integration } = peek;
   const done = (result: NotificationCheck) => ({
     result,

@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { eq } from "drizzle-orm";
 import { api } from "keryx";
+import { checkNotification } from "../../ops/LinearNotificationOps";
 import { agentSessions } from "../../schema/agent_sessions";
 import { type TriggerEvent, triggerEvents } from "../../schema/trigger_events";
 import {
@@ -246,6 +247,26 @@ describe("LC-WH-19 status changes and other types", () => {
     const checked = await checkNow(event.id);
     expect(checked.outcome).toBe("disengaged");
     await quietlyCancelled(s, "issue_closed");
+  });
+
+  test("two clock ticks reaching one due check: exactly one does it", async () => {
+    const s = await running("Checked once");
+    const event = await notify("issueStatusChanged", {
+      issueId: s.issue.id,
+      actorId: "a-person",
+    });
+    await api.db.db
+      .update(triggerEvents)
+      .set({ checkAfter: new Date(Date.now() - 1000) })
+      .where(eq(triggerEvents.id, event.id));
+    const results = await Promise.all([
+      checkNotification(event.id),
+      checkNotification(event.id),
+    ]);
+    expect(results.sort()).toEqual(["skipped", "still_open"]);
+    expect((await itemRow(s.workItemId)).status).toBe("running");
+    await laptop.complete(s.workItemId, "completed");
+    await settle();
   });
 
   test("a status change to an open state leaves the turn running", async () => {
