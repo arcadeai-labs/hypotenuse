@@ -76,6 +76,27 @@ export interface TurnContext {
   recordPullRequest?(url: string): void;
   /** What a person said when they stopped the turn (`agents kill --reason`). */
   stopNote?(): string | null;
+  /**
+   * How to start the turn's `hypotenuse` MCP server — this program's `mcp`
+   * command with the session id and the turn's nonce — or absent where the
+   * daemon serves no tools (some harnesses).
+   */
+  hypotenuseMcp?: HypotenuseMcpLaunch | null;
+  /**
+   * Register the reader of the turn's `linear_ask_user` calls: true before
+   * the question is posted, false if posting it failed.
+   */
+  onAskingUser?(handler: (asking: boolean) => void): void;
+  /** Register the reader of pull requests linked through `linear_report_pr`. */
+  onReportedPullRequest?(handler: (url: string) => void): void;
+}
+
+/** A stdio MCP server's launch, as ACP's `mcpServers` wants it. */
+export interface HypotenuseMcpLaunch {
+  /** An absolute path. */
+  command: string;
+  args: string[];
+  env: Record<string, string>;
 }
 
 /** What preparing a workspace needs from the turn. */

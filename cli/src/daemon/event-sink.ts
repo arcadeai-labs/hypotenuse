@@ -193,6 +193,25 @@ export class EventSink {
     return this.state.pendingWorkItems().length === 0;
   }
 
+  /**
+   * Wait, bounded, until one work item's queued events have all reached the
+   * server — so a write the server makes for the turn directly (an agent
+   * tool's plan, question, or pull request link) lands after them.
+   * @param workItemId - The work item.
+   * @param timeoutMs - The most to wait.
+   * @returns Whether its queue emptied.
+   */
+  async settled(workItemId: number, timeoutMs = 5_000): Promise<boolean> {
+    const deadline = Date.now() + timeoutMs;
+    while (!this.closed) {
+      if (this.state.pendingEvents(workItemId, 1).length === 0) return true;
+      if (Date.now() >= deadline) return false;
+      if (!this.flushing) this.kick(true);
+      await Bun.sleep(20);
+    }
+    return this.state.pendingEvents(workItemId, 1).length === 0;
+  }
+
   /** Stop flushing; whatever is queued stays for the next start. */
   close(): void {
     this.closed = true;

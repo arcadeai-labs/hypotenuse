@@ -11,7 +11,7 @@
  * | `drain` | `daemon stop`, `upgrade` |
  * | `reload` | `daemon reload`, `SIGHUP` |
  * | `restart` | `upgrade` |
- * | `mcp.call` | reserved for `hypotenuse mcp` |
+ * | `mcp.hello`, `mcp.call` | `hypotenuse mcp`, the agent's tool server (`daemon/mcp-broker.ts`) |
  */
 import { chmodSync, existsSync, mkdirSync, rmSync } from "node:fs";
 import { dirname } from "node:path";

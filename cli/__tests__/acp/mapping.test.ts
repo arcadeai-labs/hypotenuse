@@ -340,4 +340,25 @@ describe("mapping", () => {
       m.update({ sessionUpdate: "session_info_update", title: "late" }),
     ).toEqual([]);
   });
+
+  test("after linear_ask_user, end_turn emits no response and no activity at all", () => {
+    const { m } = mapper();
+    m.update(thought("I need a decision."));
+    m.askedUser = true;
+    expect(
+      m.update({
+        sessionUpdate: "tool_call_update",
+        toolCallId: "ask",
+        status: "completed",
+        title: "linear_ask_user",
+        kind: "other",
+      }),
+    ).toEqual([]);
+    m.update(thought("Waiting for them."));
+    m.update(message("I asked which header to keep."));
+    expect(m.flushThought(false)).toEqual([]);
+    expect(m.finish("end_turn", { branch: "eng-7" })).toEqual([]);
+    // The trailing message is kept for the session log, not posted.
+    expect(m.message()).toBe("I asked which header to keep.");
+  });
 });

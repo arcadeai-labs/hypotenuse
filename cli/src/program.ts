@@ -15,6 +15,7 @@ import { registerDoctorCommand } from "./commands/doctor";
 import { registerIdentityCommands } from "./commands/identity";
 import { registerIntegrationCommands } from "./commands/integration";
 import { registerInviteCommands } from "./commands/invite";
+import { registerMcpCommand } from "./commands/mcp";
 import { registerMemberCommands } from "./commands/member";
 import { registerProjectCommands } from "./commands/project";
 import { registerRoutingCommands } from "./commands/routing";
@@ -88,6 +89,7 @@ export function buildProgram(): Command {
   registerDoctorCommand(program);
   registerCheckUpdateCommand(program);
   registerUpgradeCommand(program);
+  registerMcpCommand(program);
   return program;
 }
 

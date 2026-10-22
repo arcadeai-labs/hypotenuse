@@ -46,12 +46,7 @@ import { credentialsPath } from "../paths";
 import { machineId } from "../runner/machine";
 import { onSignal, register, setHardTimeout } from "../shutdown";
 import type { CleanupOptions } from "../worktree/cleanup";
-import {
-  ControlServer,
-  INVALID_PARAMS,
-  METHOD_NOT_FOUND,
-  RpcError,
-} from "./control-socket";
+import { ControlServer, INVALID_PARAMS, RpcError } from "./control-socket";
 import { DaemonApi } from "./daemon-api";
 import { DaemonLog } from "./log";
 import { acquireLock, LockHeld, releaseLock } from "./pidfile";
@@ -420,12 +415,8 @@ export async function runDaemon(options: DaemonOptions): Promise<void> {
         }, 50);
         return { restarting: true, mode: service ? "service" : "re-exec" };
       },
-      "mcp.call": () => {
-        throw new RpcError(
-          METHOD_NOT_FOUND,
-          "mcp.call is reserved for the hypotenuse MCP server, which is not built yet",
-        );
-      },
+      "mcp.hello": (params) => supervisor.broker.hello(params),
+      "mcp.call": (params) => supervisor.broker.call(params),
     },
     (method, error) =>
       log.error(

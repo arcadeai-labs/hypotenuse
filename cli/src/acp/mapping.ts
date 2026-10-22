@@ -17,6 +17,14 @@
  * | a pull request URL of the session's repository, in a completed `execute` result or the turn's message | `external_url` "Pull Request", once per URL |
  * | mode, config, and command updates; `user_message_chunk`; notices; compaction | nothing |
  * | an unknown kind | nothing; reported once |
+ *
+ * Once the agent has asked the person with `linear_ask_user`
+ * ({@link TurnMapper.askedUser}), no further activity is emitted: the
+ * question is posted by the server, and a thought, action, or `response`
+ * after it would move the Linear session out of `awaitingInput` and hide the
+ * question. The turn's end then emits only pull request links (session
+ * updates, not activities), and any trailing message is left to the session
+ * log.
  */
 import type { EventInput } from "../daemon/event-sink";
 import type { SessionUpdate, StopReason } from "./connection";
@@ -73,6 +81,8 @@ export class TurnMapper {
   replaying = false;
   /** Once true (a stop), only `response` and `error` are emitted. */
   stopping = false;
+  /** Once true (`linear_ask_user`), no activity is emitted at all. */
+  askedUser = false;
   private thought = "";
   private thoughtSince = 0;
   private readonly messages = new Map<string, string>();
@@ -230,7 +240,7 @@ export class TurnMapper {
   flushThought(ephemeral: boolean): EventInput[] {
     const body = this.thought.trim();
     this.thought = "";
-    if (!body || this.stopping) return [];
+    if (!body || this.stopping || this.askedUser) return [];
     return [{ type: "thought", body: truncate(body, 60_000), ephemeral }];
   }
 
@@ -257,6 +267,8 @@ export class TurnMapper {
     const events = this.flushThought(false);
     const said = this.message();
     events.push(...this.pullRequests(said));
+    // The question the agent asked is the turn's answer.
+    if (this.askedUser) return events;
     const where = context.branch
       ? `Progress so far is on \`${context.branch}\``
       : "Progress so far is in the working directory";
@@ -320,7 +332,7 @@ export class TurnMapper {
     const parameter = compactParameter(call, this.options.cwd);
     const action = verb(call, done);
     this.lastActionSummary = `${action} ${parameter}`;
-    if (this.stopping) return [];
+    if (this.stopping || this.askedUser) return [];
     if (!done) return [{ type: "action", action, parameter, ephemeral: true }];
     const result =
       call.status === "failed"

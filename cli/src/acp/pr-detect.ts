@@ -90,6 +90,15 @@ export class PrDetector {
   }
 
   /**
+   * Count a URL as linked already — one the agent linked with
+   * `linear_report_pr` — so the turn's own detection does not link it again.
+   * @param url - The pull request URL.
+   */
+  remember(url: string): void {
+    if (!this.seen.includes(url)) this.seen.push(url);
+  }
+
+  /**
    * The new pull request links in some text, labelled.
    * @param text - Tool output or an agent message.
    * @returns `{ label, url }` for each URL not linked before.

@@ -67,6 +67,7 @@ import {
   stopActivity,
 } from "./lifecycle";
 import { type MapperOptions, TurnMapper } from "./mapping";
+import { turnMcpServers, UnsetVariableError } from "./mcp-servers";
 import { automaticOption, decide } from "./permissions";
 import { PrDetector } from "./pr-detect";
 import {
@@ -280,6 +281,20 @@ class Turn {
       this.log.note(`reply ${reply.activityId}`);
       return this.questions.deliver(reply);
     });
+    ctx.onAskingUser?.((asking) => {
+      // What the agent thought before asking goes first; nothing after the
+      // question reaches Linear, which would move the session out of
+      // awaitingInput.
+      if (asking) this.emitAll(this.mapper.flushThought(true));
+      this.mapper.askedUser = asking;
+      this.log.note(
+        asking ? "asked the person (linear_ask_user)" : "asking failed",
+      );
+    });
+    ctx.onReportedPullRequest?.((url) => {
+      this.mapperOptions.pullRequests?.remember(url);
+      this.log.note(`pull request ${url} (linear_report_pr)`);
+    });
 
     let timer: ReturnType<typeof setInterval> | undefined;
     try {
@@ -298,7 +313,9 @@ class Turn {
         this.log.note(`failed: ${error.body}`);
         if (!this.endReason) {
           this.emitAll(this.mapper.flushThought(false));
-          this.emit({ type: "error", body: error.body });
+          // After a question, an error would hide it: the session log has it.
+          if (!this.mapper.askedUser)
+            this.emit({ type: "error", body: error.body });
           return this.result("failed", error.body);
         }
         // Awaited: `finally` closes the agent, and must not run first.
@@ -671,52 +688,40 @@ class Turn {
   /** Settles when `session/prompt` answers (or fails). */
   private promptSettled: Promise<void> | null = null;
 
+  /** Whether the skipped-servers thought has been said this turn. */
+  private toldSkipped = false;
+
   /**
-   * The role's extra MCP servers, as ACP wants them (HTTP ones only for an
-   * agent that advertises HTTP MCP).
+   * The turn's MCP servers: `hypotenuse`, then the role's extras
+   * (`mcp-servers.ts`). An HTTP server the agent cannot use is skipped, with
+   * a thought; an unset variable fails the turn naming it.
    * @param caps - The agent's capabilities.
    * @returns The servers.
+   * @throws {TurnFailure} When an extra server names an unset variable.
    */
   private mcpServers(caps: AgentCapabilities): McpServer[] {
-    const servers = this.role?.extra_mcp_servers ?? [];
-    const env = this.ctx.env;
-    const expand = (v: string) =>
-      v.replace(
-        /\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))/g,
-        (_, a?: string, b?: string) => env[(a ?? b) as string] ?? "",
+    let chosen: ReturnType<typeof turnMcpServers>;
+    try {
+      chosen = turnMcpServers(
+        this.role,
+        caps,
+        this.ctx.env,
+        this.ctx.hypotenuseMcp,
       );
-    return servers.flatMap((s): McpServer[] => {
-      if (s.command?.length) {
-        const [command, ...args] = s.command;
-        return [
-          {
-            name: s.name,
-            command:
-              Bun.which(command as string, { PATH: env.PATH ?? "" }) ??
-              (command as string),
-            args,
-            env: Object.entries(s.env ?? {}).map(([name, value]) => ({
-              name,
-              value: expand(value),
-            })),
-          },
-        ];
-      }
-      if (s.url && caps.mcpCapabilities?.http) {
-        return [
-          {
-            type: "http" as const,
-            name: s.name,
-            url: s.url,
-            headers: Object.entries(s.headers ?? {}).map(([name, value]) => ({
-              name,
-              value: expand(value),
-            })),
-          },
-        ];
-      }
-      return [];
-    });
+    } catch (error) {
+      if (error instanceof UnsetVariableError)
+        throw new TurnFailure(error.message);
+      throw error;
+    }
+    if (chosen.skipped.length > 0 && !this.toldSkipped) {
+      this.toldSkipped = true;
+      this.emit({
+        type: "thought",
+        body: `${this.agentId} cannot use HTTP MCP servers, so ${chosen.skipped.map((n) => `\`${n}\``).join(", ")} ${chosen.skipped.length === 1 ? "is" : "are"} not available this turn.`,
+        ephemeral: false,
+      });
+    }
+    return chosen.servers;
   }
 
   /**
@@ -809,6 +814,10 @@ class Turn {
     this.emit({ type: "status", state: "finishing" });
     const stop =
       answer.stopReason === "cancelled" ? "end_turn" : answer.stopReason;
+    if (this.mapper.askedUser && this.mapper.hasMessage)
+      this.log.note(
+        `said after asking (kept out of Linear): ${this.mapper.message().slice(0, 2000)}`,
+      );
     this.emitAll(this.mapper.finish(stop, { branch: this.branch }));
     return stop === "end_turn"
       ? this.result("completed")
@@ -948,7 +957,11 @@ class Turn {
         return;
       }
     }
-    if (!waiting && now - this.lastEmit >= sessions.keepalive_interval) {
+    if (
+      !waiting &&
+      !this.mapper.askedUser &&
+      now - this.lastEmit >= sessions.keepalive_interval
+    ) {
       const last = this.mapper.lastAction;
       this.emit({
         type: "thought",
