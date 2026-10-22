@@ -72,8 +72,54 @@ jobs:
       - run: bun install --frozen-lockfile
         working-directory: .
       - run: cp .env.example .env
-      # `bun run test` fetches finear at its pinned commit, then runs `bun test`.
-      - run: bun run test
+      - run: bun run finear:fetch
+      # The suites that spawn real daemons run in E2E Daemon, below.
+      - run: bun test --path-ignore-patterns '__tests__/daemon/**' --path-ignore-patterns '__tests__/e2e/**'
+        env:
+          DATABASE_URL_TEST: postgres://postgres:postgres@localhost:5432/hypotenuse_test
+          DATABASE_AUTO_MIGRATE_TEST: "true"
+          REDIS_URL_TEST: redis://localhost:6379/1
+
+  # Every process the product has, each as itself: finear, the backend, real
+  # `hypotenuse daemon` children, and the scripted fake ACP agent in real git
+  # worktrees. Split across a matrix by directory if it outgrows ten minutes.
+  e2e-daemon:
+    name: E2E Daemon
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      redis:
+        image: redis
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: hypotenuse_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+        working-directory: .
+      - run: cp .env.example .env
+      - run: bun run finear:fetch
+      - run: bun test __tests__/daemon __tests__/e2e
         env:
           DATABASE_URL_TEST: postgres://postgres:postgres@localhost:5432/hypotenuse_test
           DATABASE_AUTO_MIGRATE_TEST: "true"
@@ -219,6 +265,7 @@ jobs:
         protocol,
         backend-lint,
         backend-test,
+        e2e-daemon,
         backend-docker,
         cli,
         cli-upgrade,

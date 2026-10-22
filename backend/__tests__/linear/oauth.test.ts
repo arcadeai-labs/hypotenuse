@@ -178,7 +178,31 @@ describe("linear:callback", () => {
     ).toBeNull();
   });
 
-  test("LC-OAUTH-12 LC-OAUTH-19 LC-OAUTH-20 LC-DEL-06 LC-WH-08 the full flow stores an active integration as the app user", async () => {
+  test("LC-OAUTH-03 any other error Linear returns (a non-admin's install) redirects with error=exchange_failed and stores nothing", async () => {
+    // finear's fixture humans are all admins, so Linear's refusal of a
+    // non-admin is written onto the callback as Linear sends it.
+    const declined = new URL(
+      await linear.authorize(universe.projectId, universe.peach.sessionId, {
+        decision: "deny",
+      }),
+    );
+    declined.searchParams.set("error", "unauthorized");
+    declined.searchParams.set(
+      "error_description",
+      "Only workspace admins can install applications",
+    );
+    const landed = await linear.callback(
+      declined.toString(),
+      universe.peach.sessionId,
+    );
+    expect(landed.searchParams.get("error")).toBe("exchange_failed");
+    expect(
+      (await integrationView(universe.projectId, universe.peach.sessionId))
+        .integration,
+    ).toBeNull();
+  });
+
+  test("LC-OAUTH-12 LC-OAUTH-19 LC-OAUTH-23 LC-OAUTH-20 LC-DEL-06 LC-WH-08 the full flow stores an active integration as the app user", async () => {
     linear.clearRequests();
     const landed = await linear.install(
       universe.projectId,
@@ -193,10 +217,9 @@ describe("linear:callback", () => {
       .map((r) => r.operationName);
 
     const token = await appToken(universe.projectId);
-    const viewer = await linear.graphql<{ viewer: { id: string } }>(
-      `Bearer ${token}`,
-      "{ viewer { id } }",
-    );
+    const viewer = await linear.graphql<{
+      viewer: { id: string; name: string; displayName: string };
+    }>(`Bearer ${token}`, "{ viewer { id name displayName } }");
     const { integration: view, configured } = await integrationView(
       universe.projectId,
       universe.toad.sessionId,
@@ -209,7 +232,9 @@ describe("linear:callback", () => {
       workspaceName: "Workspace 1",
       workspaceUrlKey: "eng",
       externalAppUserId: viewer.data!.viewer.id,
-      appUserName: "Hypotenuse",
+      // LC-OAUTH-23: the name Linear gave the app user (suffixed if it
+      // collided with a member's), never the name Hypotenuse asked for.
+      appUserName: viewer.data!.viewer.displayName || viewer.data!.viewer.name,
       details: {
         appUserCapabilities: {
           app: true,

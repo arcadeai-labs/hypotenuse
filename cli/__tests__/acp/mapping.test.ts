@@ -36,7 +36,7 @@ const message = (text: string, messageId?: string): SessionUpdate => ({
 });
 
 describe("mapping", () => {
-  test("thoughts are held until 3 s pass, then flushed ephemeral", () => {
+  test("LC-ACT-02 thoughts are held until 3 s pass, then flushed ephemeral", () => {
     const { m, advance } = mapper();
     expect(m.update(thought("Looking "))).toEqual([]);
     advance(2_999);
@@ -86,7 +86,7 @@ describe("mapping", () => {
     ]);
   });
 
-  test("tool calls: in progress is ephemeral, completed persists with a result, failed says why", () => {
+  test("LC-ACT-03 LC-ACT-04 tool calls: in progress is ephemeral, completed persists with a result, failed says why", () => {
     const { m } = mapper();
     expect(
       m.update({
@@ -180,7 +180,7 @@ describe("mapping", () => {
     ]);
   });
 
-  test("plans: the whole list each time, identical plans not re-sent", () => {
+  test("LC-SES-17 plans: the whole list each time, identical plans not re-sent", () => {
     const { m } = mapper();
     const plan: SessionUpdate = {
       sessionUpdate: "plan",
@@ -201,7 +201,7 @@ describe("mapping", () => {
     expect(m.update(plan)).toEqual([]);
   });
 
-  test("a title becomes one trimmed line of at most 255 characters", () => {
+  test("LC-SES-18 a title becomes one trimmed line of at most 255 characters", () => {
     const { m } = mapper();
     expect(
       m.update({
@@ -271,7 +271,7 @@ describe("mapping", () => {
     ]);
   });
 
-  test("messages are joined by message id; a silent turn says Done and its last step", () => {
+  test("LC-ACT-06 messages are joined by message id; a silent turn says Done and its last step", () => {
     const { m } = mapper();
     m.update(message("First ", "m1"));
     m.update(message("Second", "m2"));
@@ -293,7 +293,7 @@ describe("mapping", () => {
     ]);
   });
 
-  test("stop reasons: refusal, max_tokens, max_turn_requests", () => {
+  test("LC-ACT-07 stop reasons: refusal, max_tokens, max_turn_requests", () => {
     const refusal = mapper().m;
     expect(refusal.finish("refusal", { branch: null })).toEqual([
       {

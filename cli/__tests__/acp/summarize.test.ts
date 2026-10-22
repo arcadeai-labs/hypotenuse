@@ -81,7 +81,7 @@ describe("summarize", () => {
     ).toBe("Ponder");
   });
 
-  test("a diff is summarized as +added −removed, with the diff folded", () => {
+  test("LC-ACT-12 a diff is summarized as +added −removed, with the diff folded", () => {
     expect(diffStat("a\nb\nc\n", "a\nB\nc\nd\n")).toEqual({
       added: 2,
       removed: 1,
@@ -116,7 +116,7 @@ describe("summarize", () => {
     expect(compactResult(call({}), "/w")).toBeUndefined();
   });
 
-  test("results are capped at 2 KB with fences and sections closed", () => {
+  test("LC-ACT-12 results are capped at 2 KB with fences and sections closed", () => {
     const huge = `+1 −0 in big.ts\n\n+++ Diff\n\`\`\`diff\n${"+line\n".repeat(1000)}\`\`\`\n+++`;
     const capped = capResult(huge);
     expect(capped.length).toBeLessThanOrEqual(RESULT_MAX);

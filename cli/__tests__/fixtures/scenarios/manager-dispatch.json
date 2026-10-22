@@ -1,0 +1,129 @@
+{
+  "roleTurns": {
+    "manager": [
+      [
+        {
+          "mcp": {
+            "tool": "linear_create_sub_issue",
+            "arguments": {
+              "parent": "ENG-1",
+              "title": "Round the subtotal",
+              "description": "## Acceptance criteria\n- [ ] rounded half to even"
+            }
+          },
+          "say": false
+        },
+        {
+          "mcp": {
+            "tool": "linear_create_sub_issue",
+            "arguments": {
+              "parent": "ENG-1",
+              "title": "Round the tax",
+              "description": "## Acceptance criteria\n- [ ] rounded half to even"
+            }
+          },
+          "say": false
+        },
+        {
+          "mcp": {
+            "tool": "hypotenuse_dispatch",
+            "arguments": {
+              "issue": "ENG-2"
+            }
+          },
+          "say": false
+        },
+        {
+          "mcp": {
+            "tool": "hypotenuse_dispatch",
+            "arguments": {
+              "issue": "ENG-3"
+            }
+          },
+          "say": false
+        },
+        {
+          "update": {
+            "sessionUpdate": "agent_message_chunk",
+            "content": {
+              "type": "text",
+              "text": "Split ENG-1 into ENG-2 and ENG-3 and dispatched both."
+            }
+          }
+        },
+        {
+          "stop": "end_turn"
+        }
+      ],
+      [
+        {
+          "mcp": {
+            "tool": "hypotenuse_dispatch",
+            "arguments": {
+              "issue": "ENG-2",
+              "mode": "changes",
+              "instructions": "Also cover negative totals."
+            }
+          },
+          "say": false
+        },
+        {
+          "update": {
+            "sessionUpdate": "agent_message_chunk",
+            "content": {
+              "type": "text",
+              "text": "Sent ENG-2 back: negative totals are not covered."
+            }
+          }
+        },
+        {
+          "stop": "end_turn"
+        }
+      ],
+      [
+        {
+          "update": {
+            "sessionUpdate": "agent_message_chunk",
+            "content": {
+              "type": "text",
+              "text": "Accepted."
+            }
+          }
+        },
+        {
+          "stop": "end_turn"
+        }
+      ]
+    ],
+    "worker": [
+      [
+        {
+          "update": {
+            "sessionUpdate": "agent_message_chunk",
+            "content": {
+              "type": "text",
+              "text": "Rounded it."
+            }
+          }
+        },
+        {
+          "stop": "end_turn"
+        }
+      ],
+      [
+        {
+          "update": {
+            "sessionUpdate": "agent_message_chunk",
+            "content": {
+              "type": "text",
+              "text": "Covered negative totals too."
+            }
+          }
+        },
+        {
+          "stop": "end_turn"
+        }
+      ]
+    ]
+  }
+}

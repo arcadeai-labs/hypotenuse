@@ -241,15 +241,61 @@ grep -c '| planned |' ../docs/LINEAR_COVERAGE.md          # must print 0
 
 ## Definition of done
 
-- [ ] `linear-coverage.test.ts` enforces unique IDs, existing test files containing each ID, no `planned` rows
-- [ ] `useE2E` harness boots finear, backend, git fixture, fake `gh`, and real daemons; teardown leaves no process
-- [ ] Fake ACP agent with all eight scripts
+- [x] `linear-coverage.test.ts` enforces unique IDs, existing test files containing each ID, no `planned` rows
+- [x] `useE2E` harness boots finear, backend, git fixture, fake `gh`, and real daemons; teardown leaves no process
+- [x] Fake ACP agent with all eight scripts
 - [ ] All fifteen scenario files green, twice in a row, in CI
-- [ ] `E2E Daemon` job in the `complete` gate; nightly real-agent workflow outside it
+- [x] `E2E Daemon` job in the `complete` gate; nightly real-agent workflow outside it
 - [ ] Every finear gap filed upstream and linked; injected-webhook tests for each `covered (finear gap)` row
-- [ ] Manual real-Linear release checklist in `DEPLOY.md`
-- [ ] Every row in `LINEAR_COVERAGE.md` is `covered`, `covered (finear gap)`, or `not applicable` with a reason
+- [x] Manual real-Linear release checklist in `DEPLOY.md`
+- [x] Every row in `LINEAR_COVERAGE.md` is `covered`, `covered (finear gap)`, or `not applicable` with a reason
 
 ## Learnings from the build
 
-_Nothing yet — this phase has not been built._
+**Built**, with the departures below. The fifteen scenarios are in, a few sharing a file where they share a
+booted system; the matrix refuses `planned`; the nightly real-agent run and the release check against real Linear
+exist. Neither the nightly nor the release check has run yet, and the finear gaps are written up but not filed
+(this session could not write to finear's repository).
+
+### Where the pieces live
+
+- **Harness:** `backend/__tests__/e2e/harness.ts` (`useE2E`) on top of `DaemonHome` in
+  `backend/__tests__/daemon/helpers.ts`, which gained `roles`, `manager`, `env`, and `agent` options.
+- **Scenarios:** `backend/__tests__/e2e/*.test.ts`; `real-agent.test.ts` runs only with
+  `HYPOTENUSE_E2E_AGENT=claude`.
+- **Fake agent:** new scenarios `plan-edit-pr`, `manager-dispatch`, and `auth-login`; a `roleTurns` option picks
+  turns by `HYPOTENUSE_ROLE`.
+- **Matrix:** `backend/__tests__/docs/linear-coverage.test.ts`; new proofs in `routing/context.test.ts`,
+  `linear/no-polling.test.ts`, and tagged tests across the existing suites.
+- **CI:** `E2E Daemon` (`__tests__/daemon` and `__tests__/e2e`) in the gate, and Backend Test ignoring both;
+  `.github/workflows/nightly-real-agent.yml` outside it. `deployment/release-workflow.test.ts` asserts both.
+
+### Where the build departs from the plan
+
+| Plan | Built | Why |
+|---|---|---|
+| A harness of its own (git fixture, fake `gh`, daemon management) | **`DaemonHome`**, which the daemon suites already had, plus a pump | it already laid out a home, a clone with a local bare origin behind `insteadOf`, and the fake agent; the agent prints the pull request URL itself, so no fake `gh` is needed |
+| Scripts in `fixtures/scripts/*.ts` chosen by a prompt directive | **JSON scenarios** in `fixtures/scenarios/`, chosen by `FAKE_ACP_SCENARIO` | the fake agent already played scenarios; a directive in the prompt would be a second way to choose one |
+| Fifteen files, one per scenario | **twelve new files**, plus the real-daemon suites that already proved the rest: permission `select` (`daemon/acp.test.ts`), follow-up stickiness and restart in `delegate-to-response.test.ts` | one boot per file is the expensive part; scenarios that share a session share a file |
+| Tests call `settle()` | **a pump** runs it every 100 ms; tests wait on finear | a test that settles by hand races the daemon, which posts on its own schedule; waiting on what Linear holds judges the result where the person sees it |
+| Queue timeout and revocation through `work:reap` | **`work:route`** expires a queued turn; revocation **requeues at once** (`requeueRunnerWork`) | that is where the code puts them; the tests assert it |
+| Nightly loosens `delegate-to-response` | **`real-agent.test.ts`**, its own file of shape-only assertions | conditional assertions in one file would weaken the fake-agent run too |
+
+### Learnings
+
+- **finear keeps an ephemeral activity after it is replaced.** A test reading actions by parameter found the
+  ephemeral "Running" before the finished "Ran", and failed one run in three. Match the persisted shape (`Ran`, a
+  result), never the first activity that looks right.
+- **The review loop is not delivered on finear.** A manager's review turns, and a "changes" round, post to a
+  session Linear already holds `complete`; finear refuses an app's activity on a terminal session. Linear's docs say
+  only that status follows the last activity, so it is recorded as an unconfirmed finear gap, pinned by two
+  `test.failing` cases, and is step 10 of the release check. If real Linear refuses too, the review loop has to
+  reopen or restart those sessions.
+- **A restarted daemon is not online until it heartbeats.** The runner row the old daemon left still says
+  `online`; `restart()` waits for a heartbeat later than the restart.
+- **A move to another runner is quiet.** The waiting thought is ephemeral, and nothing persistent says the session
+  moved but the response's signature; `AGENTS.md` said otherwise and now does not.
+- **`previousComments` reach the claim but not the prompt.** LC-CTX-03 says so: Linear's `promptContext` already
+  quotes the thread.
+- **`bunx biome` from the repository root runs an unrelated npm package.** Use the workspace's `bun run lint`, or
+  `backend/node_modules/.bin/biome`.

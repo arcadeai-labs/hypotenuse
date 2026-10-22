@@ -572,6 +572,47 @@ describe("acp host", () => {
     expect(turn.visible().at(-1)?.type).toBe("response");
   }, 30_000);
 
+  test("LC-BP-02 a quiet running turn gets an ephemeral keepalive thought naming where it is", async () => {
+    const turn = new TestTurn(
+      fakeConfig(
+        home(),
+        '[sessions]\nturn_timeout = "1m"\nidle_timeout = "1m"\nkeepalive_interval = "1s"\nstop_grace = "1s"',
+      ),
+      "long",
+    );
+    const kept = await turn.waitFor(
+      (e) => e.type === "thought" && e.body.startsWith("Still working"),
+    );
+    expect(kept).toEqual({
+      type: "thought",
+      body: "Still working.",
+      ephemeral: true,
+    });
+    turn.stop("stop");
+    expect((await turn.result).outcome).toBe("cancelled");
+  }, 20_000);
+
+  test("LC-SES-06 LC-BP-02 a turn waiting on a person's answer sends no keepalive", async () => {
+    const turn = new TestTurn(
+      fakeConfig(
+        home(),
+        '[sessions]\nturn_timeout = "1m"\nidle_timeout = "1m"\nkeepalive_interval = "1s"\nstop_grace = "1s"',
+      ),
+      "long",
+    );
+    while (!turn.pids.some((p) => p !== null)) await Bun.sleep(20);
+    await turn.waitFor((e) => e.type === "thought");
+    // As linear_ask_user does: the session is awaitingInput from here on.
+    turn.askingHandler?.(true);
+    const asked = turn.events.length;
+    await Bun.sleep(2_500);
+    expect(turn.events.slice(asked).filter((e) => e.type !== "status")).toEqual(
+      [],
+    );
+    turn.stop("stop");
+    await turn.result;
+  }, 20_000);
+
   test("the session log has stderr and a JSON-RPC trace", async () => {
     const stateDir = home();
     const turn = new TestTurn(fakeConfig(stateDir), "crash", { stateDir });

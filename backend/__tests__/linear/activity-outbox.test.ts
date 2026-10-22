@@ -573,6 +573,52 @@ describe("budget", () => {
 });
 
 describe("the mirror", () => {
+  test("LC-SES-13 LC-DIFF-02 links are written with addedExternalUrls and removedExternalUrls, and Linear reads them back as externalLinks", async () => {
+    const session = await quietSession("Linked");
+    await enqueue(session, [{ type: "thought", body: "Linking" }]);
+    await api.db.db.transaction(async (tx) => {
+      await enqueueSessionUpdate(tx, session.id, {
+        addedExternalUrls: [
+          { label: "Pull Request", url: "https://github.com/acme/web/pull/1" },
+        ],
+      });
+    });
+    await deliverSession(session.id);
+    await api.db.db.transaction(async (tx) => {
+      await enqueueSessionUpdate(tx, session.id, {
+        removedExternalUrls: ["https://github.com/acme/web/pull/1"],
+        addedExternalUrls: [
+          { label: "Pull Request", url: "https://github.com/acme/web/pull/2" },
+        ],
+      });
+    });
+    await deliverSession(session.id);
+
+    const expected = [
+      { label: "Pull Request", url: "https://github.com/acme/web/pull/2" },
+    ];
+    expect((await sessionRow(session.externalSessionId))?.externalUrls).toEqual(
+      expected,
+    );
+    // Linear's read field is externalLinks; externalUrls is write-only input.
+    const reply = await linear.graphql<{
+      agentSession: { externalLinks: { label: string; url: string }[] };
+    }>(
+      `Bearer ${token}`,
+      "query($id: String!) { agentSession(id: $id) { externalLinks { label url } } }",
+      { id: session.externalSessionId },
+    );
+    expect(reply.data?.agentSession.externalLinks).toEqual(expected);
+    const updates = linear
+      .requests()
+      .filter((r) => r.operationName === "UpdateAgentSession")
+      .map((r) => (r.variables as { input: Record<string, unknown> }).input);
+    expect(updates.at(-1)).toEqual({
+      addedExternalUrls: expected,
+      removedExternalUrls: ["https://github.com/acme/web/pull/1"],
+    });
+  });
+
   test("LC-SES-06 an elicitation leaves the session awaitingInput", async () => {
     const session = await quietSession("Elicited");
     await enqueue(session, [

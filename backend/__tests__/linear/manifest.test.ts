@@ -36,7 +36,7 @@ afterAll(async () => {
 }, HOOK_TIMEOUT);
 
 describe("the Linear app manifest", () => {
-  test("LC-OAUTH-21 the creation link carries a manifest Linear's schema accepts", () => {
+  test("LC-OAUTH-21 LC-WH-11 the creation link carries a manifest Linear's schema accepts", () => {
     const link = new URL(buildAppManifestUrl());
     expect(`${link.origin}${link.pathname}`).toBe(LINEAR_APP_CREATION_URL);
     const manifest = JSON.parse(link.searchParams.get("manifest")!);
