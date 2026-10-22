@@ -56,6 +56,23 @@ export interface BrokerTurn {
   settle(): Promise<void>;
   /** A pull request was linked through `linear_report_pr`. */
   reportedPullRequest(url: string): void;
+  /**
+   * Start the turn's `mcp.call` span for a tool call, when the turn is
+   * traced: its `traceparent` goes with the `daemon:*` call, so the server's
+   * span for it is the span's child.
+   */
+  trace?(
+    tool: string,
+    input: Record<string, unknown>,
+  ): { traceparent: string; end(result: ToolCallOutcome): void } | null;
+}
+
+/** How a tool call ended, for its span. */
+export interface ToolCallOutcome {
+  isError: boolean;
+  cached: boolean;
+  /** The result text. */
+  text: string;
 }
 
 /** How the broker reaches the server. */
@@ -63,6 +80,7 @@ export interface ToolTransport {
   tool(
     route: string,
     body: Record<string, unknown>,
+    traceparent?: string | null,
   ): Promise<{ text: string; data: Record<string, unknown> }>;
 }
 
@@ -168,10 +186,14 @@ export class McpBroker {
     if (!checked.ok) return { text: checked.message, isError: true };
     const { tool, input } = checked;
 
+    const span = turn.trace?.(tool.name, input) ?? null;
     const cached = CACHED_TOOLS.has(tool.name);
     if (cached) {
       const hit = this.cache.get(turn.workItemId, tool.name, input);
-      if (hit) return hit;
+      if (hit) {
+        span?.end({ isError: false, cached: true, text: hit.text });
+        return hit;
+      }
     }
     if (tool.kind === "write") this.cache.invalidate(turn.workItemId);
 
@@ -185,17 +207,23 @@ export class McpBroker {
 
     let answer: CallAnswer;
     try {
-      const result = await this.transport.tool(tool.route, {
-        ...input,
-        agentSessionId: turn.agentSessionId,
-      });
+      const result = await this.transport.tool(
+        tool.route,
+        {
+          ...input,
+          agentSessionId: turn.agentSessionId,
+        },
+        span?.traceparent,
+      );
       answer = { text: result.text, data: result.data };
     } catch (error) {
       if (asking) turn.askingUser(false);
       answer = { text: toolErrorText(error), isError: true };
       this.log(`${tool.name} failed: ${answer.text}`);
+      span?.end({ isError: true, cached: false, text: answer.text });
       return answer;
     }
+    span?.end({ isError: false, cached: false, text: answer.text });
     if (cached) this.cache.set(turn.workItemId, tool.name, input, answer);
     if (tool.name === "linear_report_pr" && answer.data?.linked)
       turn.reportedPullRequest(String(input.url));

@@ -8,6 +8,7 @@ import type {
   WorkAssignment,
 } from "../../../protocol/src/index";
 import type { Config } from "../config/schema";
+import type { TurnTelemetry } from "../telemetry/collector";
 import type { Workspace } from "../worktree/manager";
 import type { EventInput } from "./event-sink";
 import type { DaemonLog } from "./log";
@@ -89,6 +90,11 @@ export interface TurnContext {
   onAskingUser?(handler: (asking: boolean) => void): void;
   /** Register the reader of pull requests linked through `linear_report_pr`. */
   onReportedPullRequest?(handler: (url: string) => void): void;
+  /**
+   * The turn's telemetry, when the project exports it and this runner's
+   * owner allows it; null or absent otherwise. The supervisor ends it.
+   */
+  telemetry?: TurnTelemetry | null;
 }
 
 /** A stdio MCP server's launch, as ACP's `mcpServers` wants it. */

@@ -401,17 +401,17 @@ bun run --cwd cli hypotenuse telemetry exporter add --project 1 --name local \
 
 ## Definition of done
 
-- [ ] `telemetry_exporters` with encrypted headers; six audited/admin actions including a paginated `list`
-- [ ] Endpoint safety: https only, private addresses refused at write and at export
-- [ ] `daemon:telemetry` relay with per-project rate limit; `telemetry:export` with retry and `last_error`
-- [ ] One trace per turn joining server, daemon, and agent-native spans through `work_items.traceparent`
-- [ ] Every ACP frame logged at `full`; content levels filtered per exporter
-- [ ] Loopback receiver and native-telemetry env for every preset that supports it
-- [ ] `[telemetry]` runner cap, reported in capabilities, every combination in the table tested
-- [ ] Redaction in the daemon and the worker; the secret-grep test passes
-- [ ] Bounded daemon buffer with drop accounting; telemetry never delays a turn
-- [ ] Settings page in light and dark; `hypotenuse telemetry exporter …` commands; CLI version bumped
-- [ ] User docs, `CONFIG.md`, `RUNNER_PROTOCOL.md`, `ARCHITECTURE.md`, `DEPLOY.md` updated
+- [x] `telemetry_exporters` with encrypted headers; six audited/admin actions including a paginated `list`
+- [x] Endpoint safety: https only, private addresses refused at write and at export
+- [x] `daemon:telemetry` relay with per-project rate limit; `telemetry:export` with retry and `last_error`
+- [x] One trace per turn joining server, daemon, and agent-native spans through `work_items.traceparent`
+- [x] Every ACP frame logged at `full`; content levels filtered per exporter
+- [x] Loopback receiver and native-telemetry env for every preset that supports it
+- [x] `[telemetry]` runner cap, reported in capabilities, every combination in the table tested
+- [x] Redaction in the daemon and the worker; the secret-grep test passes
+- [x] Bounded daemon buffer with drop accounting; telemetry never delays a turn
+- [x] Settings page in light and dark; `hypotenuse telemetry exporter …` commands; CLI version bumped
+- [x] User docs, `CONFIG.md`, `RUNNER_PROTOCOL.md`, `ARCHITECTURE.md`, `DEPLOY.md` updated
 
 ## Commands
 
@@ -424,4 +424,66 @@ redis-cli XLEN hypotenuse:telemetry:1
 
 ## Learnings from the build
 
-_Nothing yet — this phase has not been built._
+**Built.** The Definition of done, at CLI 0.14.0, except where a bullet below says otherwise.
+
+- **No OpenTelemetry SDK, on either side.** A turn's trace crosses three processes and its whole life, and every
+  span is written when it ends from what Postgres (server) or the turn (daemon) already knows; an SDK's in-process
+  context and batch processor would have been fought, not used. Telemetry is held as OTLP/JSON everywhere, built by
+  small helpers in `protocol/src/otlp.ts` and `telemetry.ts`, and converted to protobuf only at an edge (an agent's
+  protobuf export, an `http/protobuf` exporter) through a protobufjs JSON descriptor of the OTLP messages written
+  out by hand — `@opentelemetry/otlp-transformer` serializes requests but no longer decodes them. The server's
+  Linear calls find their parent through an `AsyncLocalStorage` trace scope (`withTraceScope`).
+- **Content levels are attributes, not batches.** Free text lives under `hypotenuse.content.*`; a record that is
+  content whole (an ACP frame, a stderr line) carries `hypotenuse.telemetry.level`. `filterForLevel` drops by those
+  two rules, so the daemon collects once and the worker filters per exporter. The agent's own telemetry is tagged
+  with the level the turn collected at — what an agent logs depends on what it was asked to — so it reaches only
+  exporters at that level or above: with a `full` and a `metadata` exporter, the `metadata` one gets none of it.
+- **The traceparent is a column default.** Four places insert work items; `$defaultFn` mints the trace and root span
+  id in all of them, and the migration backfills existing rows. The sampled flag is decided and written **at claim**,
+  not at insert, because an insert does not know the project's exporters — and at claim the exporters in force are
+  the ones that matter. The claim's decision is kept on `work_items.telemetry`, so a repeated claim answers the same,
+  and `serializeWorkItem` carries its note and trace id to the session page.
+- **The cap rides the heartbeat, not `daemon:connect`**, which carries no capabilities; it is stored on
+  `runners.telemetry`. `RunnerCapabilities` is strict, so the key is optional and an older daemon reports none —
+  treated as "sends no telemetry".
+- **Routes follow the repository's convention**, `/telemetry-exporter(s)` and `/telemetry-exporter/:id` with
+  `projectId` as a param, not the plan's `/project/:projectId/…`. **Members read** (`list`, `view`): header names only
+  are ever serialized, and a runner's owner should see what their work is exported at; admins write and `test`.
+  Headers are one sealed `jsonb` column plus `headerNames`, as `integrations` seals its tokens, not three text
+  columns. The dashboard is a Settings section (Settings → Telemetry), not its own page.
+- **Each exporter reads the stream through its own consumer group** (`exporter:<id>` on
+  `telemetry:stream:<projectId>`, not the plan's `hypotenuse:telemetry:<id>`). A failing collector's entries stay
+  pending and are re-read first after its backoff — a Redis key with a TTL (`telemetry:backoff:<id>`), which is how
+  tests move its clock — while other exporters keep draining. A group is created at `$` when its exporter is (it
+  gets what is observed from then on); a group found missing at export means the stream expired with it, so it is
+  recreated at `0`. Each entry holds one signal, so a POST that fails acks nothing of the signals that succeeded.
+- **The daemon sends gzipped OTLP/JSON**; `daemon:telemetry` is a `rawBody` route and accepts protobuf too. A turn
+  no exporter wants is 409 `TELEMETRY_NOT_WANTED`, and the daemon then drops that turn's telemetry for good, as it
+  does on 410. Spans and logs naming another trace are dropped at ingress, so a runner can write only into turns it
+  held, and the server stamps project, work item, and runner itself.
+- **`daemon:*` spans come from `beforeAct` / `afterAct` hooks** (`initializers/telemetry.ts`), not from each action:
+  every traced call is a span, in the runner's own project only. `DaemonToolAction` reads the hook's span to run its
+  Linear calls under it.
+- **Native env, as verified against each agent's docs here:** Claude Code takes `CLAUDE_CODE_ENABLE_TELEMETRY` and
+  the standard `OTEL_*`; its traces need `CLAUDE_CODE_ENHANCED_TELEMETRY_BETA` at the time of writing (sources
+  disagreed; it is set, and harmless if not needed). Gemini CLI logs prompts by default once telemetry is on, so
+  `GEMINI_TELEMETRY_LOG_PROMPTS=false` below `full`. Qwen Code is assumed to keep Gemini CLI's variables under a
+  `QWEN_` prefix, and Codex's `-c otel.*` overrides are assumed to pass through `codex-acp`; neither could be run
+  in the build sandbox. The nightly real-agent run is where a wrong key would show.
+- **The receiver keeps the agent's `service.*`**: it stamps the turn's other resource attributes, so a collector
+  still says which agent produced a span. Root spans of an agent's own trace go under `daemon.turn`; an agent that
+  honoured `TRACEPARENT` is already under `acp.prompt`.
+- **Not built, or built smaller.** Setup commands are log records under `worktree.prepare`, not a child span each
+  (the worktree manager reports output lines, not command boundaries). `agent.spawn` records pid and exit code, not
+  peak RSS or CPU time. `routing.offer` records how many runners were eligible and available, not why each other one
+  was excluded. Session transitions and signals are the root span's `cancel_reason` and status, not span events, and
+  runner presence is the `hypotenuse.runners.online` gauge, not logs.
+- **Tests that moved.** The loss test is a unit test of the queue (`cli/__tests__/telemetry`): a collector answering
+  `503` exercises the worker's retry, not the daemon's buffer, which only fills when the server is unreachable. The
+  secret grep covers the runner token, an exporter's header, a `$VAR` value the agent echoed, the Linear access and
+  refresh tokens, and both nonces end to end; the CLI token is covered in the unit test, because an e2e daemon home
+  holds no sign-in.
+- **The e2e pump runs `telemetry:export`** after `settle()`; a project with no exporter costs it one `SMEMBERS`.
+- **`project-sessions.test.ts`'s fifty-activity burst fails in the build sandbox on `main` too**: its loop takes
+  longer than the one-second frame window there. Not this phase's, and the outbox's added telemetry check is a cached
+  lookup for a project with no exporter.

@@ -82,6 +82,7 @@ const SUPERSET = {
   ids: [1],
   externalUserId: "wall",
   issue: "WALL-1",
+  endpoint: "https://otlp.example.com",
 };
 
 /**

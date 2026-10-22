@@ -24,6 +24,7 @@ import { registerRunnerCommands } from "./commands/runner";
 import { registerServiceCommands } from "./commands/service";
 import { registerSessionCommands } from "./commands/session";
 import { registerTagCommands } from "./commands/tag";
+import { registerTelemetryCommands } from "./commands/telemetry";
 import { registerUpgradeCommand } from "./commands/upgrade";
 import { registerWorktreesCommands } from "./commands/worktrees";
 import { banner } from "./output/theme";
@@ -82,6 +83,7 @@ export function buildProgram(): Command {
   registerEventCommands(program);
   registerRunnerCommands(program);
   registerRoutingCommands(program);
+  registerTelemetryCommands(program);
   registerIdentityCommands(program);
   registerConfigCommands(program);
   registerDaemonCommands(program);

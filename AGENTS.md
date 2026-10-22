@@ -289,9 +289,21 @@ The map is [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md). What follows is the
   `git branch -d`, never `-D`. Hypotenuse never stashes, resets, or cleans a person's checkout.
 - **The daemon never holds a Linear token**, and the coding agent never sees the runner token: the MCP server
   reaches the server through the daemon's control socket.
+- **Telemetry is relayed, built, and never in the way.** The daemon posts a turn's OTLP to `daemon:telemetry`
+  and the `telemetry:export` clock sends it to each exporter, so collector headers never leave the server. One
+  trace per turn, named by `work_items.traceparent`; a server span of a turn goes through `WorkEffects.spans`
+  (emitted after commit) or `TelemetryOps.emitSpans`, and code calling Linear for a turn runs in a
+  `withTraceScope`. Free text goes under `hypotenuse.content.*` — the worker filters each exporter to its level by
+  that prefix — and nothing a turn does waits on telemetry. Server telemetry is emitted only for a project with
+  an enabled exporter (`projectTelemetry`, cached per process).
 
 ## Testing
 
+- **Telemetry:** the collector is `backend/__tests__/fixtures/otlp-collector.ts`, an OTLP/HTTP receiver that
+  records and decodes every request (protobuf or JSON, gzip or not) and answers `429`/`503` on demand; the e2e
+  pump runs `telemetry:export`, and a relay test runs `exportAll()` itself. The fake agent's `otel` step posts
+  "native" telemetry to `$OTEL_EXPORTER_OTLP_ENDPOINT`. Move an exporter's backoff by deleting its
+  `telemetry:backoff:<id>` key.
 - **Backend:** `cd backend && bun test`. `buildTestUniverse()` seeds the ToolExec cast (Peach admin, Mario, Luigi,
   Toad, and Bowser the outsider) over real HTTP. `useFinear()` — called after the file's `buildTestUniverse()`
   `beforeAll` — boots finear in process with this server's OAuth client (the `LINEAR_*_TEST` values) registered
@@ -363,6 +375,9 @@ bun run --cwd cli hypotenuse worktrees list                # and `worktrees clea
 cd cli && bun run build                       # compiled binary at dist/hypotenuse
 cd cli && bun run bundle                      # the npm bundle at dist/hypotenuse.js (prepack runs it)
 bash cli/test/e2e/test-upgrade.sh             # npm + bun + binary installs, globally — CI or a throwaway box
+
+bun run --cwd cli hypotenuse telemetry exporter list   # the project's OpenTelemetry exporters and their health
+redis-cli XLEN telemetry:stream:1             # what waits for export in project 1's telemetry stream
 
 curl localhost:8080/api/actions/permissions   # every action's RBAC level
 ```

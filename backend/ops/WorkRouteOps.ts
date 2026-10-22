@@ -1,3 +1,4 @@
+import { newSpanId } from "@hypotenuse/protocol";
 import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { api, config } from "keryx";
 import {
@@ -44,6 +45,13 @@ import {
   selectRole,
   waitingCodeFor,
 } from "./RoutingOps";
+import {
+  projectTelemetry,
+  type TraceScope,
+  turnSpan,
+  turnTrace,
+  withTraceScope,
+} from "./TelemetryOps";
 import {
   finishWorkItem,
   KEEPALIVE_AFTER_MS,
@@ -387,35 +395,40 @@ export async function prepareSession(
     let snapshot = session.issueSnapshot;
     let decision: RoleDecision | null = null;
     let repository: RepositoryDecision;
+    // The Linear reads below are children of the first waiting turn's
+    // `routing.select` span, when the project exports telemetry.
+    const select = await selectSpanScope(session);
     try {
-      if (!snapshot) {
-        snapshot = await fetchIssueSnapshot(
+      await withTraceScope(select?.scope ?? null, async () => {
+        if (!snapshot) {
+          snapshot = await fetchIssueSnapshot(
+            integration,
+            session.externalIssueId,
+          );
+        }
+        if (session.role === null) {
+          const text = await fetchMentionText(integration, session);
+          ({ snapshot, decision } = await decideRole(
+            integration,
+            session.projectId,
+            snapshot,
+            session.origin,
+            text,
+          ));
+        }
+        repository = await decideRepository(
+          {
+            projectId: session.projectId,
+            externalIssueId: session.externalIssueId,
+            externalSessionId: session.externalSessionId,
+            repository: session.repository,
+          },
           integration,
-          session.externalIssueId,
+          decision?.role ?? session.role!,
+          snapshot!,
+          decision,
         );
-      }
-      if (session.role === null) {
-        const text = await fetchMentionText(integration, session);
-        ({ snapshot, decision } = await decideRole(
-          integration,
-          session.projectId,
-          snapshot,
-          session.origin,
-          text,
-        ));
-      }
-      repository = await decideRepository(
-        {
-          projectId: session.projectId,
-          externalIssueId: session.externalIssueId,
-          externalSessionId: session.externalSessionId,
-          repository: session.repository,
-        },
-        integration,
-        decision?.role ?? session.role!,
-        snapshot,
-        decision,
-      );
+      });
     } catch (e) {
       api.logger.warn("preparing a session's routing failed; will retry", {
         agentSessionId,
@@ -424,12 +437,75 @@ export async function prepareSession(
       return noEffects();
     }
 
-    return await api.db.db.transaction((tx) =>
-      applyPreparation(tx, session.id, snapshot!, decision, repository),
+    const effects = await api.db.db.transaction((tx) =>
+      applyPreparation(tx, session.id, snapshot!, decision, repository!),
     );
+    if (select) {
+      const resolved = repository! as RepositoryDecision;
+      // Assigned inside the scope's closure, which narrowing cannot see.
+      const decided = decision as RoleDecision | null;
+      effects.spans.push({
+        projectId: session.projectId,
+        span: turnSpan(select.item, {
+          name: "routing.select",
+          spanId: select.scope.parentSpanId,
+          startMs: select.startedAt,
+          endMs: Date.now(),
+          attributes: {
+            "hypotenuse.role": decided?.role ?? session.role,
+            "hypotenuse.routing.rule":
+              decided === null
+                ? session.routingRuleName
+                : (decided.rule?.name ?? "(fallthrough to worker)"),
+            "hypotenuse.routing.repository_decision": resolved.kind,
+            "hypotenuse.repository":
+              resolved.kind === "resolved" ? resolved.repository : null,
+            "hypotenuse.routing.repository_options":
+              resolved.kind === "ask" ? resolved.options.length : null,
+            "linear.issue.identifier": session.issueIdentifier,
+          },
+        }),
+      });
+    }
+    return effects;
   } finally {
     await releaseLock(key, lease);
   }
+}
+
+/**
+ * The scope a session's preparation runs in: under a new `routing.select`
+ * span of its oldest waiting turn — when its project exports telemetry.
+ * @param session - The session.
+ * @returns The scope, the item, and when it started; or null.
+ */
+async function selectSpanScope(session: AgentSession): Promise<{
+  scope: TraceScope;
+  item: Pick<WorkItem, "traceparent">;
+  startedAt: number;
+} | null> {
+  if (!(await projectTelemetry(session.projectId))) return null;
+  const [item] = await api.db.db
+    .select({ traceparent: workItems.traceparent })
+    .from(workItems)
+    .where(
+      and(
+        eq(workItems.agentSessionId, session.id),
+        eq(workItems.status, "queued"),
+      ),
+    )
+    .orderBy(asc(workItems.id))
+    .limit(1);
+  if (!item) return null;
+  return {
+    scope: {
+      projectId: session.projectId,
+      traceId: turnTrace(item).traceId,
+      parentSpanId: newSpanId(),
+    },
+    item,
+    startedAt: Date.now(),
+  };
 }
 
 /**
@@ -846,6 +922,28 @@ async function offerItem(itemId: number, now: Date): Promise<WorkEffects> {
       .where(eq(workItems.id, item.id));
     effects.frames.set(chosen.id, "work");
     effects.sessions.add(session.id);
+    effects.spans.push({
+      projectId: item.projectId,
+      span: turnSpan(item, {
+        name: "routing.offer",
+        startMs: now.getTime(),
+        endMs: Date.now(),
+        attributes: {
+          "hypotenuse.runner.id": chosen.id,
+          "hypotenuse.agent.id": chosen.agentId,
+          "hypotenuse.routing.eligible": eligible.length,
+          "hypotenuse.routing.available": available.length,
+          "hypotenuse.routing.sticky_hit":
+            sticky !== null && chosen.id === sticky,
+          "hypotenuse.routing.issuer_preferred":
+            item.preferredUserId !== null &&
+            (chosen as { userId?: number }).userId === item.preferredUserId,
+          "hypotenuse.routing.relapsed_offers": Object.keys(item.lapsedOffers)
+            .length,
+          "hypotenuse.queue.wait_ms": waited,
+        },
+      }),
+    });
     // A review says why the manager woke — once, when it is offered (not
     // when queued behind a turn still running).
     if (

@@ -15,6 +15,9 @@ files the tickets, hands them out to **worker** agents, and reviews what comes b
   that holds its worktree, and otherwise goes to whoever has free capacity.
 - **Full Linear agent support.** Sessions, activities, plans, signals (`stop`, `select`, `auth`), delegation,
   guidance, and repository suggestions. See [`docs/LINEAR_COVERAGE.md`](./docs/LINEAR_COVERAGE.md).
+- **OpenTelemetry.** Every turn is one trace in your own collector — the service, the runner, every step of the
+  agent's conversation, and the agent's own model telemetry — at a content level the project chooses and each
+  runner's owner can cap.
 
 > **Status: planned, not built.** This repository holds the design: [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md)
 > and the phased plans in [`docs/plans/`](./docs/plans/README.md). The install and usage below describe the

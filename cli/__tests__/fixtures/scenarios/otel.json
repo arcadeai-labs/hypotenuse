@@ -1,0 +1,65 @@
+{
+  "turns": [
+    [
+      {
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": "Reading the issue to find the rounding."
+          }
+        }
+      },
+      {
+        "update": {
+          "sessionUpdate": "plan",
+          "entries": [
+            {
+              "content": "Find the rounding",
+              "priority": "high",
+              "status": "completed"
+            },
+            { "content": "Fix it", "priority": "high", "status": "in_progress" }
+          ]
+        }
+      },
+      {
+        "update": {
+          "sessionUpdate": "tool_call",
+          "toolCallId": "edit-1",
+          "title": "src/a.ts",
+          "kind": "edit",
+          "status": "in_progress",
+          "locations": [{ "path": "$CWD/src/a.ts" }],
+          "rawInput": {
+            "path": "src/a.ts",
+            "newText": "export const round = Math.round;"
+          }
+        }
+      },
+      {
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "edit-1",
+          "status": "completed",
+          "rawOutput": { "ok": true }
+        }
+      },
+      { "shell": "echo the token is $MY_SERVICE_TOKEN" },
+      { "mcp": { "tool": "linear_get_issue", "arguments": {} }, "say": false },
+      { "otel": { "protocol": "json" } },
+      { "otel": { "protocol": "protobuf", "ownTrace": true } },
+      { "stderr": "fake agent: done thinking" },
+      {
+        "update": {
+          "sessionUpdate": "agent_message_chunk",
+          "content": {
+            "type": "text",
+            "text": "Fixed the rounding in `src/a.ts`."
+          }
+        }
+      },
+      { "stop": "end_turn" }
+    ]
+  ]
+}

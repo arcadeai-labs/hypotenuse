@@ -61,5 +61,9 @@ idle_timeout = "20m"
 keepalive_interval = "10m"
 co_author = "Hypotenuse <noreply@hypotenuse.cloud>"   # "" for no Co-Authored-By trailer
 
+[telemetry]                 # what this machine sends for the project's OpenTelemetry exporters
+max_content = "content"     # never every ACP frame from this machine, whatever an exporter asks
+agent_native = true
+
 [log]
 level = "info"

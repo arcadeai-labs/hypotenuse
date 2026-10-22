@@ -18,6 +18,7 @@ import { configServerMcp } from "./server/mcp";
 import { configServerWeb } from "./server/web";
 import { configSession } from "./session";
 import { configTasks } from "./tasks";
+import { configTelemetry } from "./telemetry";
 
 export default {
   plugins: configPlugins,
@@ -38,6 +39,7 @@ export default {
   notifications: configNotifications,
   cliAuth: configCliAuth,
   runners: configRunners,
+  telemetry: configTelemetry,
 };
 
 /**

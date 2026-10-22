@@ -292,6 +292,20 @@ that have it, matched by normalized `remote`.
 | `min_free_disk` | size | `"2GB"` | free space required under `worktree_root` to start a new worktree; below it the daemon runs cleanup, then fails the turn and claims nothing (heartbeats report `draining`) until space recovers |
 | `co_author` | string | `"Hypotenuse <noreply@hypotenuse.cloud>"` | `Name <email>` added as a `Co-Authored-By` trailer to every commit the agent makes in a repository; `""` adds none. A `commit-msg` hook reached only through the agent's environment (`GIT_CONFIG_COUNT` → `core.hooksPath`), so your checkout's config and your own commits are untouched; the repository's own hooks still run first. `git commit --no-verify` skips it |
 
+## `[telemetry]`
+
+What this machine sends for the project's OpenTelemetry exporters. A project admin decides where its telemetry goes
+and at what content level (Settings → Telemetry); this table is the runner owner's cap on what leaves the machine.
+Nothing here is ever a routing constraint: a runner that sends less still gets the work. The daemon never learns a
+collector's endpoint or headers — it relays through the server.
+
+| Key | Type | Default | Rules |
+|---|---|---|---|
+| `enabled` | boolean | `true` | `false` sends nothing: the server exports its own spans for the turn, and the session's dashboard transcript says the runner sends no telemetry |
+| `max_content` | `"metadata"` \| `"content"` \| `"full"` | `"full"` | the most this runner sends; a turn collects at the lower of this and the highest level any of the project's exporters asks for, and the transcript says when this cap lowered it. `metadata` is names, ids, timings, sizes, and statuses only; `content` adds prompts, thoughts, messages, tool inputs and results, diffs, and command output; `full` adds every ACP frame and asks agents to log prompts in their own telemetry |
+| `agent_native` | boolean | `true` | capture the coding agent's own OpenTelemetry (model requests, tokens, cost): a loopback OTLP receiver for the turn and the agent's `OTEL_*` variables pointed at it. `false` never starts the receiver or sets the variables |
+| `buffer_mb` | integer | `32` | the in-memory queue telemetry waits in before it is relayed; when it is full the oldest log records are dropped first, then spans, never metrics, and `hypotenuse.telemetry.dropped` counts them. Telemetry never delays a turn |
+
 ## `[log]`
 
 | Key | Type | Default | Rules |
@@ -386,6 +400,10 @@ turn_timeout = "90m"
 idle_timeout = "20m"
 keepalive_interval = "10m"
 co_author = "Hypotenuse <noreply@hypotenuse.cloud>"   # "" for no Co-Authored-By trailer
+
+[telemetry]                 # what this machine sends for the project's OpenTelemetry exporters
+max_content = "content"     # never every ACP frame from this machine, whatever an exporter asks
+agent_native = true
 
 [log]
 level = "info"

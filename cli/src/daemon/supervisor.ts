@@ -25,6 +25,7 @@ import {
   type ActiveItem,
   type HeartbeatRequest,
   type HeartbeatResponse,
+  minLevel,
   type Offer,
   PROTOCOL_VERSION,
   type WorkAssignment,
@@ -33,8 +34,12 @@ import pkg from "../../package.json";
 import { agentForTurn } from "../acp/agent-choice";
 import { ApiError } from "../api/client";
 import type { MachineEnv, ResolvedRepository } from "../config/machine";
+import { isPreset } from "../config/presets";
 import type { Config } from "../config/schema";
 import { platform } from "../runner/machine";
+import { TurnTelemetry } from "../telemetry/collector";
+import { TelemetryQueue } from "../telemetry/queue";
+import { resolvedConfigSecrets } from "../telemetry/redact";
 import {
   type CleanupOptions,
   type CleanupReport,
@@ -145,6 +150,11 @@ export interface SupervisorOptions {
   /** How often every worktree is swept (default 30 minutes). */
   sweepIntervalMs?: number;
   /**
+   * Secret values redacted from every turn's telemetry by value: the runner
+   * token and any CLI token on this machine.
+   */
+  secrets?: string[];
+  /**
    * The command that runs this program, for a turn's `hypotenuse mcp`
    * (default {@link selfCommand}); null to give turns no Hypotenuse tools.
    */
@@ -178,6 +188,10 @@ export class Supervisor {
   private diskWasLow = false;
   /** Serves the turns' `hypotenuse mcp` servers over the control socket. */
   readonly broker: McpBroker;
+  /** Every turn's telemetry, waiting for the relay. */
+  readonly telemetryQueue: TelemetryQueue;
+  /** What every turn's telemetry redacts by value (tokens, `$VAR` values). */
+  private secrets: string[] = [];
 
   /**
    * @param options - The daemon's parts.
@@ -202,6 +216,12 @@ export class Supervisor {
       },
     });
     this.broker = new McpBroker(options.api, (line) => options.log.info(line));
+    this.telemetryQueue = new TelemetryQueue(
+      options.api,
+      this.config.telemetry.buffer_mb * 1024 * 1024,
+      (line) => options.log.info(line),
+    );
+    this.secrets = this.baseSecrets();
     this.sink = new EventSink(options.state, options.api, options.log, {
       onCancelRequested: (id) => this.stop(id, "stop"),
       onNotYours: (id) => this.silence(id),
@@ -244,12 +264,67 @@ export class Supervisor {
     }
     this.link.start();
     this.sink.kick(true);
+    this.telemetryQueue.start();
     this.sweepTimer = setInterval(
       () => void this.cleanup({}),
       this.options.sweepIntervalMs ?? SWEEP_INTERVAL_MS,
     );
     this.sweepTimer.unref?.();
     return interrupted;
+  }
+
+  /**
+   * The values every turn's telemetry redacts: the credentials, and every
+   * value the config resolves from the environment.
+   * @returns The values.
+   */
+  private baseSecrets(): string[] {
+    return [
+      ...(this.options.secrets ?? []),
+      ...resolvedConfigSecrets(this.config, this.options.env),
+    ];
+  }
+
+  /**
+   * A turn's telemetry, when the server asked for it and this runner's
+   * owner allows it.
+   * @param assignment - The turn.
+   * @param agentId - Its agent.
+   * @param slot - Its slot (for its MCP nonce).
+   * @returns The turn's telemetry, or null.
+   */
+  private turnTelemetry(
+    assignment: WorkAssignment,
+    agentId: string,
+    slot: Slot,
+  ): TurnTelemetry | null {
+    const claim = assignment.telemetry;
+    if (!claim || !this.config.telemetry.enabled) return null;
+    const preset =
+      this.config.agents[agentId]?.preset ??
+      (isPreset(agentId) ? agentId : null);
+    const max = this.config.telemetry.max_content;
+    const telemetry = new TurnTelemetry({
+      // The server lowered the level to the cap it was told; a cap lowered
+      // since is applied here too.
+      claim: {
+        ...claim,
+        content: minLevel(claim.content, max),
+        agentNative: claim.agentNative && this.config.telemetry.agent_native,
+      },
+      assignment,
+      runner: { name: this.config.runner.name },
+      agentId,
+      preset,
+      queue: this.telemetryQueue,
+      secrets: () =>
+        slot.nonce ? [...this.secrets, slot.nonce] : this.secrets,
+    });
+    telemetry.slots({
+      capacity: this.config.runner.max_parallel_jobs,
+      inUse: this.slots.size,
+    });
+    return telemetry;
   }
 
   /**
@@ -577,6 +652,9 @@ export class Supervisor {
       this.options.mcpCommand === undefined
         ? selfCommand()
         : this.options.mcpCommand;
+    const telemetry = this.turnTelemetry(assignment, agentId, slot);
+    if (telemetry)
+      this.sink.trace(assignment.workItemId, telemetry.traceparentFor());
     if (mcpCommand) {
       slot.nonce = this.broker.register({
         agentSessionId: assignment.agentSessionId,
@@ -591,6 +669,34 @@ export class Supervisor {
           this.options.state.addPullRequest(slot.agentSessionId, url);
           slot.onReportedPullRequest?.(url);
         },
+        trace: telemetry
+          ? (tool, input) => {
+              const span = telemetry
+                .span(
+                  "mcp.call",
+                  {
+                    "gen_ai.operation.name": "execute_tool",
+                    "gen_ai.tool.name": tool,
+                    "hypotenuse.mcp.server": "hypotenuse",
+                  },
+                  telemetry.promptSpan,
+                  "client",
+                )
+                .content("mcp.arguments", JSON.stringify(input));
+              return {
+                traceparent: span.traceparent,
+                end: (result) => {
+                  if (result.isError) span.fail(result.text.slice(0, 500));
+                  span.content("mcp.result", result.text).end({
+                    "hypotenuse.mcp.cached": result.cached,
+                    "hypotenuse.mcp.result.bytes": Buffer.byteLength(
+                      result.text,
+                    ),
+                  });
+                },
+              };
+            }
+          : undefined,
       });
     }
     log.info(
@@ -677,6 +783,7 @@ export class Supervisor {
       onReportedPullRequest: (handler) => {
         slot.onReportedPullRequest = handler;
       },
+      telemetry,
     };
     slot.done = this.runTurn(slot, ctx);
   }
@@ -754,7 +861,21 @@ export class Supervisor {
     const worktreeId = this.options.state.session(
       slot.agentSessionId,
     )?.worktreeId;
-    if (worktreeId) await this.cleanup({ only: [worktreeId] });
+    const telemetry = ctx.telemetry ?? null;
+    if (worktreeId) {
+      const span = telemetry?.span("worktree.cleanup", {
+        "hypotenuse.worktree.id": worktreeId,
+      });
+      const report = await this.cleanup({ only: [worktreeId] });
+      span?.end({
+        "hypotenuse.worktree.removed": (report?.removed.length ?? 0) > 0,
+        "hypotenuse.worktree.kept": (report?.kept.length ?? 0) > 0,
+      });
+    }
+    telemetry?.finish(
+      slot.silent ? "taken_away" : result.outcome,
+      result.error,
+    );
   }
 
   /**
@@ -840,6 +961,7 @@ export class Supervisor {
       await this.waitIdle(this.config.sessions.stop_grace + 5_000);
     }
     const flushed = await this.sink.drain(5_000);
+    await this.telemetryQueue.drain(5_000);
     this.link.beatNow();
     return { drained: this.slots.size === 0 && flushed, cancelled };
   }
@@ -927,6 +1049,9 @@ export class Supervisor {
     }
     this.config = merged;
     this.options.log.level = merged.log.level;
+    this.telemetryQueue.capacityBytes =
+      merged.telemetry.buffer_mb * 1024 * 1024;
+    this.secrets = this.baseSecrets();
     this.repositories = daemonRepositories(merged, this.options.machine);
     this.capabilities = this.buildCapabilities();
     this.options.log.info("config reloaded", {
@@ -1050,6 +1175,7 @@ export class Supervisor {
     this.sweepTimer = null;
     this.link.stop();
     this.sink.close();
+    this.telemetryQueue.stop();
   }
 }
 

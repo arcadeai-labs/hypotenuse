@@ -102,9 +102,10 @@ export async function seedSession(
       RETURNING id\`;
     const start = Date.now() - 600000;
     await sql\`INSERT INTO work_items (project_id, agent_session_id, kind, role, status,
-      repository_resolved, queued_at, claimed_at, finished_at, created_at, agent_id)
+      repository_resolved, queued_at, claimed_at, finished_at, created_at, agent_id, traceparent)
       VALUES (\${projectId}, \${session.id}, 'session_created', 'worker', 'completed', true,
-       \${new Date(start)}, \${new Date(start + 2000)}, \${new Date(start + 372000)}, \${new Date(start)}, 'codex')\`;
+       \${new Date(start)}, \${new Date(start + 2000)}, \${new Date(start + 372000)}, \${new Date(start)}, 'codex',
+       '00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-00')\`;
     const long = Array.from({ length: 12 }, (_, i) => 'result line ' + (i + 1)).join('\\n');
     const rows = [
       ['inbound', 'prompt', { type: 'prompt', body: 'please take this' }, false, 'received', null, null],

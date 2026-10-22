@@ -121,6 +121,7 @@ export function normalizeCapabilities(
         capabilities.subscriptions.labels.map((l) => l.toLowerCase()),
       ),
     },
+    ...(capabilities.telemetry ? { telemetry: capabilities.telemetry } : {}),
   };
 }
 
@@ -218,6 +219,8 @@ export function serializeRunner(
     roles: row.roles,
     agents: row.agents,
     repositories: row.repositories,
+    /** The owner's cap on what telemetry leaves the machine; null when it reports none. */
+    telemetry: row.telemetry,
     ...(extras.subscriptions
       ? { subscriptions: groupSubscriptions(extras.subscriptions) }
       : {}),
@@ -561,6 +564,7 @@ export async function applyHeartbeat(
             roles: capabilities.roles,
             agents: capabilities.agents,
             repositories: capabilities.repositories,
+            telemetry: capabilities.telemetry ?? null,
           }
         : {}),
     })

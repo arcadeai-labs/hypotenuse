@@ -48,6 +48,12 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
   },
   { slug: "routing", label: "Routing", group: "Project", readAction: null },
   { slug: "mcp", label: "MCP endpoint", group: "Project", readAction: null },
+  {
+    slug: "telemetry",
+    label: "Telemetry",
+    group: "Project",
+    readAction: null,
+  },
   { slug: "members", label: "Members", group: "People", readAction: null },
   { slug: "tags", label: "Tags", group: "People", readAction: null },
   {

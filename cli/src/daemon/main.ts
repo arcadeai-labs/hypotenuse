@@ -247,6 +247,7 @@ export async function runDaemon(options: DaemonOptions): Promise<void> {
   let state: StateDb;
   let origin: string;
   let runner: RunnerCredential;
+  let credentials: Credentials;
   try {
     const read = readDaemonConfig(options, env);
     if (!read.config)
@@ -255,7 +256,6 @@ export async function runDaemon(options: DaemonOptions): Promise<void> {
     paths = daemonPaths(read.path, options.stateDir, config.log.file, env);
     log = new DaemonLog(paths.log, config.log.level, !options.detachedChild);
     const credentialsFile = credentialsPath(env);
-    let credentials: Credentials;
     try {
       credentials = loadCredentials(credentialsFile);
     } catch (error) {
@@ -353,6 +353,13 @@ export async function runDaemon(options: DaemonOptions): Promise<void> {
     env,
     readConfig: () => readDaemonConfig(options, env),
     requestExit,
+    // Never in telemetry: redacted by value from everything a turn sends.
+    secrets: [
+      runner.token,
+      ...Object.values(credentials.servers).flatMap((s) =>
+        s.login ? [s.login.token] : [],
+      ),
+    ],
   });
 
   control = new ControlServer(

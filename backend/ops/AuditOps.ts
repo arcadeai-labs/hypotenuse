@@ -51,6 +51,10 @@ export const SENSITIVE_KEYS = [
   // runner credentials
   "runnerToken",
   "tokenHash",
+  // telemetry exporters: the collector headers (a vendor API key, usually),
+  // as a param and as their sealed column
+  "headers",
+  "headersEncrypted",
 ] as const;
 
 /**

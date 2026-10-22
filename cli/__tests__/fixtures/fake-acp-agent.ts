@@ -55,8 +55,151 @@ import { Readable, Writable } from "node:stream";
 import * as acp from "@agentclientprotocol/sdk";
 import { Client as McpClient } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import {
+  attributes,
+  encodeOtlpProtobuf,
+  newSpanId,
+  newTraceId,
+  type OtlpRequestBySignal,
+  type OtlpSignal,
+  parseTraceparent,
+  unixNano,
+} from "../../../protocol/src/index";
 
 type Step = Record<string, unknown>;
+
+/** An `otel` step. */
+interface OtelStep {
+  protocol?: "json" | "protobuf";
+  ownTrace?: boolean;
+}
+
+/**
+ * Post this agent's own telemetry to the OTLP endpoint its environment names.
+ * @param step - How to encode it, and whether to honour `TRACEPARENT`.
+ */
+async function postNativeTelemetry(step: OtelStep): Promise<void> {
+  const base = process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
+  if (!base) {
+    record("otel/posted", { skipped: "no endpoint" });
+    return;
+  }
+  const parent = step.ownTrace
+    ? null
+    : parseTraceparent(process.env.TRACEPARENT);
+  const traceId = parent?.traceId ?? newTraceId();
+  const spanId = newSpanId();
+  const now = Date.now();
+  const resource = {
+    attributes: attributes({ "service.name": "fake-agent" }),
+  };
+  const scope = { name: "fake-agent" };
+  const requests: { [S in OtlpSignal]: OtlpRequestBySignal[S] } = {
+    traces: {
+      resourceSpans: [
+        {
+          resource,
+          scopeSpans: [
+            {
+              scope,
+              spans: [
+                {
+                  traceId,
+                  spanId,
+                  ...(parent ? { parentSpanId: parent.spanId } : {}),
+                  name: "fake.model_request",
+                  kind: 3,
+                  startTimeUnixNano: unixNano(now - 5),
+                  endTimeUnixNano: unixNano(now),
+                  attributes: attributes({
+                    "gen_ai.request.model": "fake-model-1",
+                    "gen_ai.usage.input_tokens": 120,
+                    "gen_ai.usage.output_tokens": 45,
+                  }),
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    },
+    logs: {
+      resourceLogs: [
+        {
+          resource,
+          scopeLogs: [
+            {
+              scope,
+              logRecords: [
+                {
+                  timeUnixNano: unixNano(now),
+                  body: { stringValue: "fake.api_request" },
+                  traceId,
+                  spanId,
+                  attributes: attributes({
+                    cost_usd: 0.0042,
+                    model: "fake-model-1",
+                  }),
+                },
+                ...(process.env.OTEL_LOG_USER_PROMPTS === "1"
+                  ? [
+                      {
+                        timeUnixNano: unixNano(now),
+                        body: { stringValue: "fake.user_prompt" },
+                        attributes: attributes({
+                          prompt: "the person's prompt, logged natively",
+                        }),
+                      },
+                    ]
+                  : []),
+              ],
+            },
+          ],
+        },
+      ],
+    },
+    metrics: {
+      resourceMetrics: [
+        {
+          resource,
+          scopeMetrics: [
+            {
+              scope,
+              metrics: [
+                {
+                  name: "fake.token.usage",
+                  unit: "{token}",
+                  sum: {
+                    aggregationTemporality: 1,
+                    isMonotonic: true,
+                    dataPoints: [{ timeUnixNano: unixNano(now), asInt: "165" }],
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    },
+  };
+  const statuses: Record<string, number> = {};
+  for (const signal of ["traces", "logs", "metrics"] as const) {
+    const protobuf = step.protocol === "protobuf";
+    const res = await fetch(`${base}/v1/${signal}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": protobuf
+          ? "application/x-protobuf"
+          : "application/json",
+      },
+      body: protobuf
+        ? new Uint8Array(encodeOtlpProtobuf(signal, requests[signal]))
+        : JSON.stringify(requests[signal]),
+    }).catch(() => null);
+    statuses[signal] = res?.status ?? 0;
+  }
+  record("otel/posted", { statuses, traceId, spanId, endpoint: base });
+}
 
 if (process.argv.includes("--login")) {
   const marker = process.env.FAKE_ACP_LOGIN_MARKER;
@@ -393,6 +536,8 @@ async function play(
           content: { type: "text", text: `You said: ${promptText(prompt)}` },
         },
       });
+    } else if (step.otel) {
+      await postNativeTelemetry(step.otel as OtelStep);
     } else if (typeof step.stderr === "string") {
       process.stderr.write(`${step.stderr}\n`);
     } else if (typeof step.stdout === "string") {

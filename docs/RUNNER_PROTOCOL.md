@@ -92,7 +92,8 @@ Request (`HeartbeatRequest`):
       { "id": "codex", "preset": "codex", "available": false, "roles": [], "error": "codex-acp not found" }
     ],
     "repositories": [{ "name": "web", "remote": "github.com/acme/web", "baseBranch": "main" }],
-    "subscriptions": { "teams": ["ENG"], "projects": [], "labels": ["frontend"] }
+    "subscriptions": { "teams": ["ENG"], "projects": [], "labels": ["frontend"] },
+    "telemetry": { "enabled": true, "maxContent": "full", "agentNative": true }
   }
 }
 ```
@@ -104,6 +105,7 @@ Request (`HeartbeatRequest`):
 | `machineId` | stable hash of the OS machine id; the server allows one live (`online` or `draining`) runner per machine |
 | `limits` | `maxParallelJobs` (the machine), and optional per-role and per-agent caps. Absent keys mean "no limit at that level". The server counts live work items per runner, per role, and per agent itself and never offers past any of them |
 | `capabilities` | replaces the server's copy when its hash changes; `subscriptions` empty arrays mean "all" |
+| `capabilities.telemetry` | optional: the runner owner's `[telemetry]` cap. The claim lowers a turn's telemetry to it; absent (an older daemon) means the runner sends none, and the server exports its own spans only. Never a routing constraint |
 | `dryRun` | optional. `true` validates and answers **without recording anything** — no presence, capabilities, leases, offers, or routing pass. `config validate --online` and `doctor` send it. A machine held by another live runner still gets the 409 |
 
 Response (`HeartbeatResponse`):
@@ -215,6 +217,7 @@ never fails the claim.
 | `review` | on a `review` turn: `{ childAgentSessionId, childIssueIdentifier, childIssueUrl, reviewRound, outcome, finalResponse, plan, pullRequests }` — the worker's last `response` or `error`, its plan, and its links labelled *Pull Request*; absent or null otherwise |
 | `humanDelegated` | the session was started by a person delegating (not an automation) — read by issue hygiene |
 | `creator` | `{ name, email }` of whoever started the session, or null when an automation did; the prompt template's `creator.*` |
+| `telemetry` | `{ traceparent, sampled, content, agentNative }` when the project has an enabled [telemetry exporter](#daemontelemetry) and this runner reports `telemetry.enabled`; null otherwise. `traceparent` names the turn's trace and its root `turn` span (W3C, version `00`); `sampled` says whether any exporter keeps the turn's spans and logs (metrics are always sent); `content` is the level to collect at — the highest any exporter wants, lowered to the runner's `maxContent`; `agentNative` asks the daemon to capture the agent's own telemetry. An older daemon ignores it |
 
 ### `daemon:events`
 
@@ -279,6 +282,36 @@ terminal item answers 200 with `{ "alreadyTerminal": true }` — including a lat
 already ended after the stop grace. If the turn emitted no `response`, `error`, or `elicitation`, the server writes
 one: "Done." for `completed` (a daemon bug, logged), the `error` text (or a generic one) for `failed`, "Stopped."
 for `cancelled`. Routing runs next, so a queued follow-up is offered at once.
+
+### `daemon:telemetry`
+
+`POST /api/daemon/telemetry` — one OTLP/HTTP request of one signal for one turn: an `ExportTraceServiceRequest`,
+`ExportMetricsServiceRequest`, or `ExportLogsServiceRequest`, as JSON (`application/json`, what the daemon sends)
+or protobuf (`application/x-protobuf`), gzipped or not (`Content-Encoding: gzip`), at most 1 MiB as sent and 8 MiB
+inflated. Headers:
+
+| Header | Value |
+|---|---|
+| `X-Hypotenuse-Signal` | `traces` \| `metrics` \| `logs` |
+| `X-Hypotenuse-Work-Item` | the turn's work item id |
+| `traceparent` | the turn's trace, as the claim gave it (any span of it) |
+
+Checked in order: the turn is one this runner claimed and the `traceparent` is its trace (409 `NOT_YOUR_WORK`);
+the project has an enabled exporter (409 `TELEMETRY_NOT_WANTED`); the turn is live or finished less than
+`TELEMETRY_LATE_WINDOW` ago — 5 minutes by default, because the daemon's queue and the agent's last flush land after
+`daemon:complete`, which never waits for telemetry (410 `TELEMETRY_LATE`); the body decodes (400); the project's
+byte budget has room (429 `TELEMETRY_RATE_LIMITED` with `Retry-After`). Spans and logs of another trace are
+dropped, and the server stamps the project, work item, and runner on every resource. Answers 202
+`{ "accepted": true }`; the batch is exported later, and the daemon never learns where.
+
+The daemon queues what each turn collects in memory (`[telemetry] buffer_mb`) and posts it every 2 seconds, or
+sooner at 1 MB, one request per turn and signal. A 409 or 410 drops the turn's telemetry for good; 429, 5xx, and
+network errors retry with backoff inside the buffer. When the buffer is full the oldest log records go first, then
+spans, never metrics; what was dropped is reported as the `hypotenuse.telemetry.dropped` counter.
+
+**Every call made for a traced turn carries `traceparent`** — `daemon:events` and `daemon:complete` the
+`daemon.turn` span, a tool's `daemon:linear-*` / `daemon:dispatch` its `mcp.call` span — and the server's span for
+the call is that span's child, in the runner's own project only. A call without one is not traced.
 
 ### Questions mid-turn
 
@@ -464,6 +497,9 @@ it does not know and says nothing.
 | 409 | `NOT_YOUR_WORK` | the item is not claimed by this runner | stop work on it silently |
 | 409 | `SEQ_REGRESSION` | events out of order | log as a bug |
 | 413 | `PAYLOAD_TOO_LARGE` | batch over 256 KiB | split and resend |
+| 409 | `TELEMETRY_NOT_WANTED` | `daemon:telemetry` for a turn no enabled exporter wants | drop the turn's telemetry |
+| 410 | `TELEMETRY_LATE` | `daemon:telemetry` past the late window | drop the turn's telemetry, counted |
+| 429 | `TELEMETRY_RATE_LIMITED` | the project's telemetry byte budget | back off to `Retry-After`; the buffer bounds what waits |
 | 426 | `PROTOCOL_UNSUPPORTED` | version outside the server's range | drain; ask for an upgrade |
 | 429 | `CONNECTION_RATE_LIMITED` | per-runner limit | back off to `Retry-After` |
 | 5xx / network | — | transient | retry with backoff; events are idempotent |

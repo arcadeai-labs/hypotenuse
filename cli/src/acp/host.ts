@@ -39,6 +39,9 @@ import type {
   TurnContext,
   TurnResult,
 } from "../daemon/executor";
+import { AcpTelemetry } from "../telemetry/acp";
+import { dropInheritedOtel, nativeTelemetryLaunch } from "../telemetry/native";
+import { NativeReceiver } from "../telemetry/receiver";
 import {
   coAuthorEnvironment,
   installCoAuthorHooks,
@@ -241,6 +244,10 @@ class Turn {
   private where: string;
   private readonly readOnly: boolean;
   private readonly agentNote: string | null;
+  /** The turn's ACP telemetry (a no-op without any). */
+  private readonly otel: AcpTelemetry;
+  /** The loopback receiver of the agent's own telemetry, while it runs. */
+  private receiver: NativeReceiver | null = null;
 
   /**
    * @param ctx - The turn.
@@ -280,6 +287,7 @@ class Turn {
       },
     };
     this.mapper = new TurnMapper(this.mapperOptions);
+    this.otel = new AcpTelemetry(ctx.telemetry ?? null, this.cwd);
     this.questions = new QuestionQueue({
       post: (event) => this.emit(event),
       waiting: (waiting) => {
@@ -411,6 +419,10 @@ class Turn {
       throw error;
     } finally {
       clearInterval(timer);
+      this.otel.promptEnded(
+        { "hypotenuse.end_reason": this.endReason },
+        this.endReason && this.endReason !== "stop" ? this.endReason : null,
+      );
       await this.shutdown();
       await this.workspace?.release().catch((error: unknown) =>
         ctx.log.warn(`releasing the workspace failed: ${errorMessage(error)}`, {
@@ -429,12 +441,37 @@ class Turn {
     const { ctx } = this;
     const { assignment } = ctx;
     if (ctx.prepareWorkspace) {
+      const prepare = ctx.prepareWorkspace;
       try {
-        this.workspace = await ctx.prepareWorkspace({
-          output: (line) => this.log.note(line),
-          env: (branch) =>
-            sessionEnvironment(ctx.env, sessionVariables(assignment, branch)),
-        });
+        this.workspace = await this.otel.around(
+          "worktree.prepare",
+          {
+            "hypotenuse.repository": assignment.repository?.remote ?? null,
+            "hypotenuse.work_item.fresh": assignment.fresh,
+          },
+          async (span) => {
+            const workspace = await prepare({
+              output: (line) => {
+                this.log.note(line);
+                this.otel.turn?.log({
+                  body: line,
+                  eventName: "worktree.output",
+                  span,
+                });
+              },
+              env: (branch) =>
+                sessionEnvironment(
+                  ctx.env,
+                  sessionVariables(assignment, branch),
+                ),
+            });
+            span?.set({
+              "hypotenuse.worktree.mode": workspace.mode,
+              "vcs.ref.head.name": workspace.branch,
+            });
+            return workspace;
+          },
+        );
       } catch (error) {
         const remote = ctx.assignment.repository?.remote ?? null;
         if (
@@ -470,6 +507,7 @@ class Turn {
     if (need) throw new AuthRequired(need);
     if (this.endReason) throw new TurnFailure("stopped");
     this.mapperOptions.cwd = this.cwd;
+    this.otel.cwd = this.cwd;
     const remote = this.workspace?.repository?.remote ?? null;
     if (remote) {
       this.mapperOptions.pullRequests = new PrDetector(
@@ -528,13 +566,17 @@ class Turn {
         ),
       );
     }
+    this.withTelemetry(launch);
     this.log.note(`spawn ${launch.command.join(" ")} in ${this.cwd}`);
     try {
       this.conn = AcpConnection.spawn({
         command: launch.command,
         cwd: this.cwd,
         env: launch.env,
-        stderr: (line) => this.log.stderr(line),
+        stderr: (line) => {
+          this.log.stderr(line);
+          this.otel.stderr(line);
+        },
         noise: (line) => this.noise(line),
         trace: (line, message) => {
           if (line.startsWith("<-")) {
@@ -542,41 +584,55 @@ class Turn {
             this.noiseInARow = 0;
           }
           this.log.rpc(line, message);
+          this.otel.frame(line, message);
         },
         handlers: {
           update: (n) => {
             if (this.acpSessionId && n.sessionId !== this.acpSessionId) return;
+            this.otel.update(n.update);
             this.emitAll(this.mapper.update(n.update));
           },
           requestPermission: (params) => this.permission(params),
           readTextFile: async (params) => {
+            const done = this.otel.fs("read", params.path);
             try {
-              return {
-                content: this.fs.read(params.path, params.line, params.limit),
-              };
+              const content = this.fs.read(
+                params.path,
+                params.line,
+                params.limit,
+              );
+              done({ bytes: Buffer.byteLength(content) });
+              return { content };
             } catch (error) {
+              done({ refused: errorMessage(error) });
               throw this.fsError(error);
             }
           },
           writeTextFile: async (params) => {
+            const done = this.otel.fs("write", params.path);
             if (this.readOnly) {
               this.log.note(`refused a write (read-only): ${params.path}`);
+              done({ refused: "read-only" });
               throw new AcpError(RESOURCE_REFUSED, READ_ONLY_MESSAGE, {
                 path: params.path,
               });
             }
             try {
               this.fs.write(params.path, params.content);
+              done({ bytes: Buffer.byteLength(params.content) });
             } catch (error) {
+              done({ refused: errorMessage(error) });
               throw this.fsError(error);
             }
           },
           createElicitation: (params) =>
-            this.questions.ask(
-              elicitationQuestion(
-                params,
-                this.agentTitle,
-                providerSlug(this.agentId),
+            this.otel.around("elicitation.wait", {}, () =>
+              this.questions.ask(
+                elicitationQuestion(
+                  params,
+                  this.agentTitle,
+                  providerSlug(this.agentId),
+                ),
               ),
             ),
           unknown: (method) => this.log.note(`unhandled ${method}`),
@@ -589,13 +645,36 @@ class Turn {
     const conn = this.conn;
     ctx.setPid(conn.pid);
     ctx.setState("starting");
-
-    const init = await this.guard(
-      conn.initialize(pkg.version),
-      launch.startupTimeoutMs,
-      `${this.agentId} did not answer initialize within ${launch.startupTimeoutMs / 1000}s (\`${launch.command.join(" ")}\`).`,
-      true,
+    this.otel.spawned(
+      {
+        "process.pid": conn.pid,
+        "hypotenuse.agent.id": this.agentId,
+        "hypotenuse.agent.preset": launch.preset ?? "custom",
+        "hypotenuse.telemetry.native": this.receiver !== null,
+      },
+      launch.command.join(" "),
     );
+
+    const init = await this.otel.around(
+      "acp.initialize",
+      { "rpc.method": "initialize" },
+      () =>
+        this.guard(
+          conn.initialize(pkg.version),
+          launch.startupTimeoutMs,
+          `${this.agentId} did not answer initialize within ${launch.startupTimeoutMs / 1000}s (\`${launch.command.join(" ")}\`).`,
+          true,
+        ),
+    );
+    this.otel.initialized({
+      "gen_ai.agent.name": init.agentInfo?.name ?? this.agentId,
+      "hypotenuse.agent.version": init.agentInfo?.version ?? null,
+      "hypotenuse.acp.protocol_version": init.protocolVersion,
+      "hypotenuse.acp.load_session": Boolean(
+        init.agentCapabilities?.loadSession,
+      ),
+      "hypotenuse.acp.auth_methods": (init.authMethods ?? []).length,
+    });
     this.agentTitle =
       init.agentInfo?.title ?? init.agentInfo?.name ?? this.agentId;
     this.agentVersion = init.agentInfo?.version ?? null;
@@ -706,10 +785,15 @@ class Turn {
         );
         if (!method) throw new AuthRequired(this.loginNeed(), "not logged in");
         this.log.note(`authenticate ${method}`);
-        await this.guard(
-          (this.conn as AcpConnection).authenticate(method),
-          0,
-          "",
+        await this.otel.around(
+          "acp.authenticate",
+          { "hypotenuse.acp.auth_method": method },
+          () =>
+            this.guard(
+              (this.conn as AcpConnection).authenticate(method),
+              0,
+              "",
+            ),
         );
         authenticated = true;
       }
@@ -769,15 +853,17 @@ class Turn {
     ) {
       try {
         if (caps.sessionCapabilities?.resume) {
-          const answer = await this.guard(
-            conn.resumeSession({
-              sessionId: previousAcpSessionId,
-              cwd: this.cwd,
-              mcpServers,
-              ...directories,
-            }),
-            0,
-            "",
+          const answer = await this.otel.around("acp.session.resume", {}, () =>
+            this.guard(
+              conn.resumeSession({
+                sessionId: previousAcpSessionId,
+                cwd: this.cwd,
+                mcpServers,
+                ...directories,
+              }),
+              0,
+              "",
+            ),
           );
           this.acpSessionId = previousAcpSessionId;
           this.resumed = true;
@@ -788,15 +874,17 @@ class Turn {
           this.acpSessionId = previousAcpSessionId;
           this.mapper.replaying = true;
           try {
-            const answer = await this.guard(
-              conn.loadSession({
-                sessionId: previousAcpSessionId,
-                cwd: this.cwd,
-                mcpServers,
-                ...directories,
-              }),
-              0,
-              "",
+            const answer = await this.otel.around("acp.session.load", {}, () =>
+              this.guard(
+                conn.loadSession({
+                  sessionId: previousAcpSessionId,
+                  cwd: this.cwd,
+                  mcpServers,
+                  ...directories,
+                }),
+                0,
+                "",
+              ),
             );
             this.resumed = true;
             await this.applyMode(answer);
@@ -817,10 +905,15 @@ class Turn {
         );
       }
     }
-    const created: NewSessionResponse = await this.guard(
-      conn.newSession({ cwd: this.cwd, mcpServers, ...directories }),
-      0,
-      "",
+    const created: NewSessionResponse = await this.otel.around(
+      "acp.session.new",
+      { "hypotenuse.mcp.servers": mcpServers.length },
+      () =>
+        this.guard(
+          conn.newSession({ cwd: this.cwd, mcpServers, ...directories }),
+          0,
+          "",
+        ),
     );
     this.acpSessionId = created.sessionId;
     await this.applyMode(created);
@@ -944,6 +1037,22 @@ class Turn {
     );
     this.promptStartedAt = this.now();
     this.lastTraffic = this.now();
+    const promptText = blocks
+      .map((b) => (b as { text?: string }).text ?? "")
+      .join("\n\n");
+    this.otel.promptStarted(
+      {
+        "hypotenuse.prompt.blocks": blocks.length,
+        "hypotenuse.prompt.bytes": Buffer.byteLength(promptText),
+        "hypotenuse.prompt.history": ctx.assignment.history.length,
+        "hypotenuse.prompt.guidance": ctx.assignment.guidance.length,
+        "hypotenuse.prompt.context_bytes": Buffer.byteLength(
+          ctx.assignment.promptContext ?? "",
+        ),
+        "hypotenuse.acp.resumed": this.resumed,
+      },
+      promptText,
+    );
     const request = conn.prompt(sessionId, blocks);
     this.promptSettled = request.then(
       () => {},
@@ -955,6 +1064,19 @@ class Turn {
         `${this.agentId} failed the turn: ${errorMessage(error)}${quoteTail(this.log.tail())}`,
       );
     });
+    const usage = (
+      answer as { usage?: { inputTokens?: number; outputTokens?: number } }
+    ).usage;
+    this.otel.promptEnded(
+      {
+        "gen_ai.response.finish_reasons": answer.stopReason,
+        "gen_ai.usage.input_tokens": usage?.inputTokens,
+        "gen_ai.usage.output_tokens": usage?.outputTokens,
+      },
+      answer.stopReason === "end_turn" || answer.stopReason === "cancelled"
+        ? null
+        : `stopReason: ${answer.stopReason}`,
+    );
     if (this.endReason) return await this.stopped();
     this.emit({ type: "status", state: "finishing" });
     const stop =
@@ -1084,6 +1206,44 @@ class Turn {
 
   /** Close the agent after a turn that ended on its own. */
   private async shutdown(): Promise<void> {
+    await this.closeAgent();
+    if (this.conn) this.otel.exited(await within(this.conn.exited, 500, null));
+    // The agent's last flush landed while it exited; the receiver drains it.
+    await this.receiver?.close();
+    this.receiver = null;
+  }
+
+  /**
+   * Point the agent's own telemetry at the turn's loopback receiver, and
+   * give it the `acp.prompt` span as `TRACEPARENT` (agents that honour it
+   * parent their spans on it). Only for a turn whose telemetry asks for the
+   * agent's; a runner whose owner turned it off never gets here.
+   * @param launch - The launch, changed in place.
+   */
+  private withTelemetry(launch: {
+    preset: string | null;
+    command: string[];
+    env: Record<string, string>;
+  }): void {
+    const turn = this.ctx.telemetry;
+    if (!turn) return;
+    const traceparent = this.otel.traceparent;
+    if (traceparent) launch.env.TRACEPARENT = traceparent;
+    if (!turn.agentNative) return;
+    this.receiver = new NativeReceiver(turn);
+    const endpoint = this.receiver.start();
+    turn.addSecret(this.receiver.nonce);
+    dropInheritedOtel(launch.env);
+    const native = nativeTelemetryLaunch(launch.preset, {
+      endpoint,
+      level: turn.level,
+    });
+    Object.assign(launch.env, native.env);
+    launch.command = [...launch.command, ...native.args];
+  }
+
+  /** Close the agent process, as {@link shutdown}'s first step. */
+  private async closeAgent(): Promise<void> {
     const conn = this.conn;
     if (!conn) return;
     if (!conn.hasExited) {
@@ -1157,17 +1317,38 @@ class Turn {
   private async permission(params: Parameters<typeof permissionQuestion>[0]) {
     const policy = this.role?.permission_policy ?? "allow";
     const decision = decide(policy, params.toolCall.kind);
+    const waited = this.otel.permission(
+      params.toolCall,
+      typeof policy === "string" ? policy : JSON.stringify(policy),
+      params.options,
+    );
     if (decision !== "ask") {
       const optionId = automaticOption(params.options, decision);
       this.log.note(
         `permission ${params.toolCall.toolCallId}: ${decision} → ${optionId ?? "cancelled"}`,
       );
+      waited({
+        outcome: optionId ? "selected" : "cancelled",
+        optionId: optionId ?? undefined,
+        decidedBy: "policy",
+      });
       return optionId
         ? { outcome: { outcome: "selected" as const, optionId } }
         : { outcome: { outcome: "cancelled" as const } };
     }
     this.emitAll(this.mapper.flushThought(true));
-    return this.questions.ask(permissionQuestion(params, this.where, this.cwd));
+    const answer = await this.questions.ask(
+      permissionQuestion(params, this.where, this.cwd),
+    );
+    const outcome = (
+      answer as { outcome?: { outcome?: string; optionId?: string } }
+    ).outcome;
+    waited({
+      outcome: outcome?.outcome ?? "cancelled",
+      optionId: outcome?.optionId,
+      decidedBy: "person",
+    });
+    return answer;
   }
 
   /**

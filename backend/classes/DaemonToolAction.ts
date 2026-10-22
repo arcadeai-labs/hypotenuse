@@ -11,6 +11,7 @@ import {
   TypedError,
 } from "keryx";
 import { z } from "zod";
+import type { DaemonSpanMeta } from "../initializers/telemetry";
 import {
   type DaemonScopeMeta,
   DaemonSessionScopeMiddleware,
@@ -24,6 +25,7 @@ import { toolForAction } from "../ops/DaemonToolPolicyOps";
 import { LinearBudgetExhaustedError } from "../ops/LinearBucketOps";
 import { capResult } from "../ops/LinearMarkdownOps";
 import { linearErrorToTypedError } from "../ops/LinearOps";
+import { withTraceScope } from "../ops/TelemetryOps";
 
 /**
  * What a tool function takes and answers. The input is `never` here so any
@@ -99,10 +101,19 @@ export abstract class DaemonToolAction implements Action {
     const resolved = connection.metadata.daemonScope;
     if (!resolved) return notPermittedResponse();
     const { agentSessionId: _session, ...input } = params;
+    // A traced call's Linear requests are children of its server span.
+    const span = (connection.metadata as DaemonSpanMeta).telemetrySpan;
     try {
-      const output = await this.invoke(
-        new ToolScope(resolved, this.tool.name),
-        input as never,
+      const output = await withTraceScope(
+        span
+          ? {
+              projectId: resolved.session.projectId,
+              traceId: span.traceId,
+              parentSpanId: span.spanId,
+            }
+          : null,
+        () =>
+          this.invoke(new ToolScope(resolved, this.tool.name), input as never),
       );
       return {
         result: {

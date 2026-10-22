@@ -12,6 +12,7 @@ import type { RbacConnectionMeta } from "../middleware/rbac";
 import type { SessionImpl } from "../middleware/session";
 import { insertAuditLog } from "../ops/AuditOps";
 import type { TxHandle } from "../ops/ProjectOps";
+import { emitLogs } from "../ops/TelemetryOps";
 
 export type { TxHandle };
 
@@ -138,6 +139,29 @@ export abstract class AuditedAction implements Action {
       // the refusal, which is a persisted fact and a failed request at once.
       if (connection.metadata.refuseAfterCommit) {
         throw connection.metadata.refuseAfterCommit;
+      }
+
+      // A project that exports telemetry sees its people's decisions as logs:
+      // the action, who, and what it was done to — never the params.
+      const projectId =
+        connection.metadata.auditProjectId ??
+        (typeof params.projectId === "number" ? params.projectId : null);
+      if (projectId) {
+        await emitLogs(projectId, [
+          {
+            atMs: Date.now(),
+            body: `${this.name} ${connection.metadata.auditTargetType ?? ""} ${connection.metadata.auditTargetPath ?? ""}`.trim(),
+            eventName: "hypotenuse.audit",
+            attributes: {
+              "hypotenuse.audit.action": this.name,
+              "hypotenuse.audit.target_type":
+                connection.metadata.auditTargetType ?? null,
+              "hypotenuse.audit.target":
+                connection.metadata.auditTargetPath ?? null,
+              "enduser.id": connection.session?.data.userId ?? null,
+            },
+          },
+        ]);
       }
 
       // Post-commit side effects run only after the change durably commits, and

@@ -18,6 +18,7 @@ test.describe("project settings", () => {
       "integrations",
       "routing",
       "mcp",
+      "telemetry",
       "members",
       "tags",
       "danger",
@@ -151,6 +152,60 @@ test.describe("project settings", () => {
     await expect(page.getByTestId("members-table")).toBeVisible(LANDED);
     await expect(list).toBeHidden();
     await expect(toggle).toHaveText("Members");
+  });
+
+  test("a telemetry exporter is added with write-only headers, tested, edited, and deleted", async ({
+    page,
+  }) => {
+    await signUp(page, "Otel Otto");
+    await openSettings(page);
+    await openSection(page, "telemetry");
+    await expect(page.getByTestId("telemetry-empty")).toBeVisible(LANDED);
+    await expect(page.getByTestId("content-levels")).toContainText(
+      "third party",
+    );
+    await expect(page.getByTestId("telemetry-runners-empty")).toBeVisible();
+
+    await page.getByTestId("telemetry-new").click();
+    await page.getByTestId("telemetry-name").fill("local-collector");
+    // The e2e backend allows private endpoints; nothing listens on port 9, so
+    // the test below reports every signal refused.
+    await page.getByTestId("telemetry-endpoint").fill("http://127.0.0.1:9");
+    await page.getByTestId("telemetry-header-add").click();
+    await page.getByTestId("telemetry-header-name-0").fill("x-api-key");
+    await page.getByTestId("telemetry-header-value-0").fill("s3cret-value");
+    await page.getByTestId("telemetry-submit").click();
+
+    const list = page.getByTestId("telemetry-exporters");
+    await expect(page.getByTestId("telemetry-notice")).toBeVisible(LANDED);
+    await expect(list).toContainText("local-collector");
+    await expect(list).toContainText("x-api-key");
+    await expect(page.getByText("s3cret-value")).toHaveCount(0);
+
+    await list.getByRole("button", { name: "Test" }).click();
+    await expect(
+      list.locator('[data-testid^="telemetry-test-result-"]'),
+    ).toContainText("traces", LANDED);
+    await expect(
+      list.getByRole("img", { name: "Refused" }).first(),
+    ).toBeVisible();
+
+    // An edit names the headers it holds and never fills a value in.
+    await list.getByRole("button", { name: "Edit" }).click();
+    await expect(page.getByTestId("telemetry-header-names")).toContainText(
+      "x-api-key",
+    );
+    await expect(page.getByTestId("telemetry-header-value-0")).toHaveCount(0);
+    await page.getByTestId("telemetry-content").selectOption("full");
+    await page.getByTestId("telemetry-header-mode-clear").check();
+    await page.getByTestId("telemetry-submit").click();
+    await expect(page.getByTestId("telemetry-notice")).toBeVisible(LANDED);
+    await expect(list).toContainText("full");
+    await expect(list).not.toContainText("x-api-key");
+
+    await list.getByRole("button", { name: "Delete" }).click();
+    await page.getByTestId("telemetry-delete-confirm").click();
+    await expect(page.getByTestId("telemetry-empty")).toBeVisible(LANDED);
   });
 
   test("deleting a project needs its name, and lands somewhere that exists", async ({

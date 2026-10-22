@@ -92,6 +92,7 @@ runner token lives — not on the workspace.
 | CLI token (`hyp_cli_…`) | CLI: `credentials.json` (0600); server: sha256 in `cli_tokens` | `cli-auth:exchange`, after the person approves in the dashboard | the person's memberships; never `daemon:*` | `cli-token:revoke`, `hypotenuse logout`, 90-day sliding expiry |
 | Runner token | daemon: `~/.config/hypotenuse/credentials.json` (0600); server: sha256 in `runners.tokenHash` | `runner:register` — plaintext shown once | one runner, one project, the owner's standing at call time | `runner:revoke`, membership removal |
 | Daemon WebSocket session | Redis | `daemon:connect` (runner token → cookie) | subscribe to `runner:<id>` only | runner revoke drops it |
+| Telemetry exporter headers (a collector's API key) | `telemetry_exporters.headersEncrypted`, AES-256-GCM via `ops/CryptoOps.ts`; only the names in the clear | `telemetry-exporter:create` / `edit` (admin), write-only | sent by the worker to that exporter's collector only; never serialized, never sent to a runner | `telemetry-exporter:edit` / `delete` |
 | Coding-agent model credentials | the person's machine (Claude login, `OPENAI_API_KEY`, …) | the person | the agent | the person |
 | Git credentials | the person's machine | the person | the person's repos | the person |
 
@@ -372,6 +373,34 @@ further activity — no `response`, no trailing thought — because anything aft
 session out of `awaitingInput`. A nonce the daemon does not know (an ended turn) still starts the MCP server, with
 no tools and `instructions` saying why.
 
+## Telemetry
+
+A project admin points the project at OpenTelemetry collectors (`telemetry_exporters`); everything Hypotenuse
+observes about the project's work then arrives there as OTLP traces, metrics, and logs. **One trace per turn**: the
+work item's `traceparent`, minted at insert, names the trace and its root `turn` span; the server's spans hang
+under it (`linear.webhook`, `routing.select`, `routing.offer`, `routing.claim`, `outbox.deliver`, each
+`linear.graphql` request made on the turn's behalf), the daemon's `daemon.turn` is its child, and the daemon sends
+the turn's `traceparent` on every `daemon:*` call so the server's span for the call lands under the daemon span it
+came from (`mcp.call` → `daemon:linear-get-issue` → `linear.graphql`). The coding agent's own telemetry joins
+through a per-turn loopback receiver in the daemon.
+
+```
+agent ──OTLP──► daemon receiver (127.0.0.1, per-turn nonce path)
+                   │  daemon spans, logs, metrics, every ACP frame at `full`
+                   ▼  redacted, bounded queue, gzip
+              daemon:telemetry ──► Redis stream per project ──► telemetry:export ──► each collector
+server spans (after commit, only for projects with an exporter) ─┘                (filtered per exporter)
+```
+
+| Rule | Why |
+|---|---|
+| **The server relays.** The daemon posts to `daemon:telemetry`; the worker exports. | Collector credentials stay on the server, like Linear's; a runner serving several projects never holds a vendor key |
+| **Content levels** — `metadata`, `content`, `full` — are attributes, not batches. Free text is under `hypotenuse.content.*`; a record that is content whole carries `hypotenuse.telemetry.level` | The daemon collects once, at the highest level any exporter wants (lowered to the runner's `[telemetry] max_content`), and the worker filters each exporter down |
+| **Sampling uses one number per trace id.** | Exporters at different ratios each keep their share, a lower ratio keeps a subset, and a turn is kept or dropped whole |
+| **Telemetry never delays work.** | The daemon's queue is bounded and drops logs, then spans, never metrics; `daemon:complete` never waits; a late batch is accepted for `TELEMETRY_LATE_WINDOW` |
+| **Spans are built, not instrumented.** | A trace crosses three processes and a turn's whole life; each span is written from what the database knows when it ends. Linear calls find their parent through an `AsyncLocalStorage` trace scope |
+| **Redaction twice.** | The daemon redacts its tokens, the turn's nonces, and `$VAR`-resolved config values by value; the worker again by key name, by pattern, and every exporter's header values |
+
 ## Tables
 
 | Table | Holds |
@@ -387,6 +416,7 @@ no tools and `instructions` saying why.
 | `runner_subscriptions` | the teams, projects, and labels (per trigger `type`) each runner accepts, replaced whenever a heartbeat's capability hash changes |
 | `work_items` | one per turn: kind, role, repository, status, the merged follow-ups, issuer, offered/claimed runner and agent, lease, attempts, why it waits (a sentence and a code), the cancel and who made it, the daemon's usage and state, the outcome, and every write its agent tools made in Linear (`linearWrites`) |
 | `routing_rules` | a project's ordered role-selection rules |
+| `telemetry_exporters` | a project's OpenTelemetry collectors: endpoint, protocol, sealed headers (names in the clear), signals, content level, whether to capture the agent's own telemetry, trace sample ratio, extra resource attributes, and the last export and last error. Telemetry itself is never stored: it waits in a Redis stream per project for at most an hour |
 
 ## WebSocket channels
 
@@ -417,6 +447,7 @@ costs latency, never correctness.
 | `work:reap` | 15 s | marks runners `offline` after `runners.offlineAfterMs` (45 s) without a heartbeat; returns claims with lapsed leases to `queued`; ends stopped turns whose runner did not confirm within `routing.stopGraceMs` |
 | `sessions:keepalive` | 60 s | an ephemeral `thought` for sessions waiting on Hypotenuse (a queued turn) that have been quiet for 25 minutes; never for one waiting on a person |
 | `integrations:refresh-tokens` | 5 min | refreshes access tokens within 30 minutes of expiry under a row lock (refresh tokens rotate; a lost response is replayed inside Linear's 30-minute grace; `invalid_grant` marks the integration `error` and notifies its admins). A 401 anywhere refreshes inline through the same function |
+| `telemetry:export` | 2 s | flushes the server's own metrics, then drains each project's telemetry stream to each enabled exporter through its own consumer group — filtered to its signals, sample ratio, and content level, redacted, POSTed gzipped; `429`/`5xx` back off (honouring `Retry-After`) without holding up other exporters, and the row records `lastExportAt` / `lastError` |
 | `sessions:broadcast` | enqueued 1 s after a coalesced burst | the trailing `{ event: "session", id }` frame of a burst of outbox sends |
 | `notifications:dispatch` | 30 s | delivers queued notifications: a ping on the project channel, and the e-mail (logged when `SMTP_HOST` is empty) |
 | `trigger-events:sweep`, `audit:sweep`, `notifications:sweep`, `invites:sweep` | daily | retention |

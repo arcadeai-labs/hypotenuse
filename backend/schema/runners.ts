@@ -3,6 +3,7 @@ import type {
   RepositoryCapability,
   RunnerLimits,
   RunnerRole,
+  TelemetryCapability,
 } from "@hypotenuse/protocol";
 import { sql } from "drizzle-orm";
 import {
@@ -95,6 +96,12 @@ export const runners = pgTable(
       .$type<RepositoryCapability[]>()
       .notNull()
       .default([]),
+    /**
+     * The owner's telemetry cap, as last reported (`[telemetry]` in the
+     * daemon's config); null from a daemon that reports none, which sends
+     * no telemetry.
+     */
+    telemetry: jsonb("telemetry").$type<TelemetryCapability | null>(),
     capabilityHash: text("capability_hash"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
