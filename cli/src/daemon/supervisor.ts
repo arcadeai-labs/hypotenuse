@@ -20,6 +20,7 @@
  * sends the work elsewhere.
  */
 import { hostname } from "node:os";
+import { isAbsolute } from "node:path";
 import {
   type ActiveItem,
   type HeartbeatRequest,
@@ -58,6 +59,8 @@ import type {
   TurnResult,
 } from "./executor";
 import type { DaemonLog } from "./log";
+import { McpBroker } from "./mcp-broker";
+import { selfCommand } from "./self";
 import { ServerLink } from "./server-link";
 import type { LocalSession, LocalWorktree, StateDb } from "./state";
 
@@ -85,6 +88,12 @@ export interface Slot {
   lastAnswer: string | null;
   /** What `agents kill --reason` said. */
   killNote: string | null;
+  /** The turn's MCP nonce, while the broker serves it. */
+  nonce: string | null;
+  /** The turn's reader of `linear_ask_user` notices. */
+  onAskingUser: ((asking: boolean) => void) | null;
+  /** The turn's reader of pull requests linked by a tool. */
+  onReportedPullRequest: ((url: string) => void) | null;
 }
 
 /** Events that answer a session. */
@@ -134,6 +143,11 @@ export interface SupervisorOptions {
   statfs?: StatFs;
   /** How often every worktree is swept (default 30 minutes). */
   sweepIntervalMs?: number;
+  /**
+   * The command that runs this program, for a turn's `hypotenuse mcp`
+   * (default {@link selfCommand}); null to give turns no Hypotenuse tools.
+   */
+  mcpCommand?: string[] | null;
 }
 
 /** The daemon's slots and the loop around them. */
@@ -161,6 +175,8 @@ export class Supervisor {
   readonly cleaner: WorktreeCleaner;
   private sweepTimer: ReturnType<typeof setInterval> | null = null;
   private diskWasLow = false;
+  /** Serves the turns' `hypotenuse mcp` servers over the control socket. */
+  readonly broker: McpBroker;
 
   /**
    * @param options - The daemon's parts.
@@ -184,6 +200,7 @@ export class Supervisor {
         await this.cleanup({});
       },
     });
+    this.broker = new McpBroker(options.api, (line) => options.log.info(line));
     this.sink = new EventSink(options.state, options.api, options.log, {
       onCancelRequested: (id) => this.stop(id, "stop"),
       onNotYours: (id) => this.silence(id),
@@ -539,8 +556,31 @@ export class Supervisor {
       consumed: [],
       lastAnswer: null,
       killNote: null,
+      nonce: null,
+      onAskingUser: null,
+      onReportedPullRequest: null,
     };
     this.slots.set(assignment.workItemId, slot);
+    const mcpCommand =
+      this.options.mcpCommand === undefined
+        ? selfCommand()
+        : this.options.mcpCommand;
+    if (mcpCommand) {
+      slot.nonce = this.broker.register({
+        agentSessionId: assignment.agentSessionId,
+        workItemId: assignment.workItemId,
+        role: assignment.role,
+        issueIdentifier: assignment.issue.identifier,
+        askingUser: (asking) => slot.onAskingUser?.(asking),
+        settle: async () => {
+          await this.sink.settled(slot.workItemId);
+        },
+        reportedPullRequest: (url) => {
+          this.options.state.addPullRequest(slot.agentSessionId, url);
+          slot.onReportedPullRequest?.(url);
+        },
+      });
+    }
     log.info(
       `claimed ${assignment.kind} for ${assignment.issue.identifier ?? "an issue"}`,
       {
@@ -601,6 +641,30 @@ export class Supervisor {
       recordPullRequest: (url) =>
         this.options.state.addPullRequest(slot.agentSessionId, url),
       stopNote: () => slot.killNote,
+      hypotenuseMcp:
+        mcpCommand && slot.nonce
+          ? {
+              command: resolveCommand(
+                mcpCommand[0] as string,
+                this.options.env,
+              ),
+              args: [
+                ...mcpCommand.slice(1),
+                "mcp",
+                "--session",
+                String(assignment.agentSessionId),
+                "--nonce",
+                slot.nonce,
+              ],
+              env: { HYPOTENUSE_STATE_DIR: this.options.stateDir },
+            }
+          : null,
+      onAskingUser: (handler) => {
+        slot.onAskingUser = handler;
+      },
+      onReportedPullRequest: (handler) => {
+        slot.onReportedPullRequest = handler;
+      },
     };
     slot.done = this.runTurn(slot, ctx);
   }
@@ -624,6 +688,7 @@ export class Supervisor {
       });
     }
     this.slots.delete(slot.workItemId);
+    if (slot.nonce) this.broker.end(slot.nonce);
     if (slot.silent) {
       this.options.state.setSessionState(slot.agentSessionId, "interrupted", {
         pid: null,
@@ -999,4 +1064,18 @@ export function changedKeys(a: unknown, b: unknown, prefix = ""): string[] {
     );
   }
   return JSON.stringify(a) === JSON.stringify(b) ? [] : [prefix];
+}
+
+/**
+ * An absolute path for a command, as ACP requires of a stdio MCP server.
+ * @param command - The command, absolute already or found on `PATH`.
+ * @param env - The daemon's environment.
+ * @returns The absolute path, or the command as given when not found.
+ */
+function resolveCommand(
+  command: string,
+  env: Record<string, string | undefined>,
+): string {
+  if (isAbsolute(command)) return command;
+  return Bun.which(command, { PATH: env.PATH ?? "" }) ?? command;
 }

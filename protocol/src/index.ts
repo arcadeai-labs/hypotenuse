@@ -4,5 +4,6 @@ export * from "./connect";
 export * from "./events";
 export * from "./heartbeat";
 export * from "./remote";
+export * from "./tools";
 export * from "./version";
 export * from "./work";

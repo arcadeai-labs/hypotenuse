@@ -379,18 +379,18 @@ bunx @modelcontextprotocol/inspector hypotenuse mcp --session <agentSessionId> -
 
 ## Definition of done
 
-- [ ] `hypotenuse mcp` serves the role's tools over stdio; zero-tools fallback with `instructions`
-- [ ] Token-free design: session id and per-turn nonce only; `mcp.hello` and `mcp.call` on the control socket
-- [ ] `DaemonSessionScopeMiddleware` with live-work-item ownership and a uniform 403
-- [ ] 18 actions with their target rules; tool schemas shared through `protocol/`
-- [ ] `WORKER_TOOLS` ⊂ `MANAGER_TOOLS`; the allowlist asserted as an exact set
-- [ ] Output caps, the per-turn read cache, the token-bucket behaviour for reads and writes
-- [ ] `linear_ask_user` ends the turn in `awaitingInput` with no trailing `response`
-- [ ] `linearWrites` ledger on the work item
-- [ ] Manager-created issues carry `createAsUser` / `displayIconUrl`; assignee never written
-- [ ] `extra_mcp_servers` with `$VAR` resolution, the http gate, the reserved name, and the Linear MCP warning
-- [ ] `LINEAR_COVERAGE.md` rows for every mutation and query these tools use
-- [ ] User docs: `/docs/agent-tools` (what agents can do in Linear and why it is scoped)
+- [x] `hypotenuse mcp` serves the role's tools over stdio; zero-tools fallback with `instructions`
+- [x] Token-free design: session id and per-turn nonce only; `mcp.hello` and `mcp.call` on the control socket
+- [x] `DaemonSessionScopeMiddleware` with live-work-item ownership and a uniform 403
+- [x] 18 actions with their target rules; tool schemas shared through `protocol/`
+- [x] `WORKER_TOOLS` ⊂ `MANAGER_TOOLS`; the allowlist asserted as an exact set
+- [x] Output caps, the per-turn read cache, the token-bucket behaviour for reads and writes
+- [x] `linear_ask_user` ends the turn in `awaitingInput` with no trailing `response`
+- [x] `linearWrites` ledger on the work item
+- [x] Manager-created issues carry `createAsUser` / `displayIconUrl`; assignee never written
+- [x] `extra_mcp_servers` with `$VAR` resolution, the http gate, the reserved name, and the Linear MCP warning
+- [x] `LINEAR_COVERAGE.md` rows for every mutation and query these tools use
+- [x] User docs: `/docs/agent-tools` (what agents can do in Linear and why it is scoped)
 
 ## Commands
 
@@ -403,4 +403,76 @@ psql hypotenuse -c "select id, payload->'linearWrites' from work_items where age
 
 ## Learnings from the build
 
-_Nothing yet — this phase has not been built._
+**Built.** Everything in the Definition of done, at CLI 0.9.0, with the departures below. A real daemon's agent
+(the fake ACP agent, now an MCP client) reads its finear issue through `hypotenuse mcp` and asks with
+`linear_ask_user` in `backend/__tests__/daemon/mcp.test.ts`. No real coding agent has called the tools yet, and
+`hypotenuse_dispatch` records a hand-off without starting a worker — that is the manager plan's.
+
+### Where the pieces live
+
+- **The table:** `protocol/src/tools.ts` — every tool's name, `daemon:*` action, route, roles, read or write, model-facing
+  description, and zod input. The MCP server, the daemon's broker, and each server action read it.
+- **Server:** `ops/DaemonToolPolicyOps.ts` (`WORKER_TOOLS` ⊂ `MANAGER_TOOLS`), `middleware/daemonSessionScope.ts`,
+  `ops/DaemonScopeOps.ts` (`ToolScope`: the target rules, Linear calls that spend the bucket, the ledger),
+  `ops/DaemonToolOps.ts` (one function per tool), `ops/LinearMarkdownOps.ts`, `classes/DaemonToolAction.ts` (the
+  base every tool action extends), `actions/daemon/linear/*.ts` and `actions/daemon/daemon-dispatch.ts` (each a name
+  and a function), thirteen new documents in `ops/linear/operations.ts`, `spendForTool` in `ops/LinearBucketOps.ts`,
+  `work_items.linear_writes` (migration `0009`).
+- **Daemon:** `cli/src/daemon/mcp-broker.ts` (nonces, `mcp.hello`, `mcp.call`, the order of a question),
+  `cli/src/mcp/{server,tools,cache}.ts`, `cli/src/commands/mcp.ts` (hidden), `cli/src/acp/mcp-servers.ts`,
+  `EventSink.settled`, and the supervisor's and host's wiring.
+- **Tests:** `backend/__tests__/actions/daemon-linear-proxy.test.ts`, `backend/__tests__/ops/daemon-tool-ops.test.ts`,
+  `backend/__tests__/daemon/mcp.test.ts` (the fake agent's `mcp` step and `mcp-probe` scenario),
+  `cli/__tests__/mcp/{server,broker}.test.ts`, `cli/__tests__/config/extra-mcp.test.ts`, the mapping test's
+  ask-user case, and `protocol/__tests__/tools.test.ts`.
+
+### Where the build departs from the plan
+
+| Plan | Built | Why |
+|---|---|---|
+| `DaemonSessionScopeMiddleware` refuses with the uniform 403 | **it records its verdict on `connection.metadata.daemonScope`; `DaemonToolAction.run` answers the fixed 403** | Keryx middleware can only throw a `TypedError`, whose envelope carries a timestamp — two refusals would never be byte-identical |
+| A live work item is `claimed` or `running` | **and no stop requested** | Linear's `stopping` takes only a response or error, and a disengaged session must hear nothing more |
+| Results are Markdown with a trailing JSON block | **`{ result: { text, data } }`** from the server; the MCP server answers `text` as the content and `data` as `structuredContent` | one shape for the protocol; the agent gets both without parsing |
+| `payload.linearWrites` | **`work_items.linear_writes`** (jsonb), with plan, question, and link writes in it too | work items have no payload column (as phase 12 found for hygiene) |
+| `linear_update_project` writes "description (the PRD)" | **`content` is the PRD; `summary` writes Linear's one-line `description`** | Linear's project `description` is the 255-character subtitle; the long Markdown is `content` |
+| `linear_update_project`: the session issue's project "or one the session created" | **the session issue's project** | no tool creates projects |
+| `linear_search_issues` "text search" | **`issues(filter:)` with `containsIgnoreCase` on title and description** | it works the same on Linear and finear; `searchIssues` is not in finear |
+| The MCP process exits "when the daemon closes the socket connection at turn end" | **one connection per call; a call after the turn is refused by nonce** | there is no connection to close; the agent's MCP children exit with the agent, whose stdin closes at turn end |
+| `linear_ask_user`'s trailing message "is emitted as a non-ephemeral thought" | **kept in the session log only**; once asked, the turn emits no activity (no thought, action, keepalive, response, or error — nor a timeout's, drain's, or kill's stop activity; only the person's own Stop is still answered) | Linear derives the session's state from its last activity: anything after the elicitation moves it out of `awaitingInput` |
+| `mcp.call` writes straight to the server | **a write to the session's own activity first waits (≤ 5 s) for the turn's queued events to land; before a question, the turn stops emitting** | the server's outbox numbers a tool's activity when it is written, and the daemon's own events would otherwise land after the question |
+| Every tool's input validated on the server | **validated three times: the MCP server, the broker, the action** — one zod schema | a validation error is a tool error the agent reads, not an MCP crash |
+| Uniform refusal includes "the integration revoked" | the same, and **an `error`-status integration** | it cannot act either |
+| `backend/__tests__/daemon/linear-proxy.test.ts`, `backend/__tests__/e2e/mcp.test.ts` | **`backend/__tests__/actions/daemon-linear-proxy.test.ts`** (a scripted daemon, as the coverage matrix named it) and **`backend/__tests__/daemon/mcp.test.ts`** (the real daemon, beside the other real-daemon suites) | |
+| The token-bucket read "waits up to 5 s, then fails" | **fails as soon as the next token is further away than the wait** | waiting out a wait that cannot succeed only holds the agent |
+
+### Decisions the plan left open
+
+| Question | Answer |
+|---|---|
+| A target refusal's body | a 403 **saying why** (*"ENG-200 is not the issue you are working on"*), unlike the scope refusal — the agent should learn what it may do |
+| Something Linear does not have, or the app cannot see | 404 *"No issue ENG-999 that Hypotenuse can read."* |
+| `linear_create_issue` with a `parent` | the parent must be `managed` — a sub-issue changes the parent |
+| `linear_report_pr`'s label | *Pull Request*, then *Pull Request (n)*, as the daemon's detection labels them; a URL already linked is a no-op, and the daemon's detector remembers a reported one |
+| Names to ids (teams, labels, projects, states) | from the integration's cached catalog (which now records whether a team is private), re-read once on a miss |
+| `createAsUser`'s icon | the deployment's `favicon.svg` (`FRONTEND_URL`) |
+| `hypotenuse_dispatch` before the manager plan | checks `managed`, records the hand-off in the ledger, and **says no worker has started** |
+| How a tool call counts against a runner's budget | as any daemon request (`RUNNER_REQUEST_LIMIT`), plus one bucket token per Linear call it makes |
+| Where `hypotenuse mcp` finds the socket | `HYPOTENUSE_STATE_DIR` from the server's `env`, else the usual state-directory rules |
+
+### Traps found while building
+
+- **finear's served schema has no documents at all**, so a document query fails validation there, not execution. The
+  proxy's stand-in validates against `contracts/upstream.graphql` (Linear's full schema, which finear ships) before
+  answering, so the documents are still checked against Linear.
+- **finear offers only the teams the consenting human belongs to**, and has one per workspace; the cross-team
+  `managed` test needed the human in the fixture private team before the install.
+- **A zod field's `.describe()` before `.optional()` is not on the optional wrapper** (zod 4); `z.toJSONSchema`
+  still carries it, so the protocol test asserts descriptions on the JSON Schema an agent sees.
+- **The npm bundle test listed package names only**; the MCP SDK is imported by subpath
+  (`@modelcontextprotocol/sdk/server/index.js`), so the test now maps a subpath to its package.
+- **A write tool's scope check is itself a read**: with the bucket drained, a write fails on the read's shorter wait
+  unless that wait is long enough too.
+- **A real-daemon test that delegates right after starting (or restarting) the daemon races its first heartbeat.**
+  Routing sees the runner offline, says so, and — with no routing clock in the suites — never tries again; the
+  item waits `queued` until the test times out. `acp.test.ts` and `mcp.test.ts` now wait for the runner to be
+  `online` first.

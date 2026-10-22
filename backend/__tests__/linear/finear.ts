@@ -1,6 +1,7 @@
 import { afterAll, beforeAll } from "bun:test";
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { buildSchema, type GraphQLSchema, parse, validate } from "graphql";
 import { config } from "keryx";
 import { LINEAR_SCOPES } from "../../config/linear";
 import { linearCallbackUrl, linearWebhookUrl } from "../../ops/LinearOps";
@@ -27,6 +28,13 @@ const FINEAR_APPLICATION = join(
  */
 interface FinearApplication {
   readonly url: URL;
+  readonly runtime: {
+    database: {
+      transaction<T>(
+        work: (tx: { run(sql: string, ...params: unknown[]): unknown }) => T,
+      ): T;
+    };
+  };
   drain(): Promise<void>;
   advance(milliseconds: number): Promise<number>;
   reset(): Promise<void>;
@@ -93,6 +101,18 @@ export interface ProxiedRequest {
   operationName: string | null;
   /** The form's `grant_type`, for `/oauth/token`. */
   grantType: string | null;
+  /** The GraphQL variables, as sent (before any gap stand-in rewrote them). */
+  variables: Record<string, unknown> | null;
+}
+
+/** A Linear document, as the proxy's stand-in for finear's missing ones holds it. */
+export interface StandInDocument {
+  id: string;
+  title: string;
+  content: string;
+  url: string;
+  projectId: string | null;
+  issueId: string | null;
 }
 
 /**
@@ -121,9 +141,14 @@ export interface ProxyFault {
  * The proxy exists for what finear does not do and Linear does: it records
  * every request (so a test can assert a cache was hit, or a refresh sent once),
  * stamps Linear's `X-RateLimit-*` headers on GraphQL responses, and can answer
- * one request with `RATELIMITED` or lose one response. Everything else is
- * finear's own behaviour, byte for byte. finear lacks rate-limit headers and
- * `RATELIMITED` entirely — a gap recorded in `docs/LINEAR_COVERAGE.md`.
+ * one request with `RATELIMITED` or lose one response. It also stands in for
+ * two things finear lacks, each a gap recorded in `docs/LINEAR_COVERAGE.md`:
+ * it takes `createAsUser` / `displayIconUrl` off an `issueCreate` (finear
+ * refuses them; the request log keeps them for the test to assert), and it
+ * answers the document operations (`documentCreate`, `documentUpdate`,
+ * `document`, `project.documents`) from a small store of its own. Everything
+ * else is finear's own behaviour, byte for byte. finear lacks rate-limit
+ * headers and `RATELIMITED` entirely — a gap recorded there too.
  * @returns Accessors for the running fake and its control operations.
  */
 export function useFinear() {
@@ -133,6 +158,7 @@ export function useFinear() {
   const log: ProxiedRequest[] = [];
   const faults: ProxyFault[] = [];
   let injectedHeaders: Record<string, string> = {};
+  const documents = new Map<string, StandInDocument>();
   const saved = {
     linear: { ...config.linear },
     applicationUrl: config.server.web.applicationUrl,
@@ -193,7 +219,8 @@ export function useFinear() {
           request.method === "GET" || request.method === "HEAD"
             ? undefined
             : await request.arrayBuffer();
-        const text = body ? new TextDecoder().decode(body) : "";
+        let text = body ? new TextDecoder().decode(body) : "";
+        const gql = url.pathname === "/graphql" ? parseGraphQLBody(text) : null;
         const seen: ProxiedRequest = {
           method: request.method,
           path: url.pathname,
@@ -203,6 +230,7 @@ export function useFinear() {
             url.pathname === "/oauth/token"
               ? new URLSearchParams(text).get("grant_type")
               : null,
+          variables: gql?.variables ?? null,
         };
         log.push(seen);
 
@@ -232,12 +260,32 @@ export function useFinear() {
           );
         }
 
+        if (gql && STAND_IN_OPERATIONS.has(seen.operationName ?? "")) {
+          // finear's schema has no documents at all: check the document
+          // against Linear's full schema (which finear ships), then answer.
+          const invalid = await upstreamErrors(String(gql.body.query ?? ""));
+          if (invalid.length > 0)
+            return Response.json({ errors: invalid }, { status: 400 });
+          const standIn = documentStandIn(gql, documents);
+          if (standIn) return Response.json(standIn);
+        }
+        if (gql && seen.operationName === "CreateIssue") {
+          // finear refuses the attribution fields; Linear takes them.
+          const input = (gql.variables?.input ?? {}) as Record<string, unknown>;
+          const { createAsUser: _a, displayIconUrl: _b, ...rest } = input;
+          text = JSON.stringify({
+            ...gql.body,
+            variables: { ...gql.variables, input: rest },
+          });
+        }
+
         const headers = new Headers(request.headers);
         headers.delete("host");
+        headers.delete("content-length");
         const answer = await fetch(`${upstream}${url.pathname}${url.search}`, {
           method: request.method,
           headers,
-          body,
+          body: body === undefined ? undefined : text,
           redirect: "manual",
         });
         const payload = await answer.arrayBuffer();
@@ -468,9 +516,28 @@ export function useFinear() {
     fault: (fault: ProxyFault) => {
       faults.push(fault);
     },
+    /** The documents the stand-in holds (finear has none), by id. */
+    documents,
     /** Stamp these headers on every GraphQL response from now on. */
     injectHeaders: (headers: Record<string, string>) => {
       injectedHeaders = headers;
+    },
+    /**
+     * Make Human 1 a member of one of its workspace's teams, so finear's
+     * consent screen offers it — finear has no API to add a member (a gap in
+     * `docs/LINEAR_COVERAGE.md`), so this writes its fixture table. Call
+     * before `install`.
+     * @param teamId - The team.
+     */
+    joinTeam: (teamId: string) => {
+      running().runtime.database.transaction((tx) =>
+        tx.run(
+          "INSERT OR IGNORE INTO team_memberships (organization_id, team_id, user_id) VALUES (?, ?, ?)",
+          FINEAR_FIXTURES.primary.organization,
+          teamId,
+          FINEAR_FIXTURES.primary.user,
+        ),
+      );
     },
     /** Flush the webhook outbox now. */
     drain: () => running().drain(),
@@ -499,5 +566,134 @@ function graphQLOperationName(body: string): string | null {
     return /(?:query|mutation)\s+(\w+)/.exec(parsed.query ?? "")?.[1] ?? null;
   } catch {
     return null;
+  }
+}
+
+/** The operations the document stand-in answers. */
+const STAND_IN_OPERATIONS = new Set([
+  "CreateDocument",
+  "UpdateDocument",
+  "GetDocument",
+  "ListProjectDocuments",
+]);
+
+let upstreamSchema: Promise<GraphQLSchema> | null = null;
+
+/**
+ * Validate a document against Linear's own schema, as finear pins it.
+ * @param query - The GraphQL document.
+ * @returns The validation errors, as GraphQL error objects.
+ */
+async function upstreamErrors(query: string): Promise<{ message: string }[]> {
+  upstreamSchema ??= Bun.file(
+    join(dirname(FINEAR_APPLICATION), "..", "contracts", "upstream.graphql"),
+  )
+    .text()
+    .then((sdl) => buildSchema(sdl, { assumeValidSDL: true }));
+  try {
+    return validate(await upstreamSchema, parse(query)).map((e) => ({
+      message: e.message,
+    }));
+  } catch (e) {
+    return [{ message: e instanceof Error ? e.message : String(e) }];
+  }
+}
+
+/** A GraphQL request body, parsed. */
+interface GraphQLBody {
+  body: Record<string, unknown>;
+  variables: Record<string, unknown> | null;
+  operationName: string | null;
+}
+
+/**
+ * Parse a GraphQL request body.
+ * @param text - The body text.
+ * @returns The parsed body, or null when it is not JSON.
+ */
+function parseGraphQLBody(text: string): GraphQLBody | null {
+  try {
+    const body = JSON.parse(text) as Record<string, unknown>;
+    return {
+      body,
+      variables: (body.variables as Record<string, unknown>) ?? null,
+      operationName: graphQLOperationName(text),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Answer a document operation from the stand-in store — finear has no
+ * documents (a gap in `docs/LINEAR_COVERAGE.md`). Only the operations
+ * Hypotenuse sends, by name, in Linear's response shape.
+ * @param gql - The request.
+ * @param store - The documents.
+ * @returns The response body, or null for any other operation.
+ */
+function documentStandIn(
+  gql: GraphQLBody,
+  store: Map<string, StandInDocument>,
+): Record<string, unknown> | null {
+  const v = gql.variables ?? {};
+  const shape = (d: StandInDocument) => ({
+    id: d.id,
+    title: d.title,
+    url: d.url,
+    project: d.projectId ? { id: d.projectId } : null,
+    issue: d.issueId ? { id: d.issueId } : null,
+  });
+  const missing = {
+    data: null,
+    errors: [
+      { message: "Entity not found", extensions: { code: "NOT_FOUND" } },
+    ],
+  };
+  switch (gql.operationName) {
+    case "CreateDocument": {
+      const input = v.input as Record<string, string>;
+      const id = crypto.randomUUID();
+      const doc: StandInDocument = {
+        id,
+        title: input.title,
+        content: input.content,
+        url: `https://linear.app/document/${id}`,
+        projectId: input.projectId ?? null,
+        issueId: input.issueId ?? null,
+      };
+      store.set(id, doc);
+      return {
+        data: { documentCreate: { success: true, document: shape(doc) } },
+      };
+    }
+    case "UpdateDocument": {
+      const doc = store.get(String(v.id));
+      if (!doc) return missing;
+      const input = v.input as Record<string, string>;
+      if (input.content !== undefined) doc.content = input.content;
+      if (input.title !== undefined) doc.title = input.title;
+      return {
+        data: { documentUpdate: { success: true, document: shape(doc) } },
+      };
+    }
+    case "GetDocument": {
+      const doc = store.get(String(v.id));
+      return doc ? { data: { document: shape(doc) } } : missing;
+    }
+    case "ListProjectDocuments":
+      return {
+        data: {
+          project: {
+            documents: {
+              nodes: [...store.values()]
+                .filter((d) => d.projectId === v.id)
+                .map(shape),
+            },
+          },
+        },
+      };
+    default:
+      return null;
   }
 }

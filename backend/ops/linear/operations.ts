@@ -113,6 +113,7 @@ export interface LinearTeam {
   id: string;
   key: string;
   name: string;
+  private: boolean;
   states: { nodes: LinearWorkflowState[] };
 }
 
@@ -124,7 +125,7 @@ export const ListTeams = operation<
   "ListTeams",
   `query ListTeams($after: String) {
   teams(first: 50, after: $after) {
-    nodes { id key name states(first: 100) { nodes { id name type position } } }
+    nodes { id key name private states(first: 100) { nodes { id name type position } } }
     pageInfo { hasNextPage endCursor }
   }
 }`,
@@ -233,6 +234,10 @@ export interface LinearIssueUpdateInput {
   delegateId?: string | null;
   title?: string;
   description?: string;
+  labelIds?: string[];
+  priority?: number;
+  projectId?: string | null;
+  estimate?: number;
 }
 
 /** Move an issue's state, change its delegate, or edit its text. */
@@ -454,6 +459,342 @@ export const IssueRepositorySuggestions = operation<
 }`,
 );
 
+/** A person, as the agent tools show them: their profile URL mentions them. */
+export interface LinearPerson {
+  id: string;
+  name: string;
+  url: string;
+}
+
+/** An issue in full, as `linear_get_issue` shows it. */
+export interface LinearIssueDetail {
+  id: string;
+  identifier: string;
+  title: string;
+  description: string | null;
+  url: string;
+  priority: number;
+  estimate: number | null;
+  team: { id: string; key: string; name: string };
+  state: { id: string; name: string; type: string };
+  project: { id: string; name: string; url: string } | null;
+  parent: { id: string; identifier: string; title: string; url: string } | null;
+  assignee: LinearPerson | null;
+  delegate: LinearPerson | null;
+  creator: LinearPerson | null;
+  labels: { nodes: { id: string; name: string }[] };
+  children: {
+    nodes: {
+      identifier: string;
+      title: string;
+      url: string;
+      state: { name: string; type: string };
+    }[];
+  };
+  relations: {
+    nodes: {
+      type: string;
+      relatedIssue: { identifier: string; title: string; url: string };
+    }[];
+  };
+  inverseRelations: {
+    nodes: {
+      type: string;
+      issue: { identifier: string; title: string; url: string };
+    }[];
+  };
+}
+
+/** An issue with its people, sub-issues, and relations: `linear_get_issue`. */
+export const GetIssueDetail = operation<
+  { issue: LinearIssueDetail },
+  { id: string }
+>(
+  "GetIssueDetail",
+  `query GetIssueDetail($id: String!) {
+  issue(id: $id) {
+    id identifier title description url priority estimate
+    team { id key name }
+    state { id name type }
+    project { id name url }
+    parent { id identifier title url }
+    assignee { id name url }
+    delegate { id name url }
+    creator { id name url }
+    labels(first: 50) { nodes { id name } }
+    children(first: 50) { nodes { identifier title url state { name type } } }
+    relations(first: 50) { nodes { type relatedIssue { identifier title url } } }
+    inverseRelations(first: 50) { nodes { type issue { identifier title url } } }
+  }
+}`,
+);
+
+/** A link in an issue's parent chain. */
+export interface LinearAncestor {
+  id: string;
+  parent?: LinearAncestor | null;
+}
+
+/** What the scope rules read about an issue. */
+export interface LinearIssueScope {
+  id: string;
+  identifier: string;
+  url: string;
+  team: { id: string; key: string; private: boolean };
+  project: { id: string } | null;
+  parent: LinearAncestor | null;
+}
+
+/**
+ * The facts the agent tools' scope rules check an issue against: its team
+ * (and whether it is private), its project, and five levels of parents.
+ */
+export const GetIssueScope = operation<
+  { issue: LinearIssueScope },
+  { id: string }
+>(
+  "GetIssueScope",
+  `query GetIssueScope($id: String!) {
+  issue(id: $id) {
+    id identifier url
+    team { id key private }
+    project { id }
+    parent { id parent { id parent { id parent { id parent { id } } } } }
+  }
+}`,
+);
+
+/** A comment as `linear_list_comments` shows it. */
+export interface LinearCommentNode {
+  id: string;
+  body: string;
+  createdAt: string;
+  url: string;
+  parent: { id: string } | null;
+  user: { id: string; name: string; url: string } | null;
+}
+
+/** One page of an issue's comments. */
+export const ListIssueComments = operation<
+  {
+    issue: {
+      id: string;
+      identifier: string;
+      url: string;
+      comments: { nodes: LinearCommentNode[]; pageInfo: PageInfo };
+    };
+  },
+  { id: string; first: number; after?: string | null }
+>(
+  "ListIssueComments",
+  `query ListIssueComments($id: String!, $first: Int!, $after: String) {
+  issue(id: $id) {
+    id identifier url
+    comments(first: $first, after: $after) {
+      nodes { id body createdAt url parent { id } user { id name url } }
+      pageInfo { hasNextPage endCursor }
+    }
+  }
+}`,
+);
+
+/** An issue in a list of search results. */
+export interface LinearIssueSummary {
+  identifier: string;
+  title: string;
+  url: string;
+  priority: number;
+  team: { key: string };
+  state: { name: string; type: string };
+}
+
+/** Issues matching a filter: `linear_search_issues`. */
+export const SearchIssues = operation<
+  { issues: { nodes: LinearIssueSummary[] } },
+  { filter: Record<string, unknown>; first: number }
+>(
+  "SearchIssues",
+  `query SearchIssues($filter: IssueFilter, $first: Int!) {
+  issues(filter: $filter, first: $first) {
+    nodes { identifier title url priority team { key } state { name type } }
+  }
+}`,
+);
+
+/** The fields `issueCreate` takes from the agent tools. Never an assignee. */
+export interface LinearIssueCreateInput {
+  teamId: string;
+  title: string;
+  description?: string;
+  labelIds?: string[];
+  priority?: number;
+  projectId?: string;
+  parentId?: string;
+  createAsUser?: string;
+  displayIconUrl?: string;
+}
+
+/** Create an issue as the app, optionally attributed to a person. */
+export const CreateIssue = operation<
+  { issueCreate: { success: boolean; issue: LinearIssue } },
+  { input: LinearIssueCreateInput }
+>(
+  "CreateIssue",
+  `mutation CreateIssue($input: IssueCreateInput!) {
+  issueCreate(input: $input) {
+    success
+    issue {
+      ${ISSUE_FIELDS}
+    }
+  }
+}`,
+);
+
+/** Relate two issues. */
+export const CreateIssueRelation = operation<
+  {
+    issueRelationCreate: {
+      success: boolean;
+      issueRelation: { id: string; type: string };
+    };
+  },
+  { input: { issueId: string; relatedIssueId: string; type: string } }
+>(
+  "CreateIssueRelation",
+  `mutation CreateIssueRelation($input: IssueRelationCreateInput!) {
+  issueRelationCreate(input: $input) { success issueRelation { id type } }
+}`,
+);
+
+/** A project in full, as `linear_get_project` shows it. */
+export interface LinearProjectDetail {
+  id: string;
+  name: string;
+  description: string;
+  content: string | null;
+  url: string;
+  status: { id: string; name: string; type: string };
+  lead: LinearPerson | null;
+  teams: { nodes: { id: string; key: string; private: boolean }[] };
+  issues: { nodes: { state: { type: string } }[] };
+}
+
+/** One project, with its teams and its issues' state types. */
+export const GetProjectDetail = operation<
+  { project: LinearProjectDetail },
+  { id: string }
+>(
+  "GetProjectDetail",
+  `query GetProjectDetail($id: String!) {
+  project(id: $id) {
+    id name description content url
+    status { id name type }
+    lead { id name url }
+    teams(first: 50) { nodes { id key private } }
+    issues(first: 250) { nodes { state { type } } }
+  }
+}`,
+);
+
+/** A document's identity, and what it is attached to. */
+export interface LinearDocument {
+  id: string;
+  title: string;
+  url: string;
+  project: { id: string } | null;
+  issue: { id: string } | null;
+}
+
+/** A project's documents. */
+export const ListProjectDocuments = operation<
+  { project: { documents: { nodes: LinearDocument[] } } },
+  { id: string }
+>(
+  "ListProjectDocuments",
+  `query ListProjectDocuments($id: String!) {
+  project(id: $id) {
+    documents(first: 50) { nodes { id title url project { id } issue { id } } }
+  }
+}`,
+);
+
+/** One document. */
+export const GetDocument = operation<
+  { document: LinearDocument },
+  { id: string }
+>(
+  "GetDocument",
+  `query GetDocument($id: String!) {
+  document(id: $id) { id title url project { id } issue { id } }
+}`,
+);
+
+/** The workspace's project statuses. */
+export const ListProjectStatuses = operation<{
+  organization: {
+    projectStatuses: { id: string; name: string; type: string }[];
+  };
+}>(
+  "ListProjectStatuses",
+  `query ListProjectStatuses {
+  organization { projectStatuses { id name type } }
+}`,
+);
+
+/** Write a project's content, summary, or status — never its lead or members. */
+export const UpdateProject = operation<
+  {
+    projectUpdate: {
+      success: boolean;
+      project: { id: string; name: string; url: string };
+    };
+  },
+  {
+    id: string;
+    input: { content?: string; description?: string; statusId?: string };
+  }
+>(
+  "UpdateProject",
+  `mutation UpdateProject($id: String!, $input: ProjectUpdateInput!) {
+  projectUpdate(id: $id, input: $input) { success project { id name url } }
+}`,
+);
+
+/** Create a document on a project or an issue. */
+export const CreateDocument = operation<
+  { documentCreate: { success: boolean; document: LinearDocument } },
+  {
+    input: {
+      title: string;
+      content: string;
+      projectId?: string;
+      issueId?: string;
+    };
+  }
+>(
+  "CreateDocument",
+  `mutation CreateDocument($input: DocumentCreateInput!) {
+  documentCreate(input: $input) {
+    success
+    document { id title url project { id } issue { id } }
+  }
+}`,
+);
+
+/** Replace a document's content (and title). */
+export const UpdateDocument = operation<
+  { documentUpdate: { success: boolean; document: LinearDocument } },
+  { id: string; input: { content?: string; title?: string } }
+>(
+  "UpdateDocument",
+  `mutation UpdateDocument($id: String!, $input: DocumentUpdateInput!) {
+  documentUpdate(id: $id, input: $input) {
+    success
+    document { id title url project { id } issue { id } }
+  }
+}`,
+);
+
 /** Every operation above, for the test that runs each against finear. */
 export const LINEAR_OPERATIONS = [
   GetViewer,
@@ -473,4 +814,17 @@ export const LINEAR_OPERATIONS = [
   CreateAgentSessionOnComment,
   GetAgentSessionActivities,
   IssueRepositorySuggestions,
+  GetIssueDetail,
+  GetIssueScope,
+  ListIssueComments,
+  SearchIssues,
+  CreateIssue,
+  CreateIssueRelation,
+  GetProjectDetail,
+  ListProjectDocuments,
+  GetDocument,
+  ListProjectStatuses,
+  UpdateProject,
+  CreateDocument,
+  UpdateDocument,
 ] as const;

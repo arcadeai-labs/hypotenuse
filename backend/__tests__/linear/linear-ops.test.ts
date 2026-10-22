@@ -6,21 +6,34 @@ import {
   CreateAgentSessionOnComment,
   CreateAgentSessionOnIssue,
   CreateComment,
+  CreateDocument,
+  CreateIssue,
+  CreateIssueRelation,
   GetAgentSessionActivities,
   GetComment,
+  GetDocument,
   GetInstallationIdentity,
   GetIssue,
+  GetIssueDetail,
+  GetIssueScope,
   GetOrganization,
+  GetProjectDetail,
   GetViewer,
   IssueRepositorySuggestions,
   LINEAR_OPERATIONS,
   type LinearOperation,
+  ListIssueComments,
   ListLabels,
+  ListProjectDocuments,
+  ListProjectStatuses,
   ListProjects,
   ListTeams,
   ListWorkflowStates,
+  SearchIssues,
   UpdateAgentSession,
+  UpdateDocument,
   UpdateIssue,
+  UpdateProject,
 } from "../../ops/linear/operations";
 import type { Integration } from "../../schema/integrations";
 import { buildTestUniverse, HOOK_TIMEOUT, type TestUniverse } from "../setup";
@@ -183,6 +196,107 @@ describe("every Linear operation document executes against finear", () => {
       ],
     });
     expect(suggestions.issueRepositorySuggestions.suggestions).toBeArray();
+  });
+
+  test("agent tools: issue detail and scope, comments, search, create, relate", async () => {
+    const detail = await run(GetIssueDetail, { id: issue.identifier });
+    expect(detail.issue.identifier).toBe(issue.identifier);
+    expect(detail.issue.creator?.url).toStartWith("https://");
+    const scope = await run(GetIssueScope, { id: issue.identifier });
+    expect(scope.issue.team.id).toBe(FINEAR_FIXTURES.primary.team);
+    expect(scope.issue.team.private).toBe(false);
+
+    const comments = await run(ListIssueComments, {
+      id: issue.id,
+      first: 25,
+      after: null,
+    });
+    expect(comments.issue.comments.nodes.length).toBeGreaterThan(0);
+
+    const found = await run(SearchIssues, {
+      filter: {
+        and: [
+          {
+            or: [
+              { title: { containsIgnoreCase: "retry webhook" } },
+              { description: { containsIgnoreCase: "retry webhook" } },
+            ],
+          },
+          { team: { id: { eq: FINEAR_FIXTURES.primary.team } } },
+          { state: { type: { neq: "canceled" } } },
+        ],
+      },
+      first: 25,
+    });
+    expect(found.issues.nodes.map((i) => i.identifier)).toContain(
+      issue.identifier,
+    );
+
+    const child = await run(CreateIssue, {
+      input: {
+        teamId: FINEAR_FIXTURES.primary.team,
+        title: "Split the retry key",
+        description: "A part of the parent.",
+        parentId: issue.id,
+        priority: 2,
+        createAsUser: "Peach via Hypotenuse",
+        displayIconUrl: "https://hypotenuse.example/favicon.svg",
+      },
+    });
+    expect(child.issueCreate.issue.parent?.id).toBe(issue.id);
+    const relation = await run(CreateIssueRelation, {
+      input: {
+        issueId: child.issueCreate.issue.id,
+        relatedIssueId: issue.id,
+        type: "related",
+      },
+    });
+    expect(relation.issueRelationCreate.issueRelation.type).toBe("related");
+  });
+
+  test("agent tools: projects, project statuses, and documents", async () => {
+    const statuses = await run(ListProjectStatuses, {});
+    const planned = statuses.organization.projectStatuses[0]!;
+    const made = await linear.graphql<{
+      projectCreate: { project: { id: string } };
+    }>(
+      FINEAR_PRIMARY_KEY,
+      `mutation($input: ProjectCreateInput!) { projectCreate(input: $input) { project { id } } }`,
+      {
+        input: {
+          name: "Webhook hardening",
+          teamIds: [FINEAR_FIXTURES.primary.team],
+          statusId: planned.id,
+        },
+      },
+    );
+    expect(made.errors).toBeUndefined();
+    const projectId = made.data!.projectCreate.project.id;
+
+    const updated = await run(UpdateProject, {
+      id: projectId,
+      input: { content: "# PRD", description: "Harden ingress." },
+    });
+    expect(updated.projectUpdate.success).toBe(true);
+    const detail = await run(GetProjectDetail, { id: projectId });
+    expect(detail.project.content).toBe("# PRD");
+    expect(detail.project.teams.nodes[0]?.id).toBe(
+      FINEAR_FIXTURES.primary.team,
+    );
+
+    // finear has no documents: the harness's stand-in answers once finear
+    // has validated each document against Linear's schema.
+    const doc = await run(CreateDocument, {
+      input: { title: "PRD", content: "# PRD", projectId },
+    });
+    const id = doc.documentCreate.document.id;
+    expect((await run(GetDocument, { id })).document.project?.id).toBe(
+      projectId,
+    );
+    await run(UpdateDocument, { id, input: { content: "# PRD v2" } });
+    expect(linear.documents.get(id)?.content).toBe("# PRD v2");
+    const listed = await run(ListProjectDocuments, { id: projectId });
+    expect(listed.project.documents.nodes.map((d) => d.id)).toEqual([id]);
   });
 
   test("a GraphQL error is a LinearGraphQLError carrying Linear's message", async () => {

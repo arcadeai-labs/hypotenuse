@@ -69,7 +69,8 @@ All shared values live on the **`hypotenuse-shared`** env group, which both back
 and `https://linear.app`, and exist so tests can point the server at finear. The webhook and outbox tuning keys
 in `backend/.env.example` (`LINEAR_WEBHOOK_MAX_BODY_BYTES`, `LINEAR_WEBHOOK_TOLERANCE_MS`,
 `LINEAR_EVENT_RETENTION_DAYS`, `LINEAR_REQUESTS_PER_HOUR`, `LINEAR_BUCKET_BURST`, `LINEAR_BUCKET_RESERVE`,
-`LINEAR_DELIVER_MAX_ATTEMPTS`) are not set either; their defaults are Linear's documented limits.
+`LINEAR_DELIVER_MAX_ATTEMPTS`, and the agent tools' waits on that budget, `LINEAR_TOOL_READ_WAIT_MS` and
+`LINEAR_TOOL_WRITE_WAIT_MS`) are not set either; their defaults are Linear's documented limits.
 `LINEAR_REQUESTS_PER_HOUR` is the one to raise if Linear grants a workspace a higher limit.
 
 ## Rehearse locally

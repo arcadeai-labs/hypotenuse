@@ -71,6 +71,12 @@ async function playing(scenario: string, turnMs = 0): Promise<void> {
     scenario,
   );
   await home.startForeground();
+  // A session delegated before the new daemon's first heartbeat would find
+  // the runner offline, and no routing clock runs here to try again.
+  await until(async () => {
+    const row = await runnerRow(home.runner.id);
+    return row.status === "online" ? row : null;
+  });
 }
 
 /**

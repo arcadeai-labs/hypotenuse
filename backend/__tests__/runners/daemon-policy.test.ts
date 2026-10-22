@@ -24,6 +24,7 @@ import {
   registerRunner,
   sessionCookie,
   type TestRunner,
+  TOOL_EXAMPLES,
 } from "./helpers";
 
 /**
@@ -109,6 +110,8 @@ function daemonBody(name: string): unknown {
     case "daemon:complete":
       return { workItemId: 1, outcome: "completed" };
     default:
+      if (TOOL_EXAMPLES[name])
+        return { ...TOOL_EXAMPLES[name], agentSessionId: 1 };
       return heartbeatBody();
   }
 }

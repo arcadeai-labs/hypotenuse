@@ -31,11 +31,13 @@ if (command && command !== "help" && !known.has(command)) {
   process.exit(1);
 }
 
-// Fire-and-forget; printed after the command's own output. Never under --json.
+// Fire-and-forget; printed after the command's own output. Never under
+// --json, and never for `mcp`, which an agent starts every turn.
 const json = argv.includes("--json") || argv.includes("-j");
-const updateNotice = updater.maybeBackgroundNotice(
-  json ? { isTTY: false } : undefined,
-);
+const updateNotice =
+  command === "mcp"
+    ? Promise.resolve(null)
+    : updater.maybeBackgroundNotice(json ? { isTTY: false } : undefined);
 
 try {
   await program.parseAsync(process.argv);

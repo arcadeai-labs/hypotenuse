@@ -481,6 +481,42 @@ describe("acp host", () => {
     expect(turn.visible().at(-1)?.type).toBe("error");
   }, 20_000);
 
+  test("after linear_ask_user, a timeout or a drain posts nothing that would hide the question", async () => {
+    for (const ending of ["timeout", "drain"] as const) {
+      const turn = new TestTurn(
+        fakeConfig(
+          home(),
+          '[sessions]\nturn_timeout = "1s"\nidle_timeout = "1m"\nkeepalive_interval = "1m"\nstop_grace = "1s"',
+        ),
+        "long",
+      );
+      while (!turn.pids.some((p) => p !== null)) await Bun.sleep(20);
+      await turn.waitFor((e) => e.type === "thought");
+      turn.askingHandler?.(true);
+      const asked = turn.events.length;
+      if (ending === "drain") turn.stop("drain");
+      const result = await turn.result;
+      expect(result.outcome).toBe(ending === "drain" ? "cancelled" : "failed");
+      expect(
+        turn.events.slice(asked).filter((e) => e.type !== "status"),
+      ).toEqual([]);
+    }
+  }, 30_000);
+
+  test("after linear_ask_user, the person's own Stop is still answered", async () => {
+    const turn = new TestTurn(
+      fakeConfig(home(), '[sessions]\nstop_grace = "1s"'),
+      "long",
+    );
+    while (!turn.pids.some((p) => p !== null)) await Bun.sleep(20);
+    await turn.waitFor((e) => e.type === "thought");
+    turn.askingHandler?.(true);
+    turn.stop("stop");
+    const result = await turn.result;
+    expect(result.outcome).toBe("cancelled");
+    expect(turn.visible().at(-1)?.type).toBe("response");
+  }, 30_000);
+
   test("the session log has stderr and a JSON-RPC trace", async () => {
     const stateDir = home();
     const turn = new TestTurn(fakeConfig(stateDir), "crash", { stateDir });

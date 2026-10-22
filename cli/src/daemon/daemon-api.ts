@@ -15,6 +15,7 @@ import {
   HeartbeatResponse,
   PROTOCOL_HEADER,
   PROTOCOL_VERSION,
+  ToolResult,
   type WorkAssignment,
 } from "../../../protocol/src/index";
 import pkg from "../../package.json";
@@ -23,6 +24,12 @@ import { platform } from "../runner/machine";
 
 /** How long any one daemon request may take. */
 export const REQUEST_TIMEOUT_MS = 20_000;
+
+/**
+ * How long an agent tool's call may take: the server waits up to 30 s for a
+ * write's rate-limit token, then Linear up to twice its deadline.
+ */
+export const TOOL_REQUEST_TIMEOUT_MS = 75_000;
 
 /** The runner's calls to the server. */
 export class DaemonApi {
@@ -127,5 +134,23 @@ export class DaemonApi {
       timeoutMs: REQUEST_TIMEOUT_MS,
     });
     return CompleteResponse.parse(answer);
+  }
+
+  /**
+   * An agent tool's `daemon:*` action.
+   * @param route - The tool's route (`/daemon/linear/get-issue`).
+   * @param body - The tool input and `agentSessionId`.
+   * @returns The result's Markdown and data.
+   */
+  async tool(
+    route: string,
+    body: Record<string, unknown>,
+  ): Promise<{ text: string; data: Record<string, unknown> }> {
+    const answer = await this.client.request("POST", route, {
+      body,
+      headers: this.headers,
+      timeoutMs: TOOL_REQUEST_TIMEOUT_MS,
+    });
+    return ToolResult.parse(answer).result;
   }
 }

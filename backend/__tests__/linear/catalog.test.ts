@@ -82,6 +82,7 @@ describe("integration:catalog", () => {
         id: FINEAR_FIXTURES.primary.team,
         key: "ENG",
         name: "Engineering",
+        private: false,
         states: [
           expect.objectContaining({
             id: FINEAR_FIXTURES.primary.backlog,

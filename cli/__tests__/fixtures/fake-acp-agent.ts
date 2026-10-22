@@ -29,7 +29,11 @@
  * in-progress tool call every `everyMs` for that long — a turn that keeps
  * producing ephemeral actions), `{ "shell": "command" }` (run in the
  * session's `cwd` with `sh -c`, reported as an `execute` tool call whose
- * output is the command's), and `{ "stop": "end_turn" }`.
+ * output is the command's), `{ "mcp": { "tool": "linear_get_issue",
+ * "arguments": {} } }` (call a tool on the `hypotenuse` MCP server the
+ * session was given — connected once and kept open for the turn — reported
+ * as a tool call, its text said as a message, and recorded as
+ * `mcp/result`), and `{ "stop": "end_turn" }`.
  *
  * `FAKE_ACP_AUTH_METHODS` (comma-separated ids) overrides `authMethods`.
  * `authRequired: "until-login"` refuses sessions until the file at
@@ -45,6 +49,8 @@ import {
 import { join } from "node:path";
 import { Readable, Writable } from "node:stream";
 import * as acp from "@agentclientprotocol/sdk";
+import { Client as McpClient } from "@modelcontextprotocol/sdk/client/index.js";
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 
 type Step = Record<string, unknown>;
 
@@ -117,6 +123,44 @@ const cwds = new Map<string, string>();
 let turn = 0;
 let sessionCounter = 0;
 const cancelled = new Map<string, AbortController>();
+/** Each session's MCP servers, as `session/new` (or load, resume) gave them. */
+const mcpServers = new Map<string, acp.McpServer[]>();
+/** The connected `hypotenuse` MCP client, per session. */
+const mcpClients = new Map<string, McpClient>();
+
+/**
+ * The session's `hypotenuse` MCP server, connected (once) as an agent would.
+ * @param sessionId - The session.
+ * @returns The client.
+ */
+async function hypotenuseTools(sessionId: string): Promise<McpClient> {
+  const open = mcpClients.get(sessionId);
+  if (open) return open;
+  const server = (mcpServers.get(sessionId) ?? []).find(
+    (s) => s.name === "hypotenuse",
+  ) as
+    | {
+        command: string;
+        args: string[];
+        env: { name: string; value: string }[];
+      }
+    | undefined;
+  if (!server) throw new Error("no hypotenuse MCP server in this session");
+  const client = new McpClient({ name: "fake-agent", version: "1.2.3" });
+  await client.connect(
+    new StdioClientTransport({
+      command: server.command,
+      args: server.args,
+      env: {
+        ...(process.env as Record<string, string>),
+        ...Object.fromEntries(server.env.map((e) => [e.name, e.value])),
+      },
+      stderr: "inherit",
+    }),
+  );
+  mcpClients.set(sessionId, client);
+  return client;
+}
 
 /**
  * Wait, or stop waiting when the turn is cancelled.
@@ -270,6 +314,50 @@ async function play(
           },
         },
       });
+    } else if (step.mcp) {
+      const { tool, arguments: args } = step.mcp as {
+        tool: string;
+        arguments?: Record<string, unknown>;
+      };
+      const toolCallId = `mcp-${crypto.randomUUID()}`;
+      await client.notify(acp.methods.client.session.update, {
+        sessionId,
+        update: {
+          sessionUpdate: "tool_call",
+          toolCallId,
+          title: tool,
+          kind: "other",
+          status: "in_progress",
+          rawInput: args ?? {},
+        },
+      });
+      const tools = await hypotenuseTools(sessionId);
+      const result = await tools.callTool({
+        name: tool,
+        arguments: args ?? {},
+      });
+      const text = (result.content as { type: string; text?: string }[])
+        .map((c) => c.text ?? "")
+        .join("\n");
+      record("mcp/result", { tool, isError: Boolean(result.isError), text });
+      await client.notify(acp.methods.client.session.update, {
+        sessionId,
+        update: {
+          sessionUpdate: "tool_call_update",
+          toolCallId,
+          status: result.isError ? "failed" : "completed",
+          rawOutput: { output: text },
+        },
+      });
+      if (step.say !== false) {
+        await client.notify(acp.methods.client.session.update, {
+          sessionId,
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: `${tool}: ${text}` },
+          },
+        });
+      }
     } else if (step.echoPrompt) {
       await client.notify(acp.methods.client.session.update, {
         sessionId,
@@ -329,12 +417,14 @@ const app = acp
     sessionCounter++;
     const sessionId = `fake-session-${process.pid}-${sessionCounter}`;
     cwds.set(sessionId, params.cwd);
+    mcpServers.set(sessionId, params.mcpServers);
     return { sessionId };
   })
   .onRequest(acp.methods.agent.session.load, async ({ params, client }) => {
     record("session/load", params);
     checkAuth();
     cwds.set(params.sessionId, params.cwd);
+    mcpServers.set(params.sessionId, params.mcpServers);
     for (const update of scenario.replay ?? []) {
       await client.notify(acp.methods.client.session.update, {
         sessionId: params.sessionId,
@@ -347,6 +437,7 @@ const app = acp
     record("session/resume", params);
     checkAuth();
     cwds.set(params.sessionId, params.cwd);
+    mcpServers.set(params.sessionId, params.mcpServers ?? []);
     return {};
   })
   .onRequest(acp.methods.agent.session.setMode, ({ params }) => {
@@ -392,4 +483,5 @@ const connection = app.connect(
   ),
 );
 await connection.closed;
+for (const open of mcpClients.values()) await open.close().catch(() => {});
 process.exit(0);

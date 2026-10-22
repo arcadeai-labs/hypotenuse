@@ -122,7 +122,8 @@ conversation in its prompt.
 
 Each session works in its own [git worktree](/docs/worktrees) of the repository, reused by every follow-up.
 
-> **Where this is today.** The `hypotenuse` tools the agent uses to read and update Linear come next.
+The agent also gets the `hypotenuse` [agent tools](/docs/agent-tools) to read its issue, ask you a question, and
+link its pull request — scoped to its session, with no token in its reach.
 
 ## Logs
 

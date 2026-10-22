@@ -73,9 +73,15 @@ describe("the npm package", () => {
       "url",
       "child_process",
     ]);
+    // A subpath (`@scope/pkg/server/index.js`) belongs to its package.
+    const packageOf = (spec: string) =>
+      spec
+        .split("/")
+        .slice(0, spec.startsWith("@") ? 2 : 1)
+        .join("/");
     const stray = [...imports].filter(
       (spec) =>
-        !allowed.has(spec) &&
+        !allowed.has(packageOf(spec)) &&
         !spec.startsWith("node:") &&
         !spec.startsWith("bun:"),
     );

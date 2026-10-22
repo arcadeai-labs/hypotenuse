@@ -107,6 +107,18 @@ export interface WorkItemUsage {
   contextSize?: number;
 }
 
+/** One write an agent tool made in Linear during the turn. */
+export interface LinearWrite {
+  /** The MCP tool that wrote it (`linear_create_issue`, …). */
+  tool: string;
+  /** What it wrote to, as a person reads it: `ENG-124`, a project or document name. */
+  target: string;
+  /** The Linear id of what was written or created. */
+  linearId: string;
+  /** Epoch ms. */
+  at: number;
+}
+
 /**
  * A `work_item` is one **turn** of an agent session: the session's creation, a
  * follow-up prompt (possibly several merged), a manager's dispatch, or a
@@ -209,6 +221,15 @@ export const workItems = pgTable(
     outcome: jsonb("outcome").$type<WorkItemOutcome | null>(),
     /** What issue hygiene did at claim; null until it ran (first-turn items only). */
     hygiene: jsonb("hygiene").$type<WorkItemHygiene | null>(),
+    /**
+     * Every write the turn's agent tools made in Linear, in order — the
+     * record of those unaudited machine writes, and what the manager's
+     * `managed` scope rule reads to know which issues a session created.
+     */
+    linearWrites: jsonb("linear_writes")
+      .$type<LinearWrite[]>()
+      .notNull()
+      .default([]),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

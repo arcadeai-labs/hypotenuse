@@ -20,6 +20,8 @@ export interface LinearCatalog {
     id: string;
     key: string;
     name: string;
+    /** Whether the team is private (absent in a catalog cached before it was read). */
+    private?: boolean;
     states: { id: string; name: string; type: string; position: number }[];
   }[];
   projects: { id: string; name: string; teamIds: string[] }[];
@@ -94,6 +96,7 @@ async function fetchCatalog(integration: Integration): Promise<LinearCatalog> {
       id: t.id,
       key: t.key,
       name: t.name,
+      private: t.private,
       states: [...t.states.nodes].sort((a, b) => a.position - b.position),
     })),
     projects: projects.map((p) => ({

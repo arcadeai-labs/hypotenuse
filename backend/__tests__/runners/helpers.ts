@@ -263,3 +263,33 @@ export async function eventually(
   }
   return check();
 }
+
+/**
+ * A minimal valid input for every agent tool's action, keyed by action name
+ * (without `agentSessionId`): what a sweep over the registry sends so a
+ * request passes schema validation and reaches the walls behind it.
+ */
+export const TOOL_EXAMPLES: Record<string, Record<string, unknown>> = {
+  "daemon:linear-get-issue": {},
+  "daemon:linear-list-comments": {},
+  "daemon:linear-comment": { body: "A note." },
+  "daemon:linear-set-issue-state": { state: "started" },
+  "daemon:linear-set-plan": { steps: [{ content: "Read", status: "pending" }] },
+  "daemon:linear-ask-user": { question: "Which one?" },
+  "daemon:linear-report-pr": { url: "https://github.com/acme/web/pull/1" },
+  "daemon:linear-search-issues": { query: "flaky" },
+  "daemon:linear-create-issue": { title: "A new issue" },
+  "daemon:linear-update-issue": { issue: "ENG-1", title: "Renamed" },
+  "daemon:linear-create-sub-issue": { parent: "ENG-1", title: "A part" },
+  "daemon:linear-create-relation": {
+    issue: "ENG-1",
+    relatedIssue: "ENG-2",
+    type: "related",
+  },
+  "daemon:linear-get-project": {},
+  "daemon:linear-update-project": { summary: "One line." },
+  "daemon:linear-create-document": { title: "PRD", content: "# PRD" },
+  "daemon:linear-update-document": { document: "doc-1", content: "# PRD" },
+  "daemon:linear-list-labels": {},
+  "daemon:dispatch": { issue: "ENG-1" },
+};
