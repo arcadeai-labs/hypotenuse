@@ -118,3 +118,44 @@ export async function takeLinearToken(
   )) as [number, number];
   return { granted: Number(reply[0]) === 1, waitMs: Number(reply[1]) };
 }
+
+/** The bucket stayed empty for as long as an agent tool may wait. */
+export class LinearBudgetExhaustedError extends Error {
+  /**
+   * @param waitedMs - How long the call waited.
+   */
+  constructor(readonly waitedMs: number) {
+    super("Linear rate limit reached; try again shortly");
+    this.name = "LinearBudgetExhaustedError";
+  }
+}
+
+/**
+ * Spend one token for an agent tool's inline Linear call, waiting for one if
+ * the bucket is empty: a read up to `toolReadWaitMs` (5 s), a write up to
+ * `toolWriteWaitMs` (30 s) — a write is never dropped quietly, only refused
+ * visibly after waiting. Tool calls spend at `normal` priority, so the
+ * reserve stays with acknowledgements and stop answers.
+ * @param integrationId - The integration the call runs as.
+ * @param kind - Whether the tool reads or writes.
+ * @throws {LinearBudgetExhaustedError} When no token came in time.
+ */
+export async function spendForTool(
+  integrationId: number,
+  kind: "read" | "write",
+): Promise<void> {
+  const limit =
+    kind === "read"
+      ? config.linear.toolReadWaitMs
+      : config.linear.toolWriteWaitMs;
+  const started = Date.now();
+  for (;;) {
+    const take = await takeLinearToken(integrationId, "normal");
+    if (take.granted) return;
+    const waited = Date.now() - started;
+    if (waited + take.waitMs > limit) {
+      throw new LinearBudgetExhaustedError(waited);
+    }
+    await Bun.sleep(Math.max(take.waitMs, 10));
+  }
+}

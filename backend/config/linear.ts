@@ -46,6 +46,9 @@ export const LINEAR_SCOPES = [
  *   user, a burst of 60, and the last 10 tokens kept for acknowledgements.
  * - `deliverMaxAttempts` — how many times a retryable failure is retried before
  *   an outbound activity is `failed`.
+ * - `toolReadWaitMs` / `toolWriteWaitMs` — how long an agent tool's Linear call
+ *   waits for that bucket before failing: a read gives up after 5 s, a write
+ *   after 30 s.
  */
 export const configLinear = {
   clientId: await loadFromEnvIfSet("LINEAR_CLIENT_ID", ""),
@@ -78,6 +81,8 @@ export const configLinear = {
   bucketBurst: await loadFromEnvIfSet("LINEAR_BUCKET_BURST", 60),
   bucketReserve: await loadFromEnvIfSet("LINEAR_BUCKET_RESERVE", 10),
   deliverMaxAttempts: await loadFromEnvIfSet("LINEAR_DELIVER_MAX_ATTEMPTS", 10),
+  toolReadWaitMs: await loadFromEnvIfSet("LINEAR_TOOL_READ_WAIT_MS", 5_000),
+  toolWriteWaitMs: await loadFromEnvIfSet("LINEAR_TOOL_WRITE_WAIT_MS", 30_000),
 };
 
 declare module "keryx" {

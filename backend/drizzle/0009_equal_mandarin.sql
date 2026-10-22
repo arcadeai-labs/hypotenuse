@@ -1,0 +1,1 @@
+ALTER TABLE "work_items" ADD COLUMN "linear_writes" jsonb DEFAULT '[]'::jsonb NOT NULL;

@@ -28,6 +28,25 @@ export const DAEMON_ONLY_ACTION_NAMES: ReadonlySet<string> = new Set([
   "daemon:claim",
   "daemon:events",
   "daemon:complete",
+  // The agent tools' actions (`protocol/src/tools.ts`), one per MCP tool.
+  "daemon:linear-get-issue",
+  "daemon:linear-list-comments",
+  "daemon:linear-comment",
+  "daemon:linear-set-issue-state",
+  "daemon:linear-set-plan",
+  "daemon:linear-ask-user",
+  "daemon:linear-report-pr",
+  "daemon:linear-search-issues",
+  "daemon:linear-create-issue",
+  "daemon:linear-update-issue",
+  "daemon:linear-create-sub-issue",
+  "daemon:linear-create-relation",
+  "daemon:linear-get-project",
+  "daemon:linear-update-project",
+  "daemon:linear-create-document",
+  "daemon:linear-update-document",
+  "daemon:linear-list-labels",
+  "daemon:dispatch",
 ]);
 
 /** The prefix every daemon action's route sits under: `/daemon/…`. */

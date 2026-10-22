@@ -1660,6 +1660,7 @@ export function serializeWorkItem(item: WorkItem) {
     usage: item.usage,
     outcome: item.outcome,
     hygiene: item.hygiene,
+    linearWrites: item.linearWrites,
     createdAt: item.createdAt.getTime(),
     claimedAt: ms(item.claimedAt),
     finishedAt: ms(item.finishedAt),
