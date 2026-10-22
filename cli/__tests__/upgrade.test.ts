@@ -64,7 +64,9 @@ describe("hypotenuse upgrade", () => {
     expect(json.from).toBe(pkg.version);
     expect(json.performed).toBe(false);
     expect(typeof json.success).toBe("boolean");
-  });
+    // The CLI asks the registry with a 5 s timeout of its own, after starting
+    // up: bun's default 5 s for the test is not enough when the registry is slow.
+  }, 20_000);
 
   test("already current says so and exits 0", async () => {
     const outcome = await performUpgrade(
