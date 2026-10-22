@@ -12,7 +12,11 @@ import {
   linearRequest,
   rateLimitKey,
 } from "../../ops/LinearOps";
-import { CreateComment, GetViewer } from "../../ops/linear/operations";
+import {
+  CreateComment,
+  GetViewer,
+  LINEAR_OPERATIONS,
+} from "../../ops/linear/operations";
 import type { Integration } from "../../schema/integrations";
 import {
   buildTestUniverse,
@@ -92,6 +96,19 @@ describe("rate limits", () => {
       (await integrationRow(universe.projectId)).rateLimit?.requestsRemaining,
     ).toBe(4999);
     linear.injectHeaders({});
+  });
+
+  test("LC-RATE-02 every connection a document reads is bounded with first:, so a query's complexity stays small", () => {
+    let connections = 0;
+    for (const op of LINEAR_OPERATIONS) {
+      for (const m of op.query.matchAll(
+        /(\w+)(\(([^)]*)\))?\s*\{\s*(nodes|edges)\b/g,
+      )) {
+        connections++;
+        expect(m[3] ?? "", `${op.name}: ${m[1]}`).toContain("first");
+      }
+    }
+    expect(connections).toBeGreaterThan(3);
   });
 
   test("LC-RATE-03 RATELIMITED raises LinearRateLimitedError with the reset time, and is never retried", async () => {

@@ -31,3 +31,25 @@ describe("a dashboard cancel's final activity", () => {
     );
   });
 });
+
+describe("a Linear stop's final activity", () => {
+  test("says where things stand, with no quote when nothing was typed", () => {
+    expect(stopActivity(ctx({ reason: "stop", changedFiles: 2 }))).toEqual({
+      type: "response",
+      body: "Stopped at your request. Changes so far are on branch `hypotenuse/eng-1` in `/work/eng-1` (2 files changed, not committed).",
+    });
+  });
+
+  test("quotes what the person typed with the stop, every line", () => {
+    const activity = stopActivity(
+      ctx({ reason: "stop", note: "wrong file\nuse cart.ts" }),
+    );
+    expect(activity && "body" in activity ? activity.body : "").toEndWith(
+      "(nothing uncommitted).\n\n> You said: wrong file\n> use cart.ts",
+    );
+  });
+
+  test("an unassignment, like every disengagement, says nothing", () => {
+    expect(stopActivity(ctx({ reason: "unassigned" }))).toBeNull();
+  });
+});

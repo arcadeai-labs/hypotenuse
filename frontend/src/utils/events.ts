@@ -12,6 +12,10 @@ export const EVENT_OUTCOMES = [
   "handled",
   "ignored",
   "duplicate_of_dispatch",
+  "noted",
+  "mention_without_session",
+  "assigned_not_delegated",
+  "disengaged",
   "failed",
   "pending",
 ] as const satisfies readonly ListedEvent["outcome"][];
@@ -24,6 +28,10 @@ export const OUTCOME_LABELS: Record<ListedEvent["outcome"], string> = {
   ignored: "Ignored",
   unknown_integration: "No connected project",
   failed: "Failed",
+  noted: "Noted",
+  mention_without_session: "Mention without a session",
+  assigned_not_delegated: "Assigned, not delegated",
+  disengaged: "Disengaged",
 };
 
 /** The event types Linear sends that the log offers as a filter. */
@@ -71,6 +79,8 @@ export function outcomeGlyph(
   switch (outcome) {
     case "handled":
     case "duplicate_of_dispatch":
+    case "noted":
+    case "disengaged":
       return "complete";
     case "failed":
       return "error";

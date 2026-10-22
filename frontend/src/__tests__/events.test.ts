@@ -78,8 +78,14 @@ describe("outcomes", () => {
         "ignored",
         "pending",
         "unknown_integration",
+        "noted",
+        "mention_without_session",
+        "assigned_not_delegated",
+        "disengaged",
       ].sort(),
     );
+    expect(outcomeGlyph("disengaged")).toBe("complete");
+    expect(outcomeGlyph("mention_without_session")).toBe("stale");
     expect(outcomeGlyph("handled")).toBe("complete");
     expect(outcomeGlyph("failed")).toBe("error");
     expect(outcomeGlyph("ignored")).toBe("stale");

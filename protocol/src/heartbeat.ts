@@ -76,6 +76,7 @@ export const CANCEL_REASONS = [
   "dashboard",
   "delegate_removed",
   "issue_closed",
+  "unassigned",
   "integration_revoked",
   "superseded",
 ] as const;
@@ -93,8 +94,36 @@ export const Cancel = z.looseObject({
    * activity. Absent from older servers.
    */
   by: z.string().min(1).max(200).optional(),
+  /**
+   * What the person typed along with a Linear stop (`reason: "stop"`). It is
+   * quoted in the final response ({@link stopQuote}) and never acted on —
+   * acting on it would re-engage on the stop itself. Absent from older
+   * servers, and when the stop had no text.
+   */
+  said: z.string().min(1).max(2000).optional(),
 });
 export type Cancel = z.infer<typeof Cancel>;
+
+/** The most of a stop's text that is quoted back. */
+export const STOP_QUOTE_MAX = 500;
+
+/**
+ * The quote a stopped turn's final answer ends with, when the person typed
+ * something along with the stop: a Markdown blockquote, one `>` per line,
+ * cut at {@link STOP_QUOTE_MAX} characters. Shared so the daemon's answer and
+ * the server's (a turn stopped before any runner took it) read the same. A
+ * bare "Stop" is not quoted.
+ * @param said - What they typed, or null.
+ * @returns `\n\n> You said: …`, or an empty string.
+ */
+export function stopQuote(said: string | null | undefined): string {
+  const text = said?.trim();
+  // A bare "Stop" is the button's own word, not something the person said.
+  if (!text || /^stop[.!]*$/i.test(text)) return "";
+  const cut =
+    text.length > STOP_QUOTE_MAX ? `${text.slice(0, STOP_QUOTE_MAX)}…` : text;
+  return `\n\n> You said: ${cut.split("\n").join("\n> ")}`;
+}
 
 /**
  * A person's reply to a question a held turn is waiting on (an `elicitation`

@@ -2,7 +2,12 @@ import { createHash } from "node:crypto";
 import { type Action, api, type Connection, config, HTTP_METHOD } from "keryx";
 import { z } from "zod";
 import { liveIntegrationForWorkspace } from "../../ops/IntegrationOps";
-import { checkTimestamp, verifySignature } from "../../ops/LinearWebhookOps";
+import {
+  checkTimestamp,
+  ipAllowed,
+  verifySignature,
+  webhookSender,
+} from "../../ops/LinearWebhookOps";
 import { rawRequestOf, readCappedBody } from "../../ops/RawRequestOps";
 import {
   publishEventsChanged,
@@ -35,6 +40,8 @@ function reply(status: number, body: string): Response {
  *
  * The order of the checks is the security argument, and each is tested:
  *
+ * 0. **Sender**, only when `LINEAR_WEBHOOK_IP_ALLOWLIST` is set: a delivery
+ *    from elsewhere answers the same 401 as a bad signature, unread.
  * 1. **Cap** the body before reading it: over `LINEAR_WEBHOOK_MAX_BODY_BYTES`
  *    answers 413 without buffering the rest.
  * 2. **Signature** — `Linear-Signature`, a hex HMAC-SHA256 of the raw bytes,
@@ -86,6 +93,22 @@ export class WebhooksLinear implements Action {
     const request = rawRequestOf(connection);
     const headerDelivery = request.headers.get("linear-delivery");
     const deliveryLog = { deliveryId: headerDelivery?.slice(0, 100) ?? null };
+
+    const allowlist = String(config.linear.webhookIpAllowlist ?? "");
+    if (allowlist.trim()) {
+      const sender = webhookSender(
+        connection.identifier,
+        request.headers.get("x-forwarded-for"),
+      );
+      if (!ipAllowed(sender, allowlist)) {
+        api.logger.warn("refused a Linear webhook", {
+          ...deliveryLog,
+          reason: "sender not on the allowlist",
+          sender: sender.slice(0, 64),
+        });
+        return reply(401, UNVERIFIED);
+      }
+    }
 
     const body = await readCappedBody(
       request,

@@ -166,7 +166,7 @@ nothing to stop is refused. Any member can do it.
 
 `hypotenuse event list` is the project's event log: every webhook its Linear workspace sent in the last 14 days,
 newest first — the event, the issue, its outcome (`handled`, `ignored`, `duplicate_of_dispatch`, `failed`,
-`pending`), how the session was **routed as** (`worker (default)`, `manager (rule /manage)`, `worker
+`pending`, and for inbox notifications `noted`, `mention_without_session`, `assigned_not_delegated`, `disengaged`), how the session was **routed as** (`worker (default)`, `manager (rule /manage)`, `worker
 (dispatched)`), where its **turn** is now (`queued: no_capacity`, `running on dev-laptop`, `cancelled: stop`), and a
 one-line summary of what Hypotenuse did. `--type Issue`, `--outcome failed`, `--session <id>`, and `--since 12h`
 narrow it; `--hide-ignored` leaves out the issue changes Hypotenuse does not act on.

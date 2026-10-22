@@ -153,7 +153,7 @@ export function registerEventCommands(program: Command): void {
       )
       .option(
         "--outcome <outcome>",
-        "only this outcome: handled, ignored, duplicate_of_dispatch, failed, pending",
+        "only this outcome: handled, ignored, duplicate_of_dispatch, noted, mention_without_session, assigned_not_delegated, disengaged, failed, pending",
       )
       .option("--hide-ignored", "leave out events Hypotenuse did not act on")
       .option("--session <id>", "only events about this agent session")

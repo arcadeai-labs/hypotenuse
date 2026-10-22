@@ -104,6 +104,19 @@ export function assignment(
   };
 }
 
+/** The disclosure block a final response ends with (`responseSignature`). */
+export const SIGNATURE = /\n\n\+\+\+ — Hypotenuse \([^)]*\)\n[^\n]*\n\+\+\+$/;
+
+/**
+ * A response's body without its disclosure block, so a test can compare what
+ * the agent said; `host.test.ts` asserts the block itself.
+ * @param body - The body.
+ * @returns It, unsigned.
+ */
+export function unsigned(body: string): string {
+  return body.replace(SIGNATURE, "");
+}
+
 /** One turn under test. */
 export class TestTurn {
   readonly events: EventInput[] = [];
@@ -219,6 +232,10 @@ export class TestTurn {
 
   /** The events without status events, for exact comparisons. */
   visible(): EventInput[] {
-    return this.events.filter((e) => e.type !== "status");
+    return this.events
+      .filter((e) => e.type !== "status")
+      .map((e) =>
+        e.type === "response" ? { ...e, body: unsigned(e.body) } : e,
+      );
   }
 }

@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { eq } from "drizzle-orm";
 import { api, config } from "keryx";
-import { webhookClock } from "../../ops/LinearWebhookOps";
+import { ipAllowed, webhookClock } from "../../ops/LinearWebhookOps";
 import { triggerEvents } from "../../schema/trigger_events";
 import {
   buildTestUniverse,
@@ -124,6 +124,58 @@ describe("webhook robustness", () => {
         )
       ).status,
     ).toBe(401);
+  });
+
+  test("LC-WH-07 an IP allowlist refuses other senders with the unverified 401, and reads a trusted proxy's last hop", async () => {
+    const saved = {
+      list: config.linear.webhookIpAllowlist,
+      trust: config.linear.webhookTrustForwarded,
+    };
+    const fresh = () =>
+      agentSessionEvent(target, {
+        action: "archived",
+        agentSession: webhookSession(),
+      });
+    try {
+      const unverified = await deliver(url, fresh(), {
+        signature: "f".repeat(64),
+      });
+      config.linear.webhookIpAllowlist = "203.0.113.0/24";
+      const refused = await deliver(url, fresh());
+      expect(refused.status).toBe(401);
+      expect(refused.text).toBe(unverified.text);
+      // A forged header is not believed unless a proxy is trusted.
+      const forged = await deliver(url, fresh(), {
+        headers: { "X-Forwarded-For": "203.0.113.9" },
+      });
+      expect(forged.status).toBe(401);
+      config.linear.webhookTrustForwarded = true;
+      const proxied = await deliver(url, fresh(), {
+        headers: { "X-Forwarded-For": "198.51.100.1, 203.0.113.9" },
+      });
+      expect(proxied.status).toBe(200);
+      const spoofedFirstHop = await deliver(url, fresh(), {
+        headers: { "X-Forwarded-For": "203.0.113.9, 198.51.100.1" },
+      });
+      expect(spoofedFirstHop.status).toBe(401);
+      config.linear.webhookTrustForwarded = false;
+      config.linear.webhookIpAllowlist = "127.0.0.1, ::1";
+      expect((await deliver(url, fresh())).status).toBe(200);
+    } finally {
+      config.linear.webhookIpAllowlist = saved.list;
+      config.linear.webhookTrustForwarded = saved.trust;
+    }
+  });
+
+  test("LC-WH-07 ipAllowed matches addresses and IPv4 CIDRs; an empty list allows all", () => {
+    expect(ipAllowed("1.2.3.4", "")).toBe(true);
+    expect(ipAllowed("10.1.2.3", "10.0.0.0/8")).toBe(true);
+    expect(ipAllowed("11.1.2.3", "10.0.0.0/8")).toBe(false);
+    expect(ipAllowed("::ffff:10.1.2.3", "10.0.0.0/8")).toBe(true);
+    expect(ipAllowed("2001:db8::1", "2001:db8::1")).toBe(true);
+    expect(ipAllowed("2001:db8::2", "2001:db8::1, 10.0.0.0/8")).toBe(false);
+    expect(ipAllowed("1.2.3.4", "0.0.0.0/0")).toBe(true);
+    expect(ipAllowed("1.2.3.4", "1.2.3.0/33")).toBe(false);
   });
 
   test("LC-WH-14 an AgentSessionEvent action Linear adds later is recorded, ignored, and answered 200", async () => {

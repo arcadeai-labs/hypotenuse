@@ -12,7 +12,7 @@ import {
 } from "../routing/helpers";
 import { runnerRow } from "../runners/helpers";
 import { buildTestUniverse, HOOK_TIMEOUT, type TestUniverse } from "../setup";
-import { DaemonHome, outbound, until } from "./helpers";
+import { DaemonHome, outbound, signed, until } from "./helpers";
 
 /**
  * The whole loop with the real daemon: `hypotenuse daemon start
@@ -92,7 +92,7 @@ describe("daemon loop", () => {
     ]);
     expect(bodies.at(-1)).toEqual([
       "response",
-      "Fixed the rounding in `src/a.ts`.",
+      signed("Fixed the rounding in `src/a.ts`.", "mario-laptop"),
     ]);
     await settle();
   }, 30_000);

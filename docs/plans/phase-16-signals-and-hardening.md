@@ -376,18 +376,80 @@ Manually, against finear and the fake agent scripted for a long turn:
 
 ## Definition of done
 
-- [ ] `stop`: supersession, cancel, grace + kill, final status response, server deadline, `stopping` rule
-- [ ] `auth`: three detection sources, dashboard auth page, resume with a thought, idle timeout
-- [ ] `select`: four sources, GitHub URL values, `matchSelectReply`, free-text handling, survives reassignment
-- [ ] `continue` handled as a plain prompt and documented
-- [ ] Every `AppUserNotification` action has a decided outcome; disengagement from either subscription
-- [ ] One `disengage` funnel; no server-originated re-engagement
-- [ ] Daemon and server keepalives; none in `awaitingInput`
-- [ ] Rate bucket from headers, priorities, backoff, proxy 429
-- [ ] Webhook robustness table fully tested
-- [ ] Locked token refresh with the replay-grace path tested
-- [ ] Security and AIG checklists each mapped to passing tests and to `LINEAR_COVERAGE.md` rows
+- [x] `stop`: supersession, cancel, grace + kill, final status response, server deadline, `stopping` rule
+- [x] `auth`: three detection sources, dashboard auth page, resume with a thought, idle timeout
+- [x] `select`: four sources, GitHub URL values, `matchSelectReply`, free-text handling, survives reassignment
+- [x] `continue` handled as a plain prompt and documented
+- [x] Every `AppUserNotification` action has a decided outcome; disengagement from either subscription
+- [x] One `disengage` funnel; no server-originated re-engagement
+- [x] Daemon and server keepalives; none in `awaitingInput`
+- [x] Rate bucket from headers, priorities, backoff, proxy 429
+- [x] Webhook robustness table fully tested
+- [x] Locked token refresh with the replay-grace path tested
+- [x] Security and AIG checklists each mapped to passing tests and to `LINEAR_COVERAGE.md` rows
 
 ## Learnings from the build
 
-_Nothing yet — this phase has not been built._
+**Built.** The Definition of done, at CLI 0.13.0, with the departures below. Much of the plan was already in place
+when the phase started — the stop path end to end with its server deadline and `stopping` rule, permission and
+form `select`s, repository choice, both keepalives, the token bucket with priorities and `RATELIMITED` backoff, the
+locked token refresh, and the webhook robustness table — built by the phases that needed them. This phase closed
+the gaps between them and made each guideline a test. The manual walk-through under Verification has not been run
+by hand; `backend/__tests__/daemon/acp.test.ts` drives the auth path against the real daemon and finear.
+
+### Where the pieces live
+
+- **Server:** `ops/LinearNotificationOps.ts` (the notification table, `checkNotification`) and the
+  `triggers:check-notifications` clock; `ops/AuthSignalOps.ts` (`resolveAuthMetadata`, `isPublicUrl`,
+  `runnerAuthUrl`), called from `recordEvent` in `ops/WorkItemOps.ts`; `supersedeNonFinal` in
+  `ops/ActivityOutboxOps.ts`, called by `cancelSessionWork`; `ipAllowed` / `webhookSender` in
+  `ops/LinearWebhookOps.ts`. Migration `0013` (`trigger_events.check_after`, `work_items.cancel_note`). Each notification outcome
+  carries an event-log `summary`, and a settled check pings `project:<id>:events`.
+- **Protocol:** `Cancel.said`, the `unassigned` cancel reason, `stopQuote`, and `AuthMetadata.provider` (with `url`
+  now optional) — all additive; no version bump.
+- **Daemon:** `cli/src/acp/preflight.ts` (git remote and GitHub CLI checks); `AuthRequired` and
+  `resumesAfterAuth` in `cli/src/acp/host.ts`; `responseSignature` in `cli/src/acp/mapping.ts`; the worker template
+  says it is an AI agent.
+- **Frontend:** `pages/RunnerAuthPage.tsx` with `utils/runnerAuth.ts`; delivery outcome hints
+  (`utils/deliveryOutcomes.ts`) on the Linear card.
+- **Tests:** `backend/__tests__/linear/{signals,notifications,aig}.test.ts`, `backend/__tests__/security/`,
+  `backend/__tests__/ops/auth-signal.test.ts`, and additions to the disengagement, robustness, rate-limit, and
+  daemon suites; `cli/__tests__/acp/preflight.test.ts`; frontend `markdown-safety`, `runner-auth`,
+  `delivery-outcomes`, and an e2e spec for the auth page.
+
+### Where the build departs from the plan
+
+| Plan | Built | Why |
+|---|---|---|
+| `agent_sessions.pendingElicitation` (jsonb) and `ElicitationOps.matchSelectReply` on the server | **not built**: a question waits on its held work item (`awaitingAnswerSince`, `answers`), and the daemon matches replies (`matchReply` in `cli/src/acp/permissions.ts`); the repository choice keeps `pendingRepositoryChoice` | the ACP host built it that way, it survives a daemon restart (the answers are on the item) and a reassignment (unconsumed answers become the next prompt), and the agent's own question is only meaningful to the agent that asked it |
+| `agent_sessions.disengagedAt`, and a `disengage` funnel in `DisengageOps` | **`DISENGAGED_CANCEL_REASONS` plus `delegateRemovedAt`**, through the one existing funnel, `cancelSessionWork` | the cancel reason already says which disengagement it was and is what `finishWorkItem`, `applyEvents`, and the review loop read; a second marker would be one more thing to keep in step |
+| Disengagement is announced ("Unassigned — stopping.", "<name> marked this issue Done — stopping.") | **quiet**, like every other disengagement | a person who stepped away is not spoken to (the rule the earlier phases settled); the dashboard and the delivery outcome record it |
+| `issueStatusChanged` decides from the notification | **the clock reads the issue's state from Linear** (`checkAfter = now`) | the notification carries the issue, not its state, and processing never calls Linear inside its transaction |
+| A delayed `triggers:process-event` re-run checks a mention | **a `checkAfter` column and a 10-second clock** | a column is what tests move instead of waiting, and a lost delayed job would lose the check |
+| `auth`: the work item stays `running`, holding its slot, until a reply or `idle_timeout` | **a login is a question that ends the turn**: the turn completes on the `auth` elicitation, the reply is the next turn, and it opens with *"Signed in — continuing."* | for a failed `session/new` there is no agent to keep, and holding a slot for a login that may take a day starves the runner; an ACP `mode: "url"` elicitation still waits mid-turn as before |
+| `url` built by the daemon | **the daemon names a `provider`; the server builds the link** (and sets `userId`) | only the server knows the dashboard's address and the Linear identities, and it must not trust a daemon to choose who sees a link |
+| `assertPublicUrl` | **`isPublicUrl`**, a syntactic check (https, no credentials, no local names, no private, loopback, link-local, or CGNAT literals) | nothing fetches the URL — it is shown to a person — so there is no DNS to rebind |
+| Signature "— Hypotenuse (<role>, <agent>)" | `+++ — Hypotenuse (<role>, <agent>)` folding *"An AI coding agent: `<id>` <version> on runner `<name>`, delegated through Hypotenuse."*, on the agent's end-of-turn response only | stops and errors are Hypotenuse's own words; the signed answer is what gets copied out of Linear |
+| Server keepalive persisted on state changes, at most every 20 minutes | unchanged from earlier phases: an ephemeral thought after 25 quiet minutes | it already keeps a waiting session out of `stale` and never buries a question |
+| A test of every query's complexity against finear's estimator | **every connection in every document carries `first:`** (`LC-RATE-02`) | finear has no estimator; an unbounded connection is what would make complexity large |
+| Rows "Every outbound fetch of a person-supplied URL goes through `assertPublicUrl`" | no server code fetches a person-supplied URL; the auth link check stands in | — |
+
+### Decisions the plan left open
+
+| Question | Decision |
+|---|---|
+| A bare "Stop" typed with the stop | not quoted — it is the button's own word |
+| What a stop withdraws | every pending outbound **activity** that is not a `response` or `error` — including an unsent elicitation — but not session updates (a plan, a pull request link), which are state; a lost integration (team access removed, an uninstall) fails the outbox instead, so its rows say why |
+| A mention's "session followed" | a session on the issue created, or prompted, within a minute before the notification arrived |
+| A status check whose Linear read fails | retried a minute later, given up (`ignored`) after an hour |
+| The IP allowlist's refusal | the unverified 401, byte for byte, before the body is read |
+| Which address the allowlist reads behind a proxy | the **last** `X-Forwarded-For` entry, only with `LINEAR_WEBHOOK_TRUST_FORWARDED` — the one the deployment's own proxy appended |
+| GitHub CLI check for managers | skipped: a manager opens no pull requests |
+
+### Things that bit
+
+- **Two suites on one test database fail each other in ways that look like regressions.** Running the daemon suite
+  in the background while another file ran turned eight daemon tests red; alone they passed. The parallel-forks
+  rule in `AGENTS.md` applies to a single person's terminal too.
+- **A migration regenerated after one was applied leaves the test database ahead of the journal.** Folding two new
+  migrations into one meant dropping and recreating `hypotenuse_test`.

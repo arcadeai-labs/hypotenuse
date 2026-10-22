@@ -2,8 +2,15 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { SIGNED_IN_BODY } from "../../src/acp/host";
 import { sessionLogPath } from "../../src/acp/lifecycle";
-import { assignment, fakeConfig, TestTurn } from "./harness";
+import {
+  assignment,
+  fakeConfig,
+  SIGNATURE,
+  TestTurn,
+  unsigned,
+} from "./harness";
 
 /**
  * The real agent host against the fake ACP agent, one test per scenario:
@@ -248,6 +255,7 @@ describe("acp host", () => {
       signal: "auth",
       signalMetadata: {
         url: "https://example.com/login",
+        provider: "fake",
         providerName: "Fake Agent",
       },
     });
@@ -362,16 +370,63 @@ describe("acp host", () => {
     ]);
   }, 20_000);
 
-  test("auth-required with only a terminal method: the login command, and unavailable", async () => {
+  test("LC-SIG-02 auth-required with only a terminal method: an auth elicitation naming the agent, and unavailable", async () => {
     const turn = new TestTurn(fakeConfig(home()), "auth-terminal");
-    expect((await turn.result).outcome).toBe("failed");
+    expect((await turn.result).outcome).toBe("completed");
     expect(turn.visible().at(-1)).toEqual({
-      type: "error",
-      body: "fake on runner test-runner is not logged in. On that machine, run: `hypotenuse agents login fake`",
+      type: "elicitation",
+      body: "Fake Agent on runner test-runner is not logged in. Its owner can sign in on that machine with `hypotenuse agents login fake` — the link has the steps. Reply here once it's done and I'll carry on.",
+      signal: "auth",
+      signalMetadata: { provider: "fake", providerName: "Fake Agent" },
     });
     expect(turn.availability).toEqual([
       { available: false, error: "not logged in" },
     ]);
+  }, 20_000);
+
+  test("LC-AIG-01 the final response discloses the agent: role, agent, version, and runner, collapsed", async () => {
+    const turn = new TestTurn(fakeConfig(home()), "happy");
+    await turn.result;
+    const response = turn.events.filter((e) => e.type === "response").at(-1);
+    const body = response && "body" in response ? response.body : "";
+    expect(body).toMatch(SIGNATURE);
+    expect(body).toContain("+++ — Hypotenuse (worker, Fake Agent)\n");
+    expect(body).toContain("on runner `test-runner`");
+    expect(unsigned(body).length).toBeGreaterThan(0);
+  }, 20_000);
+
+  test("LC-SIG-02 a turn after an auth elicitation resumes with a thought", async () => {
+    const followUp = assignment({
+      kind: "prompt",
+      prompt: [{ activityId: 9, body: "done" }],
+      history: [
+        {
+          seq: 1,
+          activityId: 1,
+          direction: "outbound",
+          type: "elicitation",
+          body: "Sign in",
+          signal: "auth",
+        },
+        {
+          seq: 2,
+          activityId: 9,
+          direction: "inbound",
+          type: "prompt",
+          body: "done",
+          signal: null,
+        },
+      ],
+    });
+    const turn = new TestTurn(fakeConfig(home()), "happy", {
+      assignment: followUp,
+    });
+    expect((await turn.result).outcome).toBe("completed");
+    expect(turn.visible()).toContainEqual({
+      type: "thought",
+      body: SIGNED_IN_BODY,
+      ephemeral: false,
+    });
   }, 20_000);
 
   test("loadable: a follow-up loads the session, discards the replay, and sends only the request", async () => {

@@ -20,6 +20,7 @@ import {
   type WebhookAgentActivity,
 } from "./AgentSessionOps";
 import { adoptDispatchedSession } from "./DispatchOps";
+import { handleAppUserNotification } from "./LinearNotificationOps";
 import { getAdminUserIds } from "./MembershipOps";
 import { enqueueNotification } from "./NotificationOps";
 import type { TxHandle } from "./ProjectOps";
@@ -85,6 +86,71 @@ export function verifySignature(
     if (timingSafeEqual(presented, expected)) matched = true;
   }
   return matched;
+}
+
+/**
+ * An IPv4 address as a 32-bit number, or null.
+ * @param ip - Dotted quad.
+ * @returns The number.
+ */
+function v4(ip: string): number | null {
+  const parts = ip.split(".");
+  if (parts.length !== 4) return null;
+  let n = 0;
+  for (const part of parts) {
+    if (!/^\d{1,3}$/.test(part) || Number(part) > 255) return null;
+    n = n * 256 + Number(part);
+  }
+  return n;
+}
+
+/**
+ * Whether an address is on the webhook allowlist: an IPv4 address matches an
+ * entry that is the same address or a CIDR containing it (an IPv4-mapped IPv6
+ * address counts as its IPv4 form); an IPv6 address matches the same address.
+ * An empty list allows everything — the check is off.
+ * @param ip - The sender.
+ * @param allowlist - Comma-separated entries.
+ * @returns True when allowed.
+ */
+export function ipAllowed(ip: string, allowlist: string): boolean {
+  const entries = allowlist
+    .split(",")
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean);
+  if (entries.length === 0) return true;
+  const host = ip
+    .trim()
+    .toLowerCase()
+    .replace(/^::ffff:(?=\d+\.)/, "");
+  const address = v4(host);
+  return entries.some((entry) => {
+    const [base, bits] = entry.split("/");
+    if (address === null || v4(base) === null) return entry === host;
+    const prefix = bits === undefined ? 32 : Number(bits);
+    if (!Number.isInteger(prefix) || prefix < 0 || prefix > 32) return false;
+    const mask = prefix === 0 ? 0 : (0xffffffff << (32 - prefix)) >>> 0;
+    return (address & mask) >>> 0 === ((v4(base) as number) & mask) >>> 0;
+  });
+}
+
+/**
+ * Who sent a request, for the allowlist: the socket's peer, or with
+ * `trustForwarded` the last `X-Forwarded-For` entry — the one the
+ * deployment's own proxy appended, which a sender cannot forge.
+ * @param socketIp - The connection's peer address.
+ * @param forwardedFor - The `X-Forwarded-For` header.
+ * @param trustForwarded - Whether a proxy in front of us sets it.
+ * @returns The address.
+ */
+export function webhookSender(
+  socketIp: string,
+  forwardedFor: string | null,
+  trustForwarded = Boolean(config.linear.webhookTrustForwarded),
+): string {
+  if (!trustForwarded || !forwardedFor) return socketIp;
+  const last = forwardedFor.split(",").at(-1)?.trim();
+  return last || socketIp;
 }
 
 /**
@@ -158,13 +224,7 @@ export async function handleLinearEvent(
     case "Issue":
       return handleIssueEvent(tx, integration, payload);
     case "AppUserNotification":
-      // Recorded for the dashboard. Sessions, not notifications, start work.
-      return {
-        outcome: "handled",
-        deliver: [],
-        summary:
-          "Recorded a notification; sessions, not notifications, start work.",
-      };
+      return handleAppUserNotification(tx, event, integration);
     default:
       return ignored(event);
   }
@@ -243,7 +303,8 @@ async function hasOutbound(
  * | `created`, a session a dispatch already recorded | nothing more (`duplicate_of_dispatch`) |
  * | `created`, a session a dispatch is starting (its intent is in Redis) | the dispatch's worker session and turn instead of the acknowledgement (`completeDispatch`) |
  * | `created`, another session on an issue whose dispatch already has one | nothing (`duplicate_of_dispatch`) |
- * | `prompted`, `stop` signal | record the prompt; cancel the session's work (see `cancelSessionWork`) |
+ * | `prompted`, `stop` signal | record the prompt; cancel the session's work (see `cancelSessionWork`), quoting any text typed with it |
+ * | `prompted`, `continue` signal | a plain follow-up, as below; an empty body reads "continue" |
  * | `prompted`, a repository question pending | record the prompt; take it as the answer |
  * | `prompted`, otherwise | record the prompt; merge it into a queued follow-up or queue a new turn, sticky to the session's runner |
  * | anything else | `ignored` |
@@ -377,6 +438,7 @@ export async function handleAgentSessionEvent(
     const effects = await cancelSessionWork(tx, session.id, {
       reason: "stop",
       announce: true,
+      said: body,
     });
     return {
       outcome: "handled",
@@ -386,7 +448,14 @@ export async function handleAgentSessionEvent(
       ...about,
     };
   }
-  const work = await followUp(tx, session.id, recorded.row.id, body);
+  // `continue` is in Linear's schema and not its docs: it is read as a plain
+  // prompt (its body, or the word), never as a resume of a stopped session.
+  const work = await followUp(
+    tx,
+    session.id,
+    recorded.row.id,
+    signal === "continue" && !body.trim() ? "continue" : body,
+  );
   return {
     outcome: "handled",
     deliver: [...work.effects.deliver],
@@ -649,7 +718,7 @@ export async function handleOAuthAppRevoked(
  * @param where - The integration, and optionally the issue.
  * @returns Session ids.
  */
-async function sessionsWithLiveWork(
+export async function sessionsWithLiveWork(
   tx: TxHandle,
   where: { integrationId: number; externalIssueId?: string },
 ): Promise<number[]> {
@@ -670,7 +739,7 @@ async function sessionsWithLiveWork(
 }
 
 /** The state types that end an issue: the person is done with it. */
-const CLOSED_STATE_TYPES = new Set(["completed", "canceled"]);
+export const CLOSED_STATE_TYPES = new Set(["completed", "canceled"]);
 
 /**
  * `Issue` data events. Two disengage the agent, and are handled the same way

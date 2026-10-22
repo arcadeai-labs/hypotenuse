@@ -150,11 +150,14 @@ function formFields(request: CreateElicitationRequest): FormField[] {
  * - `url`: an elicitation with the `auth` signal; the next reply accepts.
  * @param request - The request.
  * @param agentTitle - The agent's name, for an `auth` link.
+ * @param provider - The agent as a runner auth page's provider: where the
+ *   server links instead when the URL is not a public `https` one.
  * @returns The question.
  */
 export function elicitationQuestion(
   request: CreateElicitationRequest,
   agentTitle: string,
+  provider = "agent",
 ): Question<CreateElicitationResponse> {
   const message = truncate(
     request.message.trim() || "The agent has a question.",
@@ -176,7 +179,11 @@ export function elicitationQuestion(
             type: "elicitation",
             body: message,
             signal: "auth",
-            signalMetadata: { url, providerName: truncate(agentTitle, 255) },
+            signalMetadata: {
+              url,
+              provider,
+              providerName: truncate(agentTitle, 255),
+            },
           }
         : { type: "elicitation", body: `${message}\n\n${url}` },
       interpret: () => ({ answer: { action: "accept" }, consumed: true }),
