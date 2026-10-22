@@ -379,7 +379,8 @@ Lessons from building it, kept here so the next session starts with them.
   action answers the fixed 403 itself (`notPermittedResponse`).
 - **Nothing may follow a question in a Linear session.** Linear derives the session's state from its last activity,
   so a thought or an action after an `elicitation` takes it out of `awaitingInput`. A turn that asked with
-  `linear_ask_user` emits no further activity at all.
+  `linear_ask_user` emits no further activity — not even a timeout's or a drain's stop message; only the
+  person's own Stop is answered.
 - **Keryx reports a schema failure by the param's first path segment.** When a caller must know which element of
   an array was refused (`daemon:events`), validate the elements in the action.
 - **Signatures and footers** follow the repository owner's global rules for commits and PR text.

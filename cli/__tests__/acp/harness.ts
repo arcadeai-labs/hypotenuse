@@ -110,6 +110,7 @@ export class TestTurn {
   readonly controller = new AbortController();
   reason: StopReason | null = null;
   replyHandler: ((reply: TurnReply) => boolean | null) | null = null;
+  askingHandler: ((asking: boolean) => void) | null = null;
   pids: (number | null)[] = [];
   availability: { available: boolean; error?: string }[] = [];
   result: Promise<TurnResult>;
@@ -152,6 +153,9 @@ export class TestTurn {
       previousAcpSessionId: options.previousAcpSessionId ?? null,
       onReply: (handler) => {
         this.replyHandler = handler;
+      },
+      onAskingUser: (handler) => {
+        this.askingHandler = handler;
       },
       setPid: (pid) => this.pids.push(pid),
       agentAvailability: (available, error) =>

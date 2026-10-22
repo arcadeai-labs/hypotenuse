@@ -847,11 +847,16 @@ class Turn {
     const waitingOnPerson =
       this.questions.waiting || this.waitingSince !== null;
     await this.windDown();
+    // After a question, anything posted would take the session out of
+    // awaitingInput and hide it. Only the person's own Stop is answered: it
+    // has already ended the question. Every other ending stays in the log.
+    const quiet = this.mapper.askedUser && reason !== "stop";
     if (reason === "noise") {
       const body =
         this.noiseFailure ?? `${this.agentId} wrote output that is not ACP.`;
       this.mapper.stopping = false;
-      this.emit({ type: "error", body });
+      if (quiet) this.log.note(`after asking, not posted: ${body}`);
+      else this.emit({ type: "error", body });
       return this.result("failed", body);
     }
     const timeouts = this.ctx.config.sessions;
@@ -868,7 +873,11 @@ class Turn {
       waitingOnPerson,
       changedFiles: changedFiles(this.cwd),
     });
-    if (event) this.emit(event);
+    if (event && quiet)
+      this.log.note(
+        `after asking, not posted: ${"body" in event ? String(event.body) : event.type}`,
+      );
+    else if (event) this.emit(event);
     this.log.note(`stopped: ${reason}`);
     if (reason === "timeout" || reason === "idle")
       return this.result(
