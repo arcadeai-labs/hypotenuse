@@ -82,6 +82,14 @@ export const MIGRATIONS: readonly string[] = [
      payload TEXT NOT NULL,
      created_at INTEGER NOT NULL
    );`,
+  `ALTER TABLE worktrees ADD COLUMN kind TEXT NOT NULL DEFAULT 'worktree';
+   ALTER TABLE worktrees ADD COLUMN repo_path TEXT;
+   ALTER TABLE worktrees ADD COLUMN setup_done INTEGER NOT NULL DEFAULT 0;
+   ALTER TABLE worktrees ADD COLUMN kept_reason TEXT;
+   ALTER TABLE worktrees ADD COLUMN removed_at INTEGER;
+   ALTER TABLE local_sessions ADD COLUMN last_answer TEXT;
+   ALTER TABLE local_sessions ADD COLUMN ended_at INTEGER;
+   ALTER TABLE local_sessions ADD COLUMN pull_requests TEXT NOT NULL DEFAULT '[]';`,
 ];
 
 /** A `local_sessions` row. */
@@ -101,20 +109,55 @@ export interface LocalSession {
   createdAt: number;
   updatedAt: number;
   lastEventAt: number | null;
+  /** How the last turn answered: `response`, `error`, or `elicitation`. */
+  lastAnswer: string | null;
+  /** When the last turn ended. */
+  endedAt: number | null;
+  /** Pull request URLs linked to the session, in the order found. */
+  pullRequests: string[];
 }
+
+/** The states of a worktree. */
+export const WORKTREE_STATES = [
+  "active",
+  "idle",
+  "removing",
+  "removed",
+] as const;
 
 /** A `worktrees` row. */
 export interface LocalWorktree {
   id: number;
+  /** `worktree` (a git worktree) or `scratch` (a repository-less directory). */
+  kind: "worktree" | "scratch";
+  /** The repository's configured name (`_scratch` for a scratch directory). */
   repository: string;
+  /** The clone the worktree belongs to. */
+  repoPath: string | null;
   path: string;
   branch: string;
   baseBranch: string;
   agentSessionId: number | null;
   createdAt: number;
   lastUsedAt: number;
-  state: "active" | "idle" | "removing" | "removed";
+  state: (typeof WORKTREE_STATES)[number];
   pushed: boolean;
+  /** Whether the repository's setup commands have all succeeded here. */
+  setupDone: boolean;
+  /** Why the last cleanup kept it. */
+  keptReason: string | null;
+  removedAt: number | null;
+}
+
+/** What a new worktree row records. */
+export interface NewWorktree {
+  kind: LocalWorktree["kind"];
+  repository: string;
+  repoPath: string | null;
+  path: string;
+  branch: string;
+  baseBranch: string;
+  agentSessionId: number;
 }
 
 /** A `pending_events` row. */
@@ -172,6 +215,34 @@ function toSession(row: Row): LocalSession {
     createdAt: row.created_at as number,
     updatedAt: row.updated_at as number,
     lastEventAt: (row.last_event_at as number | null) ?? null,
+    lastAnswer: (row.last_answer as string | null) ?? null,
+    endedAt: (row.ended_at as number | null) ?? null,
+    pullRequests: JSON.parse((row.pull_requests as string | null) ?? "[]"),
+  };
+}
+
+/**
+ * A `worktrees` row from SQL.
+ * @param row - The raw row.
+ * @returns The typed row.
+ */
+function toWorktree(row: Row): LocalWorktree {
+  return {
+    id: row.id as number,
+    kind: (row.kind as LocalWorktree["kind"]) ?? "worktree",
+    repository: row.repository as string,
+    repoPath: (row.repo_path as string | null) ?? null,
+    path: row.path as string,
+    branch: row.branch as string,
+    baseBranch: row.base_branch as string,
+    agentSessionId: (row.agent_session_id as number | null) ?? null,
+    createdAt: row.created_at as number,
+    lastUsedAt: row.last_used_at as number,
+    state: row.state as LocalWorktree["state"],
+    pushed: Boolean(row.pushed),
+    setupDone: Boolean(row.setup_done),
+    keptReason: (row.kept_reason as string | null) ?? null,
+    removedAt: (row.removed_at as number | null) ?? null,
   };
 }
 
@@ -576,25 +647,175 @@ export class StateDb {
   // ── worktrees ─────────────────────────────────────────────────────────────
 
   /**
-   * The worktrees this runner owns.
+   * The worktrees this runner owns, removed ones included.
+   * @param options - Leave out removed rows.
    * @returns The rows, most recently used first.
    */
-  worktrees(): LocalWorktree[] {
+  worktrees(options: { live?: boolean } = {}): LocalWorktree[] {
     return (
       this.db
-        .query("SELECT * FROM worktrees ORDER BY last_used_at DESC")
+        .query(
+          `SELECT * FROM worktrees ${options.live ? "WHERE state != 'removed'" : ""} ORDER BY last_used_at DESC, id DESC`,
+        )
         .all() as Row[]
-    ).map((row) => ({
-      id: row.id as number,
-      repository: row.repository as string,
-      path: row.path as string,
-      branch: row.branch as string,
-      baseBranch: row.base_branch as string,
-      agentSessionId: (row.agent_session_id as number | null) ?? null,
-      createdAt: row.created_at as number,
-      lastUsedAt: row.last_used_at as number,
-      state: row.state as LocalWorktree["state"],
-      pushed: Boolean(row.pushed),
-    }));
+    ).map(toWorktree);
+  }
+
+  /**
+   * One worktree.
+   * @param id - Its id.
+   * @returns The row, or null.
+   */
+  worktree(id: number): LocalWorktree | null {
+    const row = this.db
+      .query("SELECT * FROM worktrees WHERE id = $id")
+      .get({ id }) as Row | null;
+    return row ? toWorktree(row) : null;
+  }
+
+  /**
+   * The worktree at a path, removed or not.
+   * @param path - The directory.
+   * @returns The row, or null.
+   */
+  worktreeAt(path: string): LocalWorktree | null {
+    const row = this.db
+      .query("SELECT * FROM worktrees WHERE path = $path")
+      .get({ path }) as Row | null;
+    return row ? toWorktree(row) : null;
+  }
+
+  /**
+   * Record a new worktree, `active`, and link its session to it. A removed
+   * row at the same path is replaced.
+   * @param input - What it is.
+   * @returns The row.
+   */
+  insertWorktree(input: NewWorktree): LocalWorktree {
+    const now = this.now();
+    return this.db.transaction(() => {
+      this.db
+        .query("DELETE FROM worktrees WHERE path = $path AND state = 'removed'")
+        .run({ path: input.path });
+      const row = this.db
+        .query(
+          `INSERT INTO worktrees (kind, repository, repo_path, path, branch, base_branch, agent_session_id,
+             created_at, last_used_at, state)
+           VALUES ($kind, $repository, $repoPath, $path, $branch, $base, $session, $now, $now, 'active')
+           RETURNING *`,
+        )
+        .get({
+          kind: input.kind,
+          repository: input.repository,
+          repoPath: input.repoPath,
+          path: input.path,
+          branch: input.branch,
+          base: input.baseBranch,
+          session: input.agentSessionId,
+          now,
+        }) as Row;
+      this.db
+        .query(
+          "UPDATE local_sessions SET worktree_id = $wt WHERE agent_session_id = $id",
+        )
+        .run({ wt: row.id as number, id: input.agentSessionId });
+      return toWorktree(row);
+    })();
+  }
+
+  /**
+   * Update a worktree.
+   * @param id - Its id.
+   * @param changes - The columns to set.
+   */
+  updateWorktree(
+    id: number,
+    changes: {
+      state?: LocalWorktree["state"];
+      setupDone?: boolean;
+      keptReason?: string | null;
+      pushed?: boolean;
+      touch?: boolean;
+      agentSessionId?: number;
+    },
+  ): void {
+    const sets: string[] = [];
+    const values: Record<string, string | number | null> = { id };
+    if (changes.state !== undefined) {
+      sets.push("state = $state");
+      values.state = changes.state;
+      if (changes.state === "removed") {
+        sets.push("removed_at = $removedAt");
+        values.removedAt = this.now();
+      }
+    }
+    if (changes.setupDone !== undefined) {
+      sets.push("setup_done = $setupDone");
+      values.setupDone = changes.setupDone ? 1 : 0;
+    }
+    if (changes.keptReason !== undefined) {
+      sets.push("kept_reason = $keptReason");
+      values.keptReason = changes.keptReason;
+    }
+    if (changes.pushed !== undefined) {
+      sets.push("pushed = $pushed");
+      values.pushed = changes.pushed ? 1 : 0;
+    }
+    if (changes.touch) {
+      sets.push("last_used_at = $now");
+      values.now = this.now();
+    }
+    if (changes.agentSessionId !== undefined) {
+      sets.push("agent_session_id = $session");
+      values.session = changes.agentSessionId;
+    }
+    if (!sets.length) return;
+    this.db
+      .query(`UPDATE worktrees SET ${sets.join(", ")} WHERE id = $id`)
+      .run(values);
+  }
+
+  /**
+   * Link a session to a worktree it reuses.
+   * @param agentSessionId - The session.
+   * @param worktreeId - The worktree.
+   */
+  linkWorktree(agentSessionId: number, worktreeId: number | null): void {
+    this.db
+      .query(
+        "UPDATE local_sessions SET worktree_id = $wt WHERE agent_session_id = $id",
+      )
+      .run({ wt: worktreeId, id: agentSessionId });
+  }
+
+  /**
+   * Record how a turn ended, for the cleanup policies.
+   * @param agentSessionId - The session.
+   * @param lastAnswer - The last answering event's type, or null.
+   */
+  recordTurnEnd(agentSessionId: number, lastAnswer: string | null): void {
+    this.db
+      .query(
+        "UPDATE local_sessions SET last_answer = $answer, ended_at = $now WHERE agent_session_id = $id",
+      )
+      .run({ answer: lastAnswer, now: this.now(), id: agentSessionId });
+  }
+
+  /**
+   * Remember a pull request linked to a session.
+   * @param agentSessionId - The session.
+   * @param url - The pull request.
+   */
+  addPullRequest(agentSessionId: number, url: string): void {
+    const session = this.session(agentSessionId);
+    if (!session || session.pullRequests.includes(url)) return;
+    this.db
+      .query(
+        "UPDATE local_sessions SET pull_requests = $prs WHERE agent_session_id = $id",
+      )
+      .run({
+        prs: JSON.stringify([...session.pullRequests, url]),
+        id: agentSessionId,
+      });
   }
 }

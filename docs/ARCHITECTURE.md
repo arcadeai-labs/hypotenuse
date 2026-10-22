@@ -132,7 +132,8 @@ What each event does:
 | `AgentSessionEvent` / `prompted` | record the inbound `prompt` activity; if `signal = stop`, cancel the live work item; otherwise insert a follow-up work item sticky to the session's runner |
 | `PermissionChange` / `teamAccessChanged` | update the integration's team access; cancel sessions on teams it lost |
 | `OAuthApp` / `revoked` | mark the integration revoked; cancel every live session; notify project admins |
-| `Issue` / `update` with `delegateId` removed | cancel live work for that issue (a dismissed session removes the delegate) |
+| `Issue` / `update` with `delegateId` removed | cancel live work for that issue, quietly (`delegate_removed`; a dismissed session removes the delegate) |
+| `Issue` / `update` to a `completed` or `canceled` state, or `remove` | cancel live work for that issue, quietly (`issue_closed`) |
 | `AppUserNotification` / * | recorded and surfaced in the dashboard; no work is started (sessions are the work trigger) |
 | anything else | recorded, `outcome = ignored` |
 
@@ -140,7 +141,15 @@ The acknowledgement is *"On it — finding a runner for ENG-123."*; routing then
 repository, and — while no runner can take the turn — why it waits, so a session never looks unresponsive. A
 `stop` with nothing running is answered *"Stopped. Nothing was running."*; a team-access change marks sessions on
 removed teams `error` and cancels their work; a removed delegate is recorded on the session (`delegateRemovedAt`)
-and its work cancelled without a word, because the person disengaged.
+and its work cancelled without a word, because the person disengaged. "Without a word" is enforced on the server:
+after a disengagement cancel (`delegate_removed`, `issue_closed`, `integration_revoked`) every event the daemon
+still sends for the turn is dropped, and its end posts no fallback answer.
+
+**Issue hygiene runs at claim**, on the server (`ops/IssueHygieneOps.ts`), so no daemon holds `issueUpdate` rights:
+for a session's first turn, a worker moves an issue a person delegated to the team's first `started` state, sets the
+app as delegate when the issue has none, and never touches the assignee; an automation's session, a mention, and a
+manager leave the state alone. Each outcome is recorded on the work item; a failure is a thought, never a failed
+claim. The same claim links the session to its dashboard page (`addedExternalUrls`, once).
 
 **Everything written to Linear goes through the activity outbox** (`agent_activities` rows with
 `direction = outbound`), drained by `activities:deliver`. Rows get a per-session `seq` under the session's row
@@ -250,7 +259,10 @@ with the same machine id. `hypotenuse daemon start` (or a launchd / systemd user
   `daemon`, `doctor`, `upgrade`, `agents`, and `worktrees` commands talk to.
 - `~/.local/state/hypotenuse/daemon.pid` — the machine lock, at that path whatever `-c` or `--state-dir` say; it
   records the running daemon's own socket.
-- `~/.hypotenuse/worktrees/<repo>/<ISSUE-ID>` — default `sessions.worktree_root`.
+- `~/.hypotenuse/worktrees/<repo>/<ISSUE-ID>` — default `sessions.worktree_root`: one git worktree per session
+  (a second session on the issue gets `-2`), each marked with `git config --worktree hypotenuse.session`, so cleanup
+  can recognise them from git alone if `state.db` is lost; `_scratch/<agentSessionId>` for a turn with no
+  repository.
 
 Inside, a **supervisor** owns `runner.max_parallel_jobs` slots (counted again per role and per agent), **ServerLink**
 heartbeats and holds the one-subscription socket, and the **EventSink** drains the queue. A slot runs a turn
@@ -260,7 +272,9 @@ turn a previous process left running is marked `interrupted` and left to the ser
 For each claimed work item it:
 
 1. creates (or, for a sticky follow-up, reuses) a git worktree on branch `hypotenuse/<issue-identifier>-<slug>`
-   from the repository's `base_branch`, and runs the repository's `setup` commands;
+   from a fresh fetch of `origin/<base_branch>` — under a per-repository mutex, never reusing a branch that belongs
+   to something else — and runs the repository's `setup` commands (`cli/src/worktree/`). `worktrees = "never"`
+   uses the clone itself instead, one session at a time, on a clean tree only;
 2. spawns the role's ACP agent with `cwd` set to the worktree and `mcpServers` containing
    `hypotenuse mcp --session <agentSessionId> --nonce <per-turn nonce>`;
 3. `initialize`s, authenticates if the agent asks, then `session/new` (or `session/load` / `session/resume` for a
@@ -269,6 +283,12 @@ For each claimed work item it:
    workspace), and the conversation rebuilt from **activities, not comments**;
 5. maps every `session/update` to protocol events (table below) and posts them in batches with `daemon:events`;
 6. finishes with `daemon:complete`, and applies the cleanup policy to the worktree.
+
+**Cleanup** removes a worktree when its policy allows (`on-complete`, `on-merge`, `ttl`, `never`) and the safety
+rules agree — never one in use, with uncommitted changes, with unpushed commits, or with a `.hypotenuse-keep` file
+(`--force` overrides all but "in use"); branches go with `git branch -d`, never `-D`. It runs after every turn, every
+30 minutes, and before a new worktree when the disk is short; below `sessions.min_free_disk` the daemon heartbeats
+`draining`, so routing sends work elsewhere.
 
 ### ACP → Linear mapping
 
@@ -283,7 +303,7 @@ For each claimed work item it:
 | `elicitation/create` (form or url) | `elicitation` (+ `auth` for url mode) | `elicitation`, `signal: select` or `auth` |
 | `stopReason: refusal / max_tokens / max_turn_requests`, crash, timeout | `error` | `error` |
 | `session_info_update.title` | `summary` | `agentSessionUpdate(summary)` |
-| a PR URL in a tool result or `daemon:linear-report-pr` | `external_url` | `agentSessionUpdate(addedExternalUrls)` labelled "Pull Request" |
+| a PR URL of the session's own repository in an `execute` result or the agent's message (later also `daemon:linear-report-pr`) | `external_url` | `agentSessionUpdate(addedExternalUrls)` labelled "Pull Request" |
 | `usage_update` | `usage` | dashboard only |
 | Linear `prompted` with `signal: stop` | `cancel` frame → `session/cancel` | final `response` saying it stopped and where things stand |
 

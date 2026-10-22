@@ -116,6 +116,18 @@ const ANSWER_EVENT_TYPES = new Set(["response", "error", "elicitation"]);
 const STOPPING_EVENT_TYPES = new Set(["response", "error"]);
 
 /**
+ * Cancel reasons that mean the person disengaged — un-delegated the issue,
+ * dismissed the session, closed the issue, or removed the app's access. A
+ * turn cancelled for one of these says nothing more: every later event is
+ * dropped, and no fallback answer is posted (AIG: respect disengagement).
+ */
+export const DISENGAGED_CANCEL_REASONS: ReadonlySet<string> = new Set([
+  "delegate_removed",
+  "issue_closed",
+  "integration_revoked",
+]);
+
+/**
  * Side effects a transaction leaves for after its commit: sessions whose
  * outbox gained rows, runners to wake with a frame, and whether routing should
  * run.
@@ -454,6 +466,11 @@ export async function finishWorkItem(
   options: FinishOptions,
 ): Promise<WorkEffects> {
   const effects = noEffects();
+  const reason = options.cancelReason ?? item.cancelReason;
+  const silent =
+    options.status === "cancelled" &&
+    reason !== null &&
+    DISENGAGED_CANCEL_REASONS.has(reason);
   // A stopped turn takes its unread answers with it: a stop disengages.
   if (options.status !== "cancelled") {
     await releaseAnswers(tx, item, options.answersConsumed ?? []);
@@ -469,7 +486,7 @@ export async function finishWorkItem(
       ...(options.cancelReason ? { cancelReason: options.cancelReason } : {}),
     })
     .where(eq(workItems.id, item.id));
-  if (!item.answeredAt && options.fallback) {
+  if (!item.answeredAt && options.fallback && !silent) {
     await enqueueActivity(tx, item.agentSessionId, options.fallback, {
       priority: options.urgent ? "ack" : "normal",
     });
@@ -955,7 +972,49 @@ export async function claimWork(
       .set({ runnerId: runner.id })
       .where(eq(agentSessions.id, session.id));
   }
+  if (await addDashboardLink(tx, session)) effects.deliver.add(session.id);
   return { assignment: await buildAssignment(tx, claimed, runner), effects };
+}
+
+/** The label of the session's link to its Hypotenuse dashboard page. */
+export const DASHBOARD_LINK_LABEL = "Hypotenuse";
+
+/**
+ * Link the session to its dashboard page, once: an `addedExternalUrls`
+ * update unless the link is already on the session or on its way. Setting an
+ * external URL also counts as acknowledging the session in Linear — a second
+ * guarantee beside the acknowledgement thought.
+ * @param tx - The claim's transaction.
+ * @param session - The session, locked.
+ * @returns Whether an update was queued.
+ */
+export async function addDashboardLink(
+  tx: TxHandle,
+  session: AgentSession,
+): Promise<boolean> {
+  const url = dashboardSessionUrl(session.id);
+  if (session.externalUrls.some((link) => link.url === url)) return false;
+  const pending = await tx
+    .select({ content: agentActivities.content })
+    .from(agentActivities)
+    .where(
+      and(
+        eq(agentActivities.agentSessionId, session.id),
+        eq(agentActivities.kind, "session_update"),
+        eq(agentActivities.deliveryStatus, "pending"),
+      ),
+    );
+  const queued = pending.some((row) =>
+    (
+      (row.content as { addedExternalUrls?: { url: string }[] })
+        .addedExternalUrls ?? []
+    ).some((link) => link.url === url),
+  );
+  if (queued) return false;
+  await enqueueSessionUpdate(tx, session.id, {
+    addedExternalUrls: [{ label: DASHBOARD_LINK_LABEL, url }],
+  });
+  return true;
 }
 
 /**
@@ -1234,7 +1293,12 @@ export async function applyEvents(
     }
     // Checked before the sequence: a dropped event is recorded nowhere, so a
     // resent batch must drop it again rather than call it a regression.
-    if (item.cancelRequestedAt && !STOPPING_EVENT_TYPES.has(event.type)) {
+    if (
+      item.cancelRequestedAt &&
+      (!STOPPING_EVENT_TYPES.has(event.type) ||
+        (item.cancelReason !== null &&
+          DISENGAGED_CANCEL_REASONS.has(item.cancelReason)))
+    ) {
       lastSeq = Math.max(lastSeq, event.seq);
       response.dropped++;
       continue;
@@ -1595,6 +1659,7 @@ export function serializeWorkItem(item: WorkItem) {
     daemonState: item.daemonState,
     usage: item.usage,
     outcome: item.outcome,
+    hygiene: item.hygiene,
     createdAt: item.createdAt.getTime(),
     claimedAt: ms(item.claimedAt),
     finishedAt: ms(item.finishedAt),

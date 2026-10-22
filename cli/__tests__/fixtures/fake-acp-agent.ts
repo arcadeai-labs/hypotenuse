@@ -27,7 +27,9 @@
  * true }`, `{ "stderr": "text" }`, `{ "stdout": "text" }`, `{ "exit": code }`,
  * `{ "ticks": { "everyMs": 500, "env": "VAR", "default": ms } }` (an
  * in-progress tool call every `everyMs` for that long — a turn that keeps
- * producing ephemeral actions), and `{ "stop": "end_turn" }`.
+ * producing ephemeral actions), `{ "shell": "command" }` (run in the
+ * session's `cwd` with `sh -c`, reported as an `execute` tool call whose
+ * output is the command's), and `{ "stop": "end_turn" }`.
  *
  * `FAKE_ACP_AUTH_METHODS` (comma-separated ids) overrides `authMethods`.
  * `authRequired: "until-login"` refuses sessions until the file at
@@ -235,6 +237,36 @@ async function play(
           content: {
             type: "text",
             text: `Elicitation: ${JSON.stringify(answer)}`,
+          },
+        },
+      });
+    } else if (typeof step.shell === "string") {
+      const cwd = cwds.get(sessionId) ?? process.cwd();
+      const toolCallId = `shell-${crypto.randomUUID()}`;
+      await client.notify(acp.methods.client.session.update, {
+        sessionId,
+        update: {
+          sessionUpdate: "tool_call",
+          toolCallId,
+          title: step.shell,
+          kind: "execute",
+          status: "in_progress",
+          rawInput: { command: step.shell },
+        },
+      });
+      const run = Bun.spawnSync(["sh", "-c", step.shell], {
+        cwd,
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      await client.notify(acp.methods.client.session.update, {
+        sessionId,
+        update: {
+          sessionUpdate: "tool_call_update",
+          toolCallId,
+          status: run.exitCode === 0 ? "completed" : "failed",
+          rawOutput: {
+            output: `${run.stdout.toString()}${run.stderr.toString()}`,
           },
         },
       });

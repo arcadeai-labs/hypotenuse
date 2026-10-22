@@ -76,9 +76,30 @@ export function sessionVariables(
     HYPOTENUSE_BRANCH: branch ?? "",
     HYPOTENUSE_BASE_BRANCH: assignment.repository?.baseBranch ?? "",
     HYPOTENUSE_ROLE: assignment.role,
-    HYPOTENUSE_SESSION_URL: assignment.externalSessionUrl ?? "",
+    HYPOTENUSE_SESSION_URL: assignment.dashboardUrl,
     GIT_TERMINAL_PROMPT: "0",
   };
+}
+
+/**
+ * The environment a session's setup commands run with: the daemon's, without
+ * the `HYPOTENUSE_*` variables that point at its credentials and state, plus
+ * the per-session variables.
+ * @param daemonEnv - The daemon's environment.
+ * @param extra - Per-session variables.
+ * @returns The environment.
+ */
+export function sessionEnvironment(
+  daemonEnv: Record<string, string | undefined>,
+  extra: Record<string, string>,
+): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const [key, value] of Object.entries(daemonEnv)) {
+    if (value === undefined) continue;
+    if (key.startsWith("HYPOTENUSE_") && !SESSION_VARIABLES.has(key)) continue;
+    env[key] = value;
+  }
+  return Object.assign(env, extra);
 }
 
 /**
@@ -100,12 +121,7 @@ export function resolveAgentLaunch(
   );
   if (!agent || !agent.command.length) return null;
   const table = config.agents[agentId];
-  const env: Record<string, string> = {};
-  for (const [key, value] of Object.entries(daemonEnv)) {
-    if (value === undefined) continue;
-    if (key.startsWith("HYPOTENUSE_") && !SESSION_VARIABLES.has(key)) continue;
-    env[key] = value;
-  }
+  const env = sessionEnvironment(daemonEnv, {});
   const preset = agent.preset ? AGENT_PRESETS[agent.preset] : null;
   if (preset && "env" in preset && preset.env) Object.assign(env, preset.env);
   if (agent.command[0] === "npx") env.npm_config_yes = "true";

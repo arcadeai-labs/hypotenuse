@@ -55,6 +55,13 @@
       "when": 1792610710768,
       "tag": "0007_productive_magik",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1792625325566,
+      "tag": "0008_sad_mikhail_rasputin",
+      "breakpoints": true
     }
   ]
 }

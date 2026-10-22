@@ -12,7 +12,9 @@ import type { TestUser } from "../setup";
  * server: a temporary home with its own config, credentials, state, and a git
  * clone whose origin is `github.com/acme/web`. Nothing is scripted on the
  * daemon's side — it heartbeats, subscribes, claims, posts events, and
- * completes on its own, running the scripted fake ACP agent
+ * completes on its own, each turn in a real git worktree of that clone (whose
+ * origin is a local bare repository behind git's `insteadOf`), running the
+ * scripted fake ACP agent
  * (`cli/__tests__/fixtures/fake-acp-agent.ts`) as its worker's agent.
  */
 
@@ -47,6 +49,8 @@ export interface DaemonHomeOptions {
   scenario?: string;
   /** More `[roles.worker]` keys. */
   worker?: string;
+  /** More `[sessions]` keys. */
+  sessions?: string;
   /** Extra config TOML appended to the file. */
   extraConfig?: string;
   /** The server origin the daemon talks to (a proxy, say). */
@@ -97,14 +101,44 @@ export class DaemonHome {
     const root = mkdtempSync(join(tmpdir(), "hypd-"));
     const daemonUrl = options.serverUrl ?? url;
     const repo = join(root, "web");
+    const origin = join(root, "origin.git");
+    const seed = join(root, "seed");
     mkdirSync(repo);
-    for (const args of [
-      ["init", "-q"],
-      ["remote", "add", "origin", "git@github.com:acme/web.git"],
-    ]) {
-      const git = Bun.spawnSync(["git", ...args], { cwd: repo });
-      if (git.exitCode !== 0) throw new Error(`git ${args.join(" ")} failed`);
-    }
+    mkdirSync(seed);
+    const git = (cwd: string, ...args: string[]) => {
+      const run = Bun.spawnSync(["git", ...args], {
+        cwd,
+        env: {
+          ...process.env,
+          GIT_AUTHOR_NAME: "Test",
+          GIT_AUTHOR_EMAIL: "test@example.com",
+          GIT_COMMITTER_NAME: "Test",
+          GIT_COMMITTER_EMAIL: "test@example.com",
+        },
+      });
+      if (run.exitCode !== 0)
+        throw new Error(
+          `git ${args.join(" ")} failed: ${run.stderr.toString()}`,
+        );
+    };
+    git(root, "init", "-q", "--bare", "-b", "main", origin);
+    git(seed, "init", "-q", "-b", "main");
+    writeFileSync(join(seed, "README.md"), "# web\n");
+    git(seed, "add", ".");
+    git(seed, "commit", "-q", "-m", "init");
+    git(seed, "push", "-q", origin, "main");
+    git(repo, "init", "-q", "-b", "main");
+    git(repo, "remote", "add", "origin", "git@github.com:acme/web.git");
+    // The clone's origin reads as github.com/acme/web, as routing expects;
+    // git sends it to the local bare repository.
+    git(
+      repo,
+      "config",
+      `url.${origin}.insteadOf`,
+      "git@github.com:acme/web.git",
+    );
+    git(repo, "fetch", "-q", "origin");
+    git(repo, "reset", "-q", "--hard", "origin/main");
     mkdirSync(join(root, "config", "hypotenuse"), {
       recursive: true,
       mode: 0o700,
@@ -150,6 +184,8 @@ export class DaemonHome {
         "[sessions]",
         'worktree_root = "~/worktrees"',
         'stop_grace = "2s"',
+        'min_free_disk = "1MB"',
+        options.sessions ?? "",
         "[log]",
         'level = "debug"',
         options.extraConfig ?? "",

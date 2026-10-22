@@ -75,14 +75,18 @@ export const CANCEL_REASONS = [
   "stop",
   "dashboard",
   "delegate_removed",
+  "issue_closed",
   "integration_revoked",
   "superseded",
 ] as const;
 
-/** A held work item the daemon must cancel. */
+/**
+ * A held work item the daemon must cancel. The reasons may grow: a daemon
+ * stops the turn for a reason it does not know, and says nothing in Linear.
+ */
 export const Cancel = z.looseObject({
   workItemId: z.number().int().positive(),
-  reason: z.enum(CANCEL_REASONS),
+  reason: z.union([z.enum(CANCEL_REASONS), z.string().min(1).max(64)]),
 });
 export type Cancel = z.infer<typeof Cancel>;
 

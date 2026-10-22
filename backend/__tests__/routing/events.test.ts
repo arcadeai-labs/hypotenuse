@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { NOT_YOUR_WORK, SEQ_REGRESSION } from "@hypotenuse/protocol";
 import { eq } from "drizzle-orm";
 import { api } from "keryx";
+import { dashboardSessionUrl } from "../../ops/WorkItemOps";
 import { agentActivities } from "../../schema/agent_activities";
 import { useFinear } from "../linear/finear";
 import { appToken, integrationRow } from "../linear/helpers";
@@ -167,7 +168,9 @@ describe("events reach Linear", () => {
       { content: "Write", status: "inProgress" },
     ]);
     expect(mirror.summary).toBe("Fixing the thing");
+    // The claim linked the dashboard; the event added the pull request.
     expect(mirror.externalUrls).toEqual([
+      { label: "Hypotenuse", url: dashboardSessionUrl(session.id) },
       { label: "Pull Request", url: "https://github.com/acme/web/pull/1" },
     ]);
 

@@ -103,7 +103,8 @@ hypotenuse --project 12 member list   # or name it for one command (also HYPOTEN
 | `identity list [--user <id>]`, `link --user <id> --linear-user <id> [--name] [--email]`, `unlink <id>` | links between Linear users and project members, below |
 | `config init [--repo <path>...]`, `validate [--online]`, `schema`, `path` | the daemon's config file — [the daemon](/docs/daemon), [every key](/docs/config) |
 | `daemon start [--foreground]`, `stop [--timeout] [--cancel] [--force]`, `restart`, `status`, `logs [-f] [--session <id>]`, `reload` | run this machine as a runner — [the daemon](/docs/daemon) |
-| `agents list [--all]`, `kill <session\|issue>`, `login <agent> [--method <id>]` | the coding agents this machine runs — [coding agents](/docs/agents) |
+| `agents list [--all]`, `kill <session\|issue> [--reason]`, `login <agent> [--method <id>]` | the coding agents this machine runs — [coding agents](/docs/agents) |
+| `worktrees list`, `cleanup [--dry-run] [--all] [--older-than <duration>] [--force]` | the git worktrees the daemon made for its sessions — [worktrees](/docs/worktrees) |
 | `service install [--print]`, `uninstall`, `status` | the daemon as a launchd or systemd user service |
 | `doctor [--agent <id>] [--offline]` | check this machine's runner setup end to end |
 | `check-update`, `upgrade [--no-restart]` | updates, below; `upgrade` also restarts a running daemon on the new version |

@@ -17,6 +17,7 @@ import type { Command } from "commander";
 import { handshake } from "../acp/handshake";
 import { resolveAgentLaunch } from "../acp/presets";
 import { checkConfig, formatIssue } from "../config/check";
+import { tildify } from "../config/paths";
 import { resolveAgents } from "../config/resolve";
 import { type CliContext, emit, runCommand, when } from "../context";
 import { callDaemon } from "../daemon/control-client";
@@ -34,6 +35,19 @@ interface AgentRow {
   pid: number | null;
   startedAt: number;
   lastEventAt: number | null;
+  worktree: string | null;
+}
+
+/**
+ * How long a turn has been going: `12m`, `1h04m`.
+ * @param since - When it started.
+ * @param now - The current time.
+ * @returns The text.
+ */
+export function forHowLong(since: number, now = Date.now()): string {
+  const minutes = Math.max(0, Math.floor((now - since) / 60_000));
+  if (minutes < 60) return `${minutes}m`;
+  return `${Math.floor(minutes / 60)}h${String(minutes % 60).padStart(2, "0")}m`;
 }
 
 /**
@@ -173,7 +187,9 @@ export function registerAgentsCommands(program: Command): void {
                   role: r.role,
                   agent: r.agent ?? "-",
                   state: r.state,
+                  for: forHowLong(r.startedAt),
                   pid: r.pid ?? "-",
+                  worktree: r.worktree ? tildify(r.worktree, ctx.env) : "-",
                   "last event": when(r.lastEventAt),
                 })),
                 [
@@ -182,7 +198,9 @@ export function registerAgentsCommands(program: Command): void {
                   { key: "role" },
                   { key: "agent" },
                   { key: "state" },
+                  { key: "for" },
                   { key: "pid" },
+                  { key: "worktree" },
                   { key: "last event" },
                 ],
               )
@@ -195,7 +213,7 @@ export function registerAgentsCommands(program: Command): void {
     .description(
       "Stop the running turn of a session (by Hypotenuse session id or issue identifier); it says so in Linear",
     )
-    .option("--reason <text>", "logged with the stop")
+    .option("--reason <text>", "said in Linear with the stop, and logged")
     .action(async function (this: Command, target: string) {
       await runCommand(this, async (ctx) => {
         const opts = this.opts() as { reason?: string };

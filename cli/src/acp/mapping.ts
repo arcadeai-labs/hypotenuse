@@ -14,11 +14,13 @@
  * | `plan` | the whole `plan`, unless identical to the last one sent |
  * | `session_info_update` | `summary`, one line of at most 255 characters |
  * | `usage_update` | `usage` (dashboard only) |
+ * | a pull request URL of the session's repository, in a completed `execute` result or the turn's message | `external_url` "Pull Request", once per URL |
  * | mode, config, and command updates; `user_message_chunk`; notices; compaction | nothing |
  * | an unknown kind | nothing; reported once |
  */
 import type { EventInput } from "../daemon/event-sink";
 import type { SessionUpdate, StopReason } from "./connection";
+import type { PrDetector } from "./pr-detect";
 import {
   compactParameter,
   compactResult,
@@ -53,6 +55,10 @@ export interface MapperOptions {
   now(): number;
   /** Called once per unknown update kind. */
   onUnknown?(kind: string): void;
+  /** Finds the session's pull request URLs, if it has a repository. */
+  pullRequests?: PrDetector;
+  /** Called with each pull request URL found. */
+  onPullRequest?(url: string): void;
 }
 
 /** What the turn's end needs to say where the work is. */
@@ -250,6 +256,7 @@ export class TurnMapper {
   finish(stopReason: StopReason, context: FinishContext): EventInput[] {
     const events = this.flushThought(false);
     const said = this.message();
+    events.push(...this.pullRequests(said));
     const where = context.branch
       ? `Progress so far is on \`${context.branch}\``
       : "Progress so far is in the working directory";
@@ -290,6 +297,20 @@ export class TurnMapper {
   }
 
   /**
+   * `external_url` events for the pull requests in some text.
+   * @param text - Tool output or the agent's message.
+   * @returns One event per new pull request.
+   */
+  private pullRequests(text: string): EventInput[] {
+    const detector = this.options.pullRequests;
+    if (!detector || !text || this.stopping) return [];
+    return detector.scan(text).map((link) => {
+      this.options.onPullRequest?.(link.url);
+      return { type: "external_url", label: link.label, url: link.url };
+    });
+  }
+
+  /**
    * The action event for a tool call's current status.
    * @param call - The tool call.
    * @returns The event, or nothing while stopping.
@@ -305,7 +326,12 @@ export class TurnMapper {
       call.status === "failed"
         ? failedResult(call)
         : compactResult(call, this.options.cwd);
+    const links =
+      call.status === "completed" && call.kind === "execute"
+        ? this.pullRequests(callText(call))
+        : [];
     return [
+      ...links,
       {
         type: "action",
         action,
@@ -315,4 +341,24 @@ export class TurnMapper {
       },
     ];
   }
+}
+
+/**
+ * Everything a tool call printed, uncut: its text content and raw output.
+ * @param call - The tool call.
+ * @returns The text.
+ */
+function callText(call: ToolCallState): string {
+  const parts: string[] = [];
+  for (const item of call.content) {
+    if (item.type === "content" && item.content.type === "text")
+      parts.push(item.content.text);
+  }
+  if (call.rawOutput !== undefined && call.rawOutput !== null)
+    parts.push(
+      typeof call.rawOutput === "string"
+        ? call.rawOutput
+        : JSON.stringify(call.rawOutput),
+    );
+  return parts.join("\n");
 }
