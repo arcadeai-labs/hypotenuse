@@ -92,6 +92,54 @@ describe("acquire", () => {
     expect(existsSync(join(second.cwd, "wip.txt"))).toBe(true);
   });
 
+  test("a worktree the daemon made but never recorded (killed mid-acquire) is found and reused", async () => {
+    const f = fixture();
+    const first = await f.manager.acquire(request(f));
+    await first.release();
+    Bun.write(join(first.cwd, "wip.txt"), "half done\n");
+    // What a kill -9 between `git worktree add` and the insert leaves: git
+    // has the worktree and the branch's owner, state.db has neither.
+    const sessionId = work().agentSessionId;
+    f.state.linkWorktree(sessionId, null);
+    f.state.db.exec("DELETE FROM worktrees");
+
+    const second = await f.manager.acquire(
+      request(f, work({ workItemId: 2, kind: "prompt", fresh: false })),
+    );
+    expect(second.reused).toBe(true);
+    expect(second.cwd).toBe(first.cwd);
+    expect(second.branch).toBe(first.branch);
+    expect(existsSync(join(second.cwd, "wip.txt"))).toBe(true);
+    expect(f.state.session(sessionId)?.worktreeId).toBe(second.worktreeId);
+  });
+
+  test("a lost worktree cleanup already adopted is linked, not recorded twice", async () => {
+    const f = fixture();
+    const first = await f.manager.acquire(request(f));
+    await first.release();
+    const sessionId = work().agentSessionId;
+    f.state.linkWorktree(sessionId, null);
+    const second = await f.manager.acquire(request(f, work({ workItemId: 2 })));
+    expect(second.reused).toBe(true);
+    expect(second.worktreeId).toBe(first.worktreeId);
+    expect(
+      f.state.worktrees().filter((w) => w.path === first.cwd),
+    ).toHaveLength(1);
+  });
+
+  test("another session's lost worktree is never taken", async () => {
+    const f = fixture();
+    const first = await f.manager.acquire(request(f));
+    await first.release();
+    f.state.linkWorktree(work().agentSessionId, null);
+    f.state.db.exec("DELETE FROM worktrees");
+    const other = await f.manager.acquire(
+      request(f, work({ agentSessionId: 99, workItemId: 3 })),
+    );
+    expect(other.cwd).not.toBe(first.cwd);
+    expect(other.branch).not.toBe(first.branch);
+  });
+
   test("a worktree whose HEAD moved off its branch is not reused", async () => {
     const f = fixture();
     const first = await f.manager.acquire(request(f));
