@@ -256,10 +256,20 @@ export const UpdateIssue = operation<
 }`,
 );
 
-/** A comment on an issue, outside any session thread. */
+/**
+ * A comment outside any session thread: on an issue, or a reply on a
+ * project's comment (`projectId` with `parentId`).
+ */
 export const CreateComment = operation<
   { commentCreate: { success: boolean; comment: { id: string; url: string } } },
-  { input: { issueId: string; body: string; parentId?: string } }
+  {
+    input: {
+      issueId?: string;
+      projectId?: string;
+      body: string;
+      parentId?: string;
+    };
+  }
 >(
   "CreateComment",
   `mutation CreateComment($input: CommentCreateInput!) {

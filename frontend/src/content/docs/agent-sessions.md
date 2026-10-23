@@ -21,7 +21,7 @@ own: its thoughts, the actions it takes, its plan, and its answer.
 |---|---|
 | Delegate an issue to `@hypotenuse` | records a session, answers at once, and routes the work to a runner |
 | Mention `@hypotenuse` in a comment | the same, in that comment's thread; a mention in a reply keeps the earlier comments as context, and a role prefix such as `/manage` chooses the role |
-| Mention `@hypotenuse` in a comment on a **project** | asks Linear to start a session on that comment, then answers that it can only work from an issue for now — delegate an issue, or mention it in one. If Linear refuses, the Events page says why |
+| Mention `@hypotenuse` in a comment on a **project** | files **`[hypotenuse] Plan: <project>`** in the project with your comment as its description, starts a [manager](/docs/manager-and-worker) session there, and replies on your comment with the link. Steer it from that issue. If Linear refuses, the Events page says why |
 | Reply in the session's thread | records your message and sends it to the runner holding the session — *Got it — I'll read this when the current step finishes.* if it is busy |
 | Answer the repository question | takes your answer as the repository and starts |
 | Press **Stop** | stops the work and withdraws anything not yet posted: *Stopped before starting.*, the agent's own account of where it stopped, or *Stopped. Nothing was running.* — with anything you typed alongside quoted back, never acted on |

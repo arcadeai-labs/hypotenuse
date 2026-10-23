@@ -44,7 +44,7 @@ When a project first connects Linear it gets four rules, which an admin can edit
 
 The last one is a guess — "nobody has written this project's PRD, so plan it" — and a guess that quietly changes
 which kind of agent answers is worse than none, so it starts off. Sessions a manager dispatches are always workers,
-whatever the rules say.
+and a session started from a mention on a project is always a manager, whatever the rules say.
 
 **The role is fixed for a session's life.** Typing `/manage` in a reply to a worker session does not switch it; the
 session says so, and the next mention starts a manager session. Changing a rule never changes a session that was

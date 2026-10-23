@@ -94,7 +94,7 @@ a `documentMention` inbox notification, which `ops/LinearNotificationOps.ts` rec
 
 ## Learnings from the build
 
-**Step 1 under way.** What a real workspace sent, and the first ingress built on it.
+**Step 1 done.** What a real workspace sent, what it refused, and the ingress built on that.
 
 ### What Linear sends for a mention on a project
 
@@ -109,16 +109,28 @@ Recorded from a real workspace's event log, mentioning `@hypotenuse` on a projec
 So Linear starts sessions for mentions on issues only. `Project` and `Comment` data-change webhooks arrive without
 being asked for in the manifest, and `projectCommentMention` carries everything needed to ask for a session.
 
-### The first ingress
+### Linear refuses a session on a project comment
 
-- **A person's `projectCommentMention` makes the `triggers:check-notifications` clock call
-  `agentSessionCreateOnComment` on the comment** (`requestCommentSession` in `ops/LinearNotificationOps.ts`), outside
-  any transaction like every other Linear call a notification needs. Linear's answer is the event's summary: the
-  session it started, or its refusal message (a GraphQL error, or `success: false`). The outcome stays `noted`:
-  `mention_without_session` would tell the integration card to reconnect Linear, which is not what a refusal here
-  means. Whether Linear accepts a project comment as a session's root is the open question this answers.
-- **A session with no issue is answered, not worked.** `handleAgentSessionEvent` mirrors it with an empty
-  `external_issue_id` and posts `NO_ISSUE_RESPONSE` on `created` and on each prompt, with no turn queued. That keeps
-  such a session from going stale while routing, the agent tools' scope, and the worktree still start from an issue.
-- **finear cannot show the accepted case**: its comments belong to issues, so a project comment's id is refused as not
-  found. The test asserts the request and the recorded refusal; the gap is in `LINEAR_COVERAGE.md`.
+Asked with `agentSessionCreateOnComment` on a person's project comment, real Linear answered **"comment must be on
+an issue"**. A project's comment thread cannot anchor a session, and the decision above — a project comment thread,
+no planning issue — does not hold. `agentSessionCreate` takes an optional `issueId`, but a session with no issue has
+no `url`, so nobody in Linear could see it. Comments on documents were not tried; the same refusal is expected.
+
+### What was built instead: a mention on the project files the planning issue
+
+- **The mention stays the trigger; an issue Hypotenuse files is the anchor.** A person's `projectCommentMention`
+  makes the `triggers:check-notifications` clock (`ops/ProjectPlanningOps.ts`, outside any transaction) read the
+  project's teams, file **`[hypotenuse] Plan: <project>`** in the project on its first public team with the
+  comment's text as the description, start a session on it (`agentSessionCreateOnIssue`), and reply on the comment
+  with the link. The event's summary says what was filed, or Linear's refusal; the outcome stays `noted`, because
+  `mention_without_session` tells the integration card to reconnect Linear.
+- **The session is a manager because a Redis intent says so**, as a dispatch's does: written under the issue before
+  the session is asked for (Linear's `created` can arrive first), and applied once by `adoptPlanningSession` on
+  `created` — the role, the rule name `project mention`, the comment's text without the mention or a role prefix as
+  the instruction, and the commenter as the session's creator, so their runners are preferred. Routing then decides
+  no other role.
+- **A retry files no second issue.** The filed issue is remembered per notification in Redis, so a lost answer to a
+  later call retries from there. A lost answer to the `issueCreate` itself can still file two.
+- **The reply on the project comment is best-effort**: planning goes ahead without it, and the summary says it failed.
+- **A session with no issue is still answered, not worked** (`NO_ISSUE_RESPONSE`), in case Linear ever starts one.
+- **finear has no comments on projects**, so its reply is refused; the test asserts the request and the summary.

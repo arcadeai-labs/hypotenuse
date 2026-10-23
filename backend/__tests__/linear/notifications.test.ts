@@ -34,6 +34,7 @@ import {
   finearSession,
   recordedEvent,
   settle,
+  waitFor,
 } from "./sessions";
 
 /**
@@ -325,29 +326,138 @@ describe("LC-WH-19 status changes and other types", () => {
 });
 
 describe("LC-WH-26 project comment mentions", () => {
-  test("LC-SES-03 a person's mention in a project comment asks Linear for a session on that comment; a refusal is recorded with Linear's message, still noted", async () => {
+  /**
+   * A project in finear, on the primary team.
+   * @param name - Its name.
+   * @returns Its id, name, and URL.
+   */
+  async function project(name: string) {
+    const made = await linear.graphql<{
+      projectCreate: { project: { id: string; name: string; url: string } };
+    }>(
+      FINEAR_PRIMARY_KEY,
+      `mutation($input: ProjectCreateInput!) { projectCreate(input: $input) { project { id name url } } }`,
+      { input: { name, teamIds: [FINEAR_FIXTURES.primary.team] } },
+    );
+    if (!made.data) throw new Error(JSON.stringify(made.errors));
+    return made.data.projectCreate.project;
+  }
+
+  /**
+   * A person's `projectCommentMention` on a project.
+   * @param p - The project.
+   * @param body - The comment.
+   * @returns The recorded delivery.
+   */
+  function mentionOn(
+    p: Awaited<ReturnType<typeof project>>,
+    body: string,
+  ): Promise<TriggerEvent> {
     const commentId = crypto.randomUUID();
-    const event = await notify("projectCommentMention", {
-      actorId: crypto.randomUUID(),
+    return notify("projectCommentMention", {
+      actorId: FINEAR_FIXTURES.primary.user,
+      actor: {
+        id: FINEAR_FIXTURES.primary.user,
+        name: "Human 1",
+        email: "human1@example.com",
+      },
       commentId,
-      comment: { id: commentId, body: "@hypotenuse plan this project" },
-      projectId: crypto.randomUUID(),
+      comment: { id: commentId, body, projectId: p.id },
+      projectId: p.id,
+      project: p,
     });
+  }
+
+  /**
+   * The requests the proxy saw for one operation.
+   * @param operation - Its name.
+   * @returns Their variables.
+   */
+  const sent = (operation: string) =>
+    linear
+      .requests()
+      .filter((r) => r.operationName === operation)
+      .map((r) => r.variables);
+
+  test("LC-WH-26 a person's mention files [hypotenuse] Plan: <project>, starts a manager session on it with the comment's text, and replies with the link", async () => {
+    const poems = await project("Poems");
+    const event = await mentionOn(poems, "@hypotenuse /manage plan the poems");
     expect(event).toMatchObject({ outcome: "noted" });
     expect(event.checkAfter).not.toBeNull();
     linear.clearRequests();
     const checked = await checkNow(event.id);
-    const asked = linear
-      .requests()
-      .filter((r) => r.operationName === "CreateAgentSessionOnComment");
-    expect(asked.map((r) => r.variables)).toEqual([{ input: { commentId } }]);
-    // finear holds comments on issues only, so it refuses a project's. A
-    // refusal stays `noted`: `mention_without_session` would tell the
-    // integration card to reconnect Linear, which is not this.
-    expect(checked.outcome).toBe("noted");
-    expect(checked.checkAfter).toBeNull();
+
+    const [filed] = sent("CreateIssue") as {
+      input: Record<string, string>;
+    }[];
+    expect(filed.input).toMatchObject({
+      teamId: FINEAR_FIXTURES.primary.team,
+      projectId: poems.id,
+      title: "[hypotenuse] Plan: Poems",
+    });
+    expect(filed.input.description).toStartWith("plan the poems\n\n---\n\n");
+    expect(sent("CreateAgentSessionOnIssue")).toHaveLength(1);
+    expect(sent("CreateComment")).toEqual([
+      {
+        input: {
+          projectId: poems.id,
+          parentId: (event.payload.notification as { commentId: string })
+            .commentId,
+          body: expect.stringMatching(/^Planning this project in \[/),
+        },
+      },
+    ]);
+    // finear holds comments on issues only, so its reply is refused; the
+    // planning goes ahead. A refusal of anything stays `noted`.
+    expect(checked).toMatchObject({ outcome: "noted", checkAfter: null });
+    expect(checked.summary).toMatch(
+      /^Filed [A-Z]+-\d+ and started a manager session on it; the reply on the project comment failed\.$/,
+    );
+
+    // Linear's `created` for the session makes it a manager, before routing.
+    const session = await waitFor(async () => {
+      const [row] = await api.db.db
+        .select()
+        .from(agentSessions)
+        .where(eq(agentSessions.issueTitle, "[hypotenuse] Plan: Poems"));
+      return row;
+    });
+    expect(session).toMatchObject({
+      role: "manager",
+      routingRuleName: "project mention",
+      instruction: "plan the poems",
+      creatorExternalUserId: FINEAR_FIXTURES.primary.user,
+    });
+    const [first] = await itemsOf(session.id);
+    expect(first).toMatchObject({ kind: "session_created", role: "manager" });
+  });
+
+  test("a lost answer is retried without filing a second issue", async () => {
+    const odes = await project("Odes");
+    const event = await mentionOn(odes, "@hypotenuse plan the odes");
+    linear.clearRequests();
+    linear.fault({
+      kind: "drop",
+      match: (r) => r.operationName === "CreateAgentSessionOnIssue",
+    });
+    const first = await checkNow(event.id);
+    expect(first.outcome).toBe("noted");
+    expect(first.checkAfter).not.toBeNull();
+    await checkNow(event.id);
+    expect(sent("CreateIssue")).toHaveLength(1);
+    expect(sent("CreateAgentSessionOnIssue")).toHaveLength(2);
+  });
+
+  test("a project with no team is refused, still noted", async () => {
+    const event = await notify("projectCommentMention", {
+      actorId: FINEAR_FIXTURES.primary.user,
+      commentId: crypto.randomUUID(),
+      projectId: crypto.randomUUID(),
+    });
+    const checked = await checkNow(event.id);
+    expect(checked).toMatchObject({ outcome: "noted", checkAfter: null });
     expect(checked.summary).toStartWith(
-      "Linear refused a session on the project comment: ",
+      "Linear refused planning the project: ",
     );
   });
 

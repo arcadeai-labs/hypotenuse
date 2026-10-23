@@ -24,6 +24,7 @@ import { handleAppUserNotification } from "./LinearNotificationOps";
 import { getAdminUserIds } from "./MembershipOps";
 import { enqueueNotification } from "./NotificationOps";
 import type { TxHandle } from "./ProjectOps";
+import { adoptPlanningSession } from "./ProjectPlanningOps";
 import { listRoutingRules, roleSwitchAttempt, stripPrefix } from "./RoutingOps";
 import type { HandlerResult } from "./TriggerEventOps";
 import {
@@ -334,6 +335,7 @@ async function hasOutbound(
  * | `created`, a session a dispatch already recorded | nothing more (`duplicate_of_dispatch`) |
  * | `created`, a session a dispatch is starting (its intent is in Redis) | the dispatch's worker session and turn instead of the acknowledgement (`completeDispatch`) |
  * | `created`, another session on an issue whose dispatch already has one | nothing (`duplicate_of_dispatch`) |
+ * | `created`, a session started for a project mention (its intent is in Redis) | as `created`, the session made a manager with the comment's text and author (`adoptPlanningSession`) |
  * | `prompted`, `stop` signal | record the prompt; cancel the session's work (see `cancelSessionWork`), quoting any text typed with it |
  * | `prompted`, `continue` signal | a plain follow-up, as below; an empty body reads "continue" |
  * | `prompted`, a repository question pending | record the prompt; take it as the answer |
@@ -421,13 +423,16 @@ export async function handleAgentSessionEvent(
         workItemId: turn?.id ?? null,
       };
     }
+    // A session started for a project mention is a manager, with the
+    // comment's text and author; routing then decides no other role.
+    const planned = await adoptPlanningSession(tx, integration.id, session);
     await enqueueActivity(
       tx,
-      session.id,
-      { type: "thought", body: ackBody(session.issueIdentifier) },
+      planned.id,
+      { type: "thought", body: ackBody(planned.issueIdentifier) },
       { priority: "ack" },
     );
-    const item = await createSessionCreatedItem(tx, session);
+    const item = await createSessionCreatedItem(tx, planned);
     const effects = noEffects();
     effects.route = true;
     return {

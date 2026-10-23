@@ -13,6 +13,12 @@ starts, by the project's [routing rules](/docs/routing), and stays the same for 
 
 ## Choosing the role
 
+To plan a whole Linear project, mention `@hypotenuse` in a comment on the project itself — *@hypotenuse write the
+PRD and split it into tickets*. Linear does not start agent sessions on projects, so Hypotenuse files an issue for
+the plan, **`[hypotenuse] Plan: <project>`**, in that project, starts a manager there with your comment as its
+instructions, and replies on your comment with a link. That issue is where you talk to the planning agent from
+then on.
+
 Out of the box, a mention starting with `/manage` gets a manager, one starting with `/work` gets a worker, and an
 issue labelled `hypotenuse:manager` gets a manager however it was started. Anything else — including a plain
 delegation, which has no text — gets a worker. A fourth rule, off until an admin turns it on, sends a top-level issue
