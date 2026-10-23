@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { WorkspaceError } from "../../src/worktree/manager";
+import { runSetupCommand } from "../../src/worktree/setup";
 import { fixture, request, work } from "./repo";
 
 test("setup commands run in order in the new worktree, with the per-session environment, as actions", async () => {
@@ -54,6 +55,27 @@ test("a failing command fails the turn quoting its output, keeps the worktree, a
   expect(
     f.events.some((e) => e.type === "action" && e.action === "Running setup"),
   ).toBe(true);
+});
+
+test("a command's stdout and stderr reach the output and the tail in the order they were written", async () => {
+  const lines: string[] = [];
+  const result = await runSetupCommand(
+    "for i in 1 2 3 4 5 6 7 8; do echo out$i; echo err$i >&2; done",
+    {
+      cwd: process.cwd(),
+      env: { PATH: process.env.PATH ?? "" },
+      timeoutMs: 10_000,
+      emit: () => {},
+      output: (line) => lines.push(line),
+    },
+  );
+  const expected = [1, 2, 3, 4, 5, 6, 7, 8].flatMap((i) => [
+    `out${i}`,
+    `err${i}`,
+  ]);
+  expect(result.code).toBe(0);
+  expect(lines).toEqual(expected);
+  expect(result.tail).toBe(expected.join("\n"));
 });
 
 test("a command past setup_timeout is killed and fails the turn", async () => {
