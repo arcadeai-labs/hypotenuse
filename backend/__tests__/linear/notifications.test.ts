@@ -434,7 +434,7 @@ describe("LC-WH-26 project comment mentions", () => {
     expect(first).toMatchObject({ kind: "session_created", role: "manager" });
   }, 20_000);
 
-  test("a lost answer is retried without filing a second issue", async () => {
+  test("a lost answer is retried without filing a second issue or starting a second session", async () => {
     const odes = await project("Odes");
     const event = await mentionOn(odes, "@hypotenuse plan the odes");
     linear.clearRequests();
@@ -445,10 +445,29 @@ describe("LC-WH-26 project comment mentions", () => {
     const first = await checkNow(event.id);
     expect(first.outcome).toBe("noted");
     expect(first.checkAfter).not.toBeNull();
-    await checkNow(event.id);
+    // finear did start the session. The retry comes a minute later; by then
+    // its `created` is mirrored.
+    await waitFor(async () => {
+      await settle();
+      const [row] = await api.db.db
+        .select()
+        .from(agentSessions)
+        .where(eq(agentSessions.issueTitle, "[hypotenuse] Plan: Odes"));
+      return row;
+    });
+    const second = await checkNow(event.id);
     expect(sent("CreateIssue")).toHaveLength(1);
-    expect(sent("CreateAgentSessionOnIssue")).toHaveLength(2);
-  });
+    expect(sent("CreateAgentSessionOnIssue")).toHaveLength(1);
+    expect(second.summary).toMatch(
+      /^Filed [A-Z]+-\d+; Linear had already started its session\.$/,
+    );
+    const sessions = await api.db.db
+      .select()
+      .from(agentSessions)
+      .where(eq(agentSessions.issueTitle, "[hypotenuse] Plan: Odes"));
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0].role).toBe("manager");
+  }, 20_000);
 
   test("a project with no team is refused, still noted", async () => {
     const event = await notify("projectCommentMention", {

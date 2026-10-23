@@ -129,8 +129,12 @@ no `url`, so nobody in Linear could see it. Comments on documents were not tried
   `created` — the role, the rule name `project mention`, the comment's text without the mention or a role prefix as
   the instruction, and the commenter as the session's creator, so their runners are preferred. Routing then decides
   no other role.
-- **A retry files no second issue.** The filed issue is remembered per notification in Redis, so a lost answer to a
-  later call retries from there. A lost answer to the `issueCreate` itself can still file two.
+- **A retry files no second issue, and starts no second session.** The filed issue is remembered per notification in
+  Redis, so a lost answer to a later call retries from there; and a retry asks for no session once Linear's `created`
+  for the issue is mirrored (Linear may have started it before the answer was lost). A lost answer to the
+  `issueCreate` itself can still file two, and a `created` slower than the retry can still mean two sessions.
+- **The intent is read, never deleted, inside the webhook's transaction**, so a rollback leaves it for the retry; its
+  10-minute TTL ends it, and a session whose role is already set is never adopted twice.
 - **The reply on the project comment is best-effort**: planning goes ahead without it, and the summary says it failed.
 - **A session with no issue is still answered, not worked** (`NO_ISSUE_RESPONSE`), in case Linear ever starts one.
 - **finear has no comments on projects**, so its reply is refused; the test asserts the request and the summary.

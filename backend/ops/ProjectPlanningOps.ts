@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { api } from "keryx";
 import { type AgentSession, agentSessions } from "../schema/agent_sessions";
 import type { Integration } from "../schema/integrations";
@@ -27,7 +27,8 @@ import type { TxHandle } from "./ProjectOps";
  *
  * Every Linear call here is made by the `triggers:check-notifications` clock,
  * outside any transaction. The filed issue is remembered per notification,
- * so a retry after a lost response files no second one.
+ * so a retry after a lost response files no second one, and a retry asks for
+ * no session once Linear's `created` for the issue has been mirrored.
  */
 
 /** How long a planning intent waits for Linear's `created`. */
@@ -237,6 +238,26 @@ export async function startProjectPlanning(
       );
     }
 
+    // A retry after a lost answer: Linear may have started the session, and
+    // its `created` may already be mirrored. Asking again would start a
+    // second one on the same issue.
+    const [mirrored] = await api.db.db
+      .select({ id: agentSessions.id })
+      .from(agentSessions)
+      .where(
+        and(
+          eq(agentSessions.integrationId, integration.id),
+          eq(agentSessions.externalIssueId, issue.id),
+        ),
+      )
+      .limit(1);
+    if (mirrored) {
+      return {
+        kind: "started",
+        summary: `Filed ${issue.identifier}; Linear had already started its session.`,
+      };
+    }
+
     const intent: PlanningIntent = {
       instruction,
       creatorExternalUserId: mention.actor.id,
@@ -300,9 +321,12 @@ export async function startProjectPlanning(
 
 /**
  * Make a session Hypotenuse started for a project mention a manager, with
- * the comment's text and author, if its issue has a planning intent; the
- * intent is used once. Called by the `created` webhook before the first turn
- * is queued, so routing finds the role set and decides no other.
+ * the comment's text and author, if its issue has a planning intent. Called
+ * by the `created` webhook before the first turn is queued, so routing finds
+ * the role set and decides no other. The intent is read, not deleted: this
+ * runs inside the webhook's transaction, and a rollback must leave it for the
+ * retry. Its TTL ends it, and a session whose role is set is never adopted
+ * twice.
  * @param tx - The transaction.
  * @param integrationId - The integration.
  * @param session - The session, as just mirrored.
@@ -315,7 +339,7 @@ export async function adoptPlanningSession(
 ): Promise<AgentSession> {
   if (!session.externalIssueId || session.role !== null) return session;
   const key = planningIntentKey(integrationId, session.externalIssueId);
-  const raw = await api.redis.redis.getdel(key);
+  const raw = await api.redis.redis.get(key);
   if (!raw) return session;
   const intent = JSON.parse(raw) as PlanningIntent;
   const [updated] = await tx
