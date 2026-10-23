@@ -1,5 +1,5 @@
 {
-  "id": "02db95cf-30bc-4ca7-a9b1-3f1ba4ffcf77",
+  "id": "3a4d7d7a-ca5c-4e24-9702-f2268ce6d8af",
   "prevId": "0448cd0c-fe59-42ec-abae-39b3e4655ab3",
   "version": "7",
   "dialect": "postgresql",
@@ -1058,33 +1058,6 @@
           "columnsFrom": ["work_item_id"],
           "columnsTo": ["id"],
           "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "cost_records_runner_id_runners_id_fk": {
-          "name": "cost_records_runner_id_runners_id_fk",
-          "tableFrom": "cost_records",
-          "tableTo": "runners",
-          "columnsFrom": ["runner_id"],
-          "columnsTo": ["id"],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        },
-        "cost_records_runner_user_id_users_id_fk": {
-          "name": "cost_records_runner_user_id_users_id_fk",
-          "tableFrom": "cost_records",
-          "tableTo": "users",
-          "columnsFrom": ["runner_user_id"],
-          "columnsTo": ["id"],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        },
-        "cost_records_issuer_user_id_users_id_fk": {
-          "name": "cost_records_issuer_user_id_users_id_fk",
-          "tableFrom": "cost_records",
-          "tableTo": "users",
-          "columnsFrom": ["issuer_user_id"],
-          "columnsTo": ["id"],
-          "onDelete": "set null",
           "onUpdate": "no action"
         }
       },

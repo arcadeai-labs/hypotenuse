@@ -25,9 +25,6 @@ CREATE TABLE "cost_records" (
 ALTER TABLE "cost_records" ADD CONSTRAINT "cost_records_project_id_projects_id_fk" FOREIGN KEY ("project_id") REFERENCES "public"."projects"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "cost_records" ADD CONSTRAINT "cost_records_agent_session_id_agent_sessions_id_fk" FOREIGN KEY ("agent_session_id") REFERENCES "public"."agent_sessions"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "cost_records" ADD CONSTRAINT "cost_records_work_item_id_work_items_id_fk" FOREIGN KEY ("work_item_id") REFERENCES "public"."work_items"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "cost_records" ADD CONSTRAINT "cost_records_runner_id_runners_id_fk" FOREIGN KEY ("runner_id") REFERENCES "public"."runners"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "cost_records" ADD CONSTRAINT "cost_records_runner_user_id_users_id_fk" FOREIGN KEY ("runner_user_id") REFERENCES "public"."users"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "cost_records" ADD CONSTRAINT "cost_records_issuer_user_id_users_id_fk" FOREIGN KEY ("issuer_user_id") REFERENCES "public"."users"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 CREATE UNIQUE INDEX "cost_records_claim_idx" ON "cost_records" USING btree ("work_item_id","claimed_at");--> statement-breakpoint
 CREATE INDEX "cost_records_project_ended_idx" ON "cost_records" USING btree ("project_id","ended_at");--> statement-breakpoint
 CREATE INDEX "cost_records_session_idx" ON "cost_records" USING btree ("agent_session_id");--> statement-breakpoint

@@ -10,8 +10,6 @@ import {
 } from "drizzle-orm/pg-core";
 import { type AgentSessionRole, agentSessions } from "./agent_sessions";
 import { projects } from "./projects";
-import { runners } from "./runners";
-import { users } from "./users";
 import { type WorkItemKind, workItems } from "./work_items";
 
 /** How a claim ended: as its turn did, or back in the queue for another claim. */
@@ -35,7 +33,8 @@ export type CostRecordEnding = (typeof COST_RECORD_ENDINGS)[number];
  *   spent nothing and gets none.
  * - **Attribution is copied.** The runner's name and owner, the issue, the
  *   role, and the manager a worker was dispatched by are what they were when
- *   the money was spent; the ids are kept as well (`set null`) for a live join.
+ *   the money was spent; the ids are kept as well, without foreign keys, for
+ *   a live join that may find nothing.
  * - **Cost is what the agent reported**, in US dollars, for this claim only.
  *   Null when it reported none; Hypotenuse never prices tokens itself.
  */
@@ -60,18 +59,16 @@ export const costRecords = pgTable(
     /** The trigger system's issue id, and the identifier a person reads (`ENG-123`). */
     externalIssueId: text("external_issue_id"),
     issueIdentifier: text("issue_identifier"),
-    runnerId: integer("runner_id").references(() => runners.id, {
-      onDelete: "set null",
-    }),
+    // The runner and the people are ids, not foreign keys: a record is
+    // written while its claim's work item is locked, and a foreign key's
+    // check would then lock the runner row after it — the reverse of the
+    // order a heartbeat takes, which deadlocks the two.
+    runnerId: integer("runner_id"),
     runnerName: text("runner_name").notNull(),
     /** The runner's owner: whose machine, and whose agent account, ran it. */
-    runnerUserId: integer("runner_user_id").references(() => users.id, {
-      onDelete: "set null",
-    }),
+    runnerUserId: integer("runner_user_id"),
     /** The Hypotenuse user who asked for the turn, when one was resolved. */
-    issuerUserId: integer("issuer_user_id").references(() => users.id, {
-      onDelete: "set null",
-    }),
+    issuerUserId: integer("issuer_user_id"),
     agentId: text("agent_id"),
     ending: text("ending").$type<CostRecordEnding>().notNull(),
     inputTokens: integer("input_tokens"),

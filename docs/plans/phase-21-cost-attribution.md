@@ -61,8 +61,8 @@ work item, for the dashboard and for the turn's telemetry span. Three things sto
 - **A record per claim, not per turn.** A turn that ran twice cost twice, on two runners, possibly owned by two
   people. A queued item that was never claimed spent nothing and gets no record.
 - **The attribution is copied, not joined.** Runners are deleted, rules renamed, and sessions re-routed; a cost
-  record is a ledger line and says who it was attributable to *when it was spent*. Ids are kept too (`set null`),
-  so a live join is still possible.
+  record is a ledger line and says who it was attributable to *when it was spent*. Ids are kept too, so a live join
+  is still possible.
 - **Not audited.** A cost record is the daemon half's bookkeeping, written with the work item it describes in the
   transaction that ends the claim — no person decided it (rule 6 of `AGENTS.md`).
 - **No Linear interaction changes**, so `LINEAR_COVERAGE.md` gains no row.
@@ -91,6 +91,10 @@ work item, for the dashboard and for the turn's telemetry span. Three things sto
 - **A late completion of a requeued claim is refused (`NOT_YOUR_WORK`)**, and the usage it carries with it. The
   requeued record keeps the last `usage` event that claim sent. A late completion of a turn the server already
   stopped is still the same claim, and fills in its record's usage when the record has none.
+- **A cost record holds the runner and people by id, not by foreign key.** It is inserted while its claim's work
+  item is locked, and a foreign key to `runners` makes Postgres take a key-share lock on the runner row then — after
+  the item, the reverse of a heartbeat's order (runner, then its items). CI's daemon suite deadlocked on exactly
+  that. The ids stay for a live join; the names a person reads are copied anyway.
 - **ACP v2's `PromptResponse` declares no `usage`.** The token counts are the unstable v1 field an agent sends
   anyway; the SDK passes it through and the host reads it by cast. If a later SDK strips unknown keys, tokens go
   quietly to null — the `costed` scenario in `host.test.ts` is what would notice.
