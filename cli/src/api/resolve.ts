@@ -38,3 +38,22 @@ export async function resolveProjectId(
     }
   }
 }
+
+/**
+ * The caller's project when they are in exactly one, so a command needs no
+ * `--project` until there is a choice to make.
+ * @param client - A signed-in client.
+ * @returns The project, or null with none or several, and how many there are.
+ */
+export async function onlyProject(
+  client: ApiClient,
+): Promise<{ project: ProjectSummary | null; total: number }> {
+  const { projects, pagination } = await client.request<{
+    projects: ProjectSummary[];
+    pagination: { total: number };
+  }>("GET", "/projects", { query: { page: 1, limit: 2 } });
+  return {
+    project: pagination.total === 1 ? (projects[0] ?? null) : null,
+    total: pagination.total,
+  };
+}

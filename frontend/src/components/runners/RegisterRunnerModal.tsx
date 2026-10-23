@@ -3,6 +3,7 @@ import type { ActionResponse } from "keryx";
 import { useState } from "react";
 import { Alert, Button, Form, Modal } from "../../ui";
 import { API_URL, apiFetch } from "../../utils/client";
+import { INSTALL_COMMANDS } from "../../utils/install";
 import { CopyButton } from "../CopyButton";
 
 type Registered = ActionResponse<RunnerRegister>;
@@ -150,8 +151,28 @@ export function RegisterRunnerModal({
             }}
           >
             <p className="text-muted">
-              The usual way is from the machine itself, which saves the token
-              for you:
+              No <code>hypotenuse</code> on the machine yet? Install it first:
+            </p>
+            <div
+              className="runner-installs"
+              data-testid="register-runner-install"
+            >
+              {INSTALL_COMMANDS.map((install) => (
+                <div key={install.label}>
+                  <span className="text-meta">{install.label}</span>
+                  <div className="runner-snippet">
+                    <code>{install.command}</code>
+                    <CopyButton
+                      text={install.command}
+                      label={`Copy ${install.label} install command`}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+            <p className="text-muted">
+              Then register from the machine itself, which saves the token for
+              you:
             </p>
             <div className="runner-snippet">
               <pre data-testid="register-runner-commands">

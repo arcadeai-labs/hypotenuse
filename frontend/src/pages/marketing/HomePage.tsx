@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import { CopyButton } from "../../components/CopyButton";
+import { INSTALL_COMMANDS } from "../../utils/install";
 
 /** The agents named on the home page, as text — never as logos. */
 const AGENTS = [
@@ -10,24 +11,6 @@ const AGENTS = [
   "goose",
   "OpenCode",
   "Cursor",
-];
-
-/** Install commands, as the README documents them. */
-const INSTALLS = [
-  {
-    label: "macOS / Linux",
-    command:
-      "curl -fsSL https://raw.githubusercontent.com/arcadeai-labs/hypotenuse/main/install.sh | bash",
-  },
-  {
-    label: "Windows (PowerShell)",
-    command:
-      "irm https://raw.githubusercontent.com/arcadeai-labs/hypotenuse/main/install.ps1 | iex",
-  },
-  {
-    label: "npm (requires Bun)",
-    command: "bun install -g @arcadeai/hypotenuse",
-  },
 ];
 
 const STEPS = [
@@ -151,7 +134,7 @@ export function HomePage() {
       <section className="home-section">
         <h2>Install</h2>
         <div className="home-installs">
-          {INSTALLS.map((install) => (
+          {INSTALL_COMMANDS.map((install) => (
             <div key={install.label} className="home-install">
               <span className="text-meta">{install.label}</span>
               <div className="home-install-command">

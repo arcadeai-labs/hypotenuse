@@ -315,6 +315,18 @@
   }
 }
 
+.runner-installs {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-bottom: var(--space-3);
+
+  .runner-snippet {
+    margin-top: var(--space-1);
+    margin-bottom: 0;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Routing and identities
 // ---------------------------------------------------------------------------

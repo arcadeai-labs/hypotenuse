@@ -17,7 +17,7 @@ server. It calls the same HTTP actions the dashboard does, as the person who sig
 - Lists take `--page` and `--limit` (default 25) and answer a
   `pagination: { page, limit, total, pages }` envelope.
 - Project-scoped commands act on `--project <id|slug>`, else `HYPOTENUSE_PROJECT`, else the project
-  chosen with `hypotenuse project use`.
+  chosen with `hypotenuse project use`, else the person's only project when they are in just one.
 - The server is `--url`, else `HYPOTENUSE_URL`, else wherever `login` last signed in.
 - `HYPOTENUSE_NO_UPDATE_CHECK=1` turns off the background update notice.
 

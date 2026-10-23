@@ -34,11 +34,15 @@ const homes: Record<string, string> = {};
 /**
  * Sign a test user's CLI in through the real approve → exchange flow and
  * write the credentials file `login` would have, with the shared project
- * selected.
+ * selected (or none).
  * @param user - Who to sign in.
+ * @param project - The selected project; null for none.
  * @returns Their config directory.
  */
-async function signIn(user: TestUser): Promise<string> {
+async function signIn(
+  user: TestUser,
+  project: number | null = universe.projectId,
+): Promise<string> {
   const { token, cliTokenId } = await cliSignIn(url, user, `${user.name}-pc`);
   const home = mkdtempSync(join(tmpdir(), "hyp-cli-runner-"));
   mkdirSync(join(home, "hypotenuse"), { recursive: true, mode: 0o700 });
@@ -50,7 +54,7 @@ async function signIn(user: TestUser): Promise<string> {
       servers: {
         [url]: {
           login: { token, cliTokenId, device: `${user.name}-pc` },
-          project: universe.projectId,
+          project,
           runner: null,
         },
       },
@@ -133,11 +137,29 @@ beforeAll(async () => {
   url = universe.url;
   homes.mario = await signIn(universe.mario);
   homes.toad = await signIn(universe.toad);
+  homes.bowser = await signIn(universe.bowser, null);
+  homes.unselected = await signIn(universe.mario, null);
 }, HOOK_TIMEOUT);
 
 afterAll(async () => {
   await api.stop();
 }, HOOK_TIMEOUT);
+
+describe("with no project selected", () => {
+  test("a person in exactly one project gets that one", async () => {
+    const view = await run("bowser", ["--json", "project", "view"]);
+    expect(view.code, view.stderr).toBe(0);
+    expect(JSON.parse(view.stdout).project.id).toBe(universe.bowser.projectId);
+  });
+
+  test("a person in several is asked to choose", async () => {
+    const result = await run("unselected", ["runner", "list"]);
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain(
+      "No project selected, and you are in several.",
+    );
+  });
+});
 
 describe("hypotenuse runner", () => {
   let runnerId: number;
