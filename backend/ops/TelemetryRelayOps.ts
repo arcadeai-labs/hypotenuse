@@ -246,7 +246,9 @@ export async function postOtlp<S extends OtlpSignal>(
   signal: S,
   request: OtlpRequestBySignal[S],
 ): Promise<PostOutcome> {
-  const refusal = await endpointRefusal(exporter.endpoint);
+  // No lookup here: `postToEndpoint` resolves once and checks that answer, so
+  // a DNS failure is retried rather than refused.
+  const refusal = await endpointRefusal(exporter.endpoint, { lookup: false });
   if (refusal)
     return {
       ok: false,

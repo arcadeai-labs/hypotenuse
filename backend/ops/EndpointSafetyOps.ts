@@ -34,12 +34,19 @@ const PRIVATE_SUFFIXES = [".localhost", ".local", ".internal"];
 /**
  * Why an endpoint may not be exported to, or null when it may.
  * @param raw - The endpoint URL.
- * @param options - Whether private endpoints are allowed, and the resolver.
+ * @param options - Whether private endpoints are allowed, the resolver, and
+ *   whether to look the host name up at all. The relay passes `lookup: false`:
+ *   `postToEndpoint` resolves and checks the address it connects to, and a
+ *   lookup that fails there is retried, not a refusal.
  * @returns A sentence naming the refusal, or null.
  */
 export async function endpointRefusal(
   raw: string,
-  options: { allowPrivate?: boolean; resolve?: Resolver } = {},
+  options: {
+    allowPrivate?: boolean;
+    resolve?: Resolver;
+    lookup?: boolean;
+  } = {},
 ): Promise<string | null> {
   let url: URL;
   try {
@@ -61,6 +68,8 @@ export async function endpointRefusal(
   let addresses: string[];
   if (isIP(host)) {
     addresses = [host];
+  } else if (options.lookup === false) {
+    return null;
   } else {
     try {
       addresses = await (options.resolve ?? systemResolver)(host);

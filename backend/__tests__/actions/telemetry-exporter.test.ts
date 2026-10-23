@@ -396,6 +396,25 @@ describe("endpoint safety", () => {
         },
       }),
     ).toContain("does not resolve");
+    // The relay checks without a lookup: a name that does not resolve now is
+    // left to the export, which retries; an IP literal is still checked.
+    const unresolvable = async () => {
+      throw new Error("EAI_AGAIN");
+    };
+    expect(
+      await endpointRefusal("https://nowhere.example.com", {
+        allowPrivate: false,
+        resolve: unresolvable,
+        lookup: false,
+      }),
+    ).toBeNull();
+    expect(
+      await endpointRefusal("https://10.0.0.5", {
+        allowPrivate: false,
+        resolve: unresolvable,
+        lookup: false,
+      }),
+    ).toContain("10.0.0.5");
   });
 
   test("the export connects only to the address it checked: a rebinding answer is refused", async () => {
