@@ -129,6 +129,10 @@ use, in **both** themes, and fails below 4.5:1 for body text and 3:1 for large t
 - **The mark.** A right triangle, `◢`, whose hypotenuse runs from Linear (top right) to your machine (bottom left).
   It is drawn as an SVG at `design/mark.svg`, with a one-color version for favicons and the CLI banner. The wordmark is
   "Hypotenuse" in Inter Display 600.
+- **Social card.** A shared link unfurls with `frontend/public/social.png`, named by `index.html`'s Open Graph and
+  Twitter tags: the mark, the home page's headline and lede, and its triangle, on the dark theme so it holds its edge
+  on either theme of the reader's client. `bun run --cwd frontend social:image` redraws it from `design/tokens.json`;
+  it is a screenshot, so `theme:check` does not watch it — rerun it after changing the inputs or the home page's copy.
 - **Agent badge.** A small "agent" chip with the agent kind (`claude`, `codex`, …) is shown on every avatar that
   stands for an agent. This applies in the transcript, the session list, and the runner view.
 
