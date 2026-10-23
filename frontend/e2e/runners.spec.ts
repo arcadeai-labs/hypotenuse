@@ -26,6 +26,9 @@ test.describe("runners", () => {
     await expect(page.getByTestId("register-runner-commands")).toContainText(
       "hypotenuse runner register",
     );
+    await expect(page.getByTestId("register-runner-install")).toContainText(
+      "install.sh | bash",
+    );
     await page.getByTestId("register-runner-name").fill("e2e-box");
     await page.getByTestId("register-runner-submit").click();
     const token = page.getByTestId("register-runner-token");
