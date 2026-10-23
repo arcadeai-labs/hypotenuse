@@ -161,9 +161,12 @@ jobs:
       - run: bun install --frozen-lockfile
       - name: Compile
         run: |
+          # Embeds skills/hypotenuse.md for `hypotenuse skill`, as cli's `build` script does.
           bun build --compile --minify --sourcemap \
             --target=${{ matrix.target }} \
-            ./cli/src/cli.ts --outfile dist/${{ matrix.asset }}
+            ./cli/src/cli.ts ./cli/skills/hypotenuse.md \
+            --loader .md:file --asset-naming='[name].[ext]' \
+            --outfile dist/${{ matrix.asset }}
       - name: Upload to the draft release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
