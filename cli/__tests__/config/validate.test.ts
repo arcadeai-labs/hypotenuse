@@ -403,6 +403,22 @@ describe("pass 3 — this machine", () => {
     ).toEqual([]);
   });
 
+  test("docs files are readable; URLs and a URL prompt_file are the agent's to read", () => {
+    const c = config(
+      '[roles.worker]\nagent = "claude"\nprompt_file = "https://wiki.example.com/worker"\ndocs = ["https://wiki.example.com/process", "prompts/process.md", "prompts/missing.md"]\n',
+    );
+    const path = "/home/mario/.config/hypotenuse/prompts/process.md";
+    expect(
+      validateMachine(c, machine({ files: { [path]: "Use {{nothing}}" } }))
+        .errors,
+    ).toEqual([
+      {
+        path: "roles.worker.docs[2]",
+        message: "~/.config/hypotenuse/prompts/missing.md cannot be read",
+      },
+    ]);
+  });
+
   test("a prompt_file is readable and uses only known variables", () => {
     const c = config(
       '[roles.worker]\nagent = "claude"\nprompt_file = "prompts/worker.md"\n',

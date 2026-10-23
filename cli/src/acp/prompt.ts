@@ -7,6 +7,7 @@
  * ```
  * <hypotenuse>           who the agent is working for, and that it is an AI
  * <role-instructions>    the role's template, rendered
+ * <role-docs>            the role's `docs`: files inlined, URLs linked
  * <linear-context>       Linear's promptContext, verbatim
  * <guidance>             nearest team first, workspace last
  * <conversation>         prompts, responses, elicitations, errors so far
@@ -27,6 +28,12 @@
  *
  * Templates are Markdown with `{{dotted.variable}}` and no logic. An unknown
  * variable is an error at `config validate` and renders empty here.
+ *
+ * The daemon never fetches a URL for a prompt. A `prompt_file` URL becomes an
+ * instruction to read and follow that document, and a `docs` URL a link to
+ * read first: the agent reaches them with its own tools (an MCP server for a
+ * private wiki), which hold credentials the daemon has no business holding.
+ * A doc's text is included verbatim, never rendered as a template.
  */
 import type {
   AssignmentReview,
@@ -58,8 +65,20 @@ export interface PromptContext {
   resumed: boolean;
   /** A role's `prompt_file`, already read; overrides `prompt`. */
   templateText?: string | null;
+  /** A role's `prompt_file` URL, for the agent to read; overrides `prompt`. */
+  templateUrl?: string | null;
+  /** A role's `docs`, in order. */
+  docs?: readonly RoleDoc[];
   /** Whether the directory is a read-only checkout (a manager's). */
   readOnly?: boolean;
+}
+
+/** One entry of a role's `docs`, as the prompt includes it. */
+export interface RoleDoc {
+  /** A URL, or the file's path as shown to people. */
+  source: string;
+  /** The file's text; null for a URL, which the agent reads itself. */
+  text: string | null;
 }
 
 /**
@@ -182,6 +201,37 @@ function fenceFor(text: string): string {
     ...[...text.matchAll(/`+/g)].map((m) => m[0].length),
   );
   return "`".repeat(Math.max(3, longest + 1));
+}
+
+/**
+ * The role's instructions when its `prompt_file` is a URL.
+ * @param url - The URL.
+ * @returns The text of `<role-instructions>`.
+ */
+export function remoteInstructions(url: string): string {
+  return `Your instructions for this role are the document at ${url}. Read it with your tools before doing anything else, and follow it. If you cannot read it, say so in your response and stop.`;
+}
+
+/**
+ * The `<role-docs>` section's body: the URLs to read first, then each file.
+ * @param docs - The role's docs, in order.
+ * @returns The body, or empty when there are none.
+ */
+export function roleDocsSection(docs: readonly RoleDoc[]): string {
+  if (docs.length === 0) return "";
+  const links = docs.filter((d) => d.text === null).map((d) => d.source);
+  const files = docs.filter((d) => d.text !== null);
+  return [
+    "These documents are part of your instructions: they say how this team works. Where one disagrees with the instructions above about your tools or what you never do, the instructions above win.",
+    links.length
+      ? `Read each of these with your tools before you begin. If one cannot be read, say so in your response.\n${links.map((l) => `- ${l}`).join("\n")}`
+      : null,
+    ...files.map(
+      (d) => `<doc source=${attr(d.source)}>\n${(d.text ?? "").trim()}\n</doc>`,
+    ),
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 }
 
 /**
@@ -345,7 +395,13 @@ export function buildPrompt(
       "hypotenuse",
       `You are working as the ${assignment.role} agent for ${who}${creator ? ` on behalf of ${creator}` : ""}, in a Linear agent session. You are an AI agent; never claim to be a person. What you say at the end of your turn is posted to the session as your response.${dispatchedBy(assignment)}`,
     ),
-    section("role-instructions", renderTemplate(template, values, onUnknown)),
+    section(
+      "role-instructions",
+      ctx.templateUrl
+        ? remoteInstructions(ctx.templateUrl)
+        : renderTemplate(template, values, onUnknown),
+    ),
+    section("role-docs", roleDocsSection(ctx.docs ?? [])),
     section("linear-context", assignment.promptContext),
     section("guidance", guidance),
     section("conversation", conversation(assignment)),

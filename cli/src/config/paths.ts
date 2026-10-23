@@ -53,6 +53,16 @@ export function expandPath(
 }
 
 /**
+ * Whether a prompt source (`prompt_file`, a `docs` entry) is a URL. The
+ * daemon never fetches one: the agent reads it with its own tools.
+ * @param source - The source, as written or as the schema left it.
+ * @returns True for an `http://` or `https://` URL.
+ */
+export function isRemoteSource(source: string): boolean {
+  return /^https?:\/\//i.test(source.trim());
+}
+
+/**
  * Show a path the way a person wrote it: under the home directory as `~/…`.
  * @param path - An absolute path.
  * @param env - Environment variables.

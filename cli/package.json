@@ -1,6 +1,6 @@
 {
   "name": "@arcadeai/hypotenuse",
-  "version": "0.16.1",
+  "version": "0.17.0",
   "description": "Hypotenuse — run coding agents on your machine for Linear agent sessions",
   "type": "module",
   "license": "Apache-2.0",

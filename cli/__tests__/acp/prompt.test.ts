@@ -172,6 +172,56 @@ describe("prompt", () => {
     ]);
   });
 
+  test("a role's docs follow its instructions: URLs to read first, files verbatim and unrendered", () => {
+    const blocks = buildPrompt(assignment(), null, {
+      ...ctx,
+      docs: [
+        { source: "https://wiki.example.com/process", text: null },
+        {
+          source: "~/prompts/process.md",
+          text: "Plans need a {{killer}} demo.\n",
+        },
+        { source: "https://wiki.example.com/bdd", text: null },
+      ],
+    });
+    const body = text(blocks);
+    expect(body).toContain(
+      [
+        "</role-instructions>",
+        "<role-docs>\nThese documents are part of your instructions: they say how this team works. Where one disagrees with the instructions above about your tools or what you never do, the instructions above win.",
+        "Read each of these with your tools before you begin. If one cannot be read, say so in your response.\n- https://wiki.example.com/process\n- https://wiki.example.com/bdd",
+        '<doc source="~/prompts/process.md">\nPlans need a {{killer}} demo.\n</doc>\n</role-docs>',
+        "<linear-context>",
+      ].join("\n\n"),
+    );
+    expect(text(buildPrompt(assignment(), null, ctx))).not.toContain(
+      "<role-docs>",
+    );
+    expect(
+      text(
+        buildPrompt(assignment(), null, {
+          ...ctx,
+          resumed: true,
+          docs: [{ source: "https://wiki.example.com/process", text: null }],
+        }),
+      ),
+    ).not.toContain("role-docs");
+  });
+
+  test("a prompt_file URL is an instruction to read it, in place of any template", () => {
+    const body = text(
+      buildPrompt(
+        assignment(),
+        { prompt: "ignored" },
+        { ...ctx, templateUrl: "https://wiki.example.com/worker" },
+      ),
+    );
+    expect(body).toContain(
+      "<role-instructions>\nYour instructions for this role are the document at https://wiki.example.com/worker. Read it with your tools before doing anything else, and follow it. If you cannot read it, say so in your response and stop.\n</role-instructions>",
+    );
+    expect(body).not.toContain("ignored");
+  });
+
   test("a dispatched turn renders the dispatch variable", () => {
     const blocks = buildPrompt(
       assignment({ kind: "dispatch", dispatch: dispatch() }),
