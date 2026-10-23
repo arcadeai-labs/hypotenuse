@@ -13,10 +13,12 @@
  *    `interrupted` — its agent died with that process — and the server's lease
  *    logic re-offers it;
  * 6. start ServerLink and flush the queued events;
- * 7. signal `ready` (over the IPC channel to a background start's parent).
+ * 7. signal `ready` (over the IPC channel to a background start's parent);
+ * 8. watch the config file: an edit is reloaded as `daemon reload` would, and
+ *    one that only a restart can apply drains running turns and restarts.
  *
  * Exit codes: 0 after a stop, 130/143 on SIGINT/SIGTERM, 75 to ask a service
- * manager for a restart after an upgrade, and 78 for what a restart will not
+ * manager for a restart after an upgrade or a config change, and 78 for what a restart will not
  * fix (an invalid config, no runner, a revoked runner, another runner on this
  * machine), which systemd's unit is told not to restart.
  */
@@ -46,6 +48,8 @@ import { credentialsPath } from "../paths";
 import { machineId } from "../runner/machine";
 import { onSignal, register, setHardTimeout } from "../shutdown";
 import type { CleanupOptions } from "../worktree/cleanup";
+import { ConfigRestart } from "./config-restart";
+import { type ConfigWatcher, watchConfigFile } from "./config-watch";
 import { ControlServer, INVALID_PARAMS, RpcError } from "./control-socket";
 import { DaemonApi } from "./daemon-api";
 import { DaemonLog } from "./log";
@@ -198,6 +202,9 @@ export function wasRevoked(stateDir: string, token: string): boolean {
   }
 }
 
+/** How long a config change that needs a restart lets running turns finish. */
+export const CONFIG_RESTART_DRAIN_MS = 10 * 60_000;
+
 /**
  * Validate the config, overrides applied.
  * @param options - How the daemon was started.
@@ -300,8 +307,13 @@ export async function runDaemon(options: DaemonOptions): Promise<void> {
   const machine = realMachine(env);
   const api = new DaemonApi(origin, runner.token, (line) => log.debug(line));
   let exiting = false;
+  /** `restartSelf` ran: this process is going away. */
+  let restartScheduled = false;
+  /** A config restart's hand-off, until it fires: a stop can still cancel it. */
+  let configHandOff: ReturnType<typeof setTimeout> | null = null;
   let supervisor: Supervisor;
   let control: ControlServer;
+  let watcher: ConfigWatcher | null = null;
 
   /**
    * Close everything, in order, without exiting.
@@ -313,10 +325,54 @@ export async function runDaemon(options: DaemonOptions): Promise<void> {
     } else {
       await supervisor.sink.drain(2_000);
     }
+    watcher?.close();
     supervisor.close();
     control.close();
     releaseLock(paths.pidfile);
     state.close();
+  };
+
+  /**
+   * Restart this daemon: exit for the service manager to start again, or
+   * re-execute it detached. Callers drain first if turns should finish.
+   * @returns How it restarts.
+   */
+  const restartSelf = (
+    fromConfig = false,
+  ): { restarting: true; mode: "service" | "re-exec" } => {
+    const service = env.HYPOTENUSE_SERVICE === "1";
+    const answer = {
+      restarting: true as const,
+      mode: service ? ("service" as const) : ("re-exec" as const),
+    };
+    if (restartScheduled) return answer;
+    restartScheduled = true;
+    const handOff = setTimeout(() => {
+      configHandOff = null;
+      // A stop or a revocation that began meanwhile owns the exit.
+      if (exiting) return;
+      exiting = true;
+      log.info(
+        service ? "exiting for the service manager to restart" : "re-executing",
+      );
+      void teardown(false).then(() => {
+        if (service) process.exit(EXIT_RESTART);
+        const [command, ...prefix] = selfCommand();
+        const child = spawn(
+          command as string,
+          [...prefix, ...childArgs(process.argv.slice(2))],
+          {
+            detached: true,
+            stdio: "ignore",
+            env: env as NodeJS.ProcessEnv,
+          },
+        );
+        child.unref();
+        process.exit(0);
+      });
+    }, 50);
+    if (fromConfig) configHandOff = handOff;
+    return answer;
   };
 
   const requestExit = (exit: ExitRequest) => {
@@ -362,6 +418,35 @@ export async function runDaemon(options: DaemonOptions): Promise<void> {
     ],
   });
 
+  const configRestart = new ConfigRestart(
+    {
+      pauseClaims: () => supervisor.pauseClaims(),
+      resumeClaims: () => supervisor.resumeClaims(),
+      waitIdle: (ms) => supervisor.waitIdle(ms),
+      stopTurns: async () => {
+        await supervisor.drain({ timeoutMs: 0, cancel: true });
+      },
+      startProblem: () => {
+        // What startup would refuse: the config, then the runner it names.
+        const read = readDaemonConfig(options, env);
+        if (!read.config) return "the config is not valid";
+        const file = credentialsPath(env);
+        try {
+          resolveDaemonRunner(read.config, loadCredentials(file), file);
+        } catch (error) {
+          return error instanceof Error ? error.message : String(error);
+        }
+        return null;
+      },
+      exiting: () => exiting,
+      restart: () => {
+        restartSelf(true);
+      },
+      log: (message) => log.info(message),
+    },
+    CONFIG_RESTART_DRAIN_MS,
+  );
+
   control = new ControlServer(
     paths.socket,
     {
@@ -388,39 +473,28 @@ export async function runDaemon(options: DaemonOptions): Promise<void> {
         const report = await supervisor.cleaner.run(cleanupParams(params));
         return report;
       },
-      drain: (params) =>
-        supervisor.drain({
+      drain: (params) => {
+        // `daemon stop` and `upgrade` drain first: the person or the upgrade
+        // now decides what comes next, not a pending config restart.
+        configRestart.takeOver();
+        if (configHandOff) {
+          clearTimeout(configHandOff);
+          configHandOff = null;
+          restartScheduled = false;
+          log.info(
+            "config restart called off: a stop or restart was asked for",
+          );
+        }
+        return supervisor.drain({
           timeoutMs:
             typeof params.timeoutMs === "number" ? params.timeoutMs : 600_000,
           cancel: params.cancel === true,
-        }),
+        });
+      },
       reload: () => supervisor.reload(),
       restart: () => {
-        const service = env.HYPOTENUSE_SERVICE === "1";
-        setTimeout(() => {
-          exiting = true;
-          log.info(
-            service
-              ? "exiting for the service manager to restart"
-              : "re-executing",
-          );
-          void teardown(false).then(() => {
-            if (service) process.exit(EXIT_RESTART);
-            const [command, ...prefix] = selfCommand();
-            const child = spawn(
-              command as string,
-              [...prefix, ...childArgs(process.argv.slice(2))],
-              {
-                detached: true,
-                stdio: "ignore",
-                env: env as NodeJS.ProcessEnv,
-              },
-            );
-            child.unref();
-            process.exit(0);
-          });
-        }, 50);
-        return { restarting: true, mode: service ? "service" : "re-exec" };
+        configRestart.takeOver();
+        return restartSelf();
       },
       "mcp.hello": (params) => supervisor.broker.hello(params),
       "mcp.call": (params) => supervisor.broker.call(params),
@@ -463,4 +537,31 @@ export async function runDaemon(options: DaemonOptions): Promise<void> {
   });
   report({ ready: true, pid: process.pid });
   rmSync(revokedMarker(paths.stateDir), { force: true });
+
+  watcher = watchConfigFile(
+    paths.config,
+    () => {
+      // Stopping, restarting, or handed to a stop or an upgrade: leave it.
+      if (exiting || restartScheduled || configRestart.isTakenOver) return;
+      log.info(`${paths.config} changed; reloading`);
+      const result = supervisor.reload();
+      const needsRestart = !result.error && result.requiresRestart.length > 0;
+      if (needsRestart && !configRestart.isPending) {
+        log.info(
+          "restarting to apply the config change once running turns finish",
+          { keys: result.requiresRestart.join(",") },
+        );
+      }
+      void configRestart.saved(
+        { needsRestart, invalid: Boolean(result.error) },
+        paths.config,
+      );
+    },
+    {
+      onError: (error) =>
+        log.warn(
+          `not watching ${paths.config} for changes (\`hypotenuse daemon reload\` still applies them): ${error instanceof Error ? error.message : String(error)}`,
+        ),
+    },
+  );
 }

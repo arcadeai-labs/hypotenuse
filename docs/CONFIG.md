@@ -50,8 +50,10 @@ of a generated file points editors at that schema:
 - **`$VAR` / `${VAR}`** in `env` and `headers` values (agents, MCP servers) are resolved from the daemon's
   environment when a turn starts. An unset variable fails that turn with an error that names the variable,
   never its value.
-- **Changes take effect** on `hypotenuse daemon reload` or `SIGHUP`. Changing `server.*`, an existing
-  repository's `path`, or an agent `command` in use needs `hypotenuse daemon restart`; `reload` tells you so.
+- **Changes take effect** when the file is saved: the daemon watches it and reloads, as
+  `hypotenuse daemon reload` or `SIGHUP` also do. An invalid file is refused and the running config stays.
+  Changing `server.*`, an existing repository's `path`, or an agent `command` in use needs a restart: a saved
+  edit lets running turns finish (up to 10 minutes) and restarts the daemon; `reload` says so instead.
 
 ## Top level
 
