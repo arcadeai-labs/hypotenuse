@@ -387,7 +387,7 @@ export const CreateAgentSessionOnComment = operation<
   {
     agentSessionCreateOnComment: {
       success: boolean;
-      agentSession: LinearAgentSession;
+      agentSession: LinearAgentSession | null;
     };
   },
   { input: { commentId: string; externalLink?: string } }

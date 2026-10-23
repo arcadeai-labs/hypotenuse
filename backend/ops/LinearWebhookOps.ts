@@ -275,6 +275,37 @@ function issueName(identifier: string | null | undefined): string {
   return identifier ?? "the issue";
 }
 
+/** The answer to a session with no issue: routing can place no turn for it. */
+export const NO_ISSUE_RESPONSE =
+  "I can only work from an issue for now. Delegate an issue to me, or mention me in one, and I'll pick it up there.";
+
+/**
+ * Answer a session that has no issue (one started on a project comment), and
+ * queue nothing: routing, the agent tools' scope, and the worktree all start
+ * from an issue.
+ * @param tx - The transaction.
+ * @param agentSessionId - The session.
+ * @returns The result.
+ */
+async function answerWithoutIssue(
+  tx: TxHandle,
+  agentSessionId: number,
+): Promise<HandlerResult> {
+  await enqueueActivity(
+    tx,
+    agentSessionId,
+    { type: "response", body: NO_ISSUE_RESPONSE },
+    { priority: "ack" },
+  );
+  return {
+    outcome: "handled",
+    deliver: [agentSessionId],
+    summary:
+      "A session with no issue (started on a project comment): answered that work starts from an issue; no turn queued.",
+    agentSessionId,
+  };
+}
+
 /**
  * Whether a session already has anything outbound — an acknowledgement is
  * sent once per session, however many times Linear says `created`.
@@ -307,6 +338,7 @@ async function hasOutbound(
  * | `prompted`, `continue` signal | a plain follow-up, as below; an empty body reads "continue" |
  * | `prompted`, a repository question pending | record the prompt; take it as the answer |
  * | `prompted`, otherwise | record the prompt; merge it into a queued follow-up or queue a new turn, sticky to the session's runner |
+ * | `created` or `prompted`, a session with no issue (one started on a project comment) | answer that work starts from an issue; queue no turn |
  * | anything else | `ignored` |
  *
  * An event for another app user (never expected: one webhook per app) is
@@ -359,6 +391,7 @@ export async function handleAgentSessionEvent(
             ...about,
           };
     }
+    if (!session.externalIssueId) return answerWithoutIssue(tx, session.id);
     // Linear's `created` for a session a manager's dispatch started, before
     // the dispatch recorded it: it becomes the dispatch's worker session.
     const adopted = await adoptDispatchedSession(tx, integration, session);
@@ -433,6 +466,8 @@ export async function handleAgentSessionEvent(
       ...about,
     };
   }
+
+  if (!session.externalIssueId) return answerWithoutIssue(tx, session.id);
 
   if (signal === "stop") {
     const effects = await cancelSessionWork(tx, session.id, {
