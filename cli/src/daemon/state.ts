@@ -90,6 +90,7 @@ export const MIGRATIONS: readonly string[] = [
    ALTER TABLE local_sessions ADD COLUMN last_answer TEXT;
    ALTER TABLE local_sessions ADD COLUMN ended_at INTEGER;
    ALTER TABLE local_sessions ADD COLUMN pull_requests TEXT NOT NULL DEFAULT '[]';`,
+  `ALTER TABLE local_sessions ADD COLUMN acp_cost_usd REAL;`,
 ];
 
 /** A `local_sessions` row. */
@@ -104,6 +105,8 @@ export interface LocalSession {
   nextSeq: number;
   acpAgentId: string | null;
   acpSessionId: string | null;
+  /** What `acpSessionId` had cost (USD) by its last turn's end; the next turn's baseline. */
+  acpCostUsd: number | null;
   pid: number | null;
   worktreeId: number | null;
   createdAt: number;
@@ -210,6 +213,7 @@ function toSession(row: Row): LocalSession {
     nextSeq: row.next_seq as number,
     acpAgentId: (row.acp_agent_id as string | null) ?? null,
     acpSessionId: (row.acp_session_id as string | null) ?? null,
+    acpCostUsd: (row.acp_cost_usd as number | null) ?? null,
     pid: (row.pid as number | null) ?? null,
     worktreeId: (row.worktree_id as number | null) ?? null,
     createdAt: row.created_at as number,
@@ -365,18 +369,23 @@ export class StateDb {
    * Move a session to a state.
    * @param agentSessionId - The session.
    * @param state - Its new state.
-   * @param extra - Other columns to set (`pid`, `acpSessionId`).
+   * @param extra - Other columns to set (`pid`, `acpSessionId`, `acpCostUsd`).
    */
   setSessionState(
     agentSessionId: number,
     state: LocalSessionState,
-    extra: { pid?: number | null; acpSessionId?: string | null } = {},
+    extra: {
+      pid?: number | null;
+      acpSessionId?: string | null;
+      acpCostUsd?: number | null;
+    } = {},
   ): void {
     this.db
       .query(
         `UPDATE local_sessions SET state = $state, updated_at = $now,
            pid = CASE WHEN $setPid THEN $pid ELSE pid END,
-           acp_session_id = CASE WHEN $setAcp THEN $acp ELSE acp_session_id END
+           acp_session_id = CASE WHEN $setAcp THEN $acp ELSE acp_session_id END,
+           acp_cost_usd = CASE WHEN $setCost THEN $cost ELSE acp_cost_usd END
          WHERE agent_session_id = $id`,
       )
       .run({
@@ -387,6 +396,8 @@ export class StateDb {
         pid: extra.pid ?? null,
         setAcp: extra.acpSessionId !== undefined ? 1 : 0,
         acp: extra.acpSessionId ?? null,
+        setCost: extra.acpCostUsd !== undefined ? 1 : 0,
+        cost: extra.acpCostUsd ?? null,
       });
   }
 

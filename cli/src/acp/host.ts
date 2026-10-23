@@ -535,6 +535,8 @@ class Turn {
       error: error ? error.slice(0, 4000) : null,
       acpSessionId: this.acpSessionId,
       branch: this.branch,
+      usage: this.mapper.turnUsage(),
+      acpCostUsd: this.acpSessionId ? this.mapper.sessionCostUsd() : null,
     };
   }
 
@@ -847,6 +849,9 @@ class Turn {
         : {};
     const mcpServers = this.mcpServers(caps);
     this.resumed = false;
+    // A resumed session's cost so far; a load's replay may correct it, and a
+    // new session starts from nothing.
+    this.mapper.costBaseline = this.ctx.previousAcpCostUsd ?? null;
     if (
       previousAcpSessionId &&
       !assignment.fresh &&
@@ -917,6 +922,7 @@ class Turn {
         ),
     );
     this.acpSessionId = created.sessionId;
+    this.mapper.costBaseline = 0;
     await this.applyMode(created);
   }
 
@@ -1100,6 +1106,7 @@ class Turn {
     const usage = (
       answer as { usage?: { inputTokens?: number; outputTokens?: number } }
     ).usage;
+    this.emitAll(this.mapper.tokens(usage));
     this.otel.promptEnded(
       {
         "gen_ai.response.finish_reasons": answer.stopReason,

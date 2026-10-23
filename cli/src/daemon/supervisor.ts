@@ -623,8 +623,9 @@ export class Supervisor {
       },
       this.config,
     ).agentId;
-    const previousAcpSessionId =
-      state.session(assignment.agentSessionId)?.acpSessionId ?? null;
+    const local = state.session(assignment.agentSessionId);
+    const previousAcpSessionId = local?.acpSessionId ?? null;
+    const previousAcpCostUsd = local?.acpCostUsd ?? null;
     state.claimSession({
       agentSessionId: assignment.agentSessionId,
       linearSessionId: assignment.externalSessionId,
@@ -736,6 +737,7 @@ export class Supervisor {
       stateDir: this.options.stateDir,
       env: this.options.env,
       previousAcpSessionId,
+      previousAcpCostUsd,
       onReply: (handler) => {
         slot.onReply = handler;
       },
@@ -828,6 +830,7 @@ export class Supervisor {
           error: result.error ?? null,
           acpSessionId: result.acpSessionId ?? null,
           branch: result.branch ?? null,
+          ...(result.usage ? { usage: result.usage } : {}),
           ...(slot.consumed.length
             ? { answersConsumed: slot.consumed.slice(0, 100) }
             : {}),
@@ -852,7 +855,12 @@ export class Supervisor {
         // so the next follow-up can still resume it.
         {
           pid: null,
-          ...(result.acpSessionId ? { acpSessionId: result.acpSessionId } : {}),
+          ...(result.acpSessionId
+            ? {
+                acpSessionId: result.acpSessionId,
+                acpCostUsd: result.acpCostUsd ?? null,
+              }
+            : {}),
         },
       );
     }

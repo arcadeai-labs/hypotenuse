@@ -5,6 +5,7 @@
 import type {
   CANCEL_REASONS,
   COMPLETE_OUTCOMES,
+  TurnUsage,
   WorkAssignment,
 } from "../../../protocol/src/index";
 import type { Config } from "../config/schema";
@@ -51,6 +52,12 @@ export interface TurnContext {
   env: Record<string, string | undefined>;
   /** The ACP session this runner last held for the session, if any. */
   previousAcpSessionId: string | null;
+  /**
+   * What that ACP session had cost (USD) by its last turn's end, as the agent
+   * reported it; null when unknown. The baseline a resumed turn's cost is
+   * measured from.
+   */
+  previousAcpCostUsd?: number | null;
   /**
    * Register the reader of a person's replies to the turn's questions. It
    * answers true when a reply answered a question, false when it did not
@@ -119,6 +126,10 @@ export interface TurnResult {
   error?: string | null;
   acpSessionId?: string | null;
   branch?: string | null;
+  /** What the turn spent, as the agent reported it. */
+  usage?: TurnUsage;
+  /** The ACP session's cumulative cost after the turn (USD), for the next turn's baseline. */
+  acpCostUsd?: number | null;
 }
 
 /** Runs one turn. */

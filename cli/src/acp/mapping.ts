@@ -13,7 +13,7 @@
  * | `tool_call_update` completed / failed | a persisted `action` with the done verb and a result |
  * | `plan` | the whole `plan`, unless identical to the last one sent |
  * | `session_info_update` | `summary`, one line of at most 255 characters |
- * | `usage_update` | `usage` (dashboard only) |
+ * | `usage_update` | `usage`: the turn's share of the agent's cumulative cost (see {@link TurnMapper.costBaseline}), and the context window |
  * | a pull request URL of the session's repository, in a completed `execute` result or the turn's message | `external_url` "Pull Request", once per URL |
  * | mode, config, and command updates; `user_message_chunk`; notices; compaction | nothing |
  * | an unknown kind | nothing; reported once |
@@ -26,6 +26,7 @@
  * updates, not activities), and any trailing message is left to the session
  * log.
  */
+import type { TurnUsage } from "../../../protocol/src/index";
 import type { EventInput } from "../daemon/event-sink";
 import type { SessionUpdate, StopReason } from "./connection";
 import type { PrDetector } from "./pr-detect";
@@ -111,6 +112,22 @@ export class TurnMapper {
   private lastPlan = "";
   private readonly unknown = new Set<string>();
   private lastActionSummary: string | null = null;
+  /**
+   * What the agent's session had cost (USD) before this turn: `0` for a new
+   * ACP session, the figure the daemon recorded at the last turn's end for a
+   * resumed one, or what a `session/load` replay reports. Null when unknown,
+   * and then the turn's cost is not reported.
+   */
+  costBaseline: number | null = null;
+  /** Whether this turn's first live cost figure has been checked against the baseline. */
+  private costChecked = false;
+  /** The agent's cumulative cost for its session (USD), as last reported or as the baseline. */
+  private sessionCost: number | null = null;
+  /** What the turn has spent so far, as the next `usage` event reports it. */
+  private readonly usage: TurnUsage & {
+    contextUsed?: number;
+    contextSize?: number;
+  } = {};
   /** The last mode or config option values the agent reported. */
   readonly recorded: Record<string, unknown> = {};
 
@@ -135,7 +152,14 @@ export class TurnMapper {
    * @returns The events it produces, in order.
    */
   update(update: SessionUpdate): EventInput[] {
-    if (this.replaying) return [];
+    if (this.replaying) {
+      // A replayed figure is what the session had spent before this turn.
+      if (update.sessionUpdate === "usage_update") {
+        const cost = usdCost(update.cost);
+        if (cost !== null) this.costBaseline = cost;
+      }
+      return [];
+    }
     const kind = (update as { sessionUpdate: string }).sessionUpdate;
     switch (update.sessionUpdate) {
       case "agent_thought_chunk": {
@@ -217,16 +241,10 @@ export class TurnMapper {
         return [{ type: "summary", title: truncate(title, 255) }];
       }
       case "usage_update": {
-        return [
-          {
-            type: "usage",
-            contextUsed: Math.max(0, Math.round(update.used)),
-            contextSize: Math.max(0, Math.round(update.size)),
-            ...(update.cost && update.cost.currency.toUpperCase() === "USD"
-              ? { costUsd: Math.max(0, update.cost.amount) }
-              : {}),
-          },
-        ];
+        this.usage.contextUsed = Math.max(0, Math.round(update.used));
+        this.usage.contextSize = Math.max(0, Math.round(update.size));
+        this.recordCost(usdCost(update.cost));
+        return [{ type: "usage", ...this.usage }];
       }
       case "current_mode_update":
         this.recorded.mode = update.currentModeId;
@@ -241,6 +259,71 @@ export class TurnMapper {
         }
         return [];
     }
+  }
+
+  /**
+   * Take the agent's cumulative cost for its session and work out the turn's
+   * share. A first figure below the baseline means the agent counts from its
+   * own process's start (every turn is a new process), so the baseline is
+   * `0` for the rest of the turn.
+   * @param cumulative - The agent's figure in USD, or null when it gave none.
+   */
+  private recordCost(cumulative: number | null): void {
+    if (cumulative === null) return;
+    if (!this.costChecked) {
+      this.costChecked = true;
+      if (this.costBaseline !== null && cumulative < this.costBaseline)
+        this.costBaseline = 0;
+    }
+    this.sessionCost = cumulative;
+    if (this.costBaseline !== null)
+      this.usage.costUsd = roundUsd(
+        Math.max(0, cumulative - this.costBaseline),
+      );
+  }
+
+  /**
+   * Take the prompt response's token counts, at the turn's end.
+   * @param tokens - The response's `usage`, if the agent sent one.
+   * @returns The `usage` event to report, or nothing when there was nothing new.
+   */
+  tokens(
+    tokens: { inputTokens?: number; outputTokens?: number } | undefined,
+  ): EventInput[] {
+    const count = (n: unknown) =>
+      typeof n === "number" && Number.isFinite(n)
+        ? Math.max(0, Math.round(n))
+        : undefined;
+    const input = count(tokens?.inputTokens);
+    const output = count(tokens?.outputTokens);
+    if (input === undefined && output === undefined) return [];
+    if (input !== undefined) this.usage.inputTokens = input;
+    if (output !== undefined) this.usage.outputTokens = output;
+    return [{ type: "usage", ...this.usage }];
+  }
+
+  /**
+   * What the turn spent, for its completion; undefined when the agent
+   * reported nothing.
+   * @returns The tokens and cost.
+   */
+  turnUsage(): TurnUsage | undefined {
+    const { inputTokens, outputTokens, costUsd } = this.usage;
+    const usage: TurnUsage = {
+      ...(inputTokens !== undefined ? { inputTokens } : {}),
+      ...(outputTokens !== undefined ? { outputTokens } : {}),
+      ...(costUsd !== undefined ? { costUsd } : {}),
+    };
+    return Object.keys(usage).length ? usage : undefined;
+  }
+
+  /**
+   * The agent's cumulative cost for its session after this turn, for the
+   * next turn's baseline: the last figure it reported, else the baseline.
+   * @returns USD, or null when unknown.
+   */
+  sessionCostUsd(): number | null {
+    return this.sessionCost ?? this.costBaseline;
   }
 
   /**
@@ -395,4 +478,26 @@ function callText(call: ToolCallState): string {
         : JSON.stringify(call.rawOutput),
     );
   return parts.join("\n");
+}
+
+/**
+ * An ACP cost in US dollars; other currencies are not converted.
+ * @param cost - The `usage_update`'s `cost`.
+ * @returns The amount, or null.
+ */
+function usdCost(
+  cost: { amount: number; currency: string } | null | undefined,
+): number | null {
+  if (!cost || cost.currency.toUpperCase() !== "USD") return null;
+  return Number.isFinite(cost.amount) ? Math.max(0, cost.amount) : null;
+}
+
+/**
+ * Round to a millionth of a dollar, the precision the server keeps, so a
+ * subtraction's float noise is not reported.
+ * @param usd - Dollars.
+ * @returns Dollars, rounded.
+ */
+function roundUsd(usd: number): number {
+  return Math.round(usd * 1e6) / 1e6;
 }

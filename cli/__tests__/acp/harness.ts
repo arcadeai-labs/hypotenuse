@@ -132,7 +132,7 @@ export class TestTurn {
   /**
    * @param config - The config.
    * @param scenario - The fake agent's scenario.
-   * @param options - The assignment, state dir, previous ACP session, env, host options.
+   * @param options - The assignment, state dir, previous ACP session and its cost, env, host options.
    */
   constructor(
     readonly config: Config,
@@ -141,6 +141,7 @@ export class TestTurn {
       assignment?: WorkAssignment;
       stateDir?: string;
       previousAcpSessionId?: string | null;
+      previousAcpCostUsd?: number | null;
       env?: Record<string, string>;
       host?: HostOptions;
     } = {},
@@ -164,6 +165,7 @@ export class TestTurn {
         ...options.env,
       },
       previousAcpSessionId: options.previousAcpSessionId ?? null,
+      previousAcpCostUsd: options.previousAcpCostUsd ?? null,
       onReply: (handler) => {
         this.replyHandler = handler;
       },

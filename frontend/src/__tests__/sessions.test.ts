@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { COMMANDS, type CommandContext } from "../commands/registry";
 import {
+  costLabel,
+  formatUsd,
   frameTouches,
   glyphStatus,
   parseSessionsFrame,
@@ -45,6 +47,37 @@ describe("session labels", () => {
     expect(waitingLabel("offline")).toBe("Runner offline");
     expect(waitingLabel("brand_new")).toBe("brand_new");
     expect(waitingLabel(null)).toBeNull();
+  });
+});
+
+describe("session cost", () => {
+  const totals = {
+    turns: 2,
+    unpricedTurns: 0,
+    inputTokens: 1200,
+    outputTokens: 300,
+    costUsd: 1.25,
+  };
+
+  test("dollars are cents, with two significant places below a cent", () => {
+    expect(formatUsd(1.25)).toBe("$1.25");
+    expect(formatUsd(0)).toBe("$0.00");
+    expect(formatUsd(0.0042)).toBe("$0.0042");
+  });
+
+  test("a session reads as dollars and tokens, naming turns no cost was reported for", () => {
+    expect(costLabel(totals)).toBe("$1.25 · 1,500 tokens");
+    expect(costLabel({ ...totals, unpricedTurns: 1 })).toBe(
+      "$1.25 · 1,500 tokens · 1 turn unpriced",
+    );
+    expect(costLabel({ ...totals, costUsd: null, unpricedTurns: 2 })).toBe(
+      "1,500 tokens · 2 turns unpriced",
+    );
+  });
+
+  test("a session no runner has run shows no cost", () => {
+    expect(costLabel({ ...totals, turns: 0 })).toBeNull();
+    expect(costLabel(null)).toBeNull();
   });
 });
 

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { TurnUsage } from "./events";
 
 /** How a turn ended, as the daemon reports it. */
 export const COMPLETE_OUTCOMES = ["completed", "failed", "cancelled"] as const;
@@ -17,6 +18,9 @@ export const CompleteRequest = z.strictObject({
     .describe(
       "The activity ids of delivered answers the turn took as answers; any other answer becomes the session's next prompt",
     ),
+  usage: TurnUsage.optional().describe(
+    "What the turn spent, in full; recorded even when the turn was stopped and its events were dropped",
+  ),
 });
 export type CompleteRequest = z.infer<typeof CompleteRequest>;
 

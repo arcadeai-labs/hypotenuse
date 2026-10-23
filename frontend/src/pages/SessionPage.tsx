@@ -35,6 +35,7 @@ import {
 import { apiFetch } from "../utils/client";
 import { isRunnersPayload, presenceOf, runnersChannel } from "../utils/runners";
 import {
+  costLabel,
   frameTouches,
   glyphStatus,
   parseSessionsFrame,
@@ -293,6 +294,16 @@ export default function SessionPage() {
               <span className="text-muted"> · {view.issuer.user.name}</span>
             )}
           </Property>
+          {costLabel(view.cost) && (
+            <Property label="Cost" data-testid="session-cost">
+              {costLabel(view.cost)}
+              {view.treeCost && view.treeCost.turns > view.cost.turns && (
+                <div className="text-muted">
+                  {costLabel(view.treeCost)} with its workers
+                </div>
+              )}
+            </Property>
+          )}
           {s.repository && (
             <Property label="Repository">
               <code>{s.repository}</code>

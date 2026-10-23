@@ -92,3 +92,44 @@ export function waitingLabel(code: string | null): string | null {
   if (code === null) return null;
   return WAITING_LABELS[code as WaitingCode] ?? code;
 }
+
+/** What a session's turns cost, as `agent-session:view` totals them. */
+export interface CostTotals {
+  turns: number;
+  unpricedTurns: number;
+  inputTokens: number;
+  outputTokens: number;
+  costUsd: number | null;
+}
+
+/**
+ * Dollars as a person reads them: cents, or two significant places below a cent.
+ * @param usd - Dollars.
+ * @returns `$1.25` or `$0.0042`.
+ */
+export function formatUsd(usd: number): string {
+  if (usd !== 0 && Math.abs(usd) < 0.01) return `$${usd.toPrecision(2)}`;
+  return `$${usd.toFixed(2)}`;
+}
+
+/**
+ * A session's cost on one line: dollars when the agent reported them, the
+ * tokens, and how many turns it reported no cost for. Null for a session no
+ * runner has run.
+ * @param totals - The totals.
+ * @returns `$1.25 · 1,500 tokens`, `1,500 tokens · 1 turn unpriced`, or null.
+ */
+export function costLabel(totals: CostTotals | null): string | null {
+  if (!totals || totals.turns === 0) return null;
+  const tokens = totals.inputTokens + totals.outputTokens;
+  const parts = [
+    ...(totals.costUsd !== null ? [formatUsd(totals.costUsd)] : []),
+    `${tokens.toLocaleString("en-US")} tokens`,
+  ];
+  if (totals.unpricedTurns > 0) {
+    parts.push(
+      `${totals.unpricedTurns} turn${totals.unpricedTurns === 1 ? "" : "s"} unpriced`,
+    );
+  }
+  return parts.join(" · ");
+}

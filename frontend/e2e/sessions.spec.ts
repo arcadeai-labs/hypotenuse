@@ -55,6 +55,9 @@ test.describe("sessions", () => {
       page.getByTestId("session-links").locator("a").first(),
     ).toContainText("Pull request #418");
     await expect(page.getByTestId("turns-table")).toContainText("completed");
+    await expect(page.getByTestId("session-cost")).toContainText(
+      "$0.42 · 1,500 tokens",
+    );
     // Nothing is running or waiting: Cancel is there, and disabled.
     await expect(page.getByTestId("session-cancel")).toBeDisabled();
   });
