@@ -114,8 +114,9 @@ being asked for in the manifest, and `projectCommentMention` carries everything 
 - **A person's `projectCommentMention` makes the `triggers:check-notifications` clock call
   `agentSessionCreateOnComment` on the comment** (`requestCommentSession` in `ops/LinearNotificationOps.ts`), outside
   any transaction like every other Linear call a notification needs. Linear's answer is the event's summary: the
-  session it started, or its refusal message (`mention_without_session`). Whether Linear accepts a project comment
-  as a session's root is the open question this answers.
+  session it started, or its refusal message (a GraphQL error, or `success: false`). The outcome stays `noted`:
+  `mention_without_session` would tell the integration card to reconnect Linear, which is not what a refusal here
+  means. Whether Linear accepts a project comment as a session's root is the open question this answers.
 - **A session with no issue is answered, not worked.** `handleAgentSessionEvent` mirrors it with an empty
   `external_issue_id` and posts `NO_ISSUE_RESPONSE` on `created` and on each prompt, with no turn queued. That keeps
   such a session from going stale while routing, the agent tools' scope, and the worktree still start from an issue.

@@ -31,7 +31,7 @@ import {
  * | `action` | Handling | Outcome |
  * |---|---|---|
  * | `issueMention`, `issueCommentMention` | Linear starts (or prompts) a session for the mention itself; a check 30 s later records whether one followed | `noted`, then `mention_without_session` if none did |
- * | `projectCommentMention` by a person | Linear starts no session for a mention on a project, so the clock asks it to start one on the comment (`agentSessionCreateOnComment`); the session it starts is answered, not worked (see `handleAgentSessionEvent`) | `noted`, then `mention_without_session` if Linear refuses |
+ * | `projectCommentMention` by a person | Linear starts no session for a mention on a project, so the clock asks it to start one on the comment (`agentSessionCreateOnComment`); the session it starts is answered, not worked (see `handleAgentSessionEvent`) | `noted`; the summary says whether Linear started the session, or why not |
  * | `issueAssignedToYou` | Hypotenuse works by **delegation**; an assignment starts nothing, and the dashboard says why | `assigned_not_delegated` |
  * | `issueUnassignedFromYou` | the issue's live turns are cancelled as a disengagement (`unassigned`), quietly | `disengaged`, or `noted` with nothing live |
  * | `issueStatusChanged` by someone other than the app | with live work on the issue, the clock reads the issue's state from Linear; `completed` or `canceled` cancels it (`issue_closed`), quietly | `noted`, then `disengaged` or `ignored` |
@@ -289,6 +289,7 @@ async function sessionFollowed(
 export type NotificationCheck =
   | "mention_without_session"
   | "session_requested"
+  | "refused"
   | "session_followed"
   | "disengaged"
   | "still_open"
@@ -447,9 +448,11 @@ async function checkRow(
 /**
  * Ask Linear to start a session on a project comment that mentioned the app,
  * outside any transaction. Linear's `created` for it arrives as a webhook.
- * A refusal settles the check as `mention_without_session`, with Linear's
- * message in the summary; a spent budget or a transport failure tries again
- * a minute later, for an hour.
+ * The outcome stays `noted` whatever Linear answers, and the summary says
+ * what it did: the session it started, or its refusal (a GraphQL error, or
+ * `success: false`). Not `mention_without_session`, which means a lost
+ * `app:mentionable` scope and asks for a reconnect. A spent budget or a
+ * transport failure tries again a minute later, for an hour.
  * @param event - The claimed notification.
  * @param integration - Its integration.
  * @param now - The current time.
@@ -473,24 +476,28 @@ async function requestCommentSession(
       CreateAgentSessionOnComment,
       { input: { commentId } },
     );
-    await settleCheck(event.id, {
-      summary: `Asked Linear to start a session on the project comment; it started ${created.agentSession.id}.`,
-    });
-    return "session_requested";
+    const sessionId = created.success ? created.agentSession?.id : null;
+    await settleCheck(
+      event.id,
+      sessionId
+        ? `Asked Linear to start a session on the project comment; it started ${sessionId}.`
+        : "Linear refused a session on the project comment: it answered success: false.",
+    );
+    return sessionId ? "session_requested" : "refused";
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     if (e instanceof LinearGraphQLError) {
-      await settleCheck(event.id, {
-        outcome: "mention_without_session",
-        summary: `Linear refused a session on the project comment: ${message}`,
-      });
-      return "mention_without_session";
+      await settleCheck(
+        event.id,
+        `Linear refused a session on the project comment: ${message}`,
+      );
+      return "refused";
     }
     if (now.getTime() - event.receivedAt.getTime() > STATUS_CHECK_GIVE_UP_MS) {
-      await settleCheck(event.id, {
-        outcome: "mention_without_session",
-        summary: `Gave up asking Linear for a session on the project comment: ${message}`,
-      });
+      await settleCheck(
+        event.id,
+        `Gave up asking Linear for a session on the project comment: ${message}`,
+      );
       return "given_up";
     }
     api.logger.warn("starting a session on a project comment failed", {
@@ -506,17 +513,14 @@ async function requestCommentSession(
 }
 
 /**
- * Mark a check done with its own summary (and outcome, when it changes).
+ * Mark a check done with its own summary, keeping the outcome `noted`.
  * @param eventId - The row.
- * @param fields - The summary, and the new outcome if any.
+ * @param summary - What the check found.
  */
-async function settleCheck(
-  eventId: number,
-  fields: { summary: string; outcome?: "mention_without_session" },
-): Promise<void> {
+async function settleCheck(eventId: number, summary: string): Promise<void> {
   await api.db.db
     .update(triggerEvents)
-    .set({ checkAfter: null, ...fields })
+    .set({ checkAfter: null, summary })
     .where(eq(triggerEvents.id, eventId));
 }
 

@@ -325,7 +325,7 @@ describe("LC-WH-19 status changes and other types", () => {
 });
 
 describe("LC-WH-26 project comment mentions", () => {
-  test("LC-SES-03 a person's mention in a project comment asks Linear for a session on that comment; a refusal is recorded with Linear's message", async () => {
+  test("LC-SES-03 a person's mention in a project comment asks Linear for a session on that comment; a refusal is recorded with Linear's message, still noted", async () => {
     const commentId = crypto.randomUUID();
     const event = await notify("projectCommentMention", {
       actorId: crypto.randomUUID(),
@@ -341,8 +341,10 @@ describe("LC-WH-26 project comment mentions", () => {
       .requests()
       .filter((r) => r.operationName === "CreateAgentSessionOnComment");
     expect(asked.map((r) => r.variables)).toEqual([{ input: { commentId } }]);
-    // finear holds comments on issues only, so it refuses a project's.
-    expect(checked.outcome).toBe("mention_without_session");
+    // finear holds comments on issues only, so it refuses a project's. A
+    // refusal stays `noted`: `mention_without_session` would tell the
+    // integration card to reconnect Linear, which is not this.
+    expect(checked.outcome).toBe("noted");
     expect(checked.checkAfter).toBeNull();
     expect(checked.summary).toStartWith(
       "Linear refused a session on the project comment: ",

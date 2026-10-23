@@ -145,7 +145,7 @@ describe("every Linear operation document executes against finear", () => {
     const onComment = await run(CreateAgentSessionOnComment, {
       input: { commentId: comment.commentCreate.comment.id },
     });
-    expect(onComment.agentSessionCreateOnComment.agentSession.issue?.id).toBe(
+    expect(onComment.agentSessionCreateOnComment.agentSession?.issue?.id).toBe(
       issue.id,
     );
   });
