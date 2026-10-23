@@ -149,29 +149,6 @@ describe("pass 2 — references", () => {
     ]);
   });
 
-  test("repository names are unique", () => {
-    const c = config(
-      `${worker}[[repositories]]\npath = "~/a"\n[[repositories]]\npath = "~/b"\nname = "api"\n[[repositories]]\npath = "~/d"\nname = "api"\n`,
-    );
-    expect(validateReferences(c).errors).toEqual([
-      {
-        path: "repositories[2].name",
-        message: '"api" is already repositories[1]',
-      },
-    ]);
-  });
-
-  test("a name derived from a path must be one the server accepts", () => {
-    const c = config(`${worker}[[repositories]]\npath = "~/My Code"\n`);
-    expect(validateReferences(c).errors).toEqual([
-      {
-        path: "repositories[0]",
-        message:
-          '"My Code" is not a usable repository name (letters, digits, `.`, `_`, `-`); set name',
-      },
-    ]);
-  });
-
   test("keepalive_interval stays under Linear's 30-minute stale window", () => {
     const c = config(
       `${worker}[sessions]\nkeepalive_interval = "45m"\nidle_timeout = "50m"\nturn_timeout = "60m"\n`,
@@ -366,6 +343,65 @@ describe("pass 3 — this machine", () => {
         message: "~/code/web has no origin remote",
       },
     ]);
+  });
+
+  test("names come from origin: unique, and usable by the server", () => {
+    const clone = (origin: string) => ({
+      origin,
+      head: "main",
+      heads: ["main"],
+    });
+    const m = machine({
+      clones: {
+        ...good,
+        "/home/mario/My Code": clone("https://github.com/acme/api.git"),
+        "/home/mario/code/fork": clone("git@github.com:someone/web.git"),
+        "/home/mario/code/plus": clone("git@example.com:acme/web+app.git"),
+        "/home/mario/code/a": clone("github.com/acme/a"),
+        "/home/mario/code/b": clone("github.com/acme/b"),
+      },
+    });
+    // A path that is no usable name is fine: the name is the origin's.
+    expect(
+      validateMachine(
+        config(`${worker}[[repositories]]\npath = "~/My Code"\n`),
+        m,
+      ).errors,
+    ).toEqual([]);
+    // Two origins that end alike name the same worktree directory.
+    expect(
+      validateMachine(
+        config(
+          `${worker}[[repositories]]\npath = "~/code/web"\n[[repositories]]\npath = "~/code/fork"\n`,
+        ),
+        m,
+      ).errors,
+    ).toEqual([
+      {
+        path: "repositories[1].name",
+        message:
+          '"web" is already repositories[0] (from origin github.com/someone/web); set name',
+      },
+    ]);
+    expect(
+      validateMachine(
+        config(
+          `${worker}[[repositories]]\npath = "~/code/a"\nname = "api"\n[[repositories]]\npath = "~/code/b"\nname = "api"\n`,
+        ),
+        m,
+      ).errors,
+    ).toEqual([
+      {
+        path: "repositories[1].name",
+        message: '"api" is already repositories[0]',
+      },
+    ]);
+    expect(
+      validateMachine(
+        config(`${worker}[[repositories]]\npath = "~/code/plus"\n`),
+        m,
+      ).errors.map((e) => e.path),
+    ).toEqual(["repositories[0]"]);
   });
 
   test("two clones of one origin are one repository too many", () => {
