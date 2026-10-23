@@ -596,6 +596,7 @@ registry, not launched.
 | An agent marked unavailable recovers "at the next successful handshake" | **`daemon reload` forgets it, and `agents login` sends a reload when it succeeds** | an unavailable agent is offered no work, so no turn would ever find it healthy again |
 | `doctor --agent` runs `initialize` | **`initialize` and `session/new` in a scratch directory** | a logged-out agent answers `initialize` happily; only a session shows it |
 | `mcp-probe` scenario | **not built** | there is no MCP server to probe until the Hypotenuse MCP plan lands |
+| `prompt_file` is a path to a template | **a path or a URL, and a role's `docs` (paths and URLs) follow its instructions in `<role-docs>`**: a file is inlined verbatim, a URL is linked for the agent to read, and a `prompt_file` URL becomes an instruction to read and follow it (CLI 0.16.0) | a team teaches a role its own process without replacing the template that knows the Hypotenuse tools. The daemon never fetches a URL: a private wiki is reached through the agent's own MCP servers, which hold credentials the runner config should not |
 | — | **`creator: { name, email }` on the assignment** (additive) | the `creator.*` template variables had nothing to read. `issue.team.name` still renders empty: the issue snapshot has the key only |
 
 ### Decisions the plan left open
