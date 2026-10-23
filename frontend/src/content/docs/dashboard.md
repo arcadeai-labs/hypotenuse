@@ -49,7 +49,8 @@ The machines that take the project's work, grouped by owner: whether each is onl
 and repositories it reports, its version, and its last heartbeat. A runner that goes offline in the middle of work
 is the one thing drawn loudly.
 
-`hypotenuse runner register` on the machine is the usual way to add one. Registering from the dashboard instead
+`hypotenuse runner register` on the machine is the usual way to add one; **Register a runner** shows the commands,
+and how to install the CLI if the machine does not have it yet. Registering from the dashboard instead
 shows the new token **once**, with the `credentials.json` entry to put on the machine; after that, only its last
 four characters are ever shown. Its owner or an admin can rename or pause a runner, and
 revoke it — see [runners](/docs/runners) and [security](/docs/security).
