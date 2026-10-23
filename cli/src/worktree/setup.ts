@@ -53,7 +53,10 @@ function seconds(ms: number): string {
 }
 
 /**
- * Run one shell command in its own process group.
+ * Run one shell command in its own process group. Its stderr is folded into
+ * its stdout by the shell before the command starts, so the output — and the
+ * tail a failure quotes — keeps the order it was written in; two pipes would
+ * race.
  * @param command - The command, for `sh -c`.
  * @param options - Where, with what, for how long.
  * @returns How it ended.
@@ -66,7 +69,7 @@ export function runSetupCommand(
   const started = now();
   const tail: string[] = [];
   return new Promise((resolve) => {
-    const child = spawn("sh", ["-c", command], {
+    const child = spawn("sh", ["-c", `exec 2>&1\n${command}`], {
       cwd: options.cwd,
       env: options.env,
       stdio: ["ignore", "pipe", "pipe"],

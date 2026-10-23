@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import type {
   CompleteRequest,
   EventsRequest,
@@ -139,18 +139,25 @@ describe("EventSink", () => {
   });
 
   test("a network failure keeps everything queued; the next try resends the same events", async () => {
-    const { server, sink, target, complete, state } = setup();
-    server.next = new ApiError("Could not reach the server", 0);
-    sink.emit(target, { type: "thought", body: "one" });
-    sink.emit(target, { type: "response", body: "two" });
-    complete();
-    await Bun.sleep(50);
-    expect(state.pendingEvents(10).length).toBeGreaterThan(0);
-    expect(server.completions).toEqual([]);
-    expect(await sink.drain(5_000)).toBe(true);
-    const sent = server.batches.flatMap((b) => b.events);
-    expect(sent.map((e) => e.type)).toEqual(["thought", "response"]);
-    expect(server.completions.map((c) => c.outcome)).toEqual(["completed"]);
+    // The backoff's full jitter can draw a retry inside the 50 ms below;
+    // pinned near its cap, the retry waits for `drain`, which forces it.
+    const random = spyOn(Math, "random").mockReturnValue(0.99);
+    try {
+      const { server, sink, target, complete, state } = setup();
+      server.next = new ApiError("Could not reach the server", 0);
+      sink.emit(target, { type: "thought", body: "one" });
+      sink.emit(target, { type: "response", body: "two" });
+      complete();
+      await Bun.sleep(50);
+      expect(state.pendingEvents(10).length).toBeGreaterThan(0);
+      expect(server.completions).toEqual([]);
+      expect(await sink.drain(5_000)).toBe(true);
+      const sent = server.batches.flatMap((b) => b.events);
+      expect(sent.map((e) => e.type)).toEqual(["thought", "response"]);
+      expect(server.completions.map((c) => c.outcome)).toEqual(["completed"]);
+    } finally {
+      random.mockRestore();
+    }
   });
 
   test("409 NOT_YOUR_WORK drops the work item's queue and says so", async () => {

@@ -226,6 +226,8 @@ export interface ConfigOverrides {
   project?: string;
   /** `-v`: debug logging. */
   verbose?: boolean;
+  /** `--log-level`: beats `-v`. */
+  logLevel?: LogLevel;
 }
 
 /** The log levels, quietest first. */
@@ -260,11 +262,13 @@ export function applyOverrides(
     },
     log: {
       ...config.log,
-      level: overrides.verbose
-        ? "debug"
-        : envLevel && LOG_LEVELS.includes(envLevel)
-          ? envLevel
-          : config.log.level,
+      level:
+        overrides.logLevel ??
+        (overrides.verbose
+          ? "debug"
+          : envLevel && LOG_LEVELS.includes(envLevel)
+            ? envLevel
+            : config.log.level),
     },
   };
 }
