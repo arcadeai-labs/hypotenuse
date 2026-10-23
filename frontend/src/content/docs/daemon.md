@@ -48,7 +48,7 @@ The daemon runs the same checks when it starts and refuses an invalid file rathe
 |---|---|
 | `hypotenuse daemon start` | starts it in the background and waits until it is connected and ready — or prints why it is not |
 | `hypotenuse daemon status` | the runner, the server connection, busy slots, and events waiting to be sent; exits `3` when the daemon is not running |
-| `hypotenuse daemon logs -f` | follows the log; `--session <id>` shows one session's agent log instead — the agent's output and every message exchanged with it |
+| `hypotenuse daemon logs -f` | follows the log, colored by level on a terminal; `--session <id>` shows one session's agent log instead — the agent's output and every message exchanged with it |
 | `hypotenuse daemon reload` | re-reads the config (as `kill -HUP` does) and says which changes need a restart |
 | `hypotenuse daemon stop` | takes no new work, lets running turns finish (up to `--timeout`, 10 minutes), then exits |
 | `hypotenuse daemon stop --cancel` | stops running turns at once; each says in Linear where it was stopped |
@@ -57,6 +57,17 @@ The daemon runs the same checks when it starts and refuses an invalid file rathe
 **Reload** applies what is safe at once — roles, subscriptions, limits, the log level, prompts and policies for new
 turns, new repositories — and forgets that an agent was found logged out, so it is offered work again. Changing the server, an existing repository's path, or the command of an agent that is
 running needs `hypotenuse daemon restart`, and `reload` says so instead of half-applying it.
+
+**Log level.** `[log] level` sets how much the daemon logs (`info` by default). `daemon start --log-level <level>`
+(or `restart`) overrides it, as do `-v` (`debug`) and `HYPOTENUSE_LOG_LEVEL`. At `debug` the log shows every agent
+activity flowing through the runner — each prompt sent to the agent, each thought, action, plan, question, and
+answer it reports, and each reply it receives — one line apiece, cut to 200 characters; `trace` keeps them whole,
+which can include code and secrets. In the foreground the log is colored by level when stderr is a terminal; the
+file is always plain text.
+
+```bash
+hypotenuse daemon start --foreground --log-level debug
+```
 
 If a daemon stops answering, `daemon stop` says so and suggests `hypotenuse daemon stop --force`, which stops the
 process without its help and clears its lock. Work it held returns to the queue after its lease lapses.

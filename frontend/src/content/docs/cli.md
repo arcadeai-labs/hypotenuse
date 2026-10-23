@@ -106,7 +106,7 @@ With nothing selected and only one project to your name, commands use that one.
 | `telemetry exporter list`, `view <id>`, `add --name <name> --endpoint <url> [--header KEY=VALUE...] [--content <level>] [--signals <list>] [--sample <ratio>] [--attribute KEY=VALUE...] [--no-agent-native] [--disabled]`, `edit <id> [...] [--clear-headers] [--enable\|--disable]`, `remove <id>`, `test <id>` | where the selected project's OpenTelemetry goes, below |
 | `identity list [--user <id>]`, `link --user <id> --linear-user <id> [--name] [--email]`, `unlink <id>` | links between Linear users and project members, below |
 | `config init [--repo <path>...]`, `validate [--online]`, `schema`, `path` | the daemon's config file — [the daemon](/docs/daemon), [every key](/docs/config) |
-| `daemon start [--foreground]`, `stop [--timeout] [--cancel] [--force]`, `restart`, `status`, `logs [-f] [--session <id>]`, `reload` | run this machine as a runner — [the daemon](/docs/daemon) |
+| `daemon start [--foreground] [--log-level <level>]`, `stop [--timeout] [--cancel] [--force]`, `restart [--log-level <level>]`, `status`, `logs [-f] [--session <id>]`, `reload` | run this machine as a runner — [the daemon](/docs/daemon) |
 | `agents list [--all]`, `kill <session\|issue> [--reason]`, `login <agent> [--method <id>]` | the coding agents this machine runs — [coding agents](/docs/agents) |
 | `worktrees list`, `cleanup [--dry-run] [--all] [--older-than <duration>] [--force]` | the git worktrees the daemon made for its sessions — [worktrees](/docs/worktrees) |
 | `service install [--print]`, `uninstall`, `status` | the daemon as a launchd or systemd user service |
