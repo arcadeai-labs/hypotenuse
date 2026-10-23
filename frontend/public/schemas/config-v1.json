@@ -619,11 +619,6 @@
             "type": "string",
             "minLength": 1
           },
-          "remote": {
-            "description": "The repository's remote; must match origin",
-            "type": "string",
-            "minLength": 1
-          },
           "base_branch": {
             "description": "The branch worktrees start from",
             "type": "string",

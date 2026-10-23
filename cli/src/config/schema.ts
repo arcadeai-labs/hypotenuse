@@ -270,12 +270,6 @@ export function buildConfigSchema(ctx: SchemaContext) {
       .optional()
       .describe("Unique; used in worktree paths"),
     path: path().describe("An existing git clone"),
-    remote: z
-      .string()
-      .trim()
-      .min(1)
-      .optional()
-      .describe("The repository's remote; must match origin"),
     base_branch: z
       .string()
       .trim()

@@ -31,7 +31,6 @@ import { mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import pkg from "../../package.json";
 import { isRemoteSource, tildify } from "../config/paths";
-import { repositoryName } from "../config/resolve";
 import type { RoleConfig } from "../config/schema";
 import type { EventInput } from "../daemon/event-sink";
 import type {
@@ -1141,12 +1140,9 @@ class Turn {
    * @returns The name.
    */
   private repositoryName(): string | null {
+    if (this.workspace?.repository) return this.workspace.repository.name;
     const remote = this.ctx.assignment.repository?.remote;
-    if (!remote) return null;
-    const repo = this.ctx.config.repositories.find(
-      (r) => r.remote && r.remote.includes(remote),
-    );
-    return repo ? repositoryName(repo) : (remote.split("/").pop() ?? null);
+    return remote ? (remote.split("/").pop() ?? null) : null;
   }
 
   /**
