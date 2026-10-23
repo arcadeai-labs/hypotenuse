@@ -75,6 +75,7 @@ describe("the schema", () => {
       roles: {
         worker: {
           agent: "claude",
+          docs: [],
           permission_policy: "allow",
           additional_directories: [],
           extra_mcp_servers: [],
@@ -227,6 +228,24 @@ describe("the schema", () => {
     );
     expect(config).toBeNull();
     expect(issues.map((i) => i.path)).toEqual(["roles.worker.guidance"]);
+  });
+
+  test("prompt_file and docs take a path or a URL; a URL is kept as written", () => {
+    const { config, issues } = parse(
+      `config_version = 1\n[roles.worker]\nagent = "claude"\nprompt_file = "https://wiki.example.com/worker"\ndocs = ["~/process.md", "prompts/extra.md", "https://wiki.example.com/process"]\n`,
+    );
+    expect(issues).toEqual([]);
+    expect(config?.roles.worker?.prompt_file).toBe(
+      "https://wiki.example.com/worker",
+    );
+    expect(config?.roles.worker?.docs).toEqual([
+      "/home/mario/process.md",
+      "/etc/hyp/prompts/extra.md",
+      "https://wiki.example.com/process",
+    ]);
+    expect(
+      parse(`${minimal}docs = ["https://"]\n`).issues.map((i) => i.path),
+    ).toEqual(["roles.worker.docs[0]"]);
   });
 
   test("one schema per file: relative paths follow the file", () => {

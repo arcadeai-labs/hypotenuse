@@ -30,6 +30,7 @@
 import { mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import pkg from "../../package.json";
+import { isRemoteSource, tildify } from "../config/paths";
 import { repositoryName } from "../config/resolve";
 import type { RoleConfig } from "../config/schema";
 import type { EventInput } from "../daemon/event-sink";
@@ -96,7 +97,7 @@ import {
   sessionEnvironment,
   sessionVariables,
 } from "./presets";
-import { buildPrompt } from "./prompt";
+import { buildPrompt, type RoleDoc } from "./prompt";
 
 /** Consecutive non-ACP stdout lines that fail a turn. */
 export const NOISE_LIMIT = 3;
@@ -1009,13 +1010,33 @@ class Turn {
     const conn = this.conn as AcpConnection;
     const sessionId = this.acpSessionId as string;
     let templateText: string | null = null;
-    if (this.role?.prompt_file) {
-      try {
-        templateText = readFileSync(this.role.prompt_file, "utf8");
-      } catch (error) {
-        throw new TurnFailure(
-          `Runner ${ctx.runnerName} cannot read its ${ctx.assignment.role} prompt file: ${errorMessage(error)}`,
-        );
+    let templateUrl: string | null = null;
+    const docs: RoleDoc[] = [];
+    // A resumed agent already holds its instructions; nothing is re-read.
+    if (!this.resumed) {
+      const promptFile = this.role?.prompt_file;
+      if (promptFile && isRemoteSource(promptFile)) templateUrl = promptFile;
+      else if (promptFile) {
+        try {
+          templateText = readFileSync(promptFile, "utf8");
+        } catch (error) {
+          throw new TurnFailure(
+            `Runner ${ctx.runnerName} cannot read its ${ctx.assignment.role} prompt file: ${errorMessage(error)}`,
+          );
+        }
+      }
+      for (const doc of this.role?.docs ?? []) {
+        if (isRemoteSource(doc)) {
+          docs.push({ source: doc, text: null });
+          continue;
+        }
+        try {
+          docs.push({ source: tildify(doc), text: readFileSync(doc, "utf8") });
+        } catch (error) {
+          throw new TurnFailure(
+            `Runner ${ctx.runnerName} cannot read a ${ctx.assignment.role} doc: ${errorMessage(error)}`,
+          );
+        }
       }
     }
     const blocks = buildPrompt(
@@ -1028,6 +1049,8 @@ class Turn {
         runnerName: ctx.runnerName,
         resumed: this.resumed,
         templateText,
+        templateUrl,
+        docs,
         readOnly: this.workspace?.mode === "readonly",
       },
       (name) =>
