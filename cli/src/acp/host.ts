@@ -39,6 +39,7 @@ import type {
   TurnContext,
   TurnResult,
 } from "../daemon/executor";
+import { preview } from "../daemon/log";
 import { AcpTelemetry } from "../telemetry/acp";
 import { dropInheritedOtel, nativeTelemetryLaunch } from "../telemetry/native";
 import { NativeReceiver } from "../telemetry/receiver";
@@ -1053,6 +1054,16 @@ class Turn {
       },
       promptText,
     );
+    if (ctx.log.enabled("debug")) {
+      ctx.log.debug(
+        `prompting ${this.agentId}: ${preview(promptText, ctx.log.level)}`,
+        {
+          session: ctx.assignment.agentSessionId,
+          workItem: ctx.assignment.workItemId,
+          bytes: Buffer.byteLength(promptText),
+        },
+      );
+    }
     const request = conn.prompt(sessionId, blocks);
     this.promptSettled = request.then(
       () => {},
