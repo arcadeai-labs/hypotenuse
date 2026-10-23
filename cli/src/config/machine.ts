@@ -184,9 +184,8 @@ export function originHead(machine: MachineEnv, path: string): string | null {
 }
 
 /**
- * Fill in what a repository entry leaves out: its remote is always the
- * clone's origin (a configured `remote` is deprecated and ignored), and
- * `base_branch` comes from `origin/HEAD` (else `main`).
+ * Fill in what a repository entry leaves out: its remote is the clone's
+ * origin, and `base_branch` comes from `origin/HEAD` (else `main`).
  * @param machine - The machine.
  * @param repo - The entry.
  * @returns The repository as the daemon reports it, or null when the clone

@@ -603,11 +603,6 @@
             "type": "string",
             "minLength": 1
           },
-          "remote": {
-            "description": "Deprecated and ignored: the remote is the clone's origin",
-            "type": "string",
-            "minLength": 1
-          },
           "base_branch": {
             "description": "The branch worktrees start from",
             "type": "string",

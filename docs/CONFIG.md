@@ -272,7 +272,6 @@ Routing only offers work that needs a repository to runners that have it, matche
 | `name` | string | last path segment of the clone's origin | unique; used in worktree paths |
 | `path` | path | — (required) | an existing git clone (not a worktree) with an `origin`; one entry per origin |
 | `base_branch` | string | `origin/HEAD`'s branch, else `main` | set it only to branch from something else (`develop`, a release branch); must exist on origin (checked unless `--offline`) |
-| `remote` | — | — | deprecated and ignored: the remote is always the clone's `origin`. `config validate` warns until the line is removed |
 | `setup` | array of strings | `[]` | shell commands (`sh -c`) run in each new worktree, in order, with the per-session environment; a failure ends the turn and keeps the worktree, and the next turn runs them again |
 | `setup_timeout` | duration | `"10m"` | per command |
 | `branch_prefix` | string | `"hypotenuse"` | branches are `<prefix>/<issue-id>-<slug>`; a name taken by anything else gets `-2`, `-3`, … |

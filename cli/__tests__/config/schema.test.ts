@@ -148,6 +148,14 @@ describe("the schema", () => {
     ]);
   });
 
+  test("a repository has no remote key: the remote is the clone's origin", () => {
+    const { config, issues } = parse(
+      `${minimal}[[repositories]]\npath = "a"\nremote = "github.com/acme/web"\n`,
+    );
+    expect(config).toBeNull();
+    expect(issues.map((i) => i.path)).toEqual(["repositories[0].remote"]);
+  });
+
   test("paths render the TOML way", () => {
     expect(renderIssuePath(["repositories", 1, "base_branch"])).toBe(
       "repositories[1].base_branch",

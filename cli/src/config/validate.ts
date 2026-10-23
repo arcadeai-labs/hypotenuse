@@ -14,11 +14,7 @@
  */
 
 import { isAbsolute, relative } from "node:path";
-import {
-  normalizeRemote,
-  PROTOCOL_HEADER,
-  PROTOCOL_VERSION,
-} from "../../../protocol/src/index";
+import { PROTOCOL_HEADER, PROTOCOL_VERSION } from "../../../protocol/src/index";
 import { decide } from "../acp/permissions";
 import { ApiClient, ApiError } from "../api/client";
 import { formatDuration } from "./durations";
@@ -407,16 +403,6 @@ export function validateMachine(
       return;
     }
     origins.set(origin, index);
-    if (repo.remote) {
-      const configured = normalizeRemote(repo.remote);
-      warnings.push({
-        path: `${at}.remote`,
-        message:
-          configured === origin
-            ? "remote is read from the clone's origin; remove this line"
-            : `remote is ignored: the clone's origin is ${origin}; remove this line`,
-      });
-    }
     const base = repo.base_branch ?? originHead(machine, repo.path) ?? "main";
     if (!options.offline) {
       const heads = machine.git(

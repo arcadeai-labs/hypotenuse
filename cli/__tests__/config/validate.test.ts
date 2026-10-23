@@ -353,32 +353,7 @@ describe("pass 3 — this machine", () => {
     ]);
   });
 
-  test("the remote is origin: a configured one is ignored, with a warning to remove it", () => {
-    const same = config(
-      `${worker}[[repositories]]\npath = "~/code/web"\nremote = "https://github.com/acme/web.git"\n`,
-    );
-    expect(validateMachine(same, machine({ clones: good }))).toEqual({
-      errors: [],
-      warnings: [
-        {
-          path: "repositories[0].remote",
-          message: "remote is read from the clone's origin; remove this line",
-        },
-      ],
-    });
-    const other = config(
-      `${worker}[[repositories]]\npath = "~/code/web"\nremote = "github.com/acme/website"\n`,
-    );
-    expect(validateMachine(other, machine({ clones: good }))).toEqual({
-      errors: [],
-      warnings: [
-        {
-          path: "repositories[0].remote",
-          message:
-            "remote is ignored: the clone's origin is github.com/acme/web; remove this line",
-        },
-      ],
-    });
+  test("a clone with no origin has no remote, which is an error", () => {
     const none = machine({ clones: { [web]: {} } });
     expect(
       validateMachine(
