@@ -93,3 +93,31 @@ a `documentMention` inbox notification, which `ops/LinearNotificationOps.ts` rec
 - [ ] The docs listed in Scope.
 
 ## Learnings from the build
+
+**Step 1 under way.** What a real workspace sent, and the first ingress built on it.
+
+### What Linear sends for a mention on a project
+
+Recorded from a real workspace's event log, mentioning `@hypotenuse` on a project:
+
+| Where the mention was | Deliveries | An `AgentSessionEvent`? |
+|---|---|---|
+| a comment on the project | `Comment` `create` (with `projectId`, no `issueId`, `isArtificialAgentSessionRoot: false`); `AppUserNotification` `projectCommentMention` (the comment's id and body, and the project's id, name, and URL) | **no** |
+| the project's own content | `Project` `update` (the new `content`); `AppUserNotification` `projectMention` (the project only) | **no** |
+| a comment on an issue, for comparison | `Comment` `create`; `issueCommentMention`; `AgentSessionEvent` `created` | yes |
+
+So Linear starts sessions for mentions on issues only. `Project` and `Comment` data-change webhooks arrive without
+being asked for in the manifest, and `projectCommentMention` carries everything needed to ask for a session.
+
+### The first ingress
+
+- **A person's `projectCommentMention` makes the `triggers:check-notifications` clock call
+  `agentSessionCreateOnComment` on the comment** (`requestCommentSession` in `ops/LinearNotificationOps.ts`), outside
+  any transaction like every other Linear call a notification needs. Linear's answer is the event's summary: the
+  session it started, or its refusal message (`mention_without_session`). Whether Linear accepts a project comment
+  as a session's root is the open question this answers.
+- **A session with no issue is answered, not worked.** `handleAgentSessionEvent` mirrors it with an empty
+  `external_issue_id` and posts `NO_ISSUE_RESPONSE` on `created` and on each prompt, with no turn queued. That keeps
+  such a session from going stale while routing, the agent tools' scope, and the worktree still start from an issue.
+- **finear cannot show the accepted case**: its comments belong to issues, so a project comment's id is refused as not
+  found. The test asserts the request and the recorded refusal; the gap is in `LINEAR_COVERAGE.md`.

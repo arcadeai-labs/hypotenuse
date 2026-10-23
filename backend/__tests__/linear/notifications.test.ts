@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { eq } from "drizzle-orm";
 import { api } from "keryx";
 import { checkNotification } from "../../ops/LinearNotificationOps";
+import { NO_ISSUE_RESPONSE } from "../../ops/LinearWebhookOps";
 import { agentSessions } from "../../schema/agent_sessions";
 import { type TriggerEvent, triggerEvents } from "../../schema/trigger_events";
 import {
@@ -20,8 +21,20 @@ import {
 } from "../setup";
 import { FINEAR_FIXTURES, FINEAR_PRIMARY_KEY, useFinear } from "./finear";
 import { appToken, integrationRow } from "./helpers";
-import { appUserNotification, deliver, type Target } from "./inject";
-import { createIssue, finearSession, recordedEvent, settle } from "./sessions";
+import {
+  agentSessionEvent,
+  appUserNotification,
+  deliver,
+  type Target,
+  webhookSession,
+} from "./inject";
+import {
+  activityRows,
+  createIssue,
+  finearSession,
+  recordedEvent,
+  settle,
+} from "./sessions";
 
 /**
  * `AppUserNotification`: every inbox notification type has a decided
@@ -308,5 +321,98 @@ describe("LC-WH-19 status changes and other types", () => {
       const event = await notify(action);
       expect(event.outcome, action).toBe("ignored");
     }
+  });
+});
+
+describe("LC-WH-26 project comment mentions", () => {
+  test("LC-SES-03 a person's mention in a project comment asks Linear for a session on that comment; a refusal is recorded with Linear's message", async () => {
+    const commentId = crypto.randomUUID();
+    const event = await notify("projectCommentMention", {
+      actorId: crypto.randomUUID(),
+      commentId,
+      comment: { id: commentId, body: "@hypotenuse plan this project" },
+      projectId: crypto.randomUUID(),
+    });
+    expect(event).toMatchObject({ outcome: "noted" });
+    expect(event.checkAfter).not.toBeNull();
+    linear.clearRequests();
+    const checked = await checkNow(event.id);
+    const asked = linear
+      .requests()
+      .filter((r) => r.operationName === "CreateAgentSessionOnComment");
+    expect(asked.map((r) => r.variables)).toEqual([{ input: { commentId } }]);
+    // finear holds comments on issues only, so it refuses a project's.
+    expect(checked.outcome).toBe("mention_without_session");
+    expect(checked.checkAfter).toBeNull();
+    expect(checked.summary).toStartWith(
+      "Linear refused a session on the project comment: ",
+    );
+  });
+
+  test("a project comment mention by the app itself, or with no comment, is ignored", async () => {
+    const own = await notify("projectCommentMention", {
+      actorId: target.appUserId,
+      commentId: crypto.randomUUID(),
+    });
+    const none = await notify("projectCommentMention", {
+      actorId: crypto.randomUUID(),
+    });
+    for (const event of [own, none]) {
+      expect(event).toMatchObject({ outcome: "ignored", checkAfter: null });
+    }
+  });
+
+  test("a session with no issue is answered on created and on each prompt, and no turn is queued", async () => {
+    const session = webhookSession({
+      issueId: undefined,
+      issue: undefined,
+      commentId: crypto.randomUUID(),
+    });
+    const created = await deliver(
+      universe.url,
+      agentSessionEvent(target, { action: "created", agentSession: session }),
+    );
+    expect(created.status).toBe(200);
+    await settle();
+    const [event] = await api.db.db
+      .select()
+      .from(triggerEvents)
+      .where(eq(triggerEvents.deliveryId, created.deliveryId as string));
+    expect(event).toMatchObject({
+      outcome: "handled",
+      summary:
+        "A session with no issue (started on a project comment): answered that work starts from an issue; no turn queued.",
+    });
+    const [row] = await api.db.db
+      .select()
+      .from(agentSessions)
+      .where(eq(agentSessions.externalSessionId, session.id));
+    expect(row.externalIssueId).toBe("");
+
+    const prompted = await deliver(
+      universe.url,
+      agentSessionEvent(target, {
+        action: "prompted",
+        agentSession: session,
+        agentActivity: {
+          id: crypto.randomUUID(),
+          agentSessionId: session.id,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          userId: FINEAR_FIXTURES.primary.user,
+          content: { type: "prompt", body: "please?" },
+        } as never,
+      }),
+    );
+    expect(prompted.status).toBe(200);
+    await settle();
+    const outbound = (await activityRows(row.id)).filter(
+      (a) => a.direction === "outbound",
+    );
+    expect(outbound.map((a) => [a.contentType, a.content.body])).toEqual([
+      ["response", NO_ISSUE_RESPONSE],
+      ["response", NO_ISSUE_RESPONSE],
+    ]);
+    expect(await itemsOf(row.id)).toEqual([]);
   });
 });

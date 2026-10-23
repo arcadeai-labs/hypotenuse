@@ -314,20 +314,17 @@ describe("every Linear operation document executes against finear", () => {
       LINEAR_OPERATIONS.map((op) => op.name).sort(),
     );
   });
-  test("LC-SES-03 LC-SES-22 LC-SES-19 LC-DEL-05 what no product path uses: sessions on comments, reading a session back, its links, and delegate filters", async () => {
+  test("LC-SES-22 LC-SES-19 LC-DEL-05 what no product path uses: reading a session back, its links, and delegate filters", async () => {
     // Declared and proven against Linear's schema above, but nothing calls
-    // them: a manager starts sessions by dispatching an issue, and history
-    // and links come from the server's own mirror, never read back.
+    // them: history and links come from the server's own mirror, never read
+    // back.
     const glob = new Bun.Glob("{actions,ops,initializers}/**/*.ts");
     const callers: string[] = [];
     for await (const file of glob.scan({ cwd: BACKEND })) {
       if (file === "ops/linear/operations.ts") continue;
       const text = await Bun.file(join(BACKEND, file)).text();
-      for (const name of [
-        "CreateAgentSessionOnComment",
-        "GetAgentSessionActivities",
-      ]) {
-        if (text.includes(name)) callers.push(`${file}: ${name}`);
+      if (text.includes("GetAgentSessionActivities")) {
+        callers.push(`${file}: GetAgentSessionActivities`);
       }
       // Nor is an issue filtered by its delegate: the dashboard counts
       // delegations from the mirror, and the tools search by text and team.
