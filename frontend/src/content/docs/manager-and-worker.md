@@ -73,3 +73,16 @@ Stopping or un-delegating a worker ends its part: the manager is not woken to se
 A runner says which roles it plays, and which of its agents plays each. A machine can run both, and can limit how
 many of each run at once — say, at most one manager. Hypotenuse counts those limits itself before offering work. See
 [runners](/docs/runners).
+
+## Teaching a role your process
+
+Each role can carry your team's own documents — how a plan is written, what a ticket must say — on top of its
+built-in instructions. List them under the role's `docs` in the runner's config: a local file is included in the
+agent's prompt, and a URL is linked for the agent to read with its own tools, so a private wiki works when the
+agent has an MCP server that reaches it. See [the config file](/docs/config).
+
+```toml
+[roles.manager]
+agent = "claude"
+docs = ["prompts/product-plan.md", "https://wiki.example.com/product-process"]
+```

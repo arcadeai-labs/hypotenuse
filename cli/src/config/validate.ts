@@ -5,7 +5,7 @@
  * - **Pass 2** needs the whole document: references between tables, unique
  *   names, the ordering of timeouts.
  * - **Pass 3** needs this machine, but never the network unless asked: git
- *   clones and their origins, prompt files, agent commands on `PATH`.
+ *   clones and their origins, prompt files and docs, agent commands on `PATH`.
  * - **Online** needs the server: its status, the runner token, the project,
  *   and the subscription keys.
  *
@@ -30,7 +30,7 @@ import {
   originOf,
   parseGitVersion,
 } from "./machine";
-import { tildify } from "./paths";
+import { isRemoteSource, tildify } from "./paths";
 import { isPreset, PRESET_NAMES } from "./presets";
 import { repositoryName, resolveAgents } from "./resolve";
 import { type Config, LINEAR_STALE_MS, type RoleConfig } from "./schema";
@@ -441,7 +441,7 @@ export function validateMachine(
     ["worker", config.roles.worker],
   ] as const) {
     if (!table) continue;
-    if (table.prompt_file !== undefined) {
+    if (table.prompt_file !== undefined && !isRemoteSource(table.prompt_file)) {
       const text = machine.readFile(table.prompt_file);
       if (text === null) {
         errors.push({
@@ -452,6 +452,13 @@ export function validateMachine(
         checkTemplate(`roles.${role}.prompt_file`, text, errors);
       }
     }
+    table.docs.forEach((doc, index) => {
+      if (isRemoteSource(doc) || machine.readFile(doc) !== null) return;
+      errors.push({
+        path: `roles.${role}.docs[${index}]`,
+        message: `${home(doc)} cannot be read`,
+      });
+    });
     table.extra_mcp_servers.forEach((server, index) => {
       const at = `roles.${role}.extra_mcp_servers[${index}]`;
       for (const [key, name] of [

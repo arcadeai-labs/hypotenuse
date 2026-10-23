@@ -173,7 +173,8 @@ listed in `runner.roles`.
 |---|---|---|---|
 | `agent` | string | — (required) | an `[agents.<id>]` id or a preset name; `config validate` suggests near misses |
 | `prompt` | string | the built-in template for the role | exactly one of `prompt` / `prompt_file` may be set; neither means the built-in |
-| `prompt_file` | path | — | Markdown template; must exist; variables must be known |
+| `prompt_file` | path or URL | — | a path is a Markdown template that must exist and use only known variables; a URL replaces the template with an instruction to read and follow it (below) |
+| `docs` | array of paths and URLs | `[]` | documents added after the role's instructions, in order (below); a path must exist |
 | `permission_policy` | `"allow"` \| `"ask"` \| `"deny"`, or a table | worker: `"allow"`, manager: read-only, `{ default = "allow", edit = "deny", delete = "deny", move = "deny", execute = "deny" }` | the table form is `{ default = "allow", execute = "ask", fetch = "deny" }` with keys `default`, `read`, `edit`, `delete`, `move`, `search`, `execute`, `think`, `fetch`, `other` (ACP tool kinds) |
 | `max_parallel` | integer | — (no role limit) | 1–32. Jobs of this role running at once, inside `runner.max_parallel_jobs`; a value ≥ the machine cap is a warning (no effect) |
 | `mode` | string | — | ACP session mode / `mode` config option to select after creating the session, if the agent offers it |
@@ -240,6 +241,31 @@ guidance, conversation history, the request, and environment notes) is added by 
 | `worktree.path`, `worktree.branch` | where the agent is working |
 | `runner.name` | this runner |
 | `dispatch.parent_identifier` | for dispatched work, the issue the manager dispatched from |
+
+### Docs and URLs
+
+`docs` teaches a role how your team works without replacing the built-in template, which is the part that knows
+the Hypotenuse tools. Each entry is a path or an `http(s)` URL:
+
+```toml
+[roles.manager]
+agent = "claude"
+docs = [
+  "prompts/product-plan.md",                  # inlined
+  "https://wiki.example.com/product-process", # linked
+]
+```
+
+The documents become a `<role-docs>` section after `<role-instructions>`. A file's text is included verbatim, never
+rendered as a template, and read at the start of each new session (a follow-up that resumes the agent's own
+session already holds it); an unreadable one fails the turn. A URL is **never fetched by the daemon**: it is listed
+for the agent to read with its own tools before it begins, so a private wiki is reached through an MCP server that
+holds its credentials (`extra_mcp_servers`, or one the agent already has). The section tells the agent that the
+built-in instructions win where a document disagrees about its tools or what it never does.
+
+A `prompt_file` URL works the same way: `<role-instructions>` becomes *read the document at this URL and follow
+it*, so template variables do not apply and the built-in template is not used. Prefer `docs` unless the document
+is a complete prompt.
 
 **The built-in templates** (`cli/src/acp/templates/`), in short:
 
@@ -415,7 +441,7 @@ level = "info"
 
 - both repositories are git clones whose `origin` matches;
 - `main` and `develop` exist on origin;
-- `prompts/manager.md` exists and uses only known variables;
+- `prompts/manager.md` exists and uses only known variables, and every `docs` path exists;
 - `npx` is on `PATH`;
 - the keepalive is under Linear's 30-minute stale window and the timeouts are ordered.
 
