@@ -19,7 +19,7 @@ import {
   parseSize,
   SIZE_PATTERN,
 } from "./durations";
-import { type Env, expandPath } from "./paths";
+import { type Env, expandPath, isRemoteSource } from "./paths";
 import { PRESET_NAMES } from "./presets";
 
 /** The config format this build reads. */
@@ -116,6 +116,18 @@ export function buildConfigSchema(ctx: SchemaContext) {
       .trim()
       .min(1)
       .transform((value) => expandPath(value, ctx.baseDir, ctx.env));
+  // A local path, expanded like path(), or an http(s) URL kept as written.
+  const source = () =>
+    z
+      .string()
+      .trim()
+      .min(1)
+      .refine((value) => !isRemoteSource(value) || URL.canParse(value), {
+        message: "expected a path or an http(s) URL",
+      })
+      .transform((value) =>
+        isRemoteSource(value) ? value : expandPath(value, ctx.baseDir, ctx.env),
+      );
   const duration = () =>
     z
       .string()
@@ -185,9 +197,17 @@ export function buildConfigSchema(ctx: SchemaContext) {
         .min(1)
         .optional()
         .describe("The role's entry prompt template, inline"),
-      prompt_file: path()
+      prompt_file: source()
         .optional()
-        .describe("A Markdown prompt template file"),
+        .describe(
+          "A Markdown prompt template file, or a URL of instructions the agent reads with its own tools",
+        ),
+      docs: z
+        .array(source())
+        .default([])
+        .describe(
+          "Documents added to the role's instructions: a file's text is included, a URL is linked for the agent to read with its own tools",
+        ),
       permission_policy: permissionPolicy(fallbackPolicy),
       max_parallel: parallel().optional().describe("Jobs of this role at once"),
       mode: z

@@ -316,6 +316,36 @@ describe("acp host", () => {
     expect(turn.visible().map((e) => e.type)).toEqual(["thought"]);
   }, 20_000);
 
+  test("a role's docs reach the agent; an unreadable one fails the turn", async () => {
+    const root = home();
+    await Bun.write(join(root, "process.md"), "Plans start with the demo.");
+    const turn = new TestTurn(
+      fakeConfig(
+        root,
+        "",
+        'docs = ["process.md", "https://wiki.example.com/process"]',
+      ),
+      "happy",
+    );
+    expect((await turn.result).outcome).toBe("completed");
+    const prompt = turn.received()[2]?.params.prompt as { text?: string }[];
+    expect(prompt[0]?.text).toContain(
+      `<doc source="${join(root, "process.md")}">\nPlans start with the demo.\n</doc>`,
+    );
+    expect(prompt[0]?.text).toContain("- https://wiki.example.com/process");
+
+    const missing = new TestTurn(
+      fakeConfig(home(), "", 'docs = ["missing.md"]'),
+      "happy",
+    );
+    expect((await missing.result).outcome).toBe("failed");
+    const last = missing.visible().at(-1) as { type: string; body: string };
+    expect(last.type).toBe("error");
+    expect(last.body).toStartWith(
+      "Runner test-runner cannot read a worker doc:",
+    );
+  }, 20_000);
+
   test("crash: an error with the stderr tail, redacted", async () => {
     const turn = new TestTurn(fakeConfig(home()), "crash");
     const result = await turn.result;

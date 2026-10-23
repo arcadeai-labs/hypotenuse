@@ -190,9 +190,17 @@
               "minLength": 1
             },
             "prompt_file": {
-              "description": "A Markdown prompt template file",
+              "description": "A Markdown prompt template file, or a URL of instructions the agent reads with its own tools",
               "type": "string",
               "minLength": 1
+            },
+            "docs": {
+              "description": "Documents added to the role's instructions: a file's text is included, a URL is linked for the agent to read with its own tools",
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
             },
             "permission_policy": {
               "default": {
@@ -397,9 +405,17 @@
               "minLength": 1
             },
             "prompt_file": {
-              "description": "A Markdown prompt template file",
+              "description": "A Markdown prompt template file, or a URL of instructions the agent reads with its own tools",
               "type": "string",
               "minLength": 1
+            },
+            "docs": {
+              "description": "Documents added to the role's instructions: a file's text is included, a URL is linked for the agent to read with its own tools",
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
             },
             "permission_policy": {
               "default": "allow",
