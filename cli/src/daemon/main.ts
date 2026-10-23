@@ -13,10 +13,12 @@
  *    `interrupted` — its agent died with that process — and the server's lease
  *    logic re-offers it;
  * 6. start ServerLink and flush the queued events;
- * 7. signal `ready` (over the IPC channel to a background start's parent).
+ * 7. signal `ready` (over the IPC channel to a background start's parent);
+ * 8. watch the config file: an edit is reloaded as `daemon reload` would, and
+ *    one that only a restart can apply drains running turns and restarts.
  *
  * Exit codes: 0 after a stop, 130/143 on SIGINT/SIGTERM, 75 to ask a service
- * manager for a restart after an upgrade, and 78 for what a restart will not
+ * manager for a restart after an upgrade or a config change, and 78 for what a restart will not
  * fix (an invalid config, no runner, a revoked runner, another runner on this
  * machine), which systemd's unit is told not to restart.
  */
@@ -46,6 +48,7 @@ import { credentialsPath } from "../paths";
 import { machineId } from "../runner/machine";
 import { onSignal, register, setHardTimeout } from "../shutdown";
 import type { CleanupOptions } from "../worktree/cleanup";
+import { type ConfigWatcher, watchConfigFile } from "./config-watch";
 import { ControlServer, INVALID_PARAMS, RpcError } from "./control-socket";
 import { DaemonApi } from "./daemon-api";
 import { DaemonLog } from "./log";
@@ -198,6 +201,9 @@ export function wasRevoked(stateDir: string, token: string): boolean {
   }
 }
 
+/** How long a config change that needs a restart lets running turns finish. */
+export const CONFIG_RESTART_DRAIN_MS = 10 * 60_000;
+
 /**
  * Validate the config, overrides applied.
  * @param options - How the daemon was started.
@@ -300,8 +306,10 @@ export async function runDaemon(options: DaemonOptions): Promise<void> {
   const machine = realMachine(env);
   const api = new DaemonApi(origin, runner.token, (line) => log.debug(line));
   let exiting = false;
+  let restarting = false;
   let supervisor: Supervisor;
   let control: ControlServer;
+  let watcher: ConfigWatcher | null = null;
 
   /**
    * Close everything, in order, without exiting.
@@ -313,10 +321,43 @@ export async function runDaemon(options: DaemonOptions): Promise<void> {
     } else {
       await supervisor.sink.drain(2_000);
     }
+    watcher?.close();
     supervisor.close();
     control.close();
     releaseLock(paths.pidfile);
     state.close();
+  };
+
+  /**
+   * Restart this daemon: exit for the service manager to start again, or
+   * re-execute it detached. Callers drain first if turns should finish.
+   * @returns How it restarts.
+   */
+  const restartSelf = (): { restarting: true; mode: "service" | "re-exec" } => {
+    const service = env.HYPOTENUSE_SERVICE === "1";
+    restarting = true;
+    setTimeout(() => {
+      exiting = true;
+      log.info(
+        service ? "exiting for the service manager to restart" : "re-executing",
+      );
+      void teardown(false).then(() => {
+        if (service) process.exit(EXIT_RESTART);
+        const [command, ...prefix] = selfCommand();
+        const child = spawn(
+          command as string,
+          [...prefix, ...childArgs(process.argv.slice(2))],
+          {
+            detached: true,
+            stdio: "ignore",
+            env: env as NodeJS.ProcessEnv,
+          },
+        );
+        child.unref();
+        process.exit(0);
+      });
+    }, 50);
+    return { restarting: true, mode: service ? "service" : "re-exec" };
   };
 
   const requestExit = (exit: ExitRequest) => {
@@ -395,33 +436,7 @@ export async function runDaemon(options: DaemonOptions): Promise<void> {
           cancel: params.cancel === true,
         }),
       reload: () => supervisor.reload(),
-      restart: () => {
-        const service = env.HYPOTENUSE_SERVICE === "1";
-        setTimeout(() => {
-          exiting = true;
-          log.info(
-            service
-              ? "exiting for the service manager to restart"
-              : "re-executing",
-          );
-          void teardown(false).then(() => {
-            if (service) process.exit(EXIT_RESTART);
-            const [command, ...prefix] = selfCommand();
-            const child = spawn(
-              command as string,
-              [...prefix, ...childArgs(process.argv.slice(2))],
-              {
-                detached: true,
-                stdio: "ignore",
-                env: env as NodeJS.ProcessEnv,
-              },
-            );
-            child.unref();
-            process.exit(0);
-          });
-        }, 50);
-        return { restarting: true, mode: service ? "service" : "re-exec" };
-      },
+      restart: () => restartSelf(),
       "mcp.hello": (params) => supervisor.broker.hello(params),
       "mcp.call": (params) => supervisor.broker.call(params),
     },
@@ -463,4 +478,30 @@ export async function runDaemon(options: DaemonOptions): Promise<void> {
   });
   report({ ready: true, pid: process.pid });
   rmSync(revokedMarker(paths.stateDir), { force: true });
+
+  watcher = watchConfigFile(
+    paths.config,
+    () => {
+      if (exiting || restarting) return;
+      log.info(`${paths.config} changed; reloading`);
+      const result = supervisor.reload();
+      if (result.error || result.requiresRestart.length === 0) return;
+      restarting = true;
+      log.info("restarting to apply the config change", {
+        keys: result.requiresRestart.join(","),
+      });
+      void supervisor
+        .drain({ timeoutMs: CONFIG_RESTART_DRAIN_MS, cancel: false })
+        // A stop or a revocation during the drain wins: never come back.
+        .then(() => {
+          if (!exiting) restartSelf();
+        });
+    },
+    {
+      onError: (error) =>
+        log.warn(
+          `not watching ${paths.config} for changes (\`hypotenuse daemon reload\` still applies them): ${error instanceof Error ? error.message : String(error)}`,
+        ),
+    },
+  );
 }

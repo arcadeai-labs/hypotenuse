@@ -53,9 +53,15 @@ The daemon runs the same checks when it starts and refuses an invalid file rathe
 | `hypotenuse daemon stop --cancel` | stops running turns at once; each says in Linear where it was stopped |
 | `hypotenuse daemon restart` | stop, then start |
 
+**Saving the config file reloads it** — the daemon watches the file. (A `prompt_file` is read at the start of each
+turn, so editing one needs nothing.) An invalid file is refused, the error is in the log, and the running config
+stays until you fix it.
+
 **Reload** applies what is safe at once — roles, subscriptions, limits, the log level, prompts and policies for new
 turns, new repositories — and forgets that an agent was found logged out, so it is offered work again. Changing the server, an existing repository's path, or the command of an agent that is
-running needs `hypotenuse daemon restart`, and `reload` says so instead of half-applying it.
+running needs a restart. A saved edit does that itself: it lets running turns finish (up to 10 minutes), then
+restarts the daemon — or exits for the service manager to restart it. `hypotenuse daemon reload` says so instead of
+half-applying it.
 
 If a daemon stops answering, `daemon stop` says so and suggests `hypotenuse daemon stop --force`, which stops the
 process without its help and clears its lock. Work it held returns to the queue after its lease lapses.
