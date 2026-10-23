@@ -249,8 +249,8 @@ the Hypotenuse tools. Each entry is a path or an `http(s)` URL:
 [roles.manager]
 agent = "claude"
 docs = [
-  "prompts/product-plan.md",                                                  # inlined
-  "https://www.arcadians.dev/engineering/process/product-development-process", # linked
+  "prompts/product-plan.md",                  # inlined
+  "https://wiki.example.com/product-process", # linked
 ]
 ```
 
