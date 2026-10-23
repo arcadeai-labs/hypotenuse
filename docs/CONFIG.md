@@ -312,7 +312,7 @@ collector's endpoint or headers — it relays through the server.
 
 | Key | Type | Default | Rules |
 |---|---|---|---|
-| `level` | `"error"` \| `"warn"` \| `"info"` \| `"debug"` \| `"trace"` | `"info"` | overridden by `-v` (debug) and `HYPOTENUSE_LOG_LEVEL`; every session's agent log (`<state dir>/sessions/<id>.log`) has the agent's stderr and one line per ACP message (method and size); `trace` adds the messages' contents, which can include code and secrets |
+| `level` | `"error"` \| `"warn"` \| `"info"` \| `"debug"` \| `"trace"` | `"info"` | overridden by `daemon start --log-level`, then `-v` (debug), then `HYPOTENUSE_LOG_LEVEL`; `debug` logs every agent activity (thought, action, plan, question, answer), each prompt sent to the agent, and each reply it receives, one line each and cut to 200 characters — `trace` logs them whole; every session's agent log (`<state dir>/sessions/<id>.log`) has the agent's stderr and one line per ACP message (method and size); `trace` adds the messages' contents, which can include code and secrets |
 | `file` | path | `<state dir>/daemon.log` | rotated at 10 MB, five kept |
 
 ## Environment variables
@@ -323,7 +323,7 @@ collector's endpoint or headers — it relays through the server.
 | `HYPOTENUSE_URL` | server URL (after `--url`; before the server `hypotenuse login` last used, then `[server] url`) |
 | `HYPOTENUSE_PROJECT` | the project operator commands act on (after `--project`; before `hypotenuse project use`) |
 | `BROWSER` | the command `hypotenuse login` opens the approval page with; `none` opens nothing (the URL is printed either way) |
-| `HYPOTENUSE_LOG_LEVEL` | log level (after `-v`) |
+| `HYPOTENUSE_LOG_LEVEL` | log level (after `--log-level` and `-v`) |
 | `HYPOTENUSE_NO_UPDATE_CHECK` | `1` disables the once-a-day update notice (never shown for `daemon`, `mcp`, `upgrade`, `check-update`, under `--json`, or when stderr is not a terminal) |
 | `HYPOTENUSE_SERVICE` | set by `hypotenuse service install`'s unit; makes the daemon exit with code 75 (for the service manager to restart it) instead of re-executing itself after an upgrade |
 | `HYPOTENUSE_MACHINE_ID` | replaces the OS machine id the one-daemon-per-machine rule is keyed on — for containers built from one image, which share `/etc/machine-id` |

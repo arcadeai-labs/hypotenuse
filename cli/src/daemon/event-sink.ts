@@ -26,7 +26,7 @@ import {
 import { ApiError } from "../api/client";
 import { Backoff } from "./backoff";
 import type { DaemonApi } from "./daemon-api";
-import type { DaemonLog } from "./log";
+import { type DaemonLog, preview } from "./log";
 import type { StateDb } from "./state";
 
 /** The most events per `daemon:events` call the daemon sends. */
@@ -42,6 +42,57 @@ export type EventInput =
       ? Omit<E, "eventId" | "seq" | "at">
       : never
     : never;
+
+/**
+ * What an agent's activity says, for the daemon log: a thought's or answer's
+ * text, an action and its parameter (and result), the plan's progress, a
+ * usage tally.
+ * @param event - The event, as a turn produced it.
+ * @returns The description, before `preview` puts it on one line.
+ */
+export function describeEvent(event: EventInput): string {
+  let text: string;
+  switch (event.type) {
+    case "thought":
+    case "response":
+    case "error":
+      text = event.body;
+      break;
+    case "elicitation":
+      text = event.signal ? `[${event.signal}] ${event.body}` : event.body;
+      break;
+    case "action":
+      text = `${event.action} ${event.parameter}${event.result ? ` → ${event.result}` : ""}`;
+      break;
+    case "plan": {
+      const done = event.entries.filter((e) => e.status === "completed").length;
+      const now = event.entries.find((e) => e.status === "in_progress");
+      text = `${done}/${event.entries.length} done${now ? `; now: ${now.content}` : ""}`;
+      break;
+    }
+    case "summary":
+      text = event.title;
+      break;
+    case "external_url":
+      text = `${event.label} ${event.url}`;
+      break;
+    case "usage":
+      text = [
+        event.inputTokens !== undefined && `in=${event.inputTokens}`,
+        event.outputTokens !== undefined && `out=${event.outputTokens}`,
+        event.costUsd !== undefined && `cost=$${event.costUsd}`,
+        event.contextUsed !== undefined &&
+          `context=${event.contextUsed}${event.contextSize ? `/${event.contextSize}` : ""}`,
+      ]
+        .filter(Boolean)
+        .join(" ");
+      break;
+    case "status":
+      text = event.state;
+      break;
+  }
+  return text;
+}
 
 /** What the sink tells the supervisor. */
 export interface SinkHooks {
@@ -109,13 +160,17 @@ export class EventSink {
       ephemeral,
       payload: { ...event, eventId, at: Date.now() },
     });
-    this.log.debug("event queued", {
-      session: target.agentSessionId,
-      workItem: target.workItemId,
-      type: event.type,
-      seq,
-      ephemeral,
-    });
+    if (this.log.enabled("debug")) {
+      this.log.debug(
+        `agent ${event.type}: ${preview(describeEvent(event), this.log.level)}`,
+        {
+          session: target.agentSessionId,
+          workItem: target.workItemId,
+          seq,
+          ephemeral,
+        },
+      );
+    }
     this.kick();
     return { eventId, seq };
   }

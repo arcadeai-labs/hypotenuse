@@ -64,7 +64,7 @@ import type {
   TurnReply,
   TurnResult,
 } from "./executor";
-import type { DaemonLog } from "./log";
+import { type DaemonLog, preview } from "./log";
 import { McpBroker } from "./mcp-broker";
 import { selfCommand } from "./self";
 import { ServerLink } from "./server-link";
@@ -513,6 +513,14 @@ export class Supervisor {
       body: reply.body,
     });
     if (taken) slot.consumed.push(reply.activityId);
+    const { log } = this.options;
+    if (log.enabled("debug")) {
+      log.debug(`reply: ${preview(reply.body, log.level)}`, {
+        session: slot.agentSessionId,
+        workItem: slot.workItemId,
+        activity: reply.activityId,
+      });
+    }
     this.options.log.info(
       taken
         ? "a reply answered the turn's question"

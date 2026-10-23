@@ -25,8 +25,9 @@ import {
 import { type Command, Option } from "commander";
 import { sessionLogPath } from "../acp/lifecycle";
 import { parseDuration } from "../config/durations";
-import { loadConfig } from "../config/loader";
+import { LOG_LEVELS, loadConfig } from "../config/loader";
 import { daemonPaths, defaultStateDir, tildify } from "../config/paths";
+import type { LogLevel } from "../config/schema";
 import { type CliContext, emit, runCommand, when } from "../context";
 import {
   callDaemon,
@@ -34,6 +35,7 @@ import {
   EXIT_NOT_RUNNING,
   NOT_RUNNING_MESSAGE,
 } from "../daemon/control-client";
+import { paintLogLine } from "../daemon/log";
 import { runDaemon } from "../daemon/main";
 import {
   inspectLock,
@@ -176,9 +178,13 @@ export function notRunning(ctx: CliContext, error: unknown): never {
 /**
  * Start the daemon in the background: spawn it detached, wait for `ready`.
  * @param ctx - The context.
+ * @param logLevel - `--log-level`, passed on to the child.
  * @returns The child's pid.
  */
-export async function startBackground(ctx: CliContext): Promise<number> {
+export async function startBackground(
+  ctx: CliContext,
+  logLevel?: LogLevel,
+): Promise<number> {
   const location = locateDaemon(ctx);
   const lock = await inspectLock(location.pidfile);
   if (
@@ -198,6 +204,7 @@ export async function startBackground(ctx: CliContext): Promise<number> {
     ...(o.verbose ? ["--verbose"] : []),
     "daemon",
     "start",
+    ...(logLevel ? ["--log-level", logLevel] : []),
   ]);
   const child = spawn(command as string, [...prefix, ...args], {
     detached: true,
@@ -343,7 +350,8 @@ async function tailLog(
       .split("\n")
       .filter(Boolean)
       .filter(keep);
-    for (const line of all.slice(-options.lines)) console.log(line);
+    for (const line of all.slice(-options.lines))
+      console.log(paintLogLine(line));
   }
   if (!options.follow) return;
   let offset = existsSync(file) ? statSync(file).size : 0;
@@ -362,8 +370,20 @@ async function tailLog(
     const text = partial + buffer.toString("utf8");
     const lines = text.split("\n");
     partial = lines.pop() ?? "";
-    for (const line of lines) if (line && keep(line)) console.log(line);
+    for (const line of lines)
+      if (line && keep(line)) console.log(paintLogLine(line));
   }
+}
+
+/**
+ * `--log-level`, shared by `start` and `restart`.
+ * @returns The option.
+ */
+function logLevelOption(): Option {
+  return new Option(
+    "--log-level <level>",
+    "the log level, over -v, HYPOTENUSE_LOG_LEVEL, and the config file",
+  ).choices(LOG_LEVELS);
 }
 
 /**
@@ -379,10 +399,12 @@ export function registerDaemonCommands(program: Command): void {
     .command("start")
     .description("Start the daemon (in the background unless --foreground)")
     .option("--foreground", "run in this process; what a service manager runs")
+    .addOption(logLevelOption())
     .addOption(new Option("--detached-child").hideHelp())
     .action(async function (this: Command) {
       const opts = this.opts() as {
         foreground?: boolean;
+        logLevel?: LogLevel;
         detachedChild?: boolean;
       };
       if (opts.foreground) {
@@ -399,12 +421,13 @@ export function registerDaemonCommands(program: Command): void {
           url: globals.url,
           project: globals.project,
           verbose: globals.verbose,
+          logLevel: opts.logLevel,
           detachedChild: Boolean(opts.detachedChild),
         });
         return;
       }
       await runCommand(this, async (ctx) => {
-        const pid = await startBackground(ctx);
+        const pid = await startBackground(ctx, opts.logLevel);
         const { log } = locateDaemon(ctx);
         emit(
           ctx,
@@ -457,9 +480,14 @@ export function registerDaemonCommands(program: Command): void {
       "10m",
     )
     .option("--cancel", "stop running turns at once")
+    .addOption(logLevelOption())
     .action(async function (this: Command) {
       await runCommand(this, async (ctx) => {
-        const opts = this.opts() as { timeout: string; cancel?: boolean };
+        const opts = this.opts() as {
+          timeout: string;
+          cancel?: boolean;
+          logLevel?: LogLevel;
+        };
         try {
           await stopDaemon(ctx, {
             timeoutMs: durationFlag(opts.timeout, "--timeout"),
@@ -469,7 +497,7 @@ export function registerDaemonCommands(program: Command): void {
         } catch (error) {
           if (!(error instanceof DaemonNotRunning)) throw error;
         }
-        const pid = await startBackground(ctx);
+        const pid = await startBackground(ctx, opts.logLevel);
         emit(
           ctx,
           { restarted: true, pid },

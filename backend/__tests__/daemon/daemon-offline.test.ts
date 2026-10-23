@@ -63,7 +63,7 @@ function queued(workItemId: number): { seq: number; ephemeral: boolean }[] {
       .log()
       .matchAll(
         new RegExp(
-          `event queued .*workItem=${workItemId} .*seq=(\\d+) ephemeral=(true|false)`,
+          `agent \\w+: .* workItem=${workItemId} .*seq=(\\d+) ephemeral=(true|false)`,
           "g",
         ),
       ),
