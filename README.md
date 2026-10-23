@@ -92,10 +92,7 @@ agent = "codex"
 permission_policy = "allow"
 
 [[repositories]]
-name = "acme/web"
-path = "~/code/web"
-remote = "github.com/acme/web"
-base_branch = "main"
+path = "~/code/web"          # the remote and base branch come from the clone's origin
 setup = ["bun install"]
 
 [sessions]

@@ -145,9 +145,22 @@ describe("config init, schema, path", () => {
         "#:schema https://www.hypotenuse.cloud/schemas/config-v1.json\n",
       ),
     ).toBe(true);
-    expect(text).toContain(
-      '[[repositories]]\nname = "web"\npath = "~/code/web"\nremote = "github.com/acme/web"\nbase_branch = "main"',
-    );
+    // Only what has no default: the remote and base branch come from git,
+    // the server from the sign-in, the agent table from the role's preset.
+    expect(text).toContain('[[repositories]]\npath = "~/code/web"\n');
+    const set = text
+      .split("\n")
+      .filter((line) => line.trim() && !line.trim().startsWith("#"));
+    for (const key of [
+      /^remote\b/,
+      /^name\b/,
+      /^base_branch\b/,
+      /^url\b/,
+      /^level\b/,
+      /^\[agents\./,
+    ]) {
+      expect(set.filter((line) => key.test(line))).toEqual([]);
+    }
     const parsed = Bun.TOML.parse(text) as {
       runner: { roles: string[] };
       roles: Record<string, { agent: string }>;

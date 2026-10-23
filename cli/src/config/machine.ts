@@ -184,23 +184,21 @@ export function originHead(machine: MachineEnv, path: string): string | null {
 }
 
 /**
- * Fill in what a repository entry leaves out: `remote` from origin and
- * `base_branch` from `origin/HEAD` (else `main`).
+ * Fill in what a repository entry leaves out: its remote is the clone's
+ * origin, and `base_branch` comes from `origin/HEAD` (else `main`).
  * @param machine - The machine.
  * @param repo - The entry.
- * @returns The repository as the daemon reports it, or null when its remote
- *   is neither configured nor readable from origin.
+ * @returns The repository as the daemon reports it, or null when the clone
+ *   has no origin.
  */
 export function resolveRepository(
   machine: MachineEnv,
   repo: RepositoryConfig,
 ): ResolvedRepository | null {
-  const remote = repo.remote
-    ? normalizeRemote(repo.remote)
-    : originOf(machine, repo.path);
+  const remote = originOf(machine, repo.path);
   if (!remote) return null;
   return {
-    name: repositoryName({ ...repo, remote }),
+    name: repositoryName(repo, remote),
     remote,
     baseBranch: repo.base_branch ?? originHead(machine, repo.path) ?? "main",
     path: repo.path,

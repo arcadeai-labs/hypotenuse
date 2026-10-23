@@ -1,5 +1,6 @@
 #:schema https://www.hypotenuse.cloud/schemas/config-v1.json
-# The hypotenuse daemon's config. Every key: https://www.hypotenuse.cloud/docs/config
+# The hypotenuse daemon's config. Only what has no default is set; the rest is read from git and
+# your sign-in. Every key: https://www.hypotenuse.cloud/docs/config
 # Check it with `hypotenuse config validate`; apply edits with `hypotenuse daemon reload`.
 config_version = 1
 
@@ -16,8 +17,9 @@ roles = ["manager", "worker"]    # drop "manager" to only implement issues
 # teams = ["ENG"]                # only these Linear teams (empty: every team)
 # labels = ["frontend"]          # an issue needs one of these labels
 
-[agents.{{agent}}]
-preset = "{{agent}}"
+# Only to change how an agent is launched; a role can name a preset directly.
+# [agents.{{agent}}]
+# preset = "{{agent}}"
 # max_parallel = 2               # jobs using this agent at once
 
 [roles.worker]
@@ -40,4 +42,4 @@ agent = "{{agent}}"
 # keepalive_interval = "10m"     # must stay under Linear's 30m stale window
 
 [log]
-level = "info"
+# level = "info"

@@ -14,11 +14,7 @@
  */
 
 import { isAbsolute, relative } from "node:path";
-import {
-  normalizeRemote,
-  PROTOCOL_HEADER,
-  PROTOCOL_VERSION,
-} from "../../../protocol/src/index";
+import { PROTOCOL_HEADER, PROTOCOL_VERSION } from "../../../protocol/src/index";
 import { decide } from "../acp/permissions";
 import { ApiClient, ApiError } from "../api/client";
 import { formatDuration } from "./durations";
@@ -204,33 +200,8 @@ export function validateReferences(config: Config): Findings {
     });
   }
 
-  const names = new Map<string, number>();
-  const remotes = new Map<string, number>();
+  // Names are checked in pass 3: one left out comes from the clone's origin.
   config.repositories.forEach((repo, index) => {
-    const name = repositoryName(repo);
-    if (!repo.name && !/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(name)) {
-      errors.push({
-        path: `repositories[${index}]`,
-        message: `"${name}" is not a usable repository name (letters, digits, \`.\`, \`_\`, \`-\`); set name`,
-      });
-    }
-    const firstName = names.get(name);
-    if (firstName !== undefined) {
-      errors.push({
-        path: `repositories[${index}].name`,
-        message: `"${name}" is already repositories[${firstName}]`,
-      });
-    } else names.set(name, index);
-    if (repo.remote) {
-      const remote = normalizeRemote(repo.remote);
-      const first = remotes.get(remote);
-      if (first !== undefined) {
-        errors.push({
-          path: `repositories[${index}].remote`,
-          message: `${remote} is already repositories[${first}]`,
-        });
-      } else remotes.set(remote, index);
-    }
     if (repo.cleanup === "ttl" && config.sessions.cleanup_ttl === undefined) {
       errors.push({
         path: `repositories[${index}].cleanup`,
@@ -375,6 +346,8 @@ export function validateMachine(
     });
   }
 
+  const origins = new Map<string, number>();
+  const names = new Map<string, number>();
   config.repositories.forEach((repo, index) => {
     const at = `repositories[${index}]`;
     if (!machine.isDirectory(repo.path)) {
@@ -401,21 +374,37 @@ export function validateMachine(
       return;
     }
     const origin = originOf(machine, repo.path);
-    const configured = repo.remote ? normalizeRemote(repo.remote) : null;
     if (!origin) {
       errors.push({
-        path: `${at}.remote`,
+        path: `${at}.path`,
         message: `${home(repo.path)} has no origin remote`,
       });
       return;
     }
-    if (configured && origin !== configured) {
+    const first = origins.get(origin);
+    if (first !== undefined) {
       errors.push({
-        path: `${at}.remote`,
-        message: `origin is ${origin}, config says ${configured}`,
+        path: `${at}.path`,
+        message: `${home(repo.path)} is another clone of ${origin}, already repositories[${first}]`,
       });
       return;
     }
+    origins.set(origin, index);
+    // The name the daemon uses: its own, else the origin's last segment.
+    const name = repositoryName(repo, origin);
+    if (!repo.name && !/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(name)) {
+      errors.push({
+        path: `${at}`,
+        message: `"${name}" (from origin ${origin}) is not a usable repository name (letters, digits, \`.\`, \`_\`, \`-\`); set name`,
+      });
+    }
+    const firstName = names.get(name);
+    if (firstName !== undefined) {
+      errors.push({
+        path: `${at}.name`,
+        message: `"${name}" is already repositories[${firstName}]${repo.name ? "" : ` (from origin ${origin}); set name`}`,
+      });
+    } else names.set(name, index);
     const base = repo.base_branch ?? originHead(machine, repo.path) ?? "main";
     if (!options.offline) {
       const heads = machine.git(

@@ -31,7 +31,8 @@ started with a different config or state directory still finds it. On the server
 another live runner (`online` or `draining`), naming it, and a unique index on live runners' `machineId` makes the
 check atomic. This catches a second OS user on a shared box, and two projects on one laptop.
 
-`hypotenuse config path` prints the resolved paths. `hypotenuse config init` writes a starter file,
+`hypotenuse config path` prints the resolved paths. `hypotenuse config init` writes a starter file that sets only
+what has no default (each repository is just its `path`),
 `hypotenuse config validate` checks one, and `hypotenuse config schema` prints the JSON Schema. The first line
 of a generated file points editors at that schema:
 
@@ -286,15 +287,17 @@ that reminder and the new message.
 
 ## `[[repositories]]`
 
-One entry per repository this runner can work in. Routing only offers work that needs a repository to runners
-that have it, matched by normalized `remote`.
+One entry per repository this runner can work in. Only `path` is needed: the repository is whatever the clone's
+`origin` is, and its base branch is `origin/HEAD`'s, both read from git each time the daemon starts or reloads.
+Routing only offers work that needs a repository to runners that have it, matched by that normalized origin
+(`git@github.com:acme/web.git` = `https://github.com/acme/web` = `github.com/acme/web`), as configured
+(`remote.origin.url`, before any `url.*.insteadOf` rewrite, so a mirror does not change it).
 
 | Key | Type | Default | Rules |
 |---|---|---|---|
-| `name` | string | last path segment of `remote` | unique; used in worktree paths |
-| `path` | path | — (required) | an existing git repository (a clone, not a worktree) |
-| `remote` | string | the repository's `origin` | normalized (`git@github.com:acme/web.git` = `https://github.com/acme/web` = `github.com/acme/web`); must match `origin` as configured (`remote.origin.url`, before any `url.*.insteadOf` rewrite, so a mirror does not change it); unique |
-| `base_branch` | string | `origin/HEAD`'s branch, else `main` | must exist on origin (checked unless `--offline`) |
+| `name` | string | last path segment of the clone's origin | unique; used in worktree paths |
+| `path` | path | — (required) | an existing git clone (not a worktree) with an `origin`; one entry per origin |
+| `base_branch` | string | `origin/HEAD`'s branch, else `main` | set it only to branch from something else (`develop`, a release branch); must exist on origin (checked unless `--offline`) |
 | `setup` | array of strings | `[]` | shell commands (`sh -c`) run in each new worktree, in order, with the per-session environment; a failure ends the turn and keeps the worktree, and the next turn runs them again |
 | `setup_timeout` | duration | `"10m"` | per command |
 | `branch_prefix` | string | `"hypotenuse"` | branches are `<prefix>/<issue-id>-<slug>`; a name taken by anything else gets `-2`, `-3`, … |
@@ -404,17 +407,12 @@ command = ["npx", "-y", "@sentry/mcp-server"]
 env = { SENTRY_AUTH_TOKEN = "$SENTRY_AUTH_TOKEN" }
 
 [[repositories]]
-name = "web"
-path = "~/code/web"
-remote = "github.com/acme/web"
-base_branch = "main"
+path = "~/code/web"                     # remote and base branch: read from the clone's origin
 setup = ["bun install --frozen-lockfile"]
 
 [[repositories]]
-name = "api"
 path = "~/code/api"
-remote = "github.com/acme/api"
-base_branch = "develop"
+base_branch = "develop"                 # branch from develop, not origin/HEAD
 setup = ["uv sync", "cp .env.example .env"]
 setup_timeout = "15m"
 cleanup = "on-merge"
@@ -437,8 +435,8 @@ level = "info"
 
 `hypotenuse config validate` on this file checks:
 
-- both repositories are git clones whose `origin` matches;
-- `main` and `develop` exist on origin;
+- both repositories are git clones with an `origin`, and not two clones of one;
+- each base branch (`web`'s from `origin/HEAD`, `api`'s `develop`) exists on origin;
 - `prompts/manager.md` exists and uses only known variables, and every `docs` path exists;
 - `npx` is on `PATH`;
 - the keepalive is under Linear's 30-minute stale window and the timeouts are ordered.

@@ -16,15 +16,9 @@ import { originOf } from "../api/credentials";
 import { checkConfig, formatIssue, summarize } from "../config/check";
 import type { ConfigIssue } from "../config/loader";
 import { applyOverrides } from "../config/loader";
-import {
-  originOf as gitOrigin,
-  type MachineEnv,
-  originHead,
-  realMachine,
-} from "../config/machine";
+import { type MachineEnv, realMachine } from "../config/machine";
 import { daemonPaths, expandPath, tildify } from "../config/paths";
 import { AGENT_PRESETS, PRESET_NAMES } from "../config/presets";
-import { repositoryName } from "../config/resolve";
 import {
   type Config,
   configJsonSchema,
@@ -61,47 +55,37 @@ export function detectPreset(machine: MachineEnv): string {
 }
 
 /**
- * Describe repositories for the starter file, from their clones.
- * @param machine - The machine.
+ * Describe repositories for the starter file. Only the path: the remote is
+ * the clone's origin and the base branch its `origin/HEAD`, read from git
+ * every time the daemon starts or reloads, so the file never repeats them.
  * @param paths - The `--repo` paths, absolute.
  * @param env - Environment variables.
  * @returns TOML text.
  */
 export function repositoryBlocks(
-  machine: MachineEnv,
   paths: string[],
   env: Record<string, string | undefined>,
 ): string {
+  const overrides = [
+    '# base_branch = "develop"           # default: the branch origin/HEAD names',
+    '# setup = ["bun install --frozen-lockfile"]',
+  ];
   if (paths.length === 0) {
     return [
-      "# One table per repository this runner works in (`config init --repo <path>` fills these in):",
+      "# One table per git clone this runner works in (`config init --repo <path>` fills these in):",
       "# [[repositories]]",
-      '# name = "web"',
       '# path = "~/code/web"',
-      '# remote = "github.com/acme/web"',
-      '# base_branch = "main"',
-      '# setup = ["bun install --frozen-lockfile"]',
+      ...overrides,
     ].join("\n");
   }
   return paths
-    .map((path) => {
-      const remote = gitOrigin(machine, path);
-      const name = repositoryName({
-        path,
-        remote: remote ?? undefined,
-      } as Config["repositories"][number]);
-      const base = originHead(machine, path) ?? "main";
-      return [
+    .map((path) =>
+      [
         "[[repositories]]",
-        `name = ${JSON.stringify(name)}`,
         `path = ${JSON.stringify(tildify(path, env))}`,
-        remote
-          ? `remote = ${JSON.stringify(remote)}`
-          : "# remote = (no origin remote found)",
-        `base_branch = ${JSON.stringify(base)}`,
-        "# setup = []",
-      ].join("\n");
-    })
+        ...overrides,
+      ].join("\n"),
+    )
     .join("\n\n");
 }
 
@@ -119,9 +103,9 @@ export function renderTemplate(input: {
   return template
     .replaceAll(
       "{{server}}",
-      input.server
-        ? `url = ${JSON.stringify(input.server)}`
-        : '# url = "https://api.hypotenuse.cloud"',
+      // A comment either way: with no url the daemon uses the server this
+      // machine's runner is registered on.
+      `# url = ${JSON.stringify(input.server ?? "https://api.hypotenuse.cloud")}   # default: where this machine's runner is registered`,
     )
     .replaceAll("{{hostname}}", hostname().replace(/\.local$/i, ""))
     .replaceAll("{{jobs}}", String(defaultMaxParallelJobs(input.cpus)))
@@ -269,7 +253,7 @@ export function registerConfigCommands(program: Command): void {
         const text = renderTemplate({
           server,
           agent: detectPreset(machine),
-          repositories: repositoryBlocks(machine, repos, ctx.env),
+          repositories: repositoryBlocks(repos, ctx.env),
           cpus: navigator.hardwareConcurrency || 1,
         });
         mkdirSync(dirname(resolve(path)), { recursive: true, mode: 0o700 });
