@@ -51,12 +51,12 @@ waiting code. The rule that chose a role is written only into a thought.
 
 ## Definition of done
 
-- [ ] Every handler path writes a summary; `created` and `prompted` link the session and the turn they queued.
-- [ ] The list and view, with RBAC levels in `rbac.test.ts` and published as MCP tools.
-- [ ] Tests over real HTTP against finear: a delegation, a follow-up, a rule-routed mention placed on a runner, an
+- [x] Every handler path writes a summary; `created` and `prompted` link the session and the turn they queued.
+- [x] The list and view, with RBAC levels in `rbac.test.ts` and published as MCP tools.
+- [x] Tests over real HTTP against finear: a delegation, a follow-up, a rule-routed mention placed on a runner, an
       ignored issue change and the hide-ignored filter, pagination and `since`, an unknown workspace absent, member vs
       admin payload, another project's event not found, an outsider refused, and the channel.
-- [ ] The Events page, the CLI commands, and the docs.
+- [x] The Events page, the CLI commands, and the docs.
 
 ## Learnings from the build
 
