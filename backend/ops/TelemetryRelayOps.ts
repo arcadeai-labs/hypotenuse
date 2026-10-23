@@ -82,8 +82,10 @@ import {
  */
 
 /**
- * How long one exporter's pass may hold its lock: longer than its rounds of
- * POSTs can take, short enough that a crashed worker's lock lapses soon.
+ * How long one exporter's pass may hold its lock, short enough that a
+ * crashed worker's lock lapses soon. A pass never outlives it: it starts no
+ * POST that could still be running when the lock lapses (`exportFor`'s
+ * deadline), and each POST is cut off at `exportTimeoutMs`.
  */
 const EXPORT_LOCK_MS = 5 * 60_000;
 
@@ -469,16 +471,20 @@ async function recordOutcome(
 
 /**
  * Drain one exporter's share of a project's stream, in rounds, until it is
- * empty, the exporter backs off, or `maxRounds` pass.
+ * empty, the exporter backs off, `maxRounds` pass, or its deadline nears.
  * @param exporter - The exporter.
  * @param secrets - The project's header values.
  * @param report - Accumulates what happened.
+ * @param deadline - Epoch ms after which no POST starts: the pass's lock
+ *   lapses one request timeout later, and its unacked entries stay pending
+ *   for the next pass.
  * @param maxRounds - The most reads.
  */
 async function exportFor(
   exporter: TelemetryExporter,
   secrets: string[],
   report: ExportReport,
+  deadline: number,
   maxRounds = 20,
 ): Promise<void> {
   const redis = api.redis.redis;
@@ -539,6 +545,7 @@ async function exportFor(
         await redis.xack(key, group, ...ids);
         continue;
       }
+      if (Date.now() >= deadline) return;
       const outcome = await postOtlp(
         exporter,
         signal,
@@ -615,7 +622,13 @@ export async function exportAll(): Promise<ExportReport> {
       const lease = await acquireLock(lockKey, EXPORT_LOCK_MS);
       if (!lease) continue;
       try {
-        await exportFor(exporter, secrets, report);
+        await exportFor(
+          exporter,
+          secrets,
+          report,
+          // The last POST may take a full timeout; leave a margin after it.
+          Date.now() + EXPORT_LOCK_MS - 2 * config.telemetry.exportTimeoutMs,
+        );
       } catch (error) {
         api.logger.warn("telemetry export pass failed", {
           exporterId: exporter.id,

@@ -409,6 +409,18 @@ describe("endpoint safety", () => {
         resolve: async () => ["169.254.169.254"],
       }),
     ).rejects.toBeInstanceOf(EndpointRefused);
+    // A DNS failure is not a refusal: it may pass, and the export retries.
+    const failed = await postToEndpoint("https://flaky.example.com/v1/traces", {
+      headers: {},
+      body: new Uint8Array(0),
+      timeoutMs: 2000,
+      allowPrivate: false,
+      resolve: async () => {
+        throw new Error("EAI_AGAIN");
+      },
+    }).catch((e: unknown) => e);
+    expect(failed).toBeInstanceOf(Error);
+    expect(failed).not.toBeInstanceOf(EndpointRefused);
     // And the address it checked is the one it connects to, whatever the name.
     collector.reset();
     const pinned = await postToEndpoint(

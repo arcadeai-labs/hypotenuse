@@ -118,7 +118,7 @@ export interface EndpointRequest {
  * @param init - Headers, body, timeout, and the private-address rule.
  * @returns The status and response headers (the body is discarded).
  * @throws {EndpointRefused} When the host resolves to a non-public address.
- * @throws {Error} On a network failure or timeout.
+ * @throws {Error} On a DNS or network failure or a timeout — retryable.
  */
 export function postToEndpoint(
   url: string,
@@ -139,8 +139,9 @@ export function postToEndpoint(
   ) => {
     resolve(host).then(
       (addresses) => {
+        // Not resolving may be a passing DNS failure: retryable, not a refusal.
         if (addresses.length === 0)
-          return callback(new EndpointRefused(`${host} does not resolve.`), "");
+          return callback(new Error(`${host} does not resolve.`), "");
         const bad = addresses.find((a) => isPrivateAddress(a));
         if (bad && !allowPrivate)
           return callback(
@@ -160,7 +161,7 @@ export function postToEndpoint(
       },
       (error: unknown) =>
         callback(
-          new EndpointRefused(
+          new Error(
             `${host} does not resolve: ${error instanceof Error ? error.message : String(error)}`,
           ),
           "",
@@ -195,6 +196,13 @@ export function postToEndpoint(
         res.on("error", reject);
       },
     );
+    // `timeout` above is the socket's idle time; this bounds the whole
+    // request, so a collector that answers a byte at a time cannot hold it.
+    const deadline = setTimeout(
+      () => req.destroy(new Error("timed out")),
+      init.timeoutMs,
+    );
+    req.on("close", () => clearTimeout(deadline));
     req.on("timeout", () => req.destroy(new Error("timed out")));
     req.on("error", reject);
     req.end(Buffer.from(init.body));
