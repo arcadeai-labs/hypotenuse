@@ -251,41 +251,23 @@ export async function startProjectPlanning(
         ),
       )
       .limit(1);
-    if (mirrored) {
-      return {
-        kind: "started",
-        summary: `Filed ${issue.identifier}; Linear had already started its session.`,
-      };
+    if (!mirrored) {
+      const started = await startSession(integration, issue.id, {
+        instruction,
+        creatorExternalUserId: mention.actor.id,
+        creatorName: mention.actor.name,
+        creatorEmail: mention.actor.email,
+      });
+      if (!started) {
+        return {
+          kind: "refused",
+          summary: `Filed ${issue.identifier}, but Linear refused a session on it: it answered success: false.`,
+        };
+      }
     }
 
-    const intent: PlanningIntent = {
-      instruction,
-      creatorExternalUserId: mention.actor.id,
-      creatorName: mention.actor.name,
-      creatorEmail: mention.actor.email,
-    };
-    // Written before the session exists: Linear's `created` may arrive
-    // before the mutation answers.
-    await redis.set(
-      planningIntentKey(integration.id, issue.id),
-      JSON.stringify(intent),
-      "EX",
-      PLANNING_INTENT_TTL_SECONDS,
-    );
-    await spend(integration);
-    const { agentSessionCreateOnIssue: created } = await linearRequest(
-      integration,
-      CreateAgentSessionOnIssue,
-      { input: { issueId: issue.id } },
-    );
-    if (!created.success) {
-      await redis.del(planningIntentKey(integration.id, issue.id));
-      return {
-        kind: "refused",
-        summary: `Filed ${issue.identifier}, but Linear refused a session on it: it answered success: false.`,
-      };
-    }
-
+    // Replied on every path that ends started, a retry's included: the
+    // person who mentioned the app learns where the planning happens.
     let replied = true;
     try {
       await spend(integration);
@@ -303,9 +285,14 @@ export async function startProjectPlanning(
         error: e instanceof Error ? e.message : String(e),
       });
     }
+    const reply = replied
+      ? "replied on the project comment with the link"
+      : "the reply on the project comment failed";
     return {
       kind: "started",
-      summary: `Filed ${issue.identifier} and started a manager session on it${replied ? "; replied on the project comment with the link" : "; the reply on the project comment failed"}.`,
+      summary: mirrored
+        ? `Filed ${issue.identifier}; Linear had already started its session; ${reply}.`
+        : `Filed ${issue.identifier} and started a manager session on it; ${reply}.`,
     };
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
@@ -317,6 +304,38 @@ export async function startProjectPlanning(
     }
     return { kind: "retry", error: message };
   }
+}
+
+/**
+ * Write the planning intent for an issue, then ask Linear for a session on
+ * it. The intent comes first: Linear's `created` may arrive before the
+ * mutation answers.
+ * @param integration - The integration.
+ * @param issueId - The planning issue's Linear id.
+ * @param intent - What the `created` webhook applies.
+ * @returns True when Linear started the session; false on `success: false`.
+ */
+async function startSession(
+  integration: Integration,
+  issueId: string,
+  intent: PlanningIntent,
+): Promise<boolean> {
+  const redis = api.redis.redis;
+  const key = planningIntentKey(integration.id, issueId);
+  await redis.set(
+    key,
+    JSON.stringify(intent),
+    "EX",
+    PLANNING_INTENT_TTL_SECONDS,
+  );
+  await spend(integration);
+  const { agentSessionCreateOnIssue: created } = await linearRequest(
+    integration,
+    CreateAgentSessionOnIssue,
+    { input: { issueId } },
+  );
+  if (!created.success) await redis.del(key);
+  return created.success;
 }
 
 /**

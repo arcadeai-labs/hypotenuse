@@ -458,9 +458,11 @@ describe("LC-WH-26 project comment mentions", () => {
     const second = await checkNow(event.id);
     expect(sent("CreateIssue")).toHaveLength(1);
     expect(sent("CreateAgentSessionOnIssue")).toHaveLength(1);
+    // The first attempt never reached the reply; the retry still sends it.
     expect(second.summary).toMatch(
-      /^Filed [A-Z]+-\d+; Linear had already started its session\.$/,
+      /^Filed [A-Z]+-\d+; Linear had already started its session; the reply on the project comment failed\.$/,
     );
+    expect(sent("CreateComment")).toHaveLength(1);
     const sessions = await api.db.db
       .select()
       .from(agentSessions)
