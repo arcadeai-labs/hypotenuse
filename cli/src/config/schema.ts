@@ -255,7 +255,7 @@ export function buildConfigSchema(ctx: SchemaContext) {
       .trim()
       .min(1)
       .optional()
-      .describe("The repository's remote; must match origin"),
+      .describe("Deprecated and ignored: the remote is the clone's origin"),
     base_branch: z
       .string()
       .trim()

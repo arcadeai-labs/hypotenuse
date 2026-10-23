@@ -149,17 +149,13 @@ describe("pass 2 — references", () => {
     ]);
   });
 
-  test("repository names and normalized remotes are unique", () => {
+  test("repository names are unique", () => {
     const c = config(
-      `${worker}[[repositories]]\npath = "~/a"\nremote = "github.com/acme/web"\n[[repositories]]\npath = "~/b"\nname = "api"\n[[repositories]]\npath = "~/c"\nremote = "git@github.com:acme/web.git"\nname = "web2"\n[[repositories]]\npath = "~/d"\nname = "api"\n`,
+      `${worker}[[repositories]]\npath = "~/a"\n[[repositories]]\npath = "~/b"\nname = "api"\n[[repositories]]\npath = "~/d"\nname = "api"\n`,
     );
     expect(validateReferences(c).errors).toEqual([
       {
-        path: "repositories[2].remote",
-        message: "github.com/acme/web is already repositories[0]",
-      },
-      {
-        path: "repositories[3].name",
+        path: "repositories[2].name",
         message: '"api" is already repositories[1]',
       },
     ]);
@@ -320,9 +316,7 @@ describe("pass 3 — this machine", () => {
   };
 
   test("a valid machine has nothing to say", () => {
-    const c = config(
-      `${worker}[[repositories]]\npath = "~/code/web"\nremote = "github.com/acme/web"\n`,
-    );
+    const c = config(`${worker}[[repositories]]\npath = "~/code/web"\n`);
     expect(validateMachine(c, machine({ clones: good }))).toEqual({
       errors: [],
       warnings: [],
@@ -359,21 +353,32 @@ describe("pass 3 — this machine", () => {
     ]);
   });
 
-  test("origin matches the configured remote after normalization", () => {
-    const c = config(
+  test("the remote is origin: a configured one is ignored, with a warning to remove it", () => {
+    const same = config(
       `${worker}[[repositories]]\npath = "~/code/web"\nremote = "https://github.com/acme/web.git"\n`,
     );
-    expect(validateMachine(c, machine({ clones: good })).errors).toEqual([]);
-    const wrong = config(
+    expect(validateMachine(same, machine({ clones: good }))).toEqual({
+      errors: [],
+      warnings: [
+        {
+          path: "repositories[0].remote",
+          message: "remote is read from the clone's origin; remove this line",
+        },
+      ],
+    });
+    const other = config(
       `${worker}[[repositories]]\npath = "~/code/web"\nremote = "github.com/acme/website"\n`,
     );
-    expect(validateMachine(wrong, machine({ clones: good })).errors).toEqual([
-      {
-        path: "repositories[0].remote",
-        message:
-          "origin is github.com/acme/web, config says github.com/acme/website",
-      },
-    ]);
+    expect(validateMachine(other, machine({ clones: good }))).toEqual({
+      errors: [],
+      warnings: [
+        {
+          path: "repositories[0].remote",
+          message:
+            "remote is ignored: the clone's origin is github.com/acme/web; remove this line",
+        },
+      ],
+    });
     const none = machine({ clones: { [web]: {} } });
     expect(
       validateMachine(
@@ -382,8 +387,31 @@ describe("pass 3 — this machine", () => {
       ).errors,
     ).toEqual([
       {
-        path: "repositories[0].remote",
+        path: "repositories[0].path",
         message: "~/code/web has no origin remote",
+      },
+    ]);
+  });
+
+  test("two clones of one origin are one repository too many", () => {
+    const c = config(
+      `${worker}[[repositories]]\npath = "~/code/web"\n[[repositories]]\npath = "~/code/web2"\n`,
+    );
+    const m = machine({
+      clones: {
+        ...good,
+        "/home/mario/code/web2": {
+          origin: "https://github.com/acme/web.git",
+          head: "main",
+          heads: ["main"],
+        },
+      },
+    });
+    expect(validateMachine(c, m).errors).toEqual([
+      {
+        path: "repositories[1].path",
+        message:
+          "~/code/web2 is another clone of github.com/acme/web, already repositories[0]",
       },
     ]);
   });

@@ -19,9 +19,10 @@ hypotenuse config validate --online      # checks the file, this machine, and th
 hypotenuse daemon start
 ```
 
-`config init` writes `~/.config/hypotenuse/config.toml` with the server you signed in to, the coding agent it found
-on this machine playing both [roles](/docs/manager-and-worker) (a read-only manager and a worker), and each `--repo`
-you named (its name, its `origin`, and its default branch). Everything else is a commented example. Every key is in the [config file reference](/docs/config).
+`config init` writes `~/.config/hypotenuse/config.toml` with only what has no default: the coding agent it found on
+this machine playing both [roles](/docs/manager-and-worker) (a read-only manager and a worker), and each `--repo` you
+named as just its `path`. The server comes from your sign-in, and each repository's remote and base branch from its
+clone's `origin`, read every time the daemon starts or reloads. Everything else is a commented example. Every key is in the [config file reference](/docs/config).
 
 ## Check the config
 

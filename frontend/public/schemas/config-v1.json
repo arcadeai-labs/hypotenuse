@@ -604,7 +604,7 @@
             "minLength": 1
           },
           "remote": {
-            "description": "The repository's remote; must match origin",
+            "description": "Deprecated and ignored: the remote is the clone's origin",
             "type": "string",
             "minLength": 1
           },

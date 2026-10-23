@@ -38,17 +38,12 @@ command = ["npx", "-y", "@sentry/mcp-server"]
 env = { SENTRY_AUTH_TOKEN = "$SENTRY_AUTH_TOKEN" }
 
 [[repositories]]
-name = "web"
-path = "~/code/web"
-remote = "github.com/acme/web"
-base_branch = "main"
+path = "~/code/web"                     # remote and base branch: read from the clone's origin
 setup = ["bun install --frozen-lockfile"]
 
 [[repositories]]
-name = "api"
 path = "~/code/api"
-remote = "github.com/acme/api"
-base_branch = "develop"
+base_branch = "develop"                 # branch from develop, not origin/HEAD
 setup = ["uv sync", "cp .env.example .env"]
 setup_timeout = "15m"
 cleanup = "on-merge"

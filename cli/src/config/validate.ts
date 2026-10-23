@@ -205,7 +205,6 @@ export function validateReferences(config: Config): Findings {
   }
 
   const names = new Map<string, number>();
-  const remotes = new Map<string, number>();
   config.repositories.forEach((repo, index) => {
     const name = repositoryName(repo);
     if (!repo.name && !/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(name)) {
@@ -221,16 +220,6 @@ export function validateReferences(config: Config): Findings {
         message: `"${name}" is already repositories[${firstName}]`,
       });
     } else names.set(name, index);
-    if (repo.remote) {
-      const remote = normalizeRemote(repo.remote);
-      const first = remotes.get(remote);
-      if (first !== undefined) {
-        errors.push({
-          path: `repositories[${index}].remote`,
-          message: `${remote} is already repositories[${first}]`,
-        });
-      } else remotes.set(remote, index);
-    }
     if (repo.cleanup === "ttl" && config.sessions.cleanup_ttl === undefined) {
       errors.push({
         path: `repositories[${index}].cleanup`,
@@ -375,6 +364,7 @@ export function validateMachine(
     });
   }
 
+  const origins = new Map<string, number>();
   config.repositories.forEach((repo, index) => {
     const at = `repositories[${index}]`;
     if (!machine.isDirectory(repo.path)) {
@@ -401,20 +391,31 @@ export function validateMachine(
       return;
     }
     const origin = originOf(machine, repo.path);
-    const configured = repo.remote ? normalizeRemote(repo.remote) : null;
     if (!origin) {
       errors.push({
-        path: `${at}.remote`,
+        path: `${at}.path`,
         message: `${home(repo.path)} has no origin remote`,
       });
       return;
     }
-    if (configured && origin !== configured) {
+    const first = origins.get(origin);
+    if (first !== undefined) {
       errors.push({
-        path: `${at}.remote`,
-        message: `origin is ${origin}, config says ${configured}`,
+        path: `${at}.path`,
+        message: `${home(repo.path)} is another clone of ${origin}, already repositories[${first}]`,
       });
       return;
+    }
+    origins.set(origin, index);
+    if (repo.remote) {
+      const configured = normalizeRemote(repo.remote);
+      warnings.push({
+        path: `${at}.remote`,
+        message:
+          configured === origin
+            ? "remote is read from the clone's origin; remove this line"
+            : `remote is ignored: the clone's origin is ${origin}; remove this line`,
+      });
     }
     const base = repo.base_branch ?? originHead(machine, repo.path) ?? "main";
     if (!options.offline) {

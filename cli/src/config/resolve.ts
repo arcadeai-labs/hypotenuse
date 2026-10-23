@@ -5,7 +5,6 @@
  * actually plays.
  */
 import { basename } from "node:path";
-import { normalizeRemote } from "../../../protocol/src/index";
 import { AGENT_PRESETS, isPreset, type PresetName } from "./presets";
 import type { Config, RepositoryConfig, RoleConfig } from "./schema";
 
@@ -99,13 +98,17 @@ export function resolveAgents(config: Config): ResolvedAgent[] {
 }
 
 /**
- * A repository's name: its own, else the last segment of its remote, else of
- * its path.
+ * A repository's name: its own, else the last segment of its clone's origin,
+ * else of its path.
  * @param repo - The entry.
+ * @param origin - The clone's origin, normalized, when it is known.
  * @returns The name.
  */
-export function repositoryName(repo: RepositoryConfig): string {
+export function repositoryName(
+  repo: Pick<RepositoryConfig, "name" | "path">,
+  origin?: string | null,
+): string {
   if (repo.name) return repo.name;
-  const source = repo.remote ? normalizeRemote(repo.remote) : repo.path;
+  const source = origin ?? repo.path;
   return basename(source.replace(/\/+$/, "")) || "repository";
 }
