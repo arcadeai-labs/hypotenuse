@@ -23,6 +23,7 @@ import { registerRoutingCommands } from "./commands/routing";
 import { registerRunnerCommands } from "./commands/runner";
 import { registerServiceCommands } from "./commands/service";
 import { registerSessionCommands } from "./commands/session";
+import { registerSkillCommand } from "./commands/skill";
 import { registerTagCommands } from "./commands/tag";
 import { registerTelemetryCommands } from "./commands/telemetry";
 import { registerUpgradeCommand } from "./commands/upgrade";
@@ -92,6 +93,7 @@ export function buildProgram(): Command {
   registerServiceCommands(program);
   registerDoctorCommand(program);
   registerCheckUpdateCommand(program);
+  registerSkillCommand(program);
   registerUpgradeCommand(program);
   registerMcpCommand(program);
   return program;
