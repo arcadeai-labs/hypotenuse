@@ -415,7 +415,9 @@ describe("LC-WH-26 project comment mentions", () => {
     );
 
     // Linear's `created` for the session makes it a manager, before routing.
+    // finear delivers it on its own schedule; settle until it is processed.
     const session = await waitFor(async () => {
+      await settle();
       const [row] = await api.db.db
         .select()
         .from(agentSessions)
@@ -430,7 +432,7 @@ describe("LC-WH-26 project comment mentions", () => {
     });
     const [first] = await itemsOf(session.id);
     expect(first).toMatchObject({ kind: "session_created", role: "manager" });
-  });
+  }, 20_000);
 
   test("a lost answer is retried without filing a second issue", async () => {
     const odes = await project("Odes");
