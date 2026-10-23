@@ -967,11 +967,26 @@ export class Supervisor {
   }
 
   /**
+   * Stop claiming new turns, without stopping running ones — what a restart
+   * waiting for turns to finish does. {@link resumeClaims} undoes it.
+   */
+  pauseClaims(): void {
+    this.draining = true;
+    this.link.beatNow();
+  }
+
+  /** Claim again after {@link pauseClaims}: the restart was called off. */
+  resumeClaims(): void {
+    this.draining = false;
+    this.link.beatNow();
+  }
+
+  /**
    * Wait until no turn is running, bounded.
    * @param timeoutMs - The most to wait.
    * @returns Whether the slots emptied.
    */
-  private async waitIdle(timeoutMs: number): Promise<boolean> {
+  async waitIdle(timeoutMs: number): Promise<boolean> {
     const deadline = Date.now() + timeoutMs;
     while (this.slots.size > 0) {
       const remaining = deadline - Date.now();
