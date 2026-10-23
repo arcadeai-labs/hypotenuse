@@ -112,6 +112,7 @@ With nothing selected and only one project to your name, commands use that one.
 | `service install [--print]`, `uninstall`, `status` | the daemon as a launchd or systemd user service |
 | `doctor [--agent <id>] [--offline]` | check this machine's runner setup end to end |
 | `check-update`, `upgrade [--no-restart]` | updates, below; `upgrade` also restarts a running daemon on the new version |
+| `skill` | prints the agent skill that teaches a coding agent this CLI, below |
 
 Admin-only commands are refused for members with the same message the dashboard shows. `hypotenuse <command>
 --help` lists each command's options.
@@ -283,6 +284,15 @@ hypotenuse --json member list | jq -r '.memberships[].user.email'
 Lists take `--page` and `--limit` (25 by default). A command that fails exits non-zero and says why on stderr, so
 stdout is only ever data. `-v` prints each request. Color follows the terminal: it is off when output is piped, under
 `NO_COLOR` or `--no-color`, and forced on by `FORCE_COLOR` or `--force-color`.
+
+### Teaching a coding agent
+
+`hypotenuse skill` prints an [agent skill](https://agentskills.io) describing every command, its flags, and how to
+script it — the same text whatever way the CLI was installed. Save it where your agent looks for skills:
+
+```bash
+mkdir -p ~/.claude/skills/hypotenuse && hypotenuse skill > ~/.claude/skills/hypotenuse/SKILL.md
+```
 
 ## Updating
 

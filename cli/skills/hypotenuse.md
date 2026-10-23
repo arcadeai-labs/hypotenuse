@@ -48,6 +48,7 @@ server. It calls the same HTTP actions the dashboard does, as the person who sig
 | `hypotenuse doctor [--agent <id>] [--offline]` | A checklist of this machine's runner setup — version, tools, config, credentials, server and token, daemon and service, agents, repositories, disk — exit 1 when a check fails. `--agent <id>` starts that agent, runs the ACP `initialize` handshake, and opens a session — a failure names `hypotenuse agents login <id>`. |
 | `hypotenuse mcp --session <id> --nonce <n>` | Hidden: the stdio MCP server the daemon hands a coding agent for one turn — the Linear tools scoped to that session. Not for running by hand. |
 | `hypotenuse check-update` | Whether a newer release exists, with its changelog. |
+| `hypotenuse skill` | Print this skill, the same text on every install (npm or binary); `--json` wraps it as `{ skill }`. |
 | `hypotenuse upgrade [--no-restart]` | Upgrade in place, by however it was installed (npm, bun, or binary), then drain and restart a running daemon on the new version. |
 
 ## Examples
