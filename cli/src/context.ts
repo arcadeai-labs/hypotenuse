@@ -14,7 +14,7 @@ import {
   saveCredentials,
   serverEntry,
 } from "./api/credentials";
-import { resolveProjectId } from "./api/resolve";
+import { onlyProject, resolveProjectId } from "./api/resolve";
 import { type ResolvedUrl, resolveServerUrl } from "./api/url";
 import { resolveConfigPath } from "./config/paths";
 import { logger } from "./output/logger";
@@ -127,9 +127,10 @@ export class CliContext {
 
   /**
    * The selected project's id: `--project`, then `HYPOTENUSE_PROJECT`, then
-   * the one `hypotenuse project use` saved for this server.
+   * the one `hypotenuse project use` saved for this server, then — when the
+   * person is in exactly one project — that one.
    * @returns The project id.
-   * @throws {Error} When no project is selected.
+   * @throws {Error} When no project is selected and there is none or a choice.
    */
   async projectId(): Promise<number> {
     const selector =
@@ -138,12 +139,18 @@ export class CliContext {
       (this.credentials.servers[this.server.origin]?.project != null
         ? String(this.credentials.servers[this.server.origin]?.project)
         : undefined);
-    if (!selector) {
-      throw new Error(
-        "No project selected. Pass --project <id|slug> or run `hypotenuse project use <id|slug>`.",
-      );
+    if (selector) return resolveProjectId(this.signedInClient(), selector);
+
+    const { project, total } = await onlyProject(this.signedInClient());
+    if (project) {
+      logger.info(`Using project ${project.slug}, the only one you are in.`);
+      return project.id;
     }
-    return resolveProjectId(this.signedInClient(), selector);
+    throw new Error(
+      total === 0
+        ? "You are not in any project yet. Create one in the dashboard, or accept an invite."
+        : "No project selected, and you are in several. Pass --project <id|slug> or run `hypotenuse project use <id|slug>`.",
+    );
   }
 }
 
