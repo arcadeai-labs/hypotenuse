@@ -39,7 +39,7 @@ gets `-2`, `-3`, … — an existing branch is never reused silently.
    | `HYPOTENUSE_SESSION_URL` | the session's page in the dashboard |
    | `GIT_TERMINAL_PROMPT` | `0`, so git never waits for a password nobody will type |
 
-4. **Follow-ups** reuse the worktree, with whatever the last turn left in it, committed or not.
+4. **Follow-ups** reuse the worktree, with whatever the last turn left in it, committed or not. That holds even when the daemon was killed while it was making the worktree: the next turn finds the session's own worktree through git and carries on in it.
 
 The agent opens pull requests itself, with your git and forge credentials (`git push`, `gh pr create`). Hypotenuse
 never merges. Its commits are yours, with a `Co-Authored-By: Hypotenuse <noreply@hypotenuse.cloud>` trailer saying an

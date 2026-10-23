@@ -22,7 +22,7 @@
  * Every failure is a {@link WorkspaceError} whose body is the turn's `error`.
  */
 import { existsSync, mkdirSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { isAbsolute, join, relative, resolve } from "node:path";
 import {
   normalizeRemote,
   type WorkAssignment,
@@ -624,6 +624,9 @@ export class WorktreeManager {
         request.output(
           `not reusing ${previous.path}: HEAD is ${head.stdout.trim() || "unreadable"}, not ${previous.branch}`,
         );
+      } else {
+        const orphan = await this.ownOrphan(request, repository);
+        if (orphan) return { row: orphan, reused: true };
       }
       if (!this.diskStatus(request.config).enough) {
         if (!cleaned) return "short" as const;
@@ -691,6 +694,57 @@ export class WorktreeManager {
       );
       return { row: created, reused: false };
     });
+  }
+
+  /**
+   * The session's own worktree that `state.db` lost: git has it under the
+   * worktree root, on a branch this session owns, but no row links it — a
+   * daemon killed between `git worktree add` and recording it. Creating
+   * another would fail, the branch being checked out there, so it is linked
+   * (and recorded, if cleanup has not adopted it already) and reused.
+   * @param request - The turn.
+   * @param repository - The repository.
+   * @returns The worktree, or null when there is none.
+   */
+  private async ownOrphan(
+    request: AcquireRequest,
+    repository: ResolvedRepository,
+  ): Promise<LocalWorktree | null> {
+    const id = request.assignment.agentSessionId;
+    const root = resolve(request.config.sessions.worktree_root);
+    const list = await this.git(["worktree", "list", "--porcelain"], {
+      cwd: repository.path,
+    });
+    if (list.code !== 0) return null;
+    for (const block of list.stdout.split("\n\n")) {
+      const path = /^worktree (.+)$/m.exec(block)?.[1];
+      const branch = /^branch refs\/heads\/(.+)$/m.exec(block)?.[1];
+      if (!path || !branch || !existsSync(path)) continue;
+      const rel = relative(root, path);
+      if (rel === "" || rel.startsWith("..") || isAbsolute(rel)) continue;
+      if ((await this.branchOwner(repository.path, branch)) !== id) continue;
+      const known = this.state.worktreeAt(path);
+      if (known && (known.state === "removed" || known.agentSessionId !== id))
+        continue;
+      const row =
+        known ??
+        this.state.insertWorktree({
+          kind: "worktree",
+          repository: repository.name,
+          repoPath: repository.path,
+          path,
+          branch,
+          baseBranch: repository.baseBranch,
+          agentSessionId: id,
+        });
+      this.state.updateWorktree(row.id, { state: "active", touch: true });
+      this.state.linkWorktree(id, row.id);
+      request.output(
+        `reusing ${path} on ${branch}: a previous daemon made it but did not record it`,
+      );
+      return this.state.worktree(row.id) ?? row;
+    }
+    return null;
   }
 
   /**
