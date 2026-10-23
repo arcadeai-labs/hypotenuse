@@ -421,6 +421,21 @@ describe("export", () => {
     forgetProjectTelemetry(universe.projectId);
   });
 
+  test("two overlapping export passes send each batch once", async () => {
+    await exportAll();
+    collector.reset();
+    const traceId = newTraceId();
+    await enqueueTelemetry(
+      universe.projectId,
+      "traces",
+      oneSpan(traceId, "once"),
+      traceId,
+    );
+    await Promise.all([exportAll(), exportAll(), exportAll()]);
+    await exportAll();
+    expect(collector.spans().filter((s) => s.name === "once")).toHaveLength(1);
+  });
+
   test("429 honours Retry-After", async () => {
     const traceId = newTraceId();
     await enqueueTelemetry(

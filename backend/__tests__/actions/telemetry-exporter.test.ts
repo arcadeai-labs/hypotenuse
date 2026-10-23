@@ -1,7 +1,11 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { desc, eq } from "drizzle-orm";
 import { api, config } from "keryx";
-import { endpointRefusal } from "../../ops/EndpointSafetyOps";
+import {
+  EndpointRefused,
+  endpointRefusal,
+  postToEndpoint,
+} from "../../ops/EndpointSafetyOps";
 import { emitLogs } from "../../ops/TelemetryOps";
 import { exportAll, streamKey } from "../../ops/TelemetryRelayOps";
 import { auditLogs } from "../../schema/audit_logs";
@@ -392,6 +396,33 @@ describe("endpoint safety", () => {
         },
       }),
     ).toContain("does not resolve");
+  });
+
+  test("the export connects only to the address it checked: a rebinding answer is refused", async () => {
+    // Public when the endpoint was checked; private when the export connects.
+    await expect(
+      postToEndpoint("https://rebind.example.com/v1/traces", {
+        headers: {},
+        body: new Uint8Array(0),
+        timeoutMs: 2000,
+        allowPrivate: false,
+        resolve: async () => ["169.254.169.254"],
+      }),
+    ).rejects.toBeInstanceOf(EndpointRefused);
+    // And the address it checked is the one it connects to, whatever the name.
+    collector.reset();
+    const pinned = await postToEndpoint(
+      `http://pinned.example.invalid:${new URL(collector.url).port}/pin/v1/logs`,
+      {
+        headers: { "Content-Type": "application/json" },
+        body: new TextEncoder().encode(JSON.stringify({ resourceLogs: [] })),
+        timeoutMs: 2000,
+        allowPrivate: true,
+        resolve: async () => ["127.0.0.1"],
+      },
+    );
+    expect(pinned.status).toBe(200);
+    expect(collector.requests.map((r) => r.path)).toEqual(["/pin/v1/logs"]);
   });
 
   test("an endpoint that turned private is refused at export too", async () => {

@@ -134,7 +134,9 @@ export class NativeReceiver {
           // An agent's own trace is moved into the turn's; its roots go
           // under `daemon.turn`, and everything else keeps its parent.
           ss.spans = (ss.spans ?? []).map((s) => {
-            const root = !s.parentSpanId;
+            // OTLP marks a root by an empty or all-zero parent id, and a
+            // protobuf exporter sends the zeros.
+            const root = !s.parentSpanId || /^0+$/.test(s.parentSpanId);
             return {
               ...s,
               traceId: turn.traceId,

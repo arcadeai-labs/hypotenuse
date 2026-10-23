@@ -399,6 +399,7 @@ server spans (after commit, only for projects with an exporter) ─┘          
 | **Sampling uses one number per trace id.** | Exporters at different ratios each keep their share, a lower ratio keeps a subset, and a turn is kept or dropped whole |
 | **Telemetry never delays work.** | The daemon's queue is bounded and drops logs, then spans, never metrics; `daemon:complete` never waits; a late batch is accepted for `TELEMETRY_LATE_WINDOW` |
 | **Spans are built, not instrumented.** | A trace crosses three processes and a turn's whole life; each span is written from what the database knows when it ends. Linear calls find their parent through an `AsyncLocalStorage` trace scope |
+| **An export connects to the address it checked**, through its own DNS lookup, and one pass per exporter runs at a time | A tenant chose the URL: a rebinding answer must not reach the deployment's network, and two passes must not send one batch twice |
 | **Redaction twice.** | The daemon redacts its tokens, the turn's nonces, and `$VAR`-resolved config values by value; the worker again by key name, by pattern, and every exporter's header values |
 
 ## Tables

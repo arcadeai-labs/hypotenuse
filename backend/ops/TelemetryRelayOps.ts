@@ -41,7 +41,12 @@ import {
 } from "../schema/telemetry_exporters";
 import { TERMINAL_WORK_STATUSES, workItems } from "../schema/work_items";
 import { SENSITIVE_KEYS } from "./AuditOps";
-import { endpointRefusal } from "./EndpointSafetyOps";
+import {
+  EndpointRefused,
+  endpointRefusal,
+  postToEndpoint,
+} from "./EndpointSafetyOps";
+import { acquireLock, releaseLock } from "./LockOps";
 import { readCappedBody } from "./RawRequestOps";
 import { runRedisScript } from "./RedisScriptOps";
 import { openHeaders } from "./TelemetryExporterOps";
@@ -75,6 +80,12 @@ import {
  * honouring `Retry-After`; any other refusal drops the batch. Either way the
  * row's `lastError` says what happened, and an exporter is never disabled.
  */
+
+/**
+ * How long one exporter's pass may hold its lock: longer than its rounds of
+ * POSTs can take, short enough that a crashed worker's lock lapses soon.
+ */
+const EXPORT_LOCK_MS = 5 * 60_000;
 
 /** The set of projects whose streams have had entries. */
 const PROJECTS_KEY = "telemetry:projects";
@@ -220,8 +231,9 @@ function retryAfter(value: string | null): number | null {
 
 /**
  * POST one request to an exporter's collector: the signal's path, its
- * encoding, gzipped, with its headers. Checks the endpoint first — the host
- * is resolved again on every export.
+ * encoding, gzipped, with its headers. Checks the endpoint first, and
+ * connects only to an address its host resolved to and that was checked
+ * (`postToEndpoint`), so a rebinding answer cannot reach a private address.
  * @param exporter - The exporter.
  * @param signal - The signal.
  * @param request - OTLP/JSON, already filtered for it.
@@ -245,10 +257,9 @@ export async function postOtlp<S extends OtlpSignal>(
     exporter.protocol === "http/json"
       ? new TextEncoder().encode(JSON.stringify(request))
       : encodeOtlpProtobuf(signal, request);
-  let response: Response;
+  let response: { status: number; headers: Record<string, string | undefined> };
   try {
-    response = await fetch(`${exporter.endpoint}/v1/${signal}`, {
-      method: "POST",
+    response = await postToEndpoint(`${exporter.endpoint}/v1/${signal}`, {
       headers: {
         ...openHeaders(exporter),
         "Content-Type": OTLP_CONTENT_TYPES[exporter.protocol],
@@ -256,10 +267,17 @@ export async function postOtlp<S extends OtlpSignal>(
         "User-Agent": "hypotenuse-relay",
       },
       body: Bun.gzipSync(new Uint8Array(body)),
-      redirect: "manual",
-      signal: AbortSignal.timeout(config.telemetry.exportTimeoutMs),
+      timeoutMs: config.telemetry.exportTimeoutMs,
     });
   } catch (error) {
+    if (error instanceof EndpointRefused)
+      return {
+        ok: false,
+        status: 0,
+        retryable: false,
+        retryAfterMs: null,
+        error: error.message,
+      };
     return {
       ok: false,
       status: 0,
@@ -268,9 +286,7 @@ export async function postOtlp<S extends OtlpSignal>(
       error: `The collector did not answer: ${error instanceof Error ? error.message : String(error)}`,
     };
   }
-  // Read and discard: the answer is a partial-success message at most.
-  await response.arrayBuffer().catch(() => null);
-  if (response.ok)
+  if (response.status >= 200 && response.status < 300)
     return {
       ok: true,
       status: response.status,
@@ -284,7 +300,7 @@ export async function postOtlp<S extends OtlpSignal>(
     status: response.status,
     retryable,
     retryAfterMs: retryable
-      ? retryAfter(response.headers.get("retry-after"))
+      ? retryAfter(response.headers["retry-after"] ?? null)
       : null,
     error: `The collector answered ${response.status} to ${signal}.`,
   };
@@ -592,6 +608,12 @@ export async function exportAll(): Promise<ExportReport> {
       );
     const secrets = headerSecrets(exporters);
     for (const exporter of exporters) {
+      // One pass per exporter at a time: two overlapping clock runs reading
+      // its pending entries would both send them, and delta metrics would
+      // count twice. A pass that loses the race leaves it to the other.
+      const lockKey = `telemetry:export:${exporter.id}`;
+      const lease = await acquireLock(lockKey, EXPORT_LOCK_MS);
+      if (!lease) continue;
       try {
         await exportFor(exporter, secrets, report);
       } catch (error) {
@@ -599,6 +621,8 @@ export async function exportAll(): Promise<ExportReport> {
           exporterId: exporter.id,
           error: error instanceof Error ? error.message : String(error),
         });
+      } finally {
+        await releaseLock(lockKey, lease);
       }
     }
   }

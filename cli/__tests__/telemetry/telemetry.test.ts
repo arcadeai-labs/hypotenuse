@@ -415,6 +415,15 @@ describe("native telemetry", () => {
                   startTimeUnixNano: unixNano(Date.now()),
                   endTimeUnixNano: unixNano(Date.now()),
                 },
+                {
+                  // A protobuf exporter marks a root with an all-zero parent.
+                  traceId: own,
+                  spanId: newSpanId(),
+                  parentSpanId: "0000000000000000",
+                  name: "zero.parent",
+                  startTimeUnixNano: unixNano(Date.now()),
+                  endTimeUnixNano: unixNano(Date.now()),
+                },
               ],
             },
           ],
@@ -458,6 +467,9 @@ describe("native telemetry", () => {
     const span = postedSpans(sender).find((s) => s.name === "model.request");
     expect(span?.traceId).toBe(traceId);
     expect(span?.parentSpanId).toBe(turn.turnSpan.spanId);
+    const zero = postedSpans(sender).find((s) => s.name === "zero.parent");
+    expect(zero?.traceId).toBe(traceId);
+    expect(zero?.parentSpanId).toBe(turn.turnSpan.spanId);
     expect(span?.attrs[LEVEL_ATTRIBUTE]).toBe("content");
     expect(span?.resource["hypotenuse.source"]).toBe("agent_native");
     expect(span?.resource["service.name"]).toBe("agent");

@@ -457,6 +457,12 @@ redis-cli XLEN hypotenuse:telemetry:1
   tests move its clock — while other exporters keep draining. A group is created at `$` when its exporter is (it
   gets what is observed from then on); a group found missing at export means the stream expired with it, so it is
   recreated at `0`. Each entry holds one signal, so a POST that fails acks nothing of the signals that succeeded.
+- **An export connects only to the address it checked.** Resolving an endpoint, checking it, and then letting
+  `fetch` resolve it again is open to DNS rebinding, so `postToEndpoint` (`EndpointSafetyOps`) sends with
+  `node:http(s)` and a `lookup` of its own that resolves once, refuses a non-public answer, and hands the connection
+  exactly that address; TLS still checks the certificate against the name. Bun honours `lookup`; its `fetch` has no
+  equivalent. Only one pass per exporter runs at a time (a Redis lock), so overlapping clock runs never both send
+  an exporter's pending entries.
 - **The daemon sends gzipped OTLP/JSON**; `daemon:telemetry` is a `rawBody` route and accepts protobuf too. A turn
   no exporter wants is 409 `TELEMETRY_NOT_WANTED`, and the daemon then drops that turn's telemetry for good, as it
   does on 410. Spans and logs naming another trace are dropped at ingress, so a runner can write only into turns it
