@@ -321,6 +321,9 @@ export async function clearLinearRedisState(): Promise<void> {
     "runner:sessions:*",
     // Dispatch intents and in-flight reservations, keyed by session ids.
     "dispatch:*",
+    // Planning intents and the issue each project mention filed, keyed by
+    // integration and event ids.
+    "planning:*",
     // Telemetry streams, consumer groups, backoffs, and byte buckets, keyed
     // by project and exporter ids.
     "telemetry:*",
