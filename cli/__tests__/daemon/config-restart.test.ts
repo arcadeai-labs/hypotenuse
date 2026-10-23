@@ -14,7 +14,7 @@ import { ConfigRestart } from "../../src/daemon/config-restart";
 function harness() {
   const calls: string[] = [];
   const waits: ((idle: boolean) => void)[] = [];
-  const state = { valid: true, exiting: false };
+  const state = { problem: null as string | null, exiting: false };
   const restart = new ConfigRestart(
     {
       pauseClaims: () => calls.push("pause"),
@@ -26,7 +26,7 @@ function harness() {
       stopTurns: async () => {
         calls.push("stopTurns");
       },
-      configValid: () => state.valid,
+      startProblem: () => state.problem,
       exiting: () => state.exiting,
       restart: () => calls.push("restart"),
       log: (m) => calls.push(`log: ${m}`),
@@ -81,17 +81,41 @@ describe("ConfigRestart", () => {
     expect(h.calls).toEqual(["pause"]);
   });
 
-  test("a file gone invalid by the time turns finish is not restarted into", async () => {
+  test("a file the next process would refuse by the time turns finish is not restarted into", async () => {
     const h = harness();
     const wait = h.restart.saved(needs, "c.toml");
-    h.state.valid = false;
+    // An invalid file, or a server with no runner here: startup's own refusals.
+    h.state.problem = "c.toml has no runner for https://other.example";
     h.waits[0]?.(true);
     await wait;
     expect(h.calls).toEqual([
       "pause",
       "resume",
-      "log: config restart called off: c.toml is not valid now; the running config stays",
+      "log: config restart called off: the daemon would not start on c.toml as it is now (c.toml has no runner for https://other.example); the running config stays",
     ]);
+  });
+
+  test("a takeover is for good: saves during a stop's drain start nothing and resume nothing", async () => {
+    const h = harness();
+    h.restart.saved(needs, "c.toml");
+    h.restart.takeOver();
+    expect(h.restart.isTakenOver).toBe(true);
+    expect(h.restart.saved(needs, "c.toml")).toBeNull();
+    expect(h.restart.saved(invalid, "c.toml")).toBeNull();
+    h.waits[0]?.(true);
+    await Bun.sleep(0);
+    expect(h.calls).toEqual([
+      "pause",
+      "log: config restart called off: a stop or restart was asked for",
+    ]);
+    expect(h.waits).toHaveLength(1);
+  });
+
+  test("a takeover with nothing pending still keeps later saves from restarting", () => {
+    const h = harness();
+    h.restart.takeOver();
+    expect(h.restart.saved(needs, "c.toml")).toBeNull();
+    expect(h.calls).toEqual([]);
   });
 
   test("a newer save: invalid or undone calls it off; still needing it keeps waiting", async () => {

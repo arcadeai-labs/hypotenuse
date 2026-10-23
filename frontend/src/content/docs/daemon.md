@@ -59,9 +59,11 @@ stays until you fix it.
 
 **Reload** applies what is safe at once — roles, subscriptions, limits, the log level, prompts and policies for new
 turns, new repositories — and forgets that an agent was found logged out, so it is offered work again. Changing the server, an existing repository's path, or the command of an agent that is
-running needs a restart. A saved edit does that itself: it lets running turns finish (up to 10 minutes), then
-restarts the daemon — or exits for the service manager to restart it. `hypotenuse daemon reload` says so instead of
-half-applying it.
+running needs a restart; `hypotenuse daemon reload` says so instead of half-applying it. A saved edit restarts
+by itself: it lets running turns finish (up to 10 minutes), then restarts the daemon — or exits for the service
+manager to restart it. It never restarts into a file the daemon would refuse (invalid, or a server or project this
+machine's runner is not on); that edit is logged and the running config stays. A `daemon stop` or `upgrade`
+meanwhile wins.
 
 **Log level.** `[log] level` sets how much the daemon logs (`info` by default). `daemon start --log-level <level>`
 (or `restart`) overrides it, as do `-v` (`debug`) and `HYPOTENUSE_LOG_LEVEL`. At `debug` the log shows every agent

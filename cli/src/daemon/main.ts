@@ -309,6 +309,8 @@ export async function runDaemon(options: DaemonOptions): Promise<void> {
   let exiting = false;
   /** `restartSelf` ran: this process is going away. */
   let restartScheduled = false;
+  /** A config restart's hand-off, until it fires: a stop can still cancel it. */
+  let configHandOff: ReturnType<typeof setTimeout> | null = null;
   let supervisor: Supervisor;
   let control: ControlServer;
   let watcher: ConfigWatcher | null = null;
@@ -335,7 +337,9 @@ export async function runDaemon(options: DaemonOptions): Promise<void> {
    * re-execute it detached. Callers drain first if turns should finish.
    * @returns How it restarts.
    */
-  const restartSelf = (): { restarting: true; mode: "service" | "re-exec" } => {
+  const restartSelf = (
+    fromConfig = false,
+  ): { restarting: true; mode: "service" | "re-exec" } => {
     const service = env.HYPOTENUSE_SERVICE === "1";
     const answer = {
       restarting: true as const,
@@ -343,7 +347,8 @@ export async function runDaemon(options: DaemonOptions): Promise<void> {
     };
     if (restartScheduled) return answer;
     restartScheduled = true;
-    setTimeout(() => {
+    const handOff = setTimeout(() => {
+      configHandOff = null;
       // A stop or a revocation that began meanwhile owns the exit.
       if (exiting) return;
       exiting = true;
@@ -366,6 +371,7 @@ export async function runDaemon(options: DaemonOptions): Promise<void> {
         process.exit(0);
       });
     }, 50);
+    if (fromConfig) configHandOff = handOff;
     return answer;
   };
 
@@ -420,9 +426,22 @@ export async function runDaemon(options: DaemonOptions): Promise<void> {
       stopTurns: async () => {
         await supervisor.drain({ timeoutMs: 0, cancel: true });
       },
-      configValid: () => readDaemonConfig(options, env).config !== null,
+      startProblem: () => {
+        // What startup would refuse: the config, then the runner it names.
+        const read = readDaemonConfig(options, env);
+        if (!read.config) return "the config is not valid";
+        const file = credentialsPath(env);
+        try {
+          resolveDaemonRunner(read.config, loadCredentials(file), file);
+        } catch (error) {
+          return error instanceof Error ? error.message : String(error);
+        }
+        return null;
+      },
       exiting: () => exiting,
-      restart: () => restartSelf(),
+      restart: () => {
+        restartSelf(true);
+      },
       log: (message) => log.info(message),
     },
     CONFIG_RESTART_DRAIN_MS,
@@ -458,6 +477,14 @@ export async function runDaemon(options: DaemonOptions): Promise<void> {
         // `daemon stop` and `upgrade` drain first: the person or the upgrade
         // now decides what comes next, not a pending config restart.
         configRestart.takeOver();
+        if (configHandOff) {
+          clearTimeout(configHandOff);
+          configHandOff = null;
+          restartScheduled = false;
+          log.info(
+            "config restart called off: a stop or restart was asked for",
+          );
+        }
         return supervisor.drain({
           timeoutMs:
             typeof params.timeoutMs === "number" ? params.timeoutMs : 600_000,
@@ -514,7 +541,8 @@ export async function runDaemon(options: DaemonOptions): Promise<void> {
   watcher = watchConfigFile(
     paths.config,
     () => {
-      if (exiting || restartScheduled) return;
+      // Stopping, restarting, or handed to a stop or an upgrade: leave it.
+      if (exiting || restartScheduled || configRestart.isTakenOver) return;
       log.info(`${paths.config} changed; reloading`);
       const result = supervisor.reload();
       const needsRestart = !result.error && result.requiresRestart.length > 0;

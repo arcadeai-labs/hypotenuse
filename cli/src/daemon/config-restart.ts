@@ -7,10 +7,10 @@
  * | While waiting                                   | Then                                  |
  * |---|---|
  * | the turns finish (or the wait runs out)         | restart — if the file is still valid  |
- * | the file is invalid when the wait ends          | called off; claims resume             |
+ * | the next process would refuse to start (an invalid file, no runner for the server, another project) | called off; claims resume |
  * | a newer save still needs the restart            | keeps waiting                         |
  * | a newer save is invalid, or undoes the change   | called off; claims resume             |
- * | `daemon stop` / `upgrade` / `restart` (a drain or restart over the socket) | taken over: never restarts on its own |
+ * | `daemon stop` / `upgrade` / `restart` (a drain or restart over the socket) | taken over for good: no later save starts or calls off anything |
  * | the daemon begins exiting (a signal, a revocation) | never restarts                     |
  *
  * Generations keep a superseded wait from acting: only the newest request
@@ -27,8 +27,11 @@ export interface ConfigRestartDeps {
   waitIdle(timeoutMs: number): Promise<boolean>;
   /** Stop the turns still running after the wait ran out. */
   stopTurns(): Promise<void>;
-  /** Whether the file the next process will read is valid. */
-  configValid(): boolean;
+  /**
+   * Why the next process would refuse to start, from the file as it is now
+   * (the config and the runner it names), or null when it would start.
+   */
+  startProblem(): string | null;
   /** Whether the daemon has begun exiting. */
   exiting(): boolean;
   /** Restart the daemon. */
@@ -41,6 +44,8 @@ export interface ConfigRestartDeps {
 export class ConfigRestart {
   private pending: number | null = null;
   private generation = 0;
+  /** A stop, upgrade, or restart owns the daemon's lifecycle now. */
+  private takenOver = false;
 
   /**
    * @param deps - What it drives.
@@ -56,6 +61,11 @@ export class ConfigRestart {
     return this.pending !== null;
   }
 
+  /** Whether a stop, upgrade, or restart took over: saves do nothing now. */
+  get isTakenOver(): boolean {
+    return this.takenOver;
+  }
+
   /**
    * A save was reloaded. Start waiting when it needs a restart; while
    * waiting, keep on or call it off.
@@ -67,6 +77,7 @@ export class ConfigRestart {
     outcome: { needsRestart: boolean; invalid: boolean },
     path: string,
   ): Promise<void> | null {
+    if (this.takenOver) return null;
     if (this.pending !== null) {
       if (!outcome.needsRestart) {
         this.callOff(
@@ -86,9 +97,11 @@ export class ConfigRestart {
 
   /**
    * A stop, an upgrade, or a restart asked over the control socket: it
-   * decides what happens next, so this restart never runs on its own.
+   * decides what happens next, for good — the daemon is on its way out, so
+   * no later save may start a restart or resume claims under it.
    */
   takeOver(): void {
+    this.takenOver = true;
     if (this.pending === null) return;
     this.pending = null;
     this.deps.log("config restart called off: a stop or restart was asked for");
@@ -102,8 +115,11 @@ export class ConfigRestart {
   private async wait(generation: number, path: string): Promise<void> {
     const idle = await this.deps.waitIdle(this.timeoutMs);
     if (!this.current(generation)) return;
-    if (!this.deps.configValid()) {
-      this.callOff(`${path} is not valid now; the running config stays`);
+    const problem = this.deps.startProblem();
+    if (problem) {
+      this.callOff(
+        `the daemon would not start on ${path} as it is now (${problem}); the running config stays`,
+      );
       return;
     }
     if (!idle) await this.deps.stopTurns();
@@ -118,7 +134,9 @@ export class ConfigRestart {
    * @returns False once it was superseded, called off, or the daemon exits.
    */
   private current(generation: number): boolean {
-    return this.pending === generation && !this.deps.exiting();
+    return (
+      this.pending === generation && !this.takenOver && !this.deps.exiting()
+    );
   }
 
   /**

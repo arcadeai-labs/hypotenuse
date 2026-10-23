@@ -121,6 +121,17 @@ describe("config file watch", () => {
       t.replace("max_parallel_jobs = -1", "max_parallel_jobs = 2"),
     );
 
+    // A project this runner is not in is valid TOML that startup refuses
+    // (exit 78, which a service manager does not restart): never restart into it.
+    editConfig((t) =>
+      t.replace("[server]\n", '[server]\nproject = "424242"\n'),
+    );
+    await home.waitForLog(
+      /config restart called off: the daemon would not start on .*424242/,
+    );
+    expect(home.proc!.exitCode).toBeNull();
+    editConfig((t) => t.replace('project = "424242"\n', ""));
+
     // Naming the runner's own project changes nothing on the server, but only
     // a restart can apply it.
     editConfig((t) =>
