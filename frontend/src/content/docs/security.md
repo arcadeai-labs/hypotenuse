@@ -12,6 +12,7 @@ only the credentials it needs, and so that a lost laptop costs as little as poss
 | Your dashboard session | a cookie in your browser | everything you may do in your projects | signing out, or its expiry |
 | CLI token (`hyp_cli_…`) | `credentials.json` on your machine (readable only by you); the service keeps only a hash | what you may do — never what a runner does | **Account → CLI sign-ins → Revoke**, `hypotenuse logout`, or 90 days unused |
 | Runner token (`hyp_rt_…`) | `credentials.json` on the runner (readable only by its user); the service keeps only a hash | one runner in one project, with its owner's standing at the time of each request | **Revoke** on the Runners page, `hypotenuse runner revoke`, or the owner leaving the project |
+| Telemetry exporter headers (a collector's API key) | the hosted service only, encrypted at rest; never shown again once saved, never sent to a runner | exporting the project's telemetry to that collector | editing or removing the exporter (Settings → Telemetry) |
 | Coding-agent model credentials (Claude login, `OPENAI_API_KEY`, …) | the runner's machine | the agent | you |
 | Git credentials | the runner's machine | your repositories | you |
 

@@ -28,6 +28,7 @@ const SECTIONS: Record<string, string> = {
   "**`extra_mcp_servers` entries**": "roles.*.extra_mcp_servers[]",
   "## `[[repositories]]`": "repositories[]",
   "## `[sessions]`": "sessions",
+  "## `[telemetry]`": "telemetry",
   "## `[log]`": "log",
 };
 

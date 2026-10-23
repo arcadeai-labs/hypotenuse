@@ -12,6 +12,7 @@ import { agentSessions } from "../schema/agent_sessions";
 import { integrations } from "../schema/integrations";
 import { runners } from "../schema/runners";
 import {
+  type TriggerEvent,
   type TriggerEventOutcome,
   triggerEvents,
 } from "../schema/trigger_events";
@@ -20,6 +21,8 @@ import { scheduleDelivery } from "./ActivityOutboxOps";
 import { catalogKey } from "./LinearCatalogOps";
 import { rateLimitKey } from "./LinearOps";
 import { handleLinearEvent } from "./LinearWebhookOps";
+import type { TxHandle } from "./ProjectOps";
+import { turnSpan } from "./TelemetryOps";
 import { applyEffects, noEffects, type WorkEffects } from "./WorkItemOps";
 
 /**
@@ -42,6 +45,59 @@ export interface ProcessResult {
   checkAfter?: Date;
   /** The project whose event log gained a processed row, to ping. */
   projectId?: number | null;
+}
+
+/**
+ * Add the `linear.webhook` span of the turn a session event queued or joined:
+ * from the delivery's arrival to its processing, with what Linear sent and
+ * what was done. The person's prompt is content.
+ * @param tx - The transaction.
+ * @param event - The delivery.
+ * @param result - What its handler did (it names the turn).
+ * @returns The effects, carrying the span.
+ */
+async function withWebhookSpan(
+  tx: TxHandle,
+  event: TriggerEvent,
+  result: HandlerResult,
+): Promise<WorkEffects> {
+  const effects = result.effects ?? noEffects();
+  const [item] = await tx
+    .select({
+      projectId: workItems.projectId,
+      traceparent: workItems.traceparent,
+    })
+    .from(workItems)
+    .where(eq(workItems.id, result.workItemId!));
+  if (!item) return effects;
+  const payload = event.payload as {
+    agentActivity?: {
+      content?: { body?: string } | null;
+      signal?: string | null;
+    };
+  };
+  effects.spans.push({
+    projectId: item.projectId,
+    span: turnSpan(item, {
+      name: "linear.webhook",
+      kind: "consumer",
+      startMs: event.receivedAt.getTime(),
+      endMs: Date.now(),
+      attributes: {
+        "linear.webhook.type": event.eventType,
+        "linear.webhook.action": event.action,
+        "linear.webhook.delivery_id": event.deliveryId,
+        "hypotenuse.trigger_event.id": event.id,
+        "hypotenuse.trigger_event.outcome": result.outcome,
+        "linear.agent_activity.signal": payload.agentActivity?.signal ?? null,
+        "hypotenuse.content.prompt":
+          payload.agentActivity?.content?.body?.slice(0, 64 * 1024) ?? null,
+        "hypotenuse.enqueue.latency_ms":
+          Date.now() - event.receivedAt.getTime(),
+      },
+    }),
+  });
+  return effects;
 }
 
 /** The summary of a delivery for a workspace no live integration holds. */
@@ -123,6 +179,9 @@ export async function processTriggerEvent(
           workItemId: result.workItemId ?? null,
         })
         .where(eq(triggerEvents.id, event.id));
+      if (result.workItemId && event.eventType === "AgentSessionEvent") {
+        result.effects = await withWebhookSpan(tx, event, result);
+      }
       return { ...result, projectId: integration?.projectId ?? null };
     });
   } catch (e) {

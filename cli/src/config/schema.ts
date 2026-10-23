@@ -12,7 +12,7 @@
  */
 import { cpus, hostname } from "node:os";
 import { z } from "zod";
-import { RUNNER_ROLES } from "../../../protocol/src/index";
+import { CONTENT_LEVELS, RUNNER_ROLES } from "../../../protocol/src/index";
 import {
   DURATION_PATTERN,
   parseDuration,
@@ -377,6 +377,37 @@ export function buildConfigSchema(ctx: SchemaContext) {
           .default("Hypotenuse <noreply@hypotenuse.cloud>")
           .describe(
             "Co-Authored-By trailer on the agent's commits; empty for none",
+          ),
+      })
+      .prefault({}),
+    telemetry: z
+      .strictObject({
+        enabled: z
+          .boolean()
+          .default(true)
+          .describe(
+            "Send this machine's telemetry for the project's exporters; false sends none",
+          ),
+        max_content: z
+          .enum(CONTENT_LEVELS)
+          .default("full")
+          .describe(
+            "The most this runner sends: metadata, content, or full — lower than an exporter's level wins",
+          ),
+        agent_native: z
+          .boolean()
+          .default(true)
+          .describe(
+            "Capture the coding agent's own OpenTelemetry; false never starts the receiver or sets OTEL_* variables",
+          ),
+        buffer_mb: z
+          .number()
+          .int()
+          .min(1)
+          .max(1024)
+          .default(32)
+          .describe(
+            "The in-memory telemetry queue, in MB; when full the oldest logs, then spans, are dropped and counted",
           ),
       })
       .prefault({}),

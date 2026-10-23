@@ -47,6 +47,8 @@ export const DAEMON_ONLY_ACTION_NAMES: ReadonlySet<string> = new Set([
   "daemon:linear-update-document",
   "daemon:linear-list-labels",
   "daemon:dispatch",
+  // OTLP relayed for the project's telemetry exporters.
+  "daemon:telemetry",
 ]);
 
 /** The prefix every daemon action's route sits under: `/daemon/…`. */

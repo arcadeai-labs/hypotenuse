@@ -79,9 +79,9 @@ Each phase ends in a reviewable, deployable state. **Phase 1 halts for review be
 
 ## Status
 
-**Phases 1–17 and 19 are built** (phase 2 is not yet deployed, the CLI has not had its first release, no real
-Linear workspace has been connected yet, and no real coding agent has run a turn outside a person's own machine);
-the rest are plans. Every document here is a plan with the open questions settled as **decisions so far**. Each
+**Phases 1–19 are built** (phase 2 is not yet deployed, the CLI has not had its first release, no real
+Linear workspace has been connected yet, no real coding agent has run a turn outside a person's own machine, and no
+real collector has received a project's telemetry). Every document here is a plan with the open questions settled as **decisions so far**. Each
 ends in an empty **Learnings from the build** section that fills in as the phase ships. From then on that section,
 and not the plan above it, is the live account (rule 14 in [`AGENTS.md`](../../AGENTS.md)).
 

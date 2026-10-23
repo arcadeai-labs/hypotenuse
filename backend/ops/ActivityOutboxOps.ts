@@ -1,4 +1,5 @@
-import { and, asc, eq, lte, notInArray, sql } from "drizzle-orm";
+import { newSpanId } from "@hypotenuse/protocol";
+import { and, asc, desc, eq, lte, notInArray, sql } from "drizzle-orm";
 import { api, config } from "keryx";
 import {
   type ActivityContentType,
@@ -14,6 +15,7 @@ import {
   agentSessions,
 } from "../schema/agent_sessions";
 import { type Integration, integrations } from "../schema/integrations";
+import { workItems } from "../schema/work_items";
 import { statusColumns, statusImpliedBy } from "./AgentSessionOps";
 import { takeLinearToken } from "./LinearBucketOps";
 import {
@@ -30,6 +32,14 @@ import {
 } from "./linear/operations";
 import type { TxHandle } from "./ProjectOps";
 import { broadcastSessionActivity } from "./SessionChannelOps";
+import {
+  emitSpans,
+  projectTelemetry,
+  recordDuration,
+  turnSpan,
+  turnTrace,
+  withTraceScope,
+} from "./TelemetryOps";
 
 /**
  * The activity outbox: **everything Hypotenuse writes to a Linear agent
@@ -660,6 +670,89 @@ async function deliverRows(agentSessionId: number): Promise<DeliveryRun> {
  *   (the integration can no longer act).
  */
 async function send(
+  integration: Integration,
+  session: AgentSession,
+  row: AgentActivity,
+): Promise<"sent" | "failed" | "deferred" | "integration"> {
+  const trace = await outboxTrace(session, row);
+  if (!trace) return sendRow(integration, session, row);
+  const startMs = Date.now();
+  const spanId = newSpanId();
+  const outcome = await withTraceScope(
+    {
+      projectId: session.projectId,
+      traceId: turnTrace(trace).traceId,
+      parentSpanId: spanId,
+    },
+    () => sendRow(integration, session, row),
+  );
+  await emitSpans(session.projectId, [
+    turnSpan(trace, {
+      name: "outbox.deliver",
+      spanId,
+      kind: "producer",
+      startMs,
+      endMs: Date.now(),
+      attributes: {
+        "hypotenuse.activity.id": row.id,
+        "hypotenuse.activity.kind": row.kind,
+        "hypotenuse.activity.type":
+          (row.content as { type?: string } | null)?.type ?? null,
+        "hypotenuse.activity.ephemeral": row.ephemeral,
+        "hypotenuse.activity.signal": row.signal,
+        "hypotenuse.activity.priority": row.priority,
+        "hypotenuse.activity.attempts": row.attempts + 1,
+        "hypotenuse.activity.outcome": outcome,
+        "hypotenuse.outbox.lag_ms": Date.now() - row.createdAt.getTime(),
+      },
+      error: outcome === "failed" ? "Linear refused the activity" : null,
+    }),
+  ]);
+  if (outcome === "sent")
+    await recordDuration(
+      session.projectId,
+      "hypotenuse.outbox.lag",
+      Date.now() - row.createdAt.getTime(),
+      { "hypotenuse.activity.kind": row.kind },
+    );
+  return outcome;
+}
+
+/**
+ * The turn an outbound row belongs to — the session's latest turn created
+ * before the row — when the project exports telemetry.
+ * @param session - The session.
+ * @param row - The row.
+ * @returns The turn's trace, or null.
+ */
+async function outboxTrace(
+  session: AgentSession,
+  row: AgentActivity,
+): Promise<{ traceparent: string } | null> {
+  if (!(await projectTelemetry(session.projectId))) return null;
+  const [item] = await api.db.db
+    .select({ traceparent: workItems.traceparent })
+    .from(workItems)
+    .where(
+      and(
+        eq(workItems.agentSessionId, session.id),
+        lte(workItems.createdAt, row.createdAt),
+      ),
+    )
+    .orderBy(desc(workItems.id))
+    .limit(1);
+  return item ?? null;
+}
+
+/**
+ * Send one row and record what happened.
+ * @param integration - The integration to act as.
+ * @param session - The session.
+ * @param row - The head row.
+ * @returns `sent`, `failed` (this row only), `deferred`, or `integration`
+ *   (the integration can no longer act).
+ */
+async function sendRow(
   integration: Integration,
   session: AgentSession,
   row: AgentActivity,

@@ -95,6 +95,8 @@ export type FixtureTranscriptEntry =
       role: AgentRole;
       duration: string;
       outcome: string;
+      /** Why the turn's telemetry was capped, as the transcript notes it. */
+      telemetryNote?: string;
     }
   | { kind: "prompt"; author: string; body: string }
   | { kind: "thought"; body: string }
@@ -177,6 +179,7 @@ export const FIXTURE_TRANSCRIPT: FixtureTranscriptEntry[] = [
     role: "worker",
     duration: "1m 04s",
     outcome: "Complete",
+    telemetryNote: "telemetry capped at `content` by runner `evan-mbp`",
   },
   {
     kind: "response",

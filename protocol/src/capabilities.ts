@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { TelemetryCapability } from "./telemetry";
 
 /** The roles a runner can play for an agent session. */
 export const RUNNER_ROLES = ["manager", "worker"] as const;
@@ -76,6 +77,9 @@ export const RunnerCapabilities = z.strictObject({
   agents: z.array(AgentCapability).max(64),
   repositories: z.array(RepositoryCapability).max(256),
   subscriptions: Subscriptions,
+  telemetry: TelemetryCapability.optional().describe(
+    "The runner owner's cap on what telemetry leaves the machine; absent from older daemons, which send none",
+  ),
 });
 export type RunnerCapabilities = z.infer<typeof RunnerCapabilities>;
 

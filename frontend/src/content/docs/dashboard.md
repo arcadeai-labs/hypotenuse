@@ -97,3 +97,11 @@ which you can remove; admins also see every link in the project, link a Linear u
 One card per kind of integration — today, Linear: connect, reconnect, or disconnect, and the connection's health,
 including recent webhook deliveries; the [Events](#events) page has all of them, with how each was routed. See
 [Connecting Linear](/docs/connecting-linear).
+
+## Settings → Telemetry
+
+The project's OpenTelemetry exporters: each one's endpoint, content level, signals, share of turns, header names
+(never their values), and how its last export went, with **Test** to send it a probe. Below them, each runner's
+telemetry cap and which of its agents contribute their own telemetry. Members see it all; admins add, edit, test,
+and remove exporters. A session's page notes when a runner's cap lowered what one of its turns sent. See
+[Telemetry](/docs/telemetry).

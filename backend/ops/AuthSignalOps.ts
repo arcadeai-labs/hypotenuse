@@ -63,6 +63,20 @@ export function isPublicUrl(raw: string): boolean {
 }
 
 /**
+ * Whether an IP address (either family) is loopback, private, link-local,
+ * CGNAT, multicast, or unspecified — anything but a public address.
+ * @param address - The address, without brackets.
+ * @returns True when not public; false for a non-address too.
+ */
+export function isPrivateAddress(address: string): boolean {
+  const host = address.replace(/^\[|\]$/g, "").toLowerCase();
+  const family = isIP(host);
+  if (family === 4) return isPrivateV4(host);
+  if (family === 6) return isPrivateV6(host);
+  return false;
+}
+
+/**
  * Whether an IPv4 address is private, loopback, link-local, CGNAT, or
  * unspecified.
  * @param host - Dotted quad.

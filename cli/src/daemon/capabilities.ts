@@ -71,6 +71,11 @@ export function buildCapabilities(
       projects: config.subscriptions.projects,
       labels: config.subscriptions.labels,
     },
+    telemetry: {
+      enabled: config.telemetry.enabled,
+      maxContent: config.telemetry.max_content,
+      agentNative: config.telemetry.agent_native,
+    },
   };
 }
 

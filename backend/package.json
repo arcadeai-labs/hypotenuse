@@ -25,6 +25,7 @@
     "drizzle-zod": "^0.8.3",
     "keryx": "^0.48.1",
     "nodemailer": "^9.0.3",
+    "protobufjs": "^8.8.1",
     "zod": "^4.3.6"
   },
   "devDependencies": {

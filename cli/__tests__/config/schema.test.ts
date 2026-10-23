@@ -93,6 +93,12 @@ describe("the schema", () => {
         min_free_disk: 2 * 1024 ** 3,
         co_author: "Hypotenuse <noreply@hypotenuse.cloud>",
       },
+      telemetry: {
+        enabled: true,
+        max_content: "full",
+        agent_native: true,
+        buffer_mb: 32,
+      },
       log: { level: "info" },
     });
   });
@@ -207,6 +213,7 @@ describe("the schema", () => {
         "server",
         "sessions",
         "subscriptions",
+        "telemetry",
       ].sort(),
     );
   });

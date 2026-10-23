@@ -101,6 +101,7 @@ hypotenuse --project 12 member list   # or name it for one command (also HYPOTEN
 | `event list [--type <eventType>] [--outcome <outcome>] [--hide-ignored] [--session <id>] [--since 7d]`, `view <id>` | the selected project's event log: Linear's webhooks and how each was routed, below |
 | `runner register [--name <name>] [--replace] [--force]`, `list [--status <status>] [--all]`, `view <runner>`, `edit <runner> [--name] [--enable\|--disable]`, `revoke <runner> [--yes]` | the selected project's runners, below |
 | `routing list`, `add --name <name> --role manager\|worker [match flags] [--repository <repo>] [--disabled]`, `edit <id> [...]`, `remove <id>`, `reorder <id...>`, `preview <ENG-123> [--prompt <text>] [--with-repository]`, `settings [...]` | the selected project's routing rules and settings, below |
+| `telemetry exporter list`, `view <id>`, `add --name <name> --endpoint <url> [--header KEY=VALUE...] [--content <level>] [--signals <list>] [--sample <ratio>] [--attribute KEY=VALUE...] [--no-agent-native] [--disabled]`, `edit <id> [...] [--clear-headers] [--enable\|--disable]`, `remove <id>`, `test <id>` | where the selected project's OpenTelemetry goes, below |
 | `identity list [--user <id>]`, `link --user <id> --linear-user <id> [--name] [--email]`, `unlink <id>` | links between Linear users and project members, below |
 | `config init [--repo <path>...]`, `validate [--online]`, `schema`, `path` | the daemon's config file — [the daemon](/docs/daemon), [every key](/docs/config) |
 | `daemon start [--foreground]`, `stop [--timeout] [--cancel] [--force]`, `restart`, `status`, `logs [-f] [--session <id>]`, `reload` | run this machine as a runner — [the daemon](/docs/daemon) |
@@ -228,6 +229,15 @@ session has under way, and `--manager-can-complete yes|no` decides whether a man
 or canceled state (no by default; a worker never may).
 
 Reading rules and settings is open to every member; changing them is for project admins.
+
+### Telemetry
+
+`hypotenuse telemetry exporter list` shows the project's OpenTelemetry collectors: where each sends, at what
+content level, its share of turns, the names of its headers, and how its last export went. `--header KEY=VALUE`
+sends a header — usually the vendor's API key — and nothing ever prints one back, `--json` included; `edit` keeps
+the headers unless it is given new ones or `--clear-headers`. `test <id>` sends the collector a probe span, log,
+and metric and prints what it answered to each, exiting non-zero when one failed. Adding, editing, testing, and
+removing are for admins; [Telemetry](/docs/telemetry) says what each level sends.
 
 ### Identities
 

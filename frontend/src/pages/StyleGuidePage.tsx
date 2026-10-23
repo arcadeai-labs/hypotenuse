@@ -1,6 +1,7 @@
 import { ChevronRight } from "lucide-react";
 import { DetailLayout } from "../components/layouts/DetailLayout";
 import { MarkdownBlock } from "../components/MarkdownBlock";
+import { TelemetryNote } from "../components/session/ActivityTranscript";
 import {
   AGENT_SESSION_STATUSES,
   AgentBadge,
@@ -64,13 +65,14 @@ function TranscriptLine({ entry }: { entry: FixtureTranscriptEntry }) {
   switch (entry.kind) {
     case "turn":
       return (
-        <div className="tx-turn">
+        <div className="tx-turn flex-wrap">
           <span>Turn {entry.turn}</span>
           <span>{entry.runner}</span>
           <AgentBadge kind={entry.agent} />
           <RoleChip role={entry.role} />
           <span className="tabular">{entry.duration}</span>
           <span>{entry.outcome}</span>
+          {entry.telemetryNote && <TelemetryNote note={entry.telemetryNote} />}
         </div>
       );
     case "prompt":

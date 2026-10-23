@@ -2,6 +2,7 @@ import type {
   Answer,
   Cancel,
   ClaimRequest,
+  ClaimTelemetry,
   CompleteRequest,
   EventsRequest,
   EventsResponse,
@@ -51,6 +52,15 @@ import { resolveIssuer } from "./IdentityOps";
 import type { TxHandle } from "./ProjectOps";
 import { resolveRoutingSettings } from "./ProjectSettingsOps";
 import { broadcastSessionsChanged } from "./SessionChannelOps";
+import {
+  decideClaimTelemetry,
+  emitPendingSpans,
+  emitTurnSpan,
+  type PendingSpan,
+  projectTelemetry,
+  turnSpan,
+  turnTrace,
+} from "./TelemetryOps";
 
 /**
  * Work items: one row per **turn** of an agent session, from the moment a
@@ -150,6 +160,16 @@ export interface WorkEffects {
    */
   sessions: Set<number>;
   route: boolean;
+  /**
+   * Server spans the transaction observed, emitted after commit for the
+   * projects that export telemetry (`ops/TelemetryOps.ts`).
+   */
+  spans: PendingSpan[];
+  /**
+   * Turns that ended, work item id → project id: each one's root `turn`
+   * span is emitted after commit, for a project that exports telemetry.
+   */
+  finished: Map<number, number>;
 }
 
 /**
@@ -162,6 +182,8 @@ export function noEffects(): WorkEffects {
     frames: new Map(),
     sessions: new Set(),
     route: false,
+    spans: [],
+    finished: new Map(),
   };
 }
 
@@ -182,6 +204,9 @@ export function mergeEffects(
     if (into.frames.get(id) !== "cancel") into.frames.set(id, frame);
   }
   into.route ||= from.route;
+  into.spans.push(...(from.spans ?? []));
+  for (const [id, projectId] of from.finished ?? [])
+    into.finished.set(id, projectId);
   return into;
 }
 
@@ -210,6 +235,11 @@ export async function applyEffects(effects: WorkEffects): Promise<void> {
     });
   }
   await broadcastSessionsChanged([...effects.sessions, ...effects.deliver]);
+  if (effects.spans?.length) await emitPendingSpans(effects.spans);
+  for (const [workItemId, projectId] of effects.finished ?? []) {
+    if (await projectTelemetry(projectId).catch(() => null))
+      await emitTurnSpan(workItemId);
+  }
 }
 
 /**
@@ -520,6 +550,7 @@ export async function finishWorkItem(
   // A dispatched worker's result goes back to its manager as a review turn.
   await enqueueReviewIfChild(tx, item, options.status, options.outcome);
   effects.route = true;
+  effects.finished.set(item.id, item.projectId);
   return effects;
 }
 
@@ -1066,6 +1097,13 @@ export async function claimWork(
 
   const { item, session } = offered;
   const fresh = session.runnerId !== runner.id;
+  // What the project's exporters want of this turn, lowered to what the
+  // runner's owner allows; recorded so a repeated claim answers the same.
+  const telemetry = decideClaimTelemetry(
+    await projectTelemetry(item.projectId),
+    item,
+    runner,
+  );
   const [claimed] = await tx
     .update(workItems)
     .set({
@@ -1076,6 +1114,8 @@ export async function claimWork(
       fresh,
       waitingReason: null,
       waitingCode: null,
+      telemetry: telemetry.record,
+      ...(telemetry.claim ? { traceparent: telemetry.claim.traceparent } : {}),
     })
     .where(eq(workItems.id, item.id))
     .returning();
@@ -1087,6 +1127,26 @@ export async function claimWork(
   }
   effects.sessions.add(session.id);
   if (await addDashboardLink(tx, session)) effects.deliver.add(session.id);
+  effects.spans.push({
+    projectId: item.projectId,
+    span: turnSpan(item, {
+      name: "routing.claim",
+      startMs: now.getTime(),
+      endMs: Date.now(),
+      attributes: {
+        "hypotenuse.queue.wait_ms": now.getTime() - item.queuedAt.getTime(),
+        "hypotenuse.runner.id": runner.id,
+        "hypotenuse.runner.name": runner.name,
+        "hypotenuse.work_item.fresh": fresh,
+        "hypotenuse.work_item.attempts": item.attempts,
+        "hypotenuse.agent.id": item.agentId,
+        "hypotenuse.telemetry.content": telemetry.record?.content ?? null,
+        "hypotenuse.telemetry.agent_native":
+          telemetry.record?.agentNative ?? null,
+        "hypotenuse.telemetry.note": telemetry.record?.note ?? null,
+      },
+    }),
+  });
   return { assignment: await buildAssignment(tx, claimed, runner), effects };
 }
 
@@ -1297,6 +1357,24 @@ export async function buildAssignment(
       session.origin === "delegation" && session.creatorExternalUserId !== null,
     leaseExpiresAt: item.leaseExpiresAt!.getTime(),
     ...(await assignmentPayload(tx, item)),
+    telemetry: assignmentTelemetry(item),
+  };
+}
+
+/**
+ * What a claimed turn's assignment says about its telemetry, from what the
+ * claim recorded: null when nothing is exported or the runner sends none.
+ * @param item - The claimed item.
+ * @returns The assignment's `telemetry`.
+ */
+function assignmentTelemetry(item: WorkItem): ClaimTelemetry | null {
+  const t = item.telemetry;
+  if (!t?.content) return null;
+  return {
+    traceparent: item.traceparent,
+    sampled: t.sampled,
+    content: t.content,
+    agentNative: t.agentNative,
   };
 }
 
@@ -1850,6 +1928,14 @@ export function serializeWorkItem(item: WorkItem) {
     outcome: item.outcome,
     hygiene: item.hygiene,
     linearWrites: item.linearWrites,
+    /**
+     * What the turn's telemetry collected, and the note the transcript shows
+     * when the runner's owner lowered it; null when nothing was exported.
+     * The trace id is what to look the turn up by in a collector.
+     */
+    telemetry: item.telemetry
+      ? { ...item.telemetry, traceId: turnTrace(item).traceId }
+      : null,
     createdAt: item.createdAt.getTime(),
     queuedAt: item.queuedAt.getTime(),
     offerExpiresAt: ms(item.offerExpiresAt),

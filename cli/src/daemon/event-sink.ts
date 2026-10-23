@@ -72,6 +72,8 @@ export class EventSink {
   /** Per work item: the batch size that last fit (a 413 halves it). */
   private readonly batchLimit = new Map<number, number>();
   private closed = false;
+  /** Per work item: the turn's `traceparent`, when its telemetry is traced. */
+  private readonly traceparents = new Map<number, string>();
 
   /**
    * @param state - The state database.
@@ -116,6 +118,17 @@ export class EventSink {
     });
     this.kick();
     return { eventId, seq };
+  }
+
+  /**
+   * Send a work item's events and completion with its turn's `traceparent`,
+   * so the server's spans for them join the turn's trace.
+   * @param workItemId - The work item.
+   * @param traceparent - The daemon span they are sent from; null to stop.
+   */
+  trace(workItemId: number, traceparent: string | null): void {
+    if (traceparent) this.traceparents.set(workItemId, traceparent);
+    else this.traceparents.delete(workItemId);
   }
 
   /**
@@ -268,10 +281,13 @@ export class EventSink {
       }
       const ids = batch.map((row) => row.eventId);
       try {
-        const answer = await this.api.events({
-          workItemId,
-          events: batch.map((row) => row.payload) as SessionEvent[],
-        });
+        const answer = await this.api.events(
+          {
+            workItemId,
+            events: batch.map((row) => row.payload) as SessionEvent[],
+          },
+          this.traceparents.get(workItemId),
+        );
         this.state.deleteEvents(ids);
         this.log.debug("events sent", {
           workItem: workItemId,
@@ -349,7 +365,11 @@ export class EventSink {
     if (!row) return;
     const { request } = row.payload as unknown as QueuedCompletion;
     try {
-      const answer = await this.api.complete(request);
+      const answer = await this.api.complete(
+        request,
+        this.traceparents.get(workItemId),
+      );
+      this.traceparents.delete(workItemId);
       this.log.info(`reported work item ${request.outcome}`, {
         workItem: workItemId,
         alreadyTerminal: answer.alreadyTerminal,

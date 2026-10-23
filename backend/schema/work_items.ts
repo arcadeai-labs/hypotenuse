@@ -1,3 +1,4 @@
+import { formatTraceparent, newSpanId, newTraceId } from "@hypotenuse/protocol";
 import { sql } from "drizzle-orm";
 import {
   boolean,
@@ -163,6 +164,20 @@ export interface WorkItemReviewPayload {
   pullRequests: { label: string; url: string }[];
 }
 
+/**
+ * What the claim decided about the turn's telemetry: what the runner was
+ * asked to collect, and the note the dashboard transcript shows when the
+ * runner's cap lowered it (`ops/TelemetryOps.ts` `claimTelemetry`).
+ */
+export interface WorkItemTelemetry {
+  /** The level collected; null when the runner sends nothing. */
+  content: "metadata" | "content" | "full" | null;
+  agentNative: boolean;
+  sampled: boolean;
+  /** "telemetry capped at `content` by runner `laptop`", or null. */
+  note: string | null;
+}
+
 /** A turn's payload: what a manager handed a worker, or a worker's result for review. */
 export type WorkItemPayload =
   | { dispatch: WorkItemDispatchPayload }
@@ -297,6 +312,24 @@ export const workItems = pgTable(
       .$type<LinearWrite[]>()
       .notNull()
       .default([]),
+    /**
+     * The turn's W3C trace context: its trace id and the id of its root
+     * `turn` span, minted when the item is inserted, whoever inserts it. The
+     * sampled flag is written at claim, when the project's exporters decide
+     * it; every server span of the turn and everything the daemon sends for
+     * it joins this trace.
+     */
+    traceparent: text("traceparent")
+      .notNull()
+      .$defaultFn(() =>
+        formatTraceparent({
+          traceId: newTraceId(),
+          spanId: newSpanId(),
+          sampled: false,
+        }),
+      ),
+    /** What the claim decided about telemetry; null before a claim or with no exporter. */
+    telemetry: jsonb("telemetry").$type<WorkItemTelemetry | null>(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

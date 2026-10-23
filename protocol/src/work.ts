@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { RunnerRole } from "./capabilities";
 import { OFFER_KINDS } from "./heartbeat";
+import { ClaimTelemetry } from "./telemetry";
 
 /**
  * `daemon:claim`'s body. With `workItemIds`, only those offers (or items this
@@ -168,6 +169,11 @@ export const WorkAssignment = z.looseObject({
   review: AssignmentReview.nullable()
     .optional()
     .describe("Set on a manager's review turn: the worker result to review"),
+  telemetry: ClaimTelemetry.nullable()
+    .optional()
+    .describe(
+      "The turn's trace and what to collect for the project's exporters; null when nothing is exported",
+    ),
 });
 export type WorkAssignment = z.infer<typeof WorkAssignment>;
 

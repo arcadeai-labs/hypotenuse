@@ -13,9 +13,14 @@ import {
   EventsResponse,
   type HeartbeatRequest,
   HeartbeatResponse,
+  type OtlpSignal,
   PROTOCOL_HEADER,
   PROTOCOL_VERSION,
+  TELEMETRY_SIGNAL_HEADER,
+  TELEMETRY_WORK_ITEM_HEADER,
+  TelemetryResponse,
   ToolResult,
+  TRACEPARENT_HEADER,
   type WorkAssignment,
 } from "../../../protocol/src/index";
 import pkg from "../../package.json";
@@ -54,6 +59,18 @@ export class DaemonApi {
       [PROTOCOL_HEADER]: String(PROTOCOL_VERSION),
       "User-Agent": `hypotenuse/${pkg.version} (${platform()})`,
     };
+  }
+
+  /**
+   * The headers of a call made for a turn: with its `traceparent`, so the
+   * server's span for the call joins the turn's trace under the daemon's.
+   * @param traceparent - The daemon span the call is made from, if traced.
+   * @returns The headers.
+   */
+  private traced(traceparent?: string | null): Record<string, string> {
+    return traceparent
+      ? { ...this.headers, [TRACEPARENT_HEADER]: traceparent }
+      : this.headers;
   }
 
   /**
@@ -111,12 +128,16 @@ export class DaemonApi {
   /**
    * `daemon:events`.
    * @param body - One work item's batch.
+   * @param traceparent - The turn's daemon span, when traced.
    * @returns What the server took.
    */
-  async events(body: EventsRequest): Promise<EventsResponse> {
+  async events(
+    body: EventsRequest,
+    traceparent?: string | null,
+  ): Promise<EventsResponse> {
     const answer = await this.client.request("POST", "/daemon/events", {
       body,
-      headers: this.headers,
+      headers: this.traced(traceparent),
       timeoutMs: REQUEST_TIMEOUT_MS,
     });
     return EventsResponse.parse(answer);
@@ -125,30 +146,64 @@ export class DaemonApi {
   /**
    * `daemon:complete`.
    * @param body - How the turn ended.
+   * @param traceparent - The turn's daemon span, when traced.
    * @returns Whether it was already terminal.
    */
-  async complete(body: CompleteRequest): Promise<CompleteResponse> {
+  async complete(
+    body: CompleteRequest,
+    traceparent?: string | null,
+  ): Promise<CompleteResponse> {
     const answer = await this.client.request("POST", "/daemon/complete", {
       body,
-      headers: this.headers,
+      headers: this.traced(traceparent),
       timeoutMs: REQUEST_TIMEOUT_MS,
     });
     return CompleteResponse.parse(answer);
   }
 
   /**
+   * `daemon:telemetry`: relay one gzipped OTLP/JSON batch of a turn.
+   * @param batch - The turn, its traceparent, the signal, and the gzipped body.
+   * @returns Whether the server took it.
+   * @throws {ApiError} 409 `NOT_YOUR_WORK` / `TELEMETRY_NOT_WANTED`, 410
+   *   `TELEMETRY_LATE`, 429, or a transport failure.
+   */
+  async telemetry(batch: {
+    workItemId: number;
+    traceparent: string;
+    signal: OtlpSignal;
+    gzipped: Uint8Array;
+  }): Promise<TelemetryResponse> {
+    const answer = await this.client.request("POST", "/daemon/telemetry", {
+      rawBody: batch.gzipped,
+      headers: {
+        ...this.headers,
+        "Content-Type": "application/json",
+        "Content-Encoding": "gzip",
+        [TELEMETRY_SIGNAL_HEADER]: batch.signal,
+        [TELEMETRY_WORK_ITEM_HEADER]: String(batch.workItemId),
+        [TRACEPARENT_HEADER]: batch.traceparent,
+      },
+      timeoutMs: REQUEST_TIMEOUT_MS,
+    });
+    return TelemetryResponse.parse(answer);
+  }
+
+  /**
    * An agent tool's `daemon:*` action.
    * @param route - The tool's route (`/daemon/linear/get-issue`).
    * @param body - The tool input and `agentSessionId`.
+   * @param traceparent - The `mcp.call` span, when traced.
    * @returns The result's Markdown and data.
    */
   async tool(
     route: string,
     body: Record<string, unknown>,
+    traceparent?: string | null,
   ): Promise<{ text: string; data: Record<string, unknown> }> {
     const answer = await this.client.request("POST", route, {
       body,
-      headers: this.headers,
+      headers: this.traced(traceparent),
       timeoutMs: TOOL_REQUEST_TIMEOUT_MS,
     });
     return ToolResult.parse(answer).result;

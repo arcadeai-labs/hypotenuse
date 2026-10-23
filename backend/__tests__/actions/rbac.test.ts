@@ -100,6 +100,14 @@ const EXPECTED_LEVELS: Record<string, RbacLevel> = {
   "routing-rule:reorder": "admin",
   "project:settings-edit": "admin",
   "external-identity:link": "admin",
+  // What of the project's work leaves for a collector is the project's call;
+  // members may read where it goes and at what level.
+  "telemetry-exporter:create": "admin",
+  "telemetry-exporter:edit": "admin",
+  "telemetry-exporter:delete": "admin",
+  "telemetry-exporter:test": "admin",
+  "telemetry-exporter:list": "member",
+  "telemetry-exporter:view": "member",
 
   // Not project-scoped: session-scoped, public, or a clock. `none` is correct
   // rather than an omission.
@@ -169,6 +177,8 @@ const EXPECTED_LEVELS: Record<string, RbacLevel> = {
   "daemon:linear-update-document": "none",
   "daemon:linear-list-labels": "none",
   "daemon:dispatch": "none",
+  "daemon:telemetry": "none",
+  "telemetry:export": "none",
   "work:reap": "none",
   "work:route": "none",
   "sessions:keepalive": "none",
@@ -188,6 +198,7 @@ const CLOCKS = [
   "work:reap",
   "work:route",
   "sessions:keepalive",
+  "telemetry:export",
 ];
 
 let universe: TestUniverse;
@@ -368,6 +379,12 @@ describe("MCP publish policy", () => {
         "tag:delete",
         "tag:edit",
         "tag:list",
+        "telemetry-exporter:create",
+        "telemetry-exporter:delete",
+        "telemetry-exporter:edit",
+        "telemetry-exporter:list",
+        "telemetry-exporter:test",
+        "telemetry-exporter:view",
         "trigger-event:list",
         "trigger-event:view",
         "user-tag:assign",

@@ -1,6 +1,6 @@
 {
   "name": "@arcadeai/hypotenuse",
-  "version": "0.13.1",
+  "version": "0.14.0",
   "description": "Hypotenuse — run coding agents on your machine for Linear agent sessions",
   "type": "module",
   "license": "Apache-2.0",
@@ -42,6 +42,7 @@
     "@modelcontextprotocol/sdk": "1.32.1",
     "commander": "^14.0.3",
     "nanospinner": "^1.2.2",
+    "protobufjs": "^8.8.1",
     "smol-toml": "^1.9.1",
     "upgradr": "^0.4.1",
     "zod": "^4.3.6"

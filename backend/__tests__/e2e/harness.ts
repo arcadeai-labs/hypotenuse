@@ -16,6 +16,7 @@ import { runnerRow } from "../runners/helpers";
 import {
   buildTestUniverse,
   HOOK_TIMEOUT,
+  runAction,
   type TestUniverse,
   type TestUser,
 } from "../setup";
@@ -30,7 +31,7 @@ import {
  * Only the server's background work runs in this process rather than on a
  * Resque worker: a **pump** runs processing, routing, and the activity outbox
  * ({@link settle}) every 100 ms, as the deployed worker's queues and clocks
- * would. Tests never call `settle()` themselves; they wait on what crossed a
+ * would, and the telemetry relay's export clock. Tests never call `settle()` themselves; they wait on what crossed a
  * process — finear's record of the session, which is what a person sees.
  * The lease and queue clocks (`work:reap`) do not pump: a test that needs
  * one writes the column and runs it, so no assertion waits out a timer.
@@ -138,7 +139,11 @@ export function useE2E(): E2E {
     pumping = true;
     idle = (async () => {
       while (pumping) {
-        if (!paused) await settle(3);
+        if (!paused) {
+          await settle(3);
+          // The relay's clock: what a project's collectors receive.
+          await runAction("telemetry:export");
+        }
         await Bun.sleep(100);
       }
     })();

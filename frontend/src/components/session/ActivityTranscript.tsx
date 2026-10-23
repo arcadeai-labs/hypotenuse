@@ -2,6 +2,7 @@ import { useState } from "react";
 import { AgentBadge, Avatar, Button, Chip, Mark, RoleChip } from "../../ui";
 import { cx } from "../../ui/cx";
 import { waitingLabel } from "../../utils/sessions";
+import { noteParts } from "../../utils/telemetry";
 import {
   actionOf,
   bodyOf,
@@ -119,7 +120,31 @@ function TurnSeparator({
       {duration && <span className="tabular">{duration}</span>}
       <Chip data-testid={`turn-status-${turn.id}`}>{turn.status}</Chip>
       {waiting && <span className="text-muted">{waiting}</span>}
+      {turn.telemetry?.note && <TelemetryNote note={turn.telemetry.note} />}
     </div>
+  );
+}
+
+/**
+ * Why a turn's telemetry was exported at less than the project asked — the
+ * runner's owner capped it — as one quiet line on the separator.
+ * @param props - The server's note, with names in backticks.
+ * @returns The note.
+ */
+export function TelemetryNote({ note }: { note: string }) {
+  return (
+    <span className="text-muted w-100" data-testid="turn-telemetry-note">
+      {noteParts(note).map((part, i) =>
+        part.code ? (
+          // The parts are fixed for a given note, so the index is stable.
+          // biome-ignore lint/suspicious/noArrayIndexKey: see above
+          <code key={i}>{part.text}</code>
+        ) : (
+          // biome-ignore lint/suspicious/noArrayIndexKey: see above
+          <span key={i}>{part.text}</span>
+        ),
+      )}
+    </span>
   );
 }
 

@@ -44,6 +44,11 @@ export interface RequestOptions {
   query?: Record<string, unknown>;
   /** A JSON body. */
   body?: unknown;
+  /**
+   * A body sent as these bytes, with its own `Content-Type` in `headers`
+   * (`daemon:telemetry`'s OTLP). Ignored when `body` is set.
+   */
+  rawBody?: Uint8Array;
   /** Send no credential even when the client holds one. */
   anonymous?: boolean;
   /** Extra request headers, e.g. the runner protocol version. */
@@ -118,7 +123,11 @@ export class ApiClient {
         method,
         headers,
         body:
-          options.body === undefined ? undefined : JSON.stringify(options.body),
+          options.body !== undefined
+            ? JSON.stringify(options.body)
+            : options.rawBody
+              ? new Uint8Array(options.rawBody)
+              : undefined,
         signal: options.timeoutMs
           ? AbortSignal.timeout(options.timeoutMs)
           : undefined,

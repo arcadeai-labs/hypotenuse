@@ -11,6 +11,7 @@ import {
 import { decryptSecret } from "./CryptoOps";
 import { refreshIntegrationTokens } from "./LinearOAuthOps";
 import type { LinearOperation } from "./linear/operations";
+import { countMetric, currentTraceScope, emitSpans } from "./TelemetryOps";
 
 /**
  * **The** Linear GraphQL client: the only module that calls `fetch` on
@@ -374,6 +375,56 @@ export async function linearRequest<T, V>(
   op: LinearOperation<T, V>,
   variables: V,
   options: LinearRequestOptions = {},
+): Promise<T> {
+  const started = Date.now();
+  const scope = currentTraceScope();
+  let status = "ok";
+  try {
+    return await linearRequestOnce(integration, op, variables, options);
+  } catch (e) {
+    status = e instanceof Error ? e.name : "error";
+    throw e;
+  } finally {
+    // What a project's telemetry sees of its Linear traffic: a counter
+    // always, and a client span when the call is part of a turn.
+    void countMetric(integration.projectId, "hypotenuse.linear.requests", {
+      "graphql.operation.name": op.name,
+      "hypotenuse.linear.status": status,
+    });
+    if (scope) {
+      void emitSpans(scope.projectId, [
+        {
+          name: `linear.graphql ${op.name}`,
+          kind: "client",
+          traceId: scope.traceId,
+          parentSpanId: scope.parentSpanId,
+          startMs: started,
+          endMs: Date.now(),
+          attributes: {
+            "graphql.operation.name": op.name,
+            "hypotenuse.linear.status": status,
+            "hypotenuse.integration.id": integration.id,
+          },
+          error: status === "ok" ? null : status,
+        },
+      ]);
+    }
+  }
+}
+
+/**
+ * {@link linearRequest}'s retry loop, without the telemetry around it.
+ * @param integration - The integration to act as.
+ * @param op - The operation.
+ * @param variables - Its variables.
+ * @param options - Whether it is safe to retry.
+ * @returns The operation's data.
+ */
+async function linearRequestOnce<T, V>(
+  integration: Integration,
+  op: LinearOperation<T, V>,
+  variables: V,
+  options: LinearRequestOptions,
 ): Promise<T> {
   const started = Date.now();
   let token = accessTokenOf(integration);

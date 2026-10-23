@@ -15,6 +15,7 @@ import type { InviteListPending } from "../actions/invite/invite-list-pending";
 import type { SessionCreate } from "../actions/session";
 import type { TagCreate } from "../actions/tag/tag-create";
 import type { UserCreate } from "../actions/user";
+import { forgetProjectTelemetry } from "../ops/TelemetryOps";
 
 // Each test file boots its own server; the shared event bus can exceed the
 // default 10-listener warning threshold when many suites run.
@@ -309,6 +310,7 @@ export async function retryClearDatabase(): Promise<void> {
  */
 export async function clearLinearRedisState(): Promise<void> {
   await api.resque.queue.delQueue("triggers");
+  forgetProjectTelemetry();
   const redis = api.redis.redis;
   for (const pattern of [
     "linear:*",
@@ -319,6 +321,9 @@ export async function clearLinearRedisState(): Promise<void> {
     "runner:sessions:*",
     // Dispatch intents and in-flight reservations, keyed by session ids.
     "dispatch:*",
+    // Telemetry streams, consumer groups, backoffs, and byte buckets, keyed
+    // by project and exporter ids.
+    "telemetry:*",
   ]) {
     let cursor = "0";
     do {

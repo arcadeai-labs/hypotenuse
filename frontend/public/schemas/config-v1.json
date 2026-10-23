@@ -747,6 +747,40 @@
       },
       "additionalProperties": false
     },
+    "telemetry": {
+      "default": {},
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "default": true,
+          "description": "Send this machine's telemetry for the project's exporters; false sends none",
+          "type": "boolean"
+        },
+        "max_content": {
+          "default": "full",
+          "description": "The most this runner sends: metadata, content, or full — lower than an exporter's level wins",
+          "type": "string",
+          "enum": [
+            "metadata",
+            "content",
+            "full"
+          ]
+        },
+        "agent_native": {
+          "default": true,
+          "description": "Capture the coding agent's own OpenTelemetry; false never starts the receiver or sets OTEL_* variables",
+          "type": "boolean"
+        },
+        "buffer_mb": {
+          "default": 32,
+          "description": "The in-memory telemetry queue, in MB; when full the oldest logs, then spans, are dropped and counted",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1024
+        }
+      },
+      "additionalProperties": false
+    },
     "log": {
       "default": {},
       "type": "object",

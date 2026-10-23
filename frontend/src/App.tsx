@@ -10,6 +10,7 @@ import McpSection from "./components/settings/sections/McpSection";
 import MembersSection from "./components/settings/sections/MembersSection";
 import RoutingSection from "./components/settings/sections/RoutingSection";
 import TagsSection from "./components/settings/sections/TagsSection";
+import TelemetrySection from "./components/settings/sections/TelemetrySection";
 import { PublicShell } from "./components/shell/PublicShell";
 import { AuthProvider } from "./context/AuthContext";
 import { LiveSocketProvider } from "./context/LiveSocketContext";
@@ -106,6 +107,7 @@ export function App() {
                   />
                   <Route path="routing" element={<RoutingSection />} />
                   <Route path="mcp" element={<McpSection />} />
+                  <Route path="telemetry" element={<TelemetrySection />} />
                   <Route path="members" element={<MembersSection />} />
                   <Route path="tags" element={<TagsSection />} />
                   <Route path="danger" element={<DangerZoneSection />} />

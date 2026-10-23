@@ -15,6 +15,7 @@
  * | Repositories | pass-3 checks and `git fetch --dry-run` |
  * | Disk | free space under `worktree_root` against `min_free_disk` |
  */
+
 import { existsSync, statfsSync, statSync } from "node:fs";
 import { hostname } from "node:os";
 import { dirname } from "node:path";
@@ -46,6 +47,7 @@ import { callDaemon } from "../daemon/control-client";
 import { CLOCK_SKEW_WARN_MS } from "../daemon/server-link";
 import { color, glyph } from "../output/theme";
 import { machineId, platform } from "../runner/machine";
+import { nativeTelemetrySupport } from "../telemetry/native";
 import { updater } from "../update/updater";
 import type { DaemonStatus } from "./daemon";
 import { locateDaemon } from "./daemon";
@@ -361,6 +363,35 @@ export async function runDoctor(
     !resolveAgents(config).some((a) => a.id === options.agent)
   ) {
     list.fail("agents", `no agent "${options.agent}" in the config`);
+  }
+
+  // Telemetry: what this machine lets leave, and who adds their own.
+  const t = config.telemetry;
+  if (!t.enabled)
+    list.ok(
+      "telemetry",
+      "off: this runner sends no telemetry (`[telemetry] enabled = false`)",
+    );
+  else {
+    list.ok(
+      "telemetry",
+      `sends up to \`${t.max_content}\` for the project's exporters; buffer ${t.buffer_mb} MB`,
+    );
+    const agents = resolveAgents(config).filter((a) => a.roles.length > 0);
+    if (!t.agent_native)
+      list.ok("telemetry", "agents' own telemetry is not captured");
+    else
+      for (const agent of agents) {
+        const support = nativeTelemetrySupport(agent.preset);
+        list.ok(
+          "telemetry",
+          support === "native"
+            ? `${agent.id}: contributes its own telemetry (model requests, tokens, cost)`
+            : support === "standard-otel"
+              ? `${agent.id}: contributes its own telemetry if it reads the standard OTEL_* variables`
+              : `${agent.id}: a custom command — it gets OTEL_EXPORTER_OTLP_ENDPOINT and HYPOTENUSE_OTLP_ENDPOINT`,
+        );
+      }
   }
 
   // Repositories.

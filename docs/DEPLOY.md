@@ -66,6 +66,13 @@ All shared values live on the **`hypotenuse-shared`** env group, which both back
 | `PROCESS_NAME`, `OTEL_SERVICE_NAME` | per service | `hypotenuse-api` / `hypotenuse-worker` |
 | `VITE_API_URL` | frontend build arg | `https://api.hypotenuse.cloud` |
 
+The telemetry relay's keys are not set in production either. `TELEMETRY_ALLOW_PRIVATE_ENDPOINTS` must stay unset
+(`false`): exporter endpoints are tenant-chosen URLs the worker POSTs to from inside Render's network, so only public
+`https` hosts are allowed, re-resolved before every export. `TELEMETRY_LATE_WINDOW` (5 minutes) is how long a
+finished turn's telemetry is still accepted; `TELEMETRY_PROJECT_BYTES_PER_SECOND` (1 MiB/s, bursting to
+`TELEMETRY_PROJECT_BURST_BYTES`, 16 MiB) is each project's ingress budget. Telemetry waits in Redis for at most an
+hour (`TELEMETRY_STREAM_TTL_MS`); `redis-cli XLEN telemetry:stream:<projectId>` shows how much.
+
 `LINEAR_API_URL` and `LINEAR_OAUTH_URL` are **not** set in production; they default to `https://api.linear.app`
 and `https://linear.app`, and exist so tests can point the server at finear. The webhook and outbox tuning keys
 in `backend/.env.example` (`LINEAR_WEBHOOK_MAX_BODY_BYTES`, `LINEAR_WEBHOOK_TOLERANCE_MS`,

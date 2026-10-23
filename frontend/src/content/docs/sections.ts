@@ -17,6 +17,7 @@ import projects from "./projects.md?raw";
 import routing from "./routing.md?raw";
 import runners from "./runners.md?raw";
 import security from "./security.md?raw";
+import telemetry from "./telemetry.md?raw";
 import why from "./why.md?raw";
 import worktrees from "./worktrees.md?raw";
 
@@ -94,6 +95,7 @@ export const DOCS_SECTIONS: DocsSection[] = [
     title: "Managers and workers",
     markdown: managerAndWorker,
   },
+  { slug: "telemetry", title: "Telemetry", markdown: telemetry },
   { slug: "members", title: "Members and tags", markdown: members },
   { slug: "security", title: "Security", markdown: security },
   { slug: "audit", title: "Audit log", markdown: audit },
