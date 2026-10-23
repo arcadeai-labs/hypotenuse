@@ -359,6 +359,7 @@ bun run test                                  # every workspace (not `bun test` 
 cd frontend && bun run theme:build            # regenerate tokens, mark, favicons, OAuth theme from design/tokens.ts
 cd frontend && bun run test:e2e               # Playwright; PLAYWRIGHT_CHROMIUM_PATH for a preinstalled browser
 cd frontend && bun run docs:illustrations     # light + dark screenshots (frontend running)
+cd frontend && bun run social:image           # redraw public/social.png, the link-preview card
 open http://localhost:3000/style-guide        # every primitive and fixture surface, both themes side by side
 cd backend && bun run test                    # fetches finear, then real server + finear
 cd backend && bun test path/to/file.test.ts   # one file (after a first `bun run finear:fetch`)

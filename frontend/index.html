@@ -7,6 +7,27 @@
     <link rel="icon" type="image/svg+xml" href="/favicon-dark.svg" media="(prefers-color-scheme: dark)" />
     <title>Hypotenuse</title>
     <!--
+      The link preview. Every route serves this file, so every shared URL unfurls
+      as the home page. Crawlers want absolute URLs; public/social.png is drawn by
+      `bun run social:image`, and social.test.ts holds its size to these tags.
+    -->
+    <meta name="description" content="Delegate a Linear issue to @hypotenuse. A coding agent on your own machine does the work in a fresh git worktree, streams its progress into the agent session, and opens a pull request." />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Hypotenuse" />
+    <meta property="og:url" content="https://www.hypotenuse.cloud/" />
+    <meta property="og:title" content="Hypotenuse — your agents, your machines, inside Linear" />
+    <meta property="og:description" content="Delegate a Linear issue to @hypotenuse. A coding agent on your own machine does the work and opens a pull request." />
+    <meta property="og:image" content="https://www.hypotenuse.cloud/social.png" />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="2400" />
+    <meta property="og:image:height" content="1260" />
+    <meta property="og:image:alt" content="Hypotenuse: your agents, your machines, inside Linear. A line runs from Linear to your machine." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Hypotenuse — your agents, your machines, inside Linear" />
+    <meta name="twitter:description" content="Delegate a Linear issue to @hypotenuse. A coding agent on your own machine does the work and opens a pull request." />
+    <meta name="twitter:image" content="https://www.hypotenuse.cloud/social.png" />
+    <meta name="twitter:image:alt" content="Hypotenuse: your agents, your machines, inside Linear. A line runs from Linear to your machine." />
+    <!--
       Pre-paint theme. Runs before the stylesheet applies, so a stored Dark on a
       light OS never flashes white. ThemeContext owns the same key and logic
       afterwards; keep the two in step (THEME_STORAGE_KEY).
