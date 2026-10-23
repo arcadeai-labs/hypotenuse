@@ -95,6 +95,18 @@ describe("ConfigRestart", () => {
     ]);
   });
 
+  test("a save the next process would refuse never pauses claims", () => {
+    const h = harness();
+    h.state.problem =
+      "server.project is 424242, but this machine's runner belongs to project 1";
+    expect(h.restart.saved(needs, "c.toml")).toBeNull();
+    expect(h.restart.isPending).toBe(false);
+    expect(h.calls).toEqual([
+      "log: config restart not started: the daemon would not start on c.toml as it is now (server.project is 424242, but this machine's runner belongs to project 1); the running config stays",
+    ]);
+    expect(h.waits).toHaveLength(0);
+  });
+
   test("a takeover is for good: saves during a stop's drain start nothing and resume nothing", async () => {
     const h = harness();
     h.restart.saved(needs, "c.toml");

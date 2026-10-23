@@ -7,7 +7,8 @@
  * | While waiting                                   | Then                                  |
  * |---|---|
  * | the turns finish (or the wait runs out)         | restart — if the file is still valid  |
- * | the next process would refuse to start (an invalid file, no runner for the server, another project) | called off; claims resume |
+ * | the save itself names a config the next process would refuse | never starts: nothing pauses |
+| the next process would refuse to start (an invalid file, no runner for the server, another project) | called off; claims resume |
  * | a newer save still needs the restart            | keeps waiting                         |
  * | a newer save is invalid, or undoes the change   | called off; claims resume             |
  * | `daemon stop` / `upgrade` / `restart` (a drain or restart over the socket) | taken over for good: no later save starts or calls off anything |
@@ -89,6 +90,15 @@ export class ConfigRestart {
       return null;
     }
     if (!outcome.needsRestart) return null;
+    // Refused before anything pauses: a runner must not stop taking work
+    // for a restart that would only be called off when the turns finish.
+    const problem = this.deps.startProblem();
+    if (problem) {
+      this.deps.log(
+        `config restart not started: the daemon would not start on ${path} as it is now (${problem}); the running config stays`,
+      );
+      return null;
+    }
     const generation = ++this.generation;
     this.pending = generation;
     this.deps.pauseClaims();

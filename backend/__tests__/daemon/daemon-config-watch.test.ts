@@ -127,7 +127,7 @@ describe("config file watch", () => {
       t.replace("[server]\n", '[server]\nproject = "424242"\n'),
     );
     await home.waitForLog(
-      /config restart called off: the daemon would not start on .*424242/,
+      /config restart not started: the daemon would not start on .*424242/,
     );
     expect(home.proc!.exitCode).toBeNull();
     editConfig((t) => t.replace('project = "424242"\n', ""));
