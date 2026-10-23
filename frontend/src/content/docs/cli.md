@@ -86,6 +86,8 @@ hypotenuse project use my-team        # by slug or id; remembered per server
 hypotenuse --project 12 member list   # or name it for one command (also HYPOTENUSE_PROJECT)
 ```
 
+With nothing selected and only one project to your name, commands use that one.
+
 ## Commands
 
 | Command | Does |
