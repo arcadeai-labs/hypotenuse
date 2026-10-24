@@ -182,13 +182,27 @@ export const ExternalUrlEvent = z.strictObject({
   url: z.url(),
 });
 
-/** Token and cost accounting, for the dashboard only. */
+/**
+ * What a turn has spent so far: its tokens and cost, never the agent's
+ * running total for the session (the daemon subtracts what the session had
+ * spent before the turn). Each report replaces the last.
+ */
+export const TurnUsage = z.strictObject({
+  inputTokens: z.number().int().min(0).optional(),
+  outputTokens: z.number().int().min(0).optional(),
+  costUsd: z
+    .number()
+    .min(0)
+    .optional()
+    .describe("This turn's cost in US dollars, as the agent reported it"),
+});
+export type TurnUsage = z.infer<typeof TurnUsage>;
+
+/** Token and cost accounting, and the context window, for the dashboard only. */
 export const UsageEvent = z.strictObject({
   ...envelope,
   type: z.literal("usage"),
-  inputTokens: z.number().int().min(0).optional(),
-  outputTokens: z.number().int().min(0).optional(),
-  costUsd: z.number().min(0).optional(),
+  ...TurnUsage.shape,
   contextUsed: z.number().int().min(0).optional(),
   contextSize: z.number().int().min(0).optional(),
 });

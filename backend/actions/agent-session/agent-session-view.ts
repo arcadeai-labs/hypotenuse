@@ -6,6 +6,7 @@ import {
   serializeAgentSession,
   sessionInProject,
 } from "../../ops/AgentSessionOps";
+import { sessionCosts } from "../../ops/CostOps";
 import { linkedIssuer } from "../../ops/IdentityOps";
 import { runnerOwners } from "../../ops/RunnerOps";
 import { serializeWorkItem } from "../../ops/WorkItemOps";
@@ -22,12 +23,14 @@ import { workItems } from "../../schema/work_items";
  * client only renders it. Also every turn the session took (`workItems`,
  * oldest first, with why a waiting one waits), the runner holding its
  * worktree and that runner's owner (`runner`), and the issuer's Hypotenuse
- * user when their Linear identity is linked (`issuer`). Requires membership.
+ * user when their Linear identity is linked (`issuer`). What its claims cost
+ * (`cost`), and for a session no manager dispatched, what it and every worker
+ * it dispatched cost (`treeCost`). Requires membership.
  */
 export class AgentSessionView implements Action {
   name = "agent-session:view";
   description =
-    "Show one Linear agent session of a project: its issue, creator, Linear's context, status, plan, summary, and external links; the manager session that dispatched it, if any; and the worker sessions it dispatched, with their review rounds and pull requests. Requires membership in the project.";
+    "Show one Linear agent session of a project: its issue, creator, Linear's context, status, plan, summary, and external links; the manager session that dispatched it, if any; the worker sessions it dispatched, with their review rounds and pull requests; and what its turns cost, with a manager's total including its workers. Requires membership in the project.";
   middleware = [ProjectMemberMiddleware()];
   web = { route: "/agent-session/:id", method: HTTP_METHOD.GET };
   inputs = z.object({
@@ -106,8 +109,11 @@ export class AgentSessionView implements Action {
     };
     const issuerUser =
       issuerUserId !== null ? (people.get(issuerUserId) ?? null) : null;
+    const { cost, treeCost } = await sessionCosts(row);
     return {
       agentSession: serializeAgentSession(row),
+      cost,
+      treeCost,
       runner: runnerSummary(row.runnerId),
       issuer: {
         name: row.creatorName,

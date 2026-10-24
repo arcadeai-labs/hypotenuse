@@ -214,8 +214,9 @@ describe("mapping", () => {
     ).toEqual([]);
   });
 
-  test("usage is reported for the dashboard", () => {
+  test("usage is reported for the dashboard; a new session's cost is all the turn's", () => {
     const { m } = mapper();
+    m.costBaseline = 0;
     expect(
       m.update({
         sessionUpdate: "usage_update",
@@ -226,6 +227,100 @@ describe("mapping", () => {
     ).toEqual([
       { type: "usage", contextUsed: 1200, contextSize: 200000, costUsd: 0.42 },
     ]);
+  });
+
+  const usage = (amount: number, currency = "USD"): SessionUpdate => ({
+    sessionUpdate: "usage_update",
+    used: 10,
+    size: 100,
+    cost: { amount, currency },
+  });
+
+  test("a turn's cost is the agent's cumulative figure less the baseline", () => {
+    const { m } = mapper();
+    m.costBaseline = 2;
+    expect(m.update(usage(2.5))).toEqual([
+      { type: "usage", contextUsed: 10, contextSize: 100, costUsd: 0.5 },
+    ]);
+    expect(m.update(usage(2.75))).toEqual([
+      { type: "usage", contextUsed: 10, contextSize: 100, costUsd: 0.75 },
+    ]);
+    expect(m.turnUsage()).toEqual({ costUsd: 0.75 });
+    expect(m.sessionCostUsd()).toBe(2.75);
+  });
+
+  test("a completed replay's cost becomes the baseline, and a replay emits nothing", () => {
+    const { m } = mapper();
+    m.costBaseline = 5;
+    m.replaying = true;
+    expect(m.update(usage(1))).toEqual([]);
+    expect(m.update(usage(3))).toEqual([]);
+    m.replaying = false;
+    expect(m.costBaseline).toBe(5);
+    m.acceptReplay();
+    expect(m.costBaseline).toBe(3);
+    expect(m.update(usage(3.4))).toEqual([
+      { type: "usage", contextUsed: 10, contextSize: 100, costUsd: 0.4 },
+    ]);
+  });
+
+  test("a replay cut short leaves the baseline, and what the session cost, as recorded", () => {
+    const { m } = mapper();
+    m.costBaseline = 5;
+    m.replaying = true;
+    m.update(usage(2));
+    m.replaying = false;
+    expect(m.costBaseline).toBe(5);
+    expect(m.sessionCostUsd()).toBe(5);
+  });
+
+  test("a first figure below the baseline means the agent restarted its count", () => {
+    const { m } = mapper();
+    m.costBaseline = 4;
+    expect(m.update(usage(0.3))).toEqual([
+      { type: "usage", contextUsed: 10, contextSize: 100, costUsd: 0.3 },
+    ]);
+    expect(m.update(usage(0.5))).toEqual([
+      { type: "usage", contextUsed: 10, contextSize: 100, costUsd: 0.5 },
+    ]);
+    expect(m.sessionCostUsd()).toBe(0.5);
+  });
+
+  test("with no baseline, or a currency other than USD, no cost is reported", () => {
+    const { m } = mapper();
+    expect(m.update(usage(1))).toEqual([
+      { type: "usage", contextUsed: 10, contextSize: 100 },
+    ]);
+    expect(m.sessionCostUsd()).toBe(1);
+    const other = mapper().m;
+    other.costBaseline = 0;
+    expect(other.update(usage(1, "EUR"))).toEqual([
+      { type: "usage", contextUsed: 10, contextSize: 100 },
+    ]);
+    expect(other.turnUsage()).toBeUndefined();
+    expect(other.sessionCostUsd()).toBe(0);
+  });
+
+  test("the prompt response's tokens join the snapshot", () => {
+    const { m } = mapper();
+    m.costBaseline = 0;
+    m.update(usage(0.2));
+    expect(m.tokens(undefined)).toEqual([]);
+    expect(m.tokens({ inputTokens: 100.4, outputTokens: 20 })).toEqual([
+      {
+        type: "usage",
+        contextUsed: 10,
+        contextSize: 100,
+        costUsd: 0.2,
+        inputTokens: 100,
+        outputTokens: 20,
+      },
+    ]);
+    expect(m.turnUsage()).toEqual({
+      inputTokens: 100,
+      outputTokens: 20,
+      costUsd: 0.2,
+    });
   });
 
   test("silent kinds produce nothing; an unknown kind is reported once", () => {

@@ -101,6 +101,7 @@ With nothing selected and only one project to your name, commands use that one.
 | `integration list`, `view <type>`, `connect <type> [--no-browser] [--timeout <seconds>]`, `disconnect <type> [--yes]` | the selected project's integrations — today `linear` — below |
 | `session list [--type linear] [--status <status>] [--role <role>] [--issue ENG-123] [--runner <id>]`, `view <id\|ENG-123> [--transcript] [--follow]`, `cancel <id>` | the selected project's agent sessions, below |
 | `event list [--type <eventType>] [--outcome <outcome>] [--hide-ignored] [--session <id>] [--since 7d]`, `view <id>` | the selected project's event log: Linear's webhooks and how each was routed, below |
+| `cost list [--session <id>] [--root-session <id>] [--runner <id>] [--owner <userId>] [--issuer <userId>] [--role <role>] [--since 30d] [--until <time>]`, `summary --by session\|root-session\|issue\|runner\|owner\|issuer\|role\|agent\|repository\|day [same filters]` | what the selected project's turns cost and whom it is attributed to — [what sessions cost](/docs/costs) |
 | `runner register [--name <name>] [--replace] [--force]`, `list [--status <status>] [--all]`, `view <runner>`, `edit <runner> [--name] [--enable\|--disable]`, `revoke <runner> [--yes]` | the selected project's runners, below |
 | `routing list`, `add --name <name> --role manager\|worker [match flags] [--repository <repo>] [--disabled]`, `edit <id> [...]`, `remove <id>`, `reorder <id...>`, `preview <ENG-123> [--prompt <text>] [--with-repository]`, `settings [...]` | the selected project's routing rules and settings, below |
 | `telemetry exporter list`, `view <id>`, `add --name <name> --endpoint <url> [--header KEY=VALUE...] [--content <level>] [--signals <list>] [--sample <ratio>] [--attribute KEY=VALUE...] [--no-agent-native] [--disabled]`, `edit <id> [...] [--clear-headers] [--enable\|--disable]`, `remove <id>`, `test <id>` | where the selected project's OpenTelemetry goes, below |
@@ -177,6 +178,16 @@ narrow it; `--hide-ignored` leaves out the issue changes Hypotenuse does not act
 
 `hypotenuse event view <id>` shows one event in full. Project admins also get the payload exactly as Linear sent
 it; members are told it is for admins, because it can describe issues `@hypotenuse` was never asked about.
+
+### Costs
+
+`hypotenuse cost list` prints each turn's cost record, newest first: when it ended, the issue and session, the
+role and kind of turn, the runner and agent that ran it, how it ended, its input / output tokens, and its cost,
+then the total over everything the filters matched. `hypotenuse cost summary --by owner` (or `session`,
+`root-session`, `issue`, `runner`, `issuer`, `role`, `agent`, `repository`, `day`) totals the same records per
+group, most expensive first. Both take `--session`, `--root-session`, `--runner`, `--owner`, `--issuer`, `--role`,
+`--since`, and `--until`. `hypotenuse session view` shows a session's cost, and a manager's with its workers. See
+[what sessions cost](/docs/costs) for where the numbers come from.
 
 ### The project at a glance
 

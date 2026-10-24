@@ -243,7 +243,7 @@ Every event: `{ "eventId": "<uuid v4>", "seq": <int, per work item, from 1>, "at
 | `plan` | `entries: [{ content, status: pending \| in_progress \| completed \| canceled }]` | `agentSessionUpdate { plan }`, whole list, `in_progress` → `inProgress` |
 | `summary` | `title` (1–255 chars, one line) | `agentSessionUpdate { summary }` |
 | `external_url` | `label`, `url` | `agentSessionUpdate { addedExternalUrls }`, never the whole list; the daemon sends one per pull request of the session's own repository (`Pull Request`, `Pull Request (2)`, …) |
-| `usage` | `inputTokens?`, `outputTokens?`, `costUsd?`, `contextUsed?`, `contextSize?` | dashboard only |
+| `usage` | `inputTokens?`, `outputTokens?`, `costUsd?`, `contextUsed?`, `contextSize?` — what **this turn** has spent so far, each report replacing the last: `costUsd` is the agent's cumulative ACP `cost` (USD only) less what its session had cost when the turn began, never the session's running total | dashboard and the turn's cost record |
 | `status` | `state: starting \| running \| waiting_permission \| finishing` | dashboard only |
 
 Rules, enforced by the schema and the server:
@@ -273,8 +273,15 @@ Rules, enforced by the schema and the server:
 `POST /api/daemon/complete`:
 
 ```json
-{ "workItemId": 813, "outcome": "completed", "acpSessionId": "sess_01…", "branch": "hypotenuse/eng-123-fix-checkout-rounding", "error": null }
+{ "workItemId": 813, "outcome": "completed", "acpSessionId": "sess_01…", "branch": "hypotenuse/eng-123-fix-checkout-rounding", "error": null,
+  "usage": { "inputTokens": 1200, "outputTokens": 300, "costUsd": 0.75 } }
 ```
+
+`usage` (optional, additive) is what the turn spent, as a `usage` event's `inputTokens`, `outputTokens`, and
+`costUsd`: the daemon's final word, laid over the turn's last `usage` event. It is taken even from a stopped turn,
+whose `usage` events the server drops, and from a late completion of a turn the server already stopped, where it
+fills only what that claim's cost record lacks. Every claim that ends — here, by a lapsed lease, or by revocation —
+leaves one cost record on the server.
 
 `outcome`: `completed` \| `failed` \| `cancelled`. `answersConsumed` (optional, ≤ 100) lists the `activityId`s of
 delivered [answers](#questions-mid-turn) the turn took as answers. Answers `{ "alreadyTerminal": false }`. Idempotent: completing a

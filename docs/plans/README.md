@@ -45,6 +45,7 @@ Much of this is a port, and each port says so in its phase:
 | [18](./phase-18-opentelemetry-export.md) | OpenTelemetry export | Per-project OTLP exporters; one trace per turn joining server, daemon, and the agent's native telemetry; content levels, a runner-side cap, redaction; relayed through the server so collector credentials never reach a runner |
 | [19](./phase-19-event-log.md) | Event log | Every webhook delivery a project's workspace sent, what it did, and how its work was routed — role, rule, runner, or why it waits; the dashboard's Events page, `hypotenuse event`, kept 14 days |
 | [20](./phase-20-project-planning.md) | Project planning | A manager session on a Linear project's comment thread, with no planning issue; plans reviewed in document comments by people and reviewer agents; a mention in a document comment wakes it |
+| [21](./phase-21-cost-attribution.md) | Cost attribution | A cost record per claim of every turn: the tokens and dollars the agent reported for that turn alone, attributed to its session, issue, manager, runner, owner, issuer, role, agent, and repository; `cost:list` / `cost:summary`, `hypotenuse cost`, the session's cost |
 
 Each phase doc is named `phase-NN-<kebab-title>.md`, so searching for "routing" or "worktree" finds the file without
 opening this index.
@@ -62,6 +63,7 @@ Each phase ends in a reviewable, deployable state. **Phase 1 halts for review be
                                                      18 (after 9 and 11–15)
                                                      19 (after 7, 9, and 15)
                                                      20 (after 14 and 19)
+                                                     21 (after 9, 11, and 14)
 ```
 
 - **The look comes before any page.** The [design system](./phase-03-design-system.md) lands ToolExec's UI-kit API
@@ -81,7 +83,7 @@ Each phase ends in a reviewable, deployable state. **Phase 1 halts for review be
 
 ## Status
 
-**Phases 1–19 are built, and 20 is planned** (phase 2 is not yet deployed, the CLI has not had its first release, no real
+**Phases 1–19 and 21 are built, and 20 is planned** (phase 2 is not yet deployed, the CLI has not had its first release, no real
 Linear workspace has been connected yet, no real coding agent has run a turn outside a person's own machine, and no
 real collector has received a project's telemetry). Every document here is a plan with the open questions settled as **decisions so far**. Each
 ends in an empty **Learnings from the build** section that fills in as the phase ships. From then on that section,

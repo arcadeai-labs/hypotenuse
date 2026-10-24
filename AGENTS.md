@@ -57,8 +57,8 @@ and that is where to read before changing something load-bearing, and where to w
    `session:create` / `session:destroy`, `webhooks:linear`, `triggers:process-event`, and `triggers:check-notifications` (machine
    ingress, recorded in `trigger_events`), `cli-auth:device` / `cli-auth:exchange` and a CLI token's sliding-expiry touch (the CLI's
    sign-in ingress — the person's `cli-auth:approve` / `cli-auth:activate` is the audited decision), the outbox and
-   clocks, and the daemon half (`daemon:*`, recorded in `agent_activities` and
-   `work_items`) — save `daemon:dispatch`, which writes an `agent:dispatch` row through `writeAuditLog` because it
+   clocks, and the daemon half (`daemon:*`, recorded in `agent_activities`,
+   `work_items`, and the `cost_records` a claim leaves as it ends) — save `daemon:dispatch`, which writes an `agent:dispatch` row through `writeAuditLog` because it
    delegates work to the app on a person's issue. The audited thing is always **the decision a person made** — connecting Linear, registering or
    revoking a runner, editing a routing rule, cancelling a session.
 7. **Linear credentials never leave the server.** No action returns a Linear access token, refresh token, client
@@ -257,6 +257,11 @@ The map is [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md). What follows is the
   input in `work_items.payload`. A change request is a `prompt` item on the worker's own session with a visible
   thought. A cancelled worker turn, or one that ended on a question, wakes no review: that would re-engage what a
   person stopped or is answering.
+- **Every claim that ends leaves a cost record.** `CostOps.recordClaimCost` runs in `finishWorkItem` and before
+  every requeue (`requeuedColumns` clears the item's `usage`, which is per claim), copying the claim's attribution —
+  session, manager, issue, runner and owner, issuer, role, agent — beside what it spent. The daemon reports a
+  turn's own spend: ACP's `cost` is the session's running total, so the mapper subtracts the baseline the daemon
+  recorded at the last turn's end (`local_sessions.acp_cost_usd`). Hypotenuse never prices tokens itself.
 - **A question mid-turn is answered in the turn.** A held turn that posts an `elicitation` is marked awaiting an
   answer; the person's next follow-up is appended to that item's `answers` (`WorkItemOps.answerWaitingTurn`) and
   delivered by heartbeat, not queued. Whatever the daemon does not report in `answersConsumed` becomes the next
@@ -378,6 +383,7 @@ cd cli && bun run bundle                      # the npm bundle at dist/hypotenus
 bash cli/test/e2e/test-upgrade.sh             # npm + bun + binary installs, globally — CI or a throwaway box
 
 bun run --cwd cli hypotenuse telemetry exporter list   # the project's OpenTelemetry exporters and their health
+bun run --cwd cli hypotenuse cost summary --by owner   # what the project's turns cost, by runner owner (or session, issue, day, …)
 redis-cli XLEN telemetry:stream:1             # what waits for export in project 1's telemetry stream
 
 curl localhost:8080/api/actions/permissions   # every action's RBAC level

@@ -484,6 +484,64 @@ describe("acp host", () => {
     expect((await turn.result).acpSessionId).toBe("old-session");
   }, 20_000);
 
+  test("costed: a new session's turn reports its tokens and all its cost", async () => {
+    const turn = new TestTurn(fakeConfig(home()), "costed");
+    const result = await turn.result;
+    expect(result.outcome).toBe("completed");
+    expect(result.usage).toEqual({
+      inputTokens: 1200,
+      outputTokens: 300,
+      costUsd: 1.25,
+    });
+    expect(result.acpCostUsd).toBe(1.25);
+    expect(turn.events.filter((e) => e.type === "usage")).toEqual([
+      { type: "usage", contextUsed: 9000, contextSize: 200000, costUsd: 1.1 },
+      { type: "usage", contextUsed: 12000, contextSize: 200000, costUsd: 1.25 },
+      {
+        type: "usage",
+        contextUsed: 12000,
+        contextSize: 200000,
+        costUsd: 1.25,
+        inputTokens: 1200,
+        outputTokens: 300,
+      },
+    ]);
+  }, 20_000);
+
+  test("costed: a resumed session's turn reports only what it spent past the recorded baseline", async () => {
+    const turn = new TestTurn(fakeConfig(home()), "costed", {
+      assignment: assignment({
+        kind: "prompt",
+        fresh: false,
+        prompt: [{ activityId: 2, body: "more" }],
+      }),
+      previousAcpSessionId: "old-session",
+      previousAcpCostUsd: 1,
+    });
+    const result = await turn.result;
+    expect(turn.received().map((r) => r.method)).toContain("session/resume");
+    expect(result.usage).toEqual({
+      inputTokens: 1200,
+      outputTokens: 300,
+      costUsd: 0.25,
+    });
+    expect(result.acpCostUsd).toBe(1.25);
+  }, 20_000);
+
+  test("costed: a resumed session with no recorded baseline reports tokens but no cost", async () => {
+    const turn = new TestTurn(fakeConfig(home()), "costed", {
+      assignment: assignment({
+        kind: "prompt",
+        fresh: false,
+        prompt: [{ activityId: 2, body: "more" }],
+      }),
+      previousAcpSessionId: "old-session",
+    });
+    const result = await turn.result;
+    expect(result.usage).toEqual({ inputTokens: 1200, outputTokens: 300 });
+    expect(result.acpCostUsd).toBe(1.25);
+  }, 20_000);
+
   test("resumable: session/resume is preferred over load", async () => {
     const turn = new TestTurn(fakeConfig(home()), "resumable", {
       assignment: assignment({

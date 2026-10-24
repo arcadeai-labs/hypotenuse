@@ -37,7 +37,8 @@
  * "arguments": {} } }` (call a tool on the `hypotenuse` MCP server the
  * session was given — connected once and kept open for the turn — reported
  * as a tool call, its text said as a message, and recorded as
- * `mcp/result`), and `{ "stop": "end_turn" }`.
+ * `mcp/result`), `{ "usage": { "inputTokens": n, "outputTokens": n } }`
+ * (the prompt response's `usage`), and `{ "stop": "end_turn" }`.
  *
  * `FAKE_ACP_AUTH_METHODS` (comma-separated ids) overrides `authMethods`.
  * `authRequired: "until-login"` refuses sessions until the file at
@@ -336,6 +337,9 @@ function promptText(prompt: acp.ContentBlock[]): string {
     .join("\n");
 }
 
+/** The `usage` the current prompt's response reports, set by a `usage` step. */
+let promptUsage: Record<string, number> | null = null;
+
 /**
  * Play steps until one stops the turn.
  * @param client - The client.
@@ -545,6 +549,8 @@ async function play(
     } else if (step.exit !== undefined) {
       await Bun.sleep(20);
       process.exit(Number(step.exit));
+    } else if (step.usage) {
+      promptUsage = step.usage as Record<string, number>;
     } else if (step.stop) {
       return step.stop as acp.StopReason;
     }
@@ -633,6 +639,7 @@ const app = acp
     turn++;
     const controller = new AbortController();
     cancelled.set(params.sessionId, controller);
+    promptUsage = null;
     try {
       const stop = await play(
         client,
@@ -643,7 +650,10 @@ const app = acp
       );
       if (controller.signal.aborted && !scenario.ignoreCancel)
         return { stopReason: "cancelled" };
-      return { stopReason: stop ?? "end_turn" };
+      return {
+        stopReason: stop ?? "end_turn",
+        ...(promptUsage ? { usage: promptUsage } : {}),
+      };
     } finally {
       cancelled.delete(params.sessionId);
     }

@@ -47,6 +47,7 @@ import {
   supersedeNonFinal,
 } from "./ActivityOutboxOps";
 import { resolveAuthMetadata } from "./AuthSignalOps";
+import { fillLateClaimCost, mergeUsage, recordClaimCost } from "./CostOps";
 import { enqueueReviewIfChild } from "./DispatchOps";
 import { resolveIssuer } from "./IdentityOps";
 import type { TxHandle } from "./ProjectOps";
@@ -529,6 +530,12 @@ export async function finishWorkItem(
   if (options.status !== "cancelled") {
     await releaseAnswers(tx, item, options.answersConsumed ?? []);
   }
+  // An expired turn was never claimed, so it records nothing.
+  await recordClaimCost(
+    tx,
+    item,
+    options.status === "expired" ? "failed" : options.status,
+  );
   await tx
     .update(workItems)
     .set({
@@ -770,6 +777,7 @@ export async function requeueRunnerWork(
       continue;
     }
     await releaseAnswers(tx, item, []);
+    await recordClaimCost(tx, item, "requeued");
     await tx
       .update(workItems)
       .set(requeuedColumns())
@@ -811,6 +819,8 @@ function requeuedColumns() {
     waitingCode: null,
     // Sequence numbers are per claim: the next claimant numbers from 1.
     lastEventSeq: 0,
+    // So is usage; the lost claim's is in its cost record.
+    usage: null,
     // Answers were for the lost claim's questions; `releaseAnswers` has
     // already made them a prompt.
     awaitingAnswerSince: null,
@@ -1710,20 +1720,34 @@ export async function completeWork(
   runnerId: number,
   request: CompleteRequest,
 ): Promise<CompleteResult> {
-  const item = (await lockItemWithSession(tx, request.workItemId))?.item;
-  if (!item) throw notYourWork(request.workItemId);
-  if ((TERMINAL_WORK_STATUSES as readonly string[]).includes(item.status)) {
+  const locked = (await lockItemWithSession(tx, request.workItemId))?.item;
+  if (!locked) throw notYourWork(request.workItemId);
+  if ((TERMINAL_WORK_STATUSES as readonly string[]).includes(locked.status)) {
     const ours =
-      item.runnerId === runnerId || item.offeredToRunnerId === runnerId;
+      locked.runnerId === runnerId || locked.offeredToRunnerId === runnerId;
     if (!ours) throw notYourWork(request.workItemId);
+    // A stop the server finished first is still this claim: its cost lands.
+    if (request.usage && locked.runnerId === runnerId) {
+      await fillLateClaimCost(tx, locked, request.usage);
+    }
     return { alreadyTerminal: true, effects: noEffects() };
   }
   if (
-    item.runnerId !== runnerId ||
-    !(HELD_WORK_STATUSES as readonly string[]).includes(item.status)
+    locked.runnerId !== runnerId ||
+    !(HELD_WORK_STATUSES as readonly string[]).includes(locked.status)
   ) {
     throw notYourWork(request.workItemId);
   }
+  // The completion's usage is the daemon's final word on what the turn spent,
+  // and lands even when a stop dropped the turn's own `usage` events.
+  const usage = mergeUsage(locked.usage, request.usage);
+  if (request.usage) {
+    await tx
+      .update(workItems)
+      .set({ usage })
+      .where(eq(workItems.id, locked.id));
+  }
+  const item = { ...locked, usage };
   if (request.outcome === "completed" && !item.answeredAt) {
     api.logger.warn("a turn completed without answering its session", {
       workItemId: item.id,
@@ -1838,6 +1862,7 @@ export async function reapWork(): Promise<ReapResult> {
         return;
       }
       await releaseAnswers(tx, item, []);
+      await recordClaimCost(tx, item, "requeued");
       await tx
         .update(workItems)
         .set({ ...requeuedColumns(), attempts })

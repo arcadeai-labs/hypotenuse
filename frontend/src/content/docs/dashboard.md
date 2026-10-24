@@ -39,6 +39,9 @@ Every agent session in the project, newest first, narrowed by status, role, or r
   "why is it still pending?".
 - For a manager, the issues it **dispatched**; for a worker a manager dispatched, the session that **dispatched**
   it.
+- **Cost** — what its turns cost in US dollars and tokens, as the coding agent reported them, and for a manager
+  the total with the workers it dispatched. A turn whose agent reported no cost is counted as unpriced. See
+  [what sessions cost](/docs/costs).
 
 **Cancel** stops the session's work, as Stop in Linear does, and what Linear shows names you. It is disabled when
 there is nothing to stop. See [routing](/docs/routing#stopping) for exactly what the session says.

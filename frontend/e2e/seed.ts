@@ -58,7 +58,7 @@ function runSql<T>(script: string, input: Record<string, unknown>): T {
  * mirror one finished worker session on it: a delegation, the
  * acknowledgement, a replaced ephemeral thought, an action with a long
  * result, a plan, a pull request link, a response, and its one completed
- * turn. With `awaiting`, the session ends on a question instead.
+ * turn and what it cost. With `awaiting`, the session ends on a question instead.
  * @param page - The signed-in page.
  * @param options - `awaiting` to end on an elicitation.
  * @returns The session.
@@ -101,11 +101,18 @@ export async function seedSession(
        \${JSON.stringify(plan)}::jsonb, \${JSON.stringify(links)}::jsonb)
       RETURNING id\`;
     const start = Date.now() - 600000;
-    await sql\`INSERT INTO work_items (project_id, agent_session_id, kind, role, status,
+    const [item] = await sql\`INSERT INTO work_items (project_id, agent_session_id, kind, role, status,
       repository_resolved, queued_at, claimed_at, finished_at, created_at, agent_id, traceparent)
       VALUES (\${projectId}, \${session.id}, 'session_created', 'worker', 'completed', true,
        \${new Date(start)}, \${new Date(start + 2000)}, \${new Date(start + 372000)}, \${new Date(start)}, 'codex',
-       '00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-00')\`;
+       '00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-00')
+      RETURNING id\`;
+    await sql\`INSERT INTO cost_records (project_id, agent_session_id, root_agent_session_id,
+      work_item_id, kind, role, issue_identifier, runner_name, agent_id, ending,
+      input_tokens, output_tokens, cost_usd, claimed_at, ended_at)
+      VALUES (\${projectId}, \${session.id}, \${session.id}, \${item.id}, 'session_created', 'worker',
+       \${identifier}, 'seed-laptop', 'codex', 'completed', 1200, 300, 0.42,
+       \${new Date(start + 2000)}, \${new Date(start + 372000)})\`;
     const long = Array.from({ length: 12 }, (_, i) => 'result line ' + (i + 1)).join('\\n');
     const rows = [
       ['inbound', 'prompt', { type: 'prompt', body: 'please take this' }, false, 'received', null, null],

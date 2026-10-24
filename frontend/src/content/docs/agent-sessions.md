@@ -67,7 +67,8 @@ The session also links to its page in the dashboard (**Hypotenuse**), and to the
 Any member of the project can list its sessions and read each one's conversation, including whether each thing
 Hypotenuse wrote has reached Linear yet (`pending`, `sent`, `failed`, or `superseded` — replaced by something
 newer before it was sent). People outside the project cannot. The dashboard's **Sessions** page and each session's
-own page show it live, with the runner, the turns, and why any of them waits — see [the dashboard](/docs/dashboard).
+own page show it live, with the runner, the turns, why any of them waits, and what the session cost — see
+[the dashboard](/docs/dashboard) and [what sessions cost](/docs/costs).
 
 ```bash
 hypotenuse session list                  # newest first; --type, --status, --role, --issue ENG-123, --runner to narrow

@@ -10,6 +10,7 @@ import { registerAuditCommands } from "./commands/audit";
 import { registerAuthCommands } from "./commands/auth";
 import { registerCheckUpdateCommand } from "./commands/check-update";
 import { registerConfigCommands } from "./commands/config";
+import { registerCostCommands } from "./commands/cost";
 import { registerDaemonCommands } from "./commands/daemon";
 import { registerDoctorCommand } from "./commands/doctor";
 import { registerEventCommands } from "./commands/event";
@@ -82,6 +83,7 @@ export function buildProgram(): Command {
   registerIntegrationCommands(program);
   registerSessionCommands(program);
   registerEventCommands(program);
+  registerCostCommands(program);
   registerRunnerCommands(program);
   registerRoutingCommands(program);
   registerTelemetryCommands(program);

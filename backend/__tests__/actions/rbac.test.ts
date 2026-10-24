@@ -57,6 +57,10 @@ const EXPECTED_LEVELS: Record<string, RbacLevel> = {
   // action, because Linear sends every issue change in the workspace.
   "trigger-event:list": "member",
   "trigger-event:view": "member",
+  // What turns cost, and whom it is attributed to, is any member's to read:
+  // the session page shows the same figures.
+  "cost:list": "member",
+  "cost:summary": "member",
   "routing-rule:list": "member",
   // Any member may ask how an issue would route: it reads, and names only
   // the project's own runners.
@@ -336,6 +340,8 @@ describe("MCP publish policy", () => {
         "agent-session:view",
         "audit:list",
         "cli-token:list",
+        "cost:list",
+        "cost:summary",
         "external-identity:link",
         "external-identity:list",
         "external-identity:unlink",

@@ -623,8 +623,9 @@ export class Supervisor {
       },
       this.config,
     ).agentId;
-    const previousAcpSessionId =
-      state.session(assignment.agentSessionId)?.acpSessionId ?? null;
+    const local = state.session(assignment.agentSessionId);
+    const previousAcpSessionId = local?.acpSessionId ?? null;
+    const previousAcpCostUsd = local?.acpCostUsd ?? null;
     state.claimSession({
       agentSessionId: assignment.agentSessionId,
       linearSessionId: assignment.externalSessionId,
@@ -736,6 +737,7 @@ export class Supervisor {
       stateDir: this.options.stateDir,
       env: this.options.env,
       previousAcpSessionId,
+      previousAcpCostUsd,
       onReply: (handler) => {
         slot.onReply = handler;
       },
@@ -816,9 +818,15 @@ export class Supervisor {
     }
     this.slots.delete(slot.workItemId);
     if (slot.nonce) this.broker.end(slot.nonce);
+    const acp = acpSessionAfterTurn(
+      result,
+      slot.silent,
+      this.options.state.session(slot.agentSessionId)?.acpSessionId ?? null,
+    );
     if (slot.silent) {
       this.options.state.setSessionState(slot.agentSessionId, "interrupted", {
         pid: null,
+        ...acp,
       });
     } else {
       this.sink.complete({
@@ -828,6 +836,7 @@ export class Supervisor {
           error: result.error ?? null,
           acpSessionId: result.acpSessionId ?? null,
           branch: result.branch ?? null,
+          ...(result.usage ? { usage: result.usage } : {}),
           ...(slot.consumed.length
             ? { answersConsumed: slot.consumed.slice(0, 100) }
             : {}),
@@ -848,12 +857,7 @@ export class Supervisor {
           : result.outcome === "cancelled"
             ? "cancelled"
             : "failed",
-        // A turn that never opened an ACP session keeps the last one's id,
-        // so the next follow-up can still resume it.
-        {
-          pid: null,
-          ...(result.acpSessionId ? { acpSessionId: result.acpSessionId } : {}),
-        },
+        { pid: null, ...acp },
       );
     }
     this.options.log.info(
@@ -1200,6 +1204,38 @@ export class Supervisor {
     this.sink.close();
     this.telemetryQueue.stop();
   }
+}
+
+/**
+ * What a turn's end records about its ACP session, for the next turn to
+ * resume and to measure its cost from:
+ *
+ * | Turn | Recorded |
+ * |---|---|
+ * | ended, with an ACP session | that session, and its cost so far |
+ * | ended, without one | nothing: the last session can still be resumed |
+ * | taken away, on the session already recorded | its cost so far, since the server recorded the lost claim's spend and the next resume must not count it again |
+ * | taken away, on another session or none | nothing |
+ * @param result - How the turn ended.
+ * @param silent - Whether it was taken away (a lapsed lease, revocation, `NOT_YOUR_WORK`).
+ * @param recordedAcpSessionId - The ACP session already recorded for the session.
+ * @returns The columns for `setSessionState`.
+ */
+export function acpSessionAfterTurn(
+  result: TurnResult,
+  silent: boolean,
+  recordedAcpSessionId: string | null,
+): { acpSessionId?: string; acpCostUsd?: number | null } {
+  if (!result.acpSessionId) return {};
+  if (!silent) {
+    return {
+      acpSessionId: result.acpSessionId,
+      acpCostUsd: result.acpCostUsd ?? null,
+    };
+  }
+  return result.acpSessionId === recordedAcpSessionId
+    ? { acpCostUsd: result.acpCostUsd ?? null }
+    : {};
 }
 
 /**

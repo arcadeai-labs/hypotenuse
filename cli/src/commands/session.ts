@@ -16,6 +16,7 @@ import {
 } from "../context";
 import { table } from "../output/theme";
 import { register, unregister } from "../shutdown";
+import { type CostTotals, describeTotals } from "./cost";
 
 /** A session as `agent-session:list` and `agent-session:view` serialize it. */
 export interface AgentSession {
@@ -104,6 +105,10 @@ export interface SessionDetail {
     user: { id: number; name: string } | null;
   } | null;
   workItems?: SessionTurn[];
+  /** What the session's turns cost. */
+  cost?: CostTotals | null;
+  /** For a session no manager dispatched: it and every worker it dispatched. */
+  treeCost?: CostTotals | null;
 }
 
 /** An activity as `agent-session:activities` serializes it. */
@@ -181,6 +186,10 @@ export function describeSession(
   }
   if (tree.issuer?.user) {
     lines.push(`issuer     ${tree.issuer.user.name}`);
+  }
+  if (tree.cost?.turns) lines.push(`cost       ${describeTotals(tree.cost)}`);
+  if (tree.treeCost && tree.treeCost.turns > (tree.cost?.turns ?? 0)) {
+    lines.push(`tree cost  ${describeTotals(tree.treeCost)} with its workers`);
   }
   if (session.summary) lines.push(`summary    ${session.summary}`);
   if (session.externalUrl)

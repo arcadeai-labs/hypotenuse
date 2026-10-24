@@ -7,6 +7,7 @@ import audit from "./audit.md?raw";
 import cli from "./cli.md?raw";
 import config from "./config.md?raw";
 import connectingLinear from "./connecting-linear.md?raw";
+import costs from "./costs.md?raw";
 import daemon from "./daemon.md?raw";
 import dashboard from "./dashboard.md?raw";
 import gettingStarted from "./getting-started.md?raw";
@@ -96,6 +97,7 @@ export const DOCS_SECTIONS: DocsSection[] = [
     markdown: managerAndWorker,
   },
   { slug: "telemetry", title: "Telemetry", markdown: telemetry },
+  { slug: "costs", title: "What sessions cost", markdown: costs },
   { slug: "members", title: "Members and tags", markdown: members },
   { slug: "security", title: "Security", markdown: security },
   { slug: "audit", title: "Audit log", markdown: audit },

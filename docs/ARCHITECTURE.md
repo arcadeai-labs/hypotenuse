@@ -342,7 +342,7 @@ rules agree — never one in use, with uncommitted changes, with unpushed commit
 | `stopReason: refusal / max_tokens / max_turn_requests`, crash, timeout | `error` | `error` |
 | `session_info_update.title` | `summary` | `agentSessionUpdate(summary)` |
 | a PR URL of the session's own repository in an `execute` result or the agent's message (later also `daemon:linear-report-pr`) | `external_url` | `agentSessionUpdate(addedExternalUrls)` labelled "Pull Request" |
-| `usage_update` | `usage` | dashboard only |
+| `usage_update` | `usage`: the turn's share of the agent's cumulative cost (less what the session had spent before the turn) and the context window; the prompt response's tokens join it at turn end | dashboard and cost records only |
 | Linear `prompted` with `signal: stop` | `cancel` frame → `session/cancel` | final `response` saying it stopped and where things stand |
 
 A question asked mid-turn (a permission under `ask`, an agent's elicitation) does not end the turn: the agent
@@ -417,7 +417,8 @@ server spans (after commit, only for projects with an exporter) ─┘          
 | `agent_activities` | inbound prompts and the outbound outbox, with client UUIDs, delivery status, and attempts |
 | `runners` | registered daemons: owner, token sha256 and last four, status (`online`, `offline`, `draining`, `revoked`) and `enabled`, machine id, last heartbeat and connect, parallel-job limits, roles, agents, repositories, the hash of the last reported capabilities. A name is unique among a project's unrevoked runners; a machine id among its live (`online` or `draining`) ones. A revoked row is kept with its reason |
 | `runner_subscriptions` | the teams, projects, and labels (per trigger `type`) each runner accepts, replaced whenever a heartbeat's capability hash changes |
-| `work_items` | one per turn: kind, role, repository, status, the merged follow-ups, issuer, offered/claimed runner and agent, lease, attempts, why it waits (a sentence and a code), the cancel and who made it, the daemon's usage and state, the outcome, and every write its agent tools made in Linear (`linearWrites`) |
+| `work_items` | one per turn: kind, role, repository, status, the merged follow-ups, issuer, offered/claimed runner and agent, lease, attempts, why it waits (a sentence and a code), the cancel and who made it, the current claim's usage and the daemon's state, the outcome, and every write its agent tools made in Linear (`linearWrites`) |
+| `cost_records` | one per claim of a turn that ended (completed, failed, cancelled, or requeued by a lapsed lease or a revoked runner), written in the transaction that ends the claim: the tokens and US dollars the agent reported for that claim, and what it is attributable to, copied as it was — session, the manager that dispatched it (`rootAgentSessionId`), issue, kind, role, repository, runner (id and name), runner owner, issuer, agent. Never audited; read by `cost:list` / `cost:summary` and the session's `cost` |
 | `routing_rules` | a project's ordered role-selection rules |
 | `telemetry_exporters` | a project's OpenTelemetry collectors: endpoint, protocol, sealed headers (names in the clear), signals, content level, whether to capture the agent's own telemetry, trace sample ratio, extra resource attributes, and the last export and last error. Telemetry itself is never stored: it waits in a Redis stream per project for at most an hour |
 
