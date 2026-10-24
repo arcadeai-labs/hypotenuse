@@ -22,7 +22,9 @@ export function DocsPage() {
   }
   return (
     <div data-testid={`docs-page-${section.slug || "index"}`}>
-      <MarkdownBlock internalLinks>{section.markdown}</MarkdownBlock>
+      <MarkdownBlock internalLinks diagrams>
+        {section.markdown}
+      </MarkdownBlock>
     </div>
   );
 }
