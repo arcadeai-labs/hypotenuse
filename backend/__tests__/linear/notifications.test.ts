@@ -1,8 +1,18 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  test,
+} from "bun:test";
 import { eq } from "drizzle-orm";
 import { api } from "keryx";
+import { bucketKey } from "../../ops/LinearBucketOps";
 import { checkNotification } from "../../ops/LinearNotificationOps";
+import { rateLimitKey } from "../../ops/LinearOps";
 import { NO_ISSUE_RESPONSE } from "../../ops/LinearWebhookOps";
+import { PLANNING_DUPLICATE_RESPONSE } from "../../ops/ProjectPlanningOps";
 import { agentSessions } from "../../schema/agent_sessions";
 import { type TriggerEvent, triggerEvents } from "../../schema/trigger_events";
 import {
@@ -326,6 +336,13 @@ describe("LC-WH-19 status changes and other types", () => {
 });
 
 describe("LC-WH-26 project comment mentions", () => {
+  // Planning spends the integration's Linear budget by the request; each
+  // test starts with a full bucket, not what the tests before it left.
+  beforeEach(async () => {
+    const { id } = await integrationRow(universe.projectId);
+    await api.redis.redis.del(bucketKey(id), rateLimitKey(id));
+  });
+
   /**
    * A project in finear, on the primary team.
    * @param name - Its name.
@@ -396,6 +413,9 @@ describe("LC-WH-26 project comment mentions", () => {
       title: "[hypotenuse] Plan: Poems",
     });
     expect(filed.input.description).toStartWith("plan the poems\n\n---\n\n");
+    // No at-name: Linear would make it a mention, and start a second session.
+    expect(filed.input.description).not.toContain("@");
+    expect(filed.input.description).toContain("asked Hypotenuse to plan");
     expect(sent("CreateAgentSessionOnIssue")).toHaveLength(1);
     expect(sent("CreateComment")).toEqual([
       {
@@ -432,6 +452,69 @@ describe("LC-WH-26 project comment mentions", () => {
     });
     const [first] = await itemsOf(session.id);
     expect(first).toMatchObject({ kind: "session_created", role: "manager" });
+  }, 20_000);
+
+  test("LC-WH-26 a second created on the planning issue is answered and gets no turn: one manager plans", async () => {
+    const sonnets = await project("Sonnets");
+    const event = await mentionOn(sonnets, "@hypotenuse plan the sonnets");
+    await checkNow(event.id);
+    const planning = await waitFor(async () => {
+      await settle();
+      const [row] = await api.db.db
+        .select()
+        .from(agentSessions)
+        .where(eq(agentSessions.issueTitle, "[hypotenuse] Plan: Sonnets"));
+      return row?.role ? row : undefined;
+    });
+
+    // Linear starts another session on the same issue — as a mention of the
+    // app in the issue's description did — while the intent still lives.
+    const second = webhookSession({
+      issueId: planning.externalIssueId,
+      issue: {
+        id: planning.externalIssueId,
+        identifier: planning.issueIdentifier ?? "",
+        title: planning.issueTitle ?? "",
+        url: planning.issueUrl ?? "",
+        teamId: FINEAR_FIXTURES.primary.team,
+        team: { id: FINEAR_FIXTURES.primary.team, key: "ENG", name: "Eng" },
+      },
+    });
+    const created = await deliver(
+      universe.url,
+      agentSessionEvent(target, { action: "created", agentSession: second }),
+    );
+    expect(created.status).toBe(200);
+    await settle();
+    const [recorded] = await api.db.db
+      .select()
+      .from(triggerEvents)
+      .where(eq(triggerEvents.deliveryId, created.deliveryId as string));
+    expect(recorded.outcome).toBe("handled");
+    expect(recorded.summary).toEndWith(
+      "whose planning session already started; answered with a pointer to it, no turn queued.",
+    );
+
+    const sessions = await api.db.db
+      .select()
+      .from(agentSessions)
+      .where(eq(agentSessions.externalIssueId, planning.externalIssueId));
+    expect(sessions).toHaveLength(2);
+    const extra = sessions.find((s) => s.externalSessionId === second.id);
+    if (!extra) throw new Error("the second session was not mirrored");
+    expect(extra).toMatchObject({ role: null, routingRuleName: null });
+    expect(await itemsOf(extra.id)).toEqual([]);
+    const outbound = (await activityRows(extra.id)).filter(
+      (a) => a.direction === "outbound",
+    );
+    expect(outbound.map((a) => [a.contentType, a.content.body])).toEqual([
+      ["response", PLANNING_DUPLICATE_RESPONSE],
+    ]);
+
+    // Exactly one manager, with exactly one turn.
+    const managers = sessions.filter((s) => s.role === "manager");
+    expect(managers.map((s) => s.id)).toEqual([planning.id]);
+    expect(await itemsOf(planning.id)).toHaveLength(1);
   }, 20_000);
 
   test("a lost answer is retried without filing a second issue or starting a second session", async () => {

@@ -135,6 +135,19 @@ no `url`, so nobody in Linear could see it. Comments on documents were not tried
   `issueCreate` itself can still file two, and a `created` slower than the retry can still mean two sessions.
 - **The intent is read, never deleted, inside the webhook's transaction**, so a rollback leaves it for the retry; its
   10-minute TTL ends it, and a session whose role is already set is never adopted twice.
+- **One session per planning intent is adopted.** The first description said "asked `@hypotenuse` to plan", and
+  Linear turned that into a real mention of the app. A mention in an issue starts a session of its own, so the
+  first real project mention got two sessions on its planning issue, 250 ms apart. Both `created` webhooks found
+  the intent, both were adopted as managers, and both were routed, into two worktrees. The description now says
+  "Hypotenuse", with no at-name. `adoptPlanningSession` also takes a transaction-scoped advisory lock on the
+  issue, and adopts nothing when another session there already carries the `project mention` rule. The later
+  session is answered with `PLANNING_DUPLICATE_RESPONSE`, a `response` pointing at the other thread, and gets no
+  turn. A session a person starts on the issue meanwhile is theirs and routes as usual. Text the server writes
+  into Linear never carries a literal `@hypotenuse`. The other places that spell it (the notification templates,
+  trigger-event summaries, action descriptions) go to people in Hypotenuse, never to Linear.
+- **`triggers:process-pending` reads Postgres's clock on both sides.** `received_at` is Postgres's `now()`, in
+  microseconds. A cutoff built from this process's `Date.now()` left a delivery made in the same millisecond
+  unprocessed: on a fast machine, `settle()` skipped it at random.
 - **The reply on the project comment is best-effort**: planning goes ahead without it, and the summary says it failed.
 - **A session with no issue is still answered, not worked** (`NO_ISSUE_RESPONSE`), in case Linear ever starts one.
 - **finear has no comments on projects**, so its reply is refused; the test asserts the request and the summary.
