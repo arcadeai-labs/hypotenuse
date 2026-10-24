@@ -100,6 +100,9 @@ work item, for the dashboard and for the turn's telemetry span. Three things sto
   nothing else for the lost turn — or the next resume counts the lost claim's spend again. It does so only when the
   lost turn ran on the ACP session already recorded (`acpSessionAfterTurn`). Spend the lost claim made after its
   last event reached the server is then counted nowhere: undercounting a lost claim was chosen over counting it twice.
+- **A replay's cost is the baseline only once the load completes.** `session/load` replays the session's updates,
+  and a turn taken away mid-replay would otherwise record a partial figure as the next baseline. The mapper holds
+  replayed figures aside and the host adopts the last one (`acceptReplay`) after `session/load` answers.
 - **ACP v2's `PromptResponse` declares no `usage`.** The token counts are the unstable v1 field an agent sends
   anyway; the SDK passes it through and the host reads it by cast. If a later SDK strips unknown keys, tokens go
   quietly to null — the `costed` scenario in `host.test.ts` is what would notice.

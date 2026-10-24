@@ -115,10 +115,12 @@ export class TurnMapper {
   /**
    * What the agent's session had cost (USD) before this turn: `0` for a new
    * ACP session, the figure the daemon recorded at the last turn's end for a
-   * resumed one, or what a `session/load` replay reports. Null when unknown,
+   * resumed one, or what a completed `session/load` replay reports. Null when unknown,
    * and then the turn's cost is not reported.
    */
   costBaseline: number | null = null;
+  /** The last cost figure a `session/load` replay reported, until the load completes. */
+  private replayedCost: number | null = null;
   /** Whether this turn's first live cost figure has been checked against the baseline. */
   private costChecked = false;
   /** The agent's cumulative cost for its session (USD), as last reported or as the baseline. */
@@ -153,10 +155,11 @@ export class TurnMapper {
    */
   update(update: SessionUpdate): EventInput[] {
     if (this.replaying) {
-      // A replayed figure is what the session had spent before this turn.
+      // A replayed figure is what the session had spent before this turn,
+      // once the replay is whole ({@link acceptReplay}).
       if (update.sessionUpdate === "usage_update") {
         const cost = usdCost(update.cost);
-        if (cost !== null) this.costBaseline = cost;
+        if (cost !== null) this.replayedCost = cost;
       }
       return [];
     }
@@ -259,6 +262,16 @@ export class TurnMapper {
         }
         return [];
     }
+  }
+
+  /**
+   * The `session/load` replay completed: its last cost figure, if it gave
+   * one, is the baseline. A replay cut short leaves the baseline as it was,
+   * so a turn taken away mid-load never records a partial figure.
+   */
+  acceptReplay(): void {
+    if (this.replayedCost !== null) this.costBaseline = this.replayedCost;
+    this.replayedCost = null;
   }
 
   /**

@@ -249,17 +249,29 @@ describe("mapping", () => {
     expect(m.sessionCostUsd()).toBe(2.75);
   });
 
-  test("a replayed cost becomes the baseline, and a replay emits nothing", () => {
+  test("a completed replay's cost becomes the baseline, and a replay emits nothing", () => {
     const { m } = mapper();
     m.costBaseline = 5;
     m.replaying = true;
     expect(m.update(usage(1))).toEqual([]);
     expect(m.update(usage(3))).toEqual([]);
     m.replaying = false;
+    expect(m.costBaseline).toBe(5);
+    m.acceptReplay();
     expect(m.costBaseline).toBe(3);
     expect(m.update(usage(3.4))).toEqual([
       { type: "usage", contextUsed: 10, contextSize: 100, costUsd: 0.4 },
     ]);
+  });
+
+  test("a replay cut short leaves the baseline, and what the session cost, as recorded", () => {
+    const { m } = mapper();
+    m.costBaseline = 5;
+    m.replaying = true;
+    m.update(usage(2));
+    m.replaying = false;
+    expect(m.costBaseline).toBe(5);
+    expect(m.sessionCostUsd()).toBe(5);
   });
 
   test("a first figure below the baseline means the agent restarted its count", () => {

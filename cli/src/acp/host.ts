@@ -892,6 +892,7 @@ class Turn {
                 "",
               ),
             );
+            this.mapper.acceptReplay();
             this.resumed = true;
             await this.applyMode(answer);
             return;
