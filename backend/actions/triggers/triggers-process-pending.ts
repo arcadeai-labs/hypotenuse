@@ -1,4 +1,4 @@
-import { and, asc, isNull, lt } from "drizzle-orm";
+import { and, asc, isNull, sql } from "drizzle-orm";
 import { type Action, type ActionParams, api } from "keryx";
 import { z } from "zod";
 import {
@@ -45,7 +45,10 @@ export class TriggersProcessPending implements Action {
       .where(
         and(
           isNull(triggerEvents.processedAt),
-          lt(triggerEvents.receivedAt, new Date(Date.now() - params.graceMs)),
+          // Postgres's clock on both sides: `received_at` is its `now()`, in
+          // microseconds, and a cutoff from this process's milliseconds put a
+          // delivery made in the same millisecond after it.
+          sql`${triggerEvents.receivedAt} <= now() - make_interval(secs => ${params.graceMs / 1000})`,
         ),
       )
       .orderBy(asc(triggerEvents.id))
