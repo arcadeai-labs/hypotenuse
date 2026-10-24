@@ -114,6 +114,21 @@ docker rm -f $CID
 | `hypotenuse-api` | `/api/status` healthy; OAuth issuer is the public origin; **no** migration lines; **no** `resque:worker` lines |
 | `hypotenuse-worker` | `database migrated successfully`; `resque:worker:0 started`; nothing listening on HTTP |
 
+The frontend is nginx serving the Vite build on `:10000` (`frontend/nginx.conf`), and every path that is not a real
+file answers `index.html`, so a reload of any client route works. Render forwards to a port the outside cannot
+reach, so the config sets `absolute_redirect off` and drops `$uri/` from `try_files`: nginx's own trailing-slash 301
+once sent `/docs` to `http://www.hypotenuse.cloud:10000/docs/`. Static files the docs use live under
+`public/doc-assets/`, and nothing in `public/` may share a name with a top-level route
+(`frontend/src/__tests__/nginx.test.ts`). To check it:
+
+```bash
+CID=$(docker run -d -p 18080:10000 $(docker build -q -f frontend/Dockerfile --build-arg VITE_API_URL=https://example.invalid .))
+for u in /docs /docs/ /docs/config /doc-assets/illustrations/home-light.png /social.png; do
+  curl -s -o /dev/null -w "%{http_code} %{content_type} $u\n" http://localhost:18080$u
+done   # every line 200; the routes text/html, the files their own type
+docker rm -f $CID
+```
+
 ## Create the Linear OAuth app
 
 Hypotenuse is **one Linear OAuth application per deployment**, installed into each Linear workspace with

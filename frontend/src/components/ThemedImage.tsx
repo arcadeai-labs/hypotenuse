@@ -11,7 +11,7 @@ export function ThemedImage({ name, alt }: { name: string; alt: string }) {
   return (
     <img
       className="themed-image"
-      src={`/docs/illustrations/${name}-${resolved}.png`}
+      src={`/doc-assets/illustrations/${name}-${resolved}.png`}
       alt={alt}
       data-theme-variant={resolved}
       loading="lazy"

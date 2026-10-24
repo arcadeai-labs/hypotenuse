@@ -334,6 +334,9 @@ that need the backend add it as a second `webServer` when they arrive.
   half-typed `g` whenever something re-rendered between `g` and `s`. `⌘K` is the one key honored while typing.
 - **`ThemedImage` is an `<img>` chosen from the resolved theme, not a `<picture>`.** A `<picture>` media query
   follows the OS, which disagrees with the app whenever someone picked a theme.
+- **Illustrations live in `public/doc-assets/illustrations/`, not `public/docs/`.** A `docs` directory in the build
+  shadowed the `/docs` route in nginx, so a reload 301'd to the internal port; the deployment learnings have the
+  detail, and `nginx.test.ts` refuses any `public/` entry named like a top-level route.
 - **A flag on the command line beats an inherited `FORCE_COLOR`.** mcpx let `FORCE_COLOR=1` from the environment
   override `--no-color`; the CLI's `early-env` and `detectColorDepth` both put the typed flag first.
 - **`--version` prints the bare version.** `DESIGN.md` said it printed the banner; scripts and the self-upgrader
