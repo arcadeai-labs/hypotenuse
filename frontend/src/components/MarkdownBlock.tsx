@@ -5,6 +5,7 @@ import { Link } from "react-router-dom";
 import remarkGfm from "remark-gfm";
 import { cx } from "../ui/cx";
 import { CopyButton } from "./CopyButton";
+import { MermaidDiagram } from "./MermaidDiagram";
 
 /**
  * Turn heading text into the id the "on this page" rail links to.
@@ -36,16 +37,22 @@ function textOf(node: ReactNode): string {
  * Render untrusted or authored markdown. This is the only importer of
  * `react-markdown` and it never enables raw HTML — that is what makes it safe
  * to render an agent's output into the DOM.
- * @param props - The markdown source; `internalLinks` keeps rooted links in-app.
+ *
+ * A ```` ```mermaid ```` fence draws as a diagram only with `diagrams`, which
+ * is for authored docs; everywhere else it stays a plain code block.
+ * @param props - The markdown source; `internalLinks` keeps rooted links in-app;
+ *   `diagrams` draws Mermaid fences.
  * @returns The rendered markdown.
  */
 export function MarkdownBlock({
   children,
   internalLinks = false,
+  diagrams = false,
   className,
 }: {
   children: string;
   internalLinks?: boolean;
+  diagrams?: boolean;
   className?: string;
 }) {
   const components: Components = {
@@ -65,15 +72,27 @@ export function MarkdownBlock({
         </a>
       );
     },
-    pre: ({ children: content }) => (
-      <div className="markdown-code">
-        <pre>{content}</pre>
-        <CopyButton
-          text={textOf(content).replace(/\n$/, "")}
-          label="Copy code"
-        />
-      </div>
-    ),
+    pre: ({ node, children: content }) => {
+      const code = node?.children[0];
+      const language =
+        code?.type === "element" ? code.properties.className : undefined;
+      if (
+        diagrams &&
+        Array.isArray(language) &&
+        language.includes("language-mermaid")
+      ) {
+        return <MermaidDiagram source={textOf(content).replace(/\n$/, "")} />;
+      }
+      return (
+        <div className="markdown-code">
+          <pre>{content}</pre>
+          <CopyButton
+            text={textOf(content).replace(/\n$/, "")}
+            label="Copy code"
+          />
+        </div>
+      );
+    },
   };
   return (
     <div className={cx("markdown", className)}>
