@@ -392,6 +392,19 @@ $docs-rail-min: 1099.98px;
   }
 }
 
+// A diagram scales down to the column; it never scrolls sideways.
+.mermaid-diagram {
+  margin: 0;
+  min-width: 0;
+
+  svg {
+    display: block;
+    max-width: 100%;
+    height: auto;
+    margin: 0 auto;
+  }
+}
+
 .themed-image {
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-lg);

@@ -31,4 +31,39 @@ describe("model-authored Markdown", () => {
       }
     }
   });
+
+  const fence = "```mermaid\nflowchart TD\n  a --> b\n```";
+
+  test("an agent's mermaid fence stays a plain code block", () => {
+    const html = renderToStaticMarkup(
+      <MemoryRouter>
+        <MarkdownBlock>{fence}</MarkdownBlock>
+      </MemoryRouter>,
+    );
+    expect(html).toContain('<code class="language-mermaid">');
+    expect(html).not.toContain("mermaid-diagram");
+  });
+
+  test("authored docs opt in to diagrams, and nothing else does", () => {
+    const html = renderToStaticMarkup(
+      <MemoryRouter>
+        <MarkdownBlock diagrams>{fence}</MarkdownBlock>
+      </MemoryRouter>,
+    );
+    expect(html).toContain('data-testid="mermaid-diagram"');
+    const optIns = sourceFiles([".tsx"])
+      .filter(({ body }) => /<MarkdownBlock\b[^>]*\bdiagrams\b/.test(body))
+      .map(({ path }) => path.replace(/^.*\/src\//, ""));
+    expect(optIns).toEqual(["pages/docs/DocsPage.tsx"]);
+  });
+
+  test("mermaid is only ever a dynamic import, from MermaidDiagram", () => {
+    for (const { path, body } of sourceFiles([".ts", ".tsx"])) {
+      const code = stripComments(body);
+      expect(code, path).not.toMatch(/from "mermaid"/);
+      if (code.includes('import("mermaid")')) {
+        expect(path).toEndWith("components/MermaidDiagram.tsx");
+      }
+    }
+  });
 });
