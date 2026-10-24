@@ -1,6 +1,6 @@
 /**
  * Capture every docs illustration twice — light and dark — into
- * `public/docs/illustrations/<name>-{light,dark}.png`, which `ThemedImage`
+ * `public/doc-assets/illustrations/<name>-{light,dark}.png`, which `ThemedImage`
  * serves as a `<picture>` pair.
  *
  * Needs the frontend running (`bun dev`, or `FRONTEND_URL`). Pages that need a
@@ -34,7 +34,13 @@ const ILLUSTRATIONS: Illustration[] = [
 ];
 
 const BASE = process.env.FRONTEND_URL ?? "http://localhost:3000";
-const OUT = join(import.meta.dirname, "..", "public", "docs", "illustrations");
+const OUT = join(
+  import.meta.dirname,
+  "..",
+  "public",
+  "doc-assets",
+  "illustrations",
+);
 
 /**
  * Capture each illustration in both themes.

@@ -236,6 +236,16 @@ derives the expected hosts from `APPLICATION_URL` and `WEB_SERVER_ALLOWED_ORIGIN
 example URLs across the docs (`api.hypotenuse.cloud` in configs, `www.hypotenuse.cloud` for dashboard links and the
 config JSON Schema) use the same two hosts.
 
+### nginx must never redirect, and `public/` must never shadow a route
+
+The SPA fallback was `try_files $uri $uri/ /index.html`, and `public/docs/illustrations/` made `/docs` a real
+directory in the image. A reload of `/docs` matched it through `$uri/`, and nginx answered its own trailing-slash 301
+— absolute, built from the port it listens on — to `http://www.hypotenuse.cloud:10000/docs/`, which Render does not
+expose; `/docs/` itself was a 403 for want of an `index.html`. In-app navigation never asked nginx, so only a reload
+or a shared link broke. The fix is both halves: `absolute_redirect off` with `try_files $uri /index.html`, and the
+illustrations moved to `public/doc-assets/`. `frontend/src/__tests__/nginx.test.ts` holds the directives and
+asserts no top-level entry in `public/` is a route segment in `App.tsx`; `DEPLOY.md` has the `curl` rehearsal.
+
 ### Decisions that differ from the plan's table
 
 - **`APPLICATION_URL` is set on the worker too**, not only the API. The worker writes dashboard and session links into
