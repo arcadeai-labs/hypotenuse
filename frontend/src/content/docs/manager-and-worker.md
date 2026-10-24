@@ -17,7 +17,8 @@ To plan a whole Linear project, mention `@hypotenuse` in a comment on the projec
 PRD and split it into tickets*. Linear does not start agent sessions on projects, so Hypotenuse files an issue for
 the plan, **`[hypotenuse] Plan: <project>`**, in that project, starts a manager there with your comment as its
 instructions, and replies on your comment with a link. That issue is where you talk to the planning agent from
-then on.
+then on. If Linear starts a second agent session on it while the planning starts, that one answers with a pointer
+to the planning thread and does no work.
 
 Out of the box, a mention starting with `/manage` gets a manager, one starting with `/work` gets a worker, and an
 issue labelled `hypotenuse:manager` gets a manager however it was started. Anything else — including a plain
