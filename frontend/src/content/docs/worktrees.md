@@ -7,13 +7,18 @@ can work three issues in the same repository at once, and your own checkout is n
 ## Where they live
 
 ```
-~/.hypotenuse/worktrees/                 sessions.worktree_root
-  web/                                   the repository's name
-    ENG-123/                             the session on ENG-123
-    ENG-123-2/                           a second session on the same issue, rarely
+~/.hypotenuse/worktrees/
+  web/
+    ENG-123/
+    ENG-123-2/
   _scratch/
-    92/                                  a session with no repository (a manager writing tickets)
+    92/
 ```
+
+- `~/.hypotenuse/worktrees/` is `sessions.worktree_root`.
+- `web/` is the repository's name, and `ENG-123/` is the session on ENG-123. `ENG-123-2/` is a second session on the
+  same issue, which is rare.
+- `_scratch/92/` is a session with no repository, such as a manager writing tickets.
 
 Each worktree is on its own branch, `hypotenuse/eng-123-fix-checkout-total-rounding`: the repository's
 `branch_prefix`, the issue, and its title. If that branch already exists and belongs to something else, the name

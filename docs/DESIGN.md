@@ -234,7 +234,9 @@ is the one moment this page raises its voice.
 - **Docs** (`/docs`): left section nav, an article column capped at 72ch, and a right-hand "on this page" rail.
   Content is markdown under `frontend/src/content/docs/` (rule 12). Every code block has a copy button. Screenshots are
   **generated in both themes** by `bun run docs:illustrations`, and a `<picture>` element picks the one that matches
-  the reader's theme.
+  the reader's theme. A diagram is a ```` ```mermaid ```` fence, never ASCII art: `DocsPage` opts `MarkdownBlock` into
+  `diagrams` (agent output never is), Mermaid is a dynamic import fetched only by a page that has one, and
+  `MermaidDiagram` paints it from the live semantic tokens, redraws on a theme switch, and scales it to the column.
 - Both are outside `ProtectedRoute` and readable signed out.
 
 ### 4. The CLI

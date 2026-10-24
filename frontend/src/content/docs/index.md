@@ -8,10 +8,17 @@ the Linear agent session, opens a pull request, and replies.
 
 ## How it fits together
 
-```
-Linear ──webhooks──► Hypotenuse service ──work──► hypotenuse daemon (your machine)
-       ◄─activities─                     ◄─events─        │
-                                                          └─ ACP agent in a git worktree
+```mermaid
+flowchart TD
+  linear["Linear"]
+  service["Hypotenuse service"]
+  daemon["hypotenuse daemon (your machine)"]
+  agent["ACP agent in a git worktree"]
+  linear -- webhooks --> service
+  service -- activities --> linear
+  service -- work --> daemon
+  daemon -- events --> service
+  daemon -- starts --> agent
 ```
 
 - **The hosted service** receives Linear's webhooks, holds the Linear credentials, and routes each session to a
