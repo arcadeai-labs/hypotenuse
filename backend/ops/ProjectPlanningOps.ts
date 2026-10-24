@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, ne, sql } from "drizzle-orm";
 import { api } from "keryx";
 import { type AgentSession, agentSessions } from "../schema/agent_sessions";
 import type { Integration } from "../schema/integrations";
@@ -163,7 +163,10 @@ function issueDescription(
   return [
     instruction ?? "Plan this project.",
     "---",
-    `${who} asked @hypotenuse to plan ${where} in a comment on the project. The planning agent works from this issue: reply in its session to steer it.`,
+    // "Hypotenuse", never `@hypotenuse`: Linear turns an at-name in an issue
+    // description into a mention of the app, and a mention starts a session
+    // of its own beside the one `startSession` asks for.
+    `${who} asked Hypotenuse to plan ${where} in a comment on the project. The planning agent works from this issue: reply in its session to steer it.`,
   ].join("\n\n");
 }
 
@@ -339,35 +342,76 @@ async function startSession(
 }
 
 /**
+ * The answer to a second session on a planning issue while its planning
+ * session is starting: the planning happens in the first.
+ */
+export const PLANNING_DUPLICATE_RESPONSE =
+  "This project's planning already runs in the other agent session on this issue. Reply in that thread to steer it.";
+
+/** What `adoptPlanningSession` decided for a session. */
+export type PlanningAdoption =
+  | { kind: "adopted"; session: AgentSession }
+  | { kind: "duplicate" }
+  | null;
+
+/**
  * Make a session Hypotenuse started for a project mention a manager, with
  * the comment's text and author, if its issue has a planning intent. Called
  * by the `created` webhook before the first turn is queued, so routing finds
- * the role set and decides no other. The intent is read, not deleted: this
- * runs inside the webhook's transaction, and a rollback must leave it for the
- * retry. Its TTL ends it, and a session whose role is set is never adopted
- * twice.
+ * the role set and decides no other.
+ *
+ * One session per intent is adopted. Linear may start a second on the issue
+ * at the same moment — a mention of the app in its description did — and
+ * both `created` webhooks find the intent. A transaction-scoped advisory lock
+ * on the issue orders them, so the later one sees the earlier one's adoption
+ * once it commits, and is a `duplicate`: answered, never routed. A session a
+ * person started then is theirs: it routes as usual, as if no intent existed.
+ *
+ * The intent is read, not deleted: this runs inside the webhook's
+ * transaction, and a rollback must leave it for the retry. Its TTL ends it,
+ * and a session whose role is set is never adopted twice.
  * @param tx - The transaction.
- * @param integrationId - The integration.
+ * @param integration - The integration.
  * @param session - The session, as just mirrored.
- * @returns The session, updated when it was a planning session.
+ * @returns Adopted (the session, updated), a duplicate, or null when the
+ * issue has no planning intent.
  */
 export async function adoptPlanningSession(
   tx: TxHandle,
-  integrationId: number,
+  integration: Integration,
   session: AgentSession,
-): Promise<AgentSession> {
-  if (!session.externalIssueId || session.role !== null) return session;
-  const key = planningIntentKey(integrationId, session.externalIssueId);
+): Promise<PlanningAdoption> {
+  if (!session.externalIssueId || session.role !== null) return null;
+  const key = planningIntentKey(integration.id, session.externalIssueId);
   const raw = await api.redis.redis.get(key);
-  if (!raw) return session;
+  if (!raw) return null;
   const intent = JSON.parse(raw) as PlanningIntent;
+  const byPerson =
+    session.creatorExternalUserId !== null &&
+    session.creatorExternalUserId !== integration.externalAppUserId;
+  await tx.execute(
+    sql`SELECT pg_advisory_xact_lock(hashtext('planning'), hashtext(${`${integration.id}:${session.externalIssueId}`}))`,
+  );
+  const [first] = await tx
+    .select({ id: agentSessions.id })
+    .from(agentSessions)
+    .where(
+      and(
+        eq(agentSessions.integrationId, integration.id),
+        eq(agentSessions.externalIssueId, session.externalIssueId),
+        eq(agentSessions.routingRuleName, PLANNING_RULE_NAME),
+        ne(agentSessions.id, session.id),
+      ),
+    )
+    .limit(1);
+  if (first) return byPerson ? null : { kind: "duplicate" };
   const [updated] = await tx
     .update(agentSessions)
     .set({
       role: "manager",
       routingRuleName: PLANNING_RULE_NAME,
       instruction: intent.instruction,
-      ...(session.creatorExternalUserId
+      ...(byPerson
         ? {}
         : {
             creatorExternalUserId: intent.creatorExternalUserId,
@@ -377,5 +421,5 @@ export async function adoptPlanningSession(
     })
     .where(eq(agentSessions.id, session.id))
     .returning();
-  return updated ?? session;
+  return { kind: "adopted", session: updated ?? session };
 }
