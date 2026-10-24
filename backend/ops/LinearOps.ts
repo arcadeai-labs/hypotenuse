@@ -67,6 +67,20 @@ export class LinearGraphQLError extends Error {
   }
 }
 
+/**
+ * Whether a GraphQL failure is Linear saying a client-supplied id was already
+ * used — a retry of a create whose answer was lost, which landed.
+ * @param e - The error.
+ * @returns True for a duplicate id.
+ */
+export function isDuplicateIdError(e: LinearGraphQLError): boolean {
+  return e.errors.some(
+    (entry) =>
+      entry.extensions?.code === "CONFLICT" ||
+      /already exists/i.test(entry.message),
+  );
+}
+
 /** Linear could not be reached, timed out, or answered 5xx. Retryable. */
 export class LinearUnavailableError extends Error {
   /**

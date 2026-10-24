@@ -81,9 +81,17 @@ describe("mergeActivities", () => {
 });
 
 describe("transcriptEntries", () => {
-  test("session updates are not transcript lines", () => {
+  test("session updates and issue attachments are not transcript lines", () => {
     const entries = transcriptEntries([
       activity({ kind: "session_update", contentType: null, content: {} }),
+      activity({
+        kind: "issue_attachment",
+        contentType: null,
+        content: {
+          url: "https://github.com/a/b/pull/1",
+          title: "Pull request #1",
+        },
+      }),
       activity({}),
     ]);
     expect(entries).toHaveLength(1);

@@ -115,6 +115,16 @@ export interface StandInDocument {
   issueId: string | null;
 }
 
+/** An issue attachment, as the proxy's stand-in for finear's missing ones holds it. */
+export interface StandInAttachment {
+  id: string;
+  issueId: string;
+  url: string;
+  title: string;
+  /** Which mutation linked it last. */
+  via: "github" | "url";
+}
+
 /**
  * Something the proxy does to one matching request instead of passing it
  * through untouched:
@@ -146,7 +156,10 @@ export interface ProxyFault {
  * it takes `createAsUser` / `displayIconUrl` off an `issueCreate` (finear
  * refuses them; the request log keeps them for the test to assert), and it
  * answers the document operations (`documentCreate`, `documentUpdate`,
- * `document`, `project.documents`) from a small store of its own. Everything
+ * `document`, `project.documents`) and the attachment link mutations
+ * (`attachmentLinkGitHubPR`, `attachmentLinkURL`) from small stores of its
+ * own. `attachmentLinkGitHubPR` is refused unless a test says the workspace's
+ * GitHub integration reaches the repository (`githubIntegration`). Everything
  * else is finear's own behaviour, byte for byte. finear lacks rate-limit
  * headers and `RATELIMITED` entirely — a gap recorded there too.
  * @returns Accessors for the running fake and its control operations.
@@ -159,6 +172,8 @@ export function useFinear() {
   const faults: ProxyFault[] = [];
   let injectedHeaders: Record<string, string> = {};
   const documents = new Map<string, StandInDocument>();
+  const attachments = new Map<string, StandInAttachment>();
+  const github = { installed: false };
   const saved = {
     linear: { ...config.linear },
     applicationUrl: config.server.web.applicationUrl,
@@ -266,7 +281,11 @@ export function useFinear() {
           const invalid = await upstreamErrors(String(gql.body.query ?? ""));
           if (invalid.length > 0)
             return Response.json({ errors: invalid }, { status: 400 });
-          const standIn = documentStandIn(gql, documents);
+          const standIn =
+            documentStandIn(gql, documents) ??
+            attachmentStandIn(gql, attachments, github.installed);
+          if (standIn && fault?.kind === "drop")
+            return new Response("upstream response lost", { status: 502 });
           if (standIn) return Response.json(standIn);
         }
         if (gql && seen.operationName === "CreateIssue") {
@@ -518,6 +537,17 @@ export function useFinear() {
     },
     /** The documents the stand-in holds (finear has none), by id. */
     documents,
+    /** The issue attachments the stand-in holds (finear has none), by id. */
+    attachments,
+    /**
+     * Whether the workspace's GitHub integration reaches the repository, so
+     * `attachmentLinkGitHubPR` succeeds. Off by default, as in a workspace
+     * without it.
+     * @param installed - On or off.
+     */
+    githubIntegration: (installed: boolean) => {
+      github.installed = installed;
+    },
     /** Stamp these headers on every GraphQL response from now on. */
     injectHeaders: (headers: Record<string, string>) => {
       injectedHeaders = headers;
@@ -538,6 +568,35 @@ export function useFinear() {
           FINEAR_FIXTURES.primary.user,
         ),
       );
+    },
+    /**
+     * Add a workflow state to the primary workspace's team — finear has no
+     * `workflowStateCreate` (a gap in `docs/LINEAR_COVERAGE.md`), so this
+     * writes its fixture table. The fixtures are Backlog (0), In Progress
+     * (1), and Done (2).
+     * @param state - Its name, type, and position.
+     * @returns The state's id.
+     */
+    addWorkflowState: (state: {
+      name: string;
+      type: string;
+      position: number;
+    }): string => {
+      const id = crypto.randomUUID();
+      running().runtime.database.transaction((tx) =>
+        tx.run(
+          "INSERT INTO workflow_states (id, organization_id, team_id, name, type, color, position, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+          id,
+          FINEAR_FIXTURES.primary.organization,
+          FINEAR_FIXTURES.primary.team,
+          state.name,
+          state.type,
+          "#808080",
+          state.position,
+          Date.now(),
+        ),
+      );
+      return id;
     },
     /** Flush the webhook outbox now. */
     drain: () => running().drain(),
@@ -575,6 +634,8 @@ const STAND_IN_OPERATIONS = new Set([
   "UpdateDocument",
   "GetDocument",
   "ListProjectDocuments",
+  "AttachmentLinkGitHubPR",
+  "AttachmentLinkURL",
 ]);
 
 let upstreamSchema: Promise<GraphQLSchema> | null = null;
@@ -696,4 +757,78 @@ function documentStandIn(
     default:
       return null;
   }
+}
+
+/**
+ * Answer an attachment link mutation from the stand-in store — finear has no
+ * attachments (a gap in `docs/LINEAR_COVERAGE.md`). Like Linear, one
+ * attachment per URL per issue: linking it again updates the one there. An
+ * id already used for another attachment is refused as a duplicate.
+ * @param gql - The request.
+ * @param store - The attachments.
+ * @param githubInstalled - Whether `attachmentLinkGitHubPR` may succeed.
+ * @returns The response body, or null for any other operation.
+ */
+function attachmentStandIn(
+  gql: GraphQLBody,
+  store: Map<string, StandInAttachment>,
+  githubInstalled: boolean,
+): Record<string, unknown> | null {
+  const field =
+    gql.operationName === "AttachmentLinkGitHubPR"
+      ? "attachmentLinkGitHubPR"
+      : gql.operationName === "AttachmentLinkURL"
+        ? "attachmentLinkURL"
+        : null;
+  if (!field) return null;
+  const v = (gql.variables ?? {}) as Record<string, string | undefined>;
+  if (field === "attachmentLinkGitHubPR" && !githubInstalled) {
+    return {
+      data: null,
+      errors: [
+        {
+          message: "No GitHub integration found for this pull request",
+          extensions: { code: "INVALID_INPUT" },
+        },
+      ],
+    };
+  }
+  const issueId = String(v.issueId);
+  const url = String(v.url);
+  const existing = [...store.values()].find(
+    (a) => a.issueId === issueId && a.url === url,
+  );
+  if (v.id && store.has(v.id) && store.get(v.id) !== existing) {
+    return {
+      data: null,
+      errors: [
+        {
+          message: "Entity already exists",
+          extensions: { code: "CONFLICT" },
+        },
+      ],
+    };
+  }
+  const attachment: StandInAttachment = existing ?? {
+    id: v.id ?? crypto.randomUUID(),
+    issueId,
+    url,
+    title: v.title ?? url,
+    via: "url",
+  };
+  attachment.title = v.title ?? attachment.title;
+  attachment.via = field === "attachmentLinkGitHubPR" ? "github" : "url";
+  store.set(attachment.id, attachment);
+  return {
+    data: {
+      [field]: {
+        success: true,
+        attachment: {
+          id: attachment.id,
+          url: attachment.url,
+          title: attachment.title,
+        },
+      },
+    },
+  };
 }

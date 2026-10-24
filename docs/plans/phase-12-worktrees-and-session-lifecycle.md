@@ -425,6 +425,19 @@ runs the repository's hook — `commit-msg` first, then the trailer, so a commit
 repository. No real coding agent has opened a real pull request through it yet, and the `on-merge` policy has been
 checked against a scripted `gh` and a real `git ls-remote`, not against GitHub.
 
+### A session's pull request link is not the issue's
+
+`addedExternalUrls` puts a pull request on the agent **session**; Linear's pull request automations read the
+**issue's** attachments and its GitHub integration, so a worker's issue never followed its pull request. Linear's
+GitHub integration links a pull request by branch name or title on its own only where the integration reaches the
+repository; in the one Hypotenuse is built in, nothing linked (its GitHub organization has Linear's "Linear Code" app
+installed, but not the "Linear" app). The server now attaches each linked pull request to the issue itself (`ops/IssueAttachmentOps.ts`):
+`attachmentLinkGitHubPR`, so the integration takes over where it is installed, else `attachmentLinkURL`; and since the
+second path drives no automation, the issue's first pull request moves it to the team's review state. The attachment
+is an outbox row in the session's sequence, so it shares the session's lease, budget, and retry, and the row's client
+id doubles as the attachment's id. A manager's dispatch counts as a delegation for the started-state move too: the
+session it starts has no creator, so it read as an automation's and the issue sat in Backlog while it was worked.
+
 ### Where the pieces live
 
 - **`cli/src/worktree/`** — `manager.ts` (`WorktreeManager.acquire`: reuse, fetch, disk guard, branch choice,

@@ -162,8 +162,8 @@ error.
 A claim also does two things in Linear, on the server, so a daemon never needs the rights to: it links the session
 to its dashboard page (`addedExternalUrls` `{ label: "Hypotenuse", url: dashboardUrl }`, once per session), and, for
 a session's first turn (`session_created`, `dispatch`), it applies **issue hygiene** after the claim commits and
-before answering — the started-state move for a person's delegation, the app as delegate when the issue has none,
-never the assignee. The outcome is recorded on the work item; a Linear failure becomes a thought in the session and
+before answering — the started-state move for a person's delegation or a manager's dispatch, the app as delegate
+when the issue has none, never the assignee. The outcome is recorded on the work item; a Linear failure becomes a thought in the session and
 never fails the claim.
 
 ```json
@@ -242,7 +242,7 @@ Every event: `{ "eventId": "<uuid v4>", "seq": <int, per work item, from 1>, "at
 | `error` | `body` | `{ type: "error", body }` |
 | `plan` | `entries: [{ content, status: pending \| in_progress \| completed \| canceled }]` | `agentSessionUpdate { plan }`, whole list, `in_progress` → `inProgress` |
 | `summary` | `title` (1–255 chars, one line) | `agentSessionUpdate { summary }` |
-| `external_url` | `label`, `url` | `agentSessionUpdate { addedExternalUrls }`, never the whole list; the daemon sends one per pull request of the session's own repository (`Pull Request`, `Pull Request (2)`, …) |
+| `external_url` | `label`, `url` | `agentSessionUpdate { addedExternalUrls }`, never the whole list; the daemon sends one per pull request of the session's own repository (`Pull Request`, `Pull Request (2)`, …). The server also attaches each to the session's issue, once per URL |
 | `usage` | `inputTokens?`, `outputTokens?`, `costUsd?`, `contextUsed?`, `contextSize?` — what **this turn** has spent so far, each report replacing the last: `costUsd` is the agent's cumulative ACP `cost` (USD only) less what its session had cost when the turn began, never the session's running total | dashboard and the turn's cost record |
 | `status` | `state: starting \| running \| waiting_permission \| finishing` | dashboard only |
 

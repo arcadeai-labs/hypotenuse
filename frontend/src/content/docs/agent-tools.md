@@ -14,7 +14,7 @@ or your runner's token, and nothing it does through these tools can reach past t
 | `linear_set_issue_state` | its own issue | issues it manages | moves an issue by state name or type; a worker cannot cancel one |
 | `linear_set_plan` | ✓ | ✓ | replaces the session's plan |
 | `linear_ask_user` | ✓ | ✓ | asks you a question, with choices if it has them, and ends its turn |
-| `linear_report_pr` | ✓ | ✓ | links its pull request to the session (only one on the session's repository) |
+| `linear_report_pr` | ✓ | ✓ | links its pull request to the session and attaches it to the issue (only one on the session's repository) |
 | `linear_search_issues` | ✓ | ✓ | finds issues by text, team, state type, label, or project — at most 25 |
 | `linear_create_issue` | | ✓ | creates an issue, credited to whoever started the session |
 | `linear_update_issue` | | ✓ | edits an issue it manages — never its assignee |

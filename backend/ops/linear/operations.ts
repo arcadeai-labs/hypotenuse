@@ -818,6 +818,59 @@ export const UpdateDocument = operation<
 }`,
 );
 
+/** An issue attachment, as the link mutations answer it. */
+export interface LinearAttachment {
+  id: string;
+  url: string;
+  title: string;
+}
+
+/** What both attachment link mutations take. */
+export interface LinearAttachmentLinkVariables {
+  /** The outbox row's client id, so a resend after a lost answer is a duplicate. */
+  id: string;
+  issueId: string;
+  url: string;
+  title: string;
+}
+
+/**
+ * Link a GitHub pull request to an issue through the workspace's GitHub
+ * integration, so Linear's own pull request automations follow it. Refused
+ * where the integration does not reach the repository.
+ */
+export const AttachmentLinkGitHubPR = operation<
+  {
+    attachmentLinkGitHubPR: { success: boolean; attachment: LinearAttachment };
+  },
+  LinearAttachmentLinkVariables
+>(
+  "AttachmentLinkGitHubPR",
+  `mutation AttachmentLinkGitHubPR($id: String, $issueId: String!, $url: String!, $title: String) {
+  attachmentLinkGitHubPR(id: $id, issueId: $issueId, url: $url, title: $title) {
+    success
+    attachment { id url title }
+  }
+}`,
+);
+
+/**
+ * Link any URL to an issue. Linear keeps one attachment per URL per issue:
+ * linking it again updates the one there.
+ */
+export const AttachmentLinkURL = operation<
+  { attachmentLinkURL: { success: boolean; attachment: LinearAttachment } },
+  LinearAttachmentLinkVariables
+>(
+  "AttachmentLinkURL",
+  `mutation AttachmentLinkURL($id: String, $issueId: String!, $url: String!, $title: String) {
+  attachmentLinkURL(id: $id, issueId: $issueId, url: $url, title: $title) {
+    success
+    attachment { id url title }
+  }
+}`,
+);
+
 /** Every operation above, for the test that runs each against finear. */
 export const LINEAR_OPERATIONS = [
   GetViewer,
@@ -850,4 +903,6 @@ export const LINEAR_OPERATIONS = [
   UpdateProject,
   CreateDocument,
   UpdateDocument,
+  AttachmentLinkGitHubPR,
+  AttachmentLinkURL,
 ] as const;

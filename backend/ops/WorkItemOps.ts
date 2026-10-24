@@ -41,6 +41,7 @@ import {
 } from "../schema/work_items";
 import {
   enqueueActivity,
+  enqueueIssueAttachment,
   enqueueSessionUpdate,
   type OutboundContent,
   OutboxValidationError,
@@ -1690,6 +1691,8 @@ async function recordEvent(
         { addedExternalUrls: [{ label: event.label, url: event.url }] },
         { clientActivityId },
       );
+      // The daemon reports only pull requests here; the issue gets it too.
+      await enqueueIssueAttachment(tx, sessionId, event);
       return;
     case "usage":
     case "status":

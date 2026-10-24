@@ -20,10 +20,15 @@ export const ACTIVITY_DIRECTIONS = ["inbound", "outbound"] as const;
 export type ActivityDirection = (typeof ACTIVITY_DIRECTIONS)[number];
 
 /**
- * What a row sends: an `agentActivityCreate`, or an `agentSessionUpdate`
- * (plan, summary, external URLs).
+ * What a row sends: an `agentActivityCreate`, an `agentSessionUpdate` (plan,
+ * summary, external URLs), or an `issue_attachment` — a pull request linked
+ * to the session's issue (`ops/IssueAttachmentOps.ts`).
  */
-export const ACTIVITY_KINDS = ["activity", "session_update"] as const;
+export const ACTIVITY_KINDS = [
+  "activity",
+  "session_update",
+  "issue_attachment",
+] as const;
 
 /** One of {@link ACTIVITY_KINDS}. */
 export type ActivityKind = (typeof ACTIVITY_KINDS)[number];
@@ -98,9 +103,13 @@ export const agentActivities = pgTable(
     seq: integer("seq").notNull(),
     direction: text("direction").$type<ActivityDirection>().notNull(),
     kind: text("kind").$type<ActivityKind>().notNull().default("activity"),
-    /** Null for a `session_update`. */
+    /** Null for a `session_update` and an `issue_attachment`. */
     contentType: text("content_type").$type<ActivityContentType | null>(),
-    /** The exact content sent or received; for `session_update`, the update's input. */
+    /**
+     * The exact content sent or received; for `session_update`, the update's
+     * input; for `issue_attachment`, `{ url, title }` and, once sent, how it
+     * was linked and what the review-state move did.
+     */
     content: jsonb("content").$type<Record<string, unknown>>().notNull(),
     ephemeral: boolean("ephemeral").notNull().default(false),
     signal: text("signal").$type<ActivitySignal | null>(),

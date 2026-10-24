@@ -28,10 +28,14 @@ import { applyEffects, noEffects } from "./WorkItemOps";
  * | Condition | Action |
  * |---|---|
  * | worker role, a **person** delegated the issue, and its state type is not `started`, `completed`, or `canceled` | move it to the team's first `started` state (lowest `position`) |
- * | the session was started by an automation (no creator), or by a mention | leave the state alone; triage stays with a person |
+ * | worker role, a **manager dispatched** it (a `dispatch` item), and its state type is not `started`, `completed`, or `canceled` | the same move: the dispatch is the delegation |
+ * | otherwise, the session was started by an automation (no creator), or by a mention | leave the state alone; triage stays with a person |
  * | worker role, and the issue has **no delegate** | set the delegate to the app user |
  * | always | **never** change the assignee; the person keeps ownership |
  * | manager role | nothing; a manager working on a PRD issue is not implementing it |
+ *
+ * The issue's next move — to the team's review state when its first pull
+ * request is attached — is `ops/IssueAttachmentOps.ts`'s.
  *
  * Each rule's outcome is recorded on the work item's `hygiene`. A failure is
  * logged and posted as a thought ("Could not move ENG-123 to In Progress: …");
@@ -102,6 +106,8 @@ function reasonOf(error: unknown): string {
 interface HygieneInput {
   role: "manager" | "worker";
   humanDelegated: boolean;
+  /** A manager's dispatch: the app delegated it, on a person's planning. */
+  dispatched: boolean;
   automation: boolean;
   appUserId: string;
 }
@@ -120,10 +126,12 @@ async function moveToStarted(
 ): Promise<HygieneOutcome> {
   if (input.role === "manager")
     return { outcome: "skipped", detail: "manager role" };
-  if (input.automation)
-    return { outcome: "skipped", detail: "started by an automation" };
-  if (!input.humanDelegated)
-    return { outcome: "skipped", detail: "not a delegation" };
+  if (!input.dispatched) {
+    if (input.automation)
+      return { outcome: "skipped", detail: "started by an automation" };
+    if (!input.humanDelegated)
+      return { outcome: "skipped", detail: "not a delegation" };
+  }
   if (SETTLED_STATE_TYPES.has(issue.state.type))
     return {
       outcome: "unchanged",
@@ -197,6 +205,7 @@ export async function applyIssueHygiene(
     role: item.role ?? "worker",
     humanDelegated:
       session.origin === "delegation" && session.creatorExternalUserId !== null,
+    dispatched: item.kind === "dispatch",
     automation: session.creatorExternalUserId === null,
     appUserId: integration.externalAppUserId,
   };

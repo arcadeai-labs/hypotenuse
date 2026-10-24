@@ -287,8 +287,13 @@ The map is [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md). What follows is the
 - **An `auth` link is the server's call.** The daemon names what needs a login (`provider`); the server links the
   runner's auth page (`/runners/:id/auth/:provider`), passes through only a public `https` URL (`isPublicUrl`), and
   sets `userId` to the runner owner's linked identity. A login is a question that ends the turn.
-- **Issue hygiene is the server's, at claim.** `ops/IssueHygieneOps.ts` moves a person's delegation to started and
-  sets a missing delegate; it never touches the assignee, never fails a claim, and no daemon gets `issueUpdate`.
+- **Issue hygiene is the server's, at claim.** `ops/IssueHygieneOps.ts` moves a person's delegation or a manager's
+  dispatch to started and sets a missing delegate; it never touches the assignee, never fails a claim, and no daemon
+  gets `issueUpdate`.
+- **A session's pull request is the issue's attachment too.** Every path that links one (`external_url`,
+  `linear_report_pr`) calls `enqueueIssueAttachment` in the same transaction; the outbox sends it
+  (`ops/IssueAttachmentOps.ts`), once per URL per issue, and a worker's first moves the issue to the team's review
+  state. An `issue_attachment` row is not a transcript line and survives a stop, like a session update.
 - **A worktree is removed only when the safety rules allow** (`cli/src/worktree/cleanup.ts`): never one in use;
   uncommitted changes, unpushed commits, and a `.hypotenuse-keep` file keep it unless `--force`; branches go with
   `git branch -d`, never `-D`. Hypotenuse never stashes, resets, or cleans a person's checkout.

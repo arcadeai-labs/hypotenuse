@@ -55,15 +55,15 @@ export interface TranscriptEntry {
 
 /**
  * The transcript's lines: every activity but session updates (plan, summary,
- * and link changes, which the page shows in their own places), with each
- * ephemeral line marked replaced or live.
+ * and link changes, which the page shows in their own places) and issue
+ * attachments, with each ephemeral line marked replaced or live.
  * @param activities - The session's activities, in `seq` order.
  * @returns One entry per line.
  */
 export function transcriptEntries(
   activities: TranscriptActivity[],
 ): TranscriptEntry[] {
-  const lines = activities.filter((a) => a.kind !== "session_update");
+  const lines = activities.filter((a) => a.kind === "activity");
   return lines.map((activity, index) => {
     const later = lines
       .slice(index + 1)

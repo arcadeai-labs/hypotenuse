@@ -9,6 +9,7 @@ import type {
 import { HELD_WORK_STATUSES, workItems } from "../schema/work_items";
 import {
   enqueueActivity,
+  enqueueIssueAttachment,
   enqueueSessionUpdate,
   scheduleDelivery,
 } from "./ActivityOutboxOps";
@@ -1179,6 +1180,11 @@ export async function reportPr(
             | undefined) ?? [],
       ),
     ];
+    // The issue gets it too, once per URL — even when the session has it.
+    await enqueueIssueAttachment(tx, session.id, {
+      label: PULL_REQUEST_LABEL,
+      url: input.url,
+    });
     if (links.some((l) => l.url === input.url)) return null;
     const prior = links.filter((l) =>
       l.label.startsWith(PULL_REQUEST_LABEL),

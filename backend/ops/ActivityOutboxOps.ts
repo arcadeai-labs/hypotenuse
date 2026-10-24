@@ -17,8 +17,14 @@ import {
 import { type Integration, integrations } from "../schema/integrations";
 import { workItems } from "../schema/work_items";
 import { statusColumns, statusImpliedBy } from "./AgentSessionOps";
+import {
+  type IssueAttachmentContent,
+  queueIssueAttachment,
+  sendIssueAttachment,
+} from "./IssueAttachmentOps";
 import { takeLinearToken } from "./LinearBucketOps";
 import {
+  isDuplicateIdError,
   LinearGraphQLError,
   LinearIntegrationUnavailableError,
   LinearRateLimitedError,
@@ -43,7 +49,8 @@ import {
 
 /**
  * The activity outbox: **everything Hypotenuse writes to a Linear agent
- * session goes through here.**
+ * session goes through here** — and a session's pull request attachments to
+ * its issue, which ride in the same sequence (`ops/IssueAttachmentOps.ts`).
  *
  * A caller appends inside its own transaction ({@link enqueueActivity},
  * {@link enqueueSessionUpdate}) and, after commit, schedules delivery
@@ -400,6 +407,39 @@ export async function enqueueSessionUpdate(
   return row;
 }
 
+/**
+ * Queue a pull request's attachment to the session's issue, beside its
+ * session link — once per URL per issue (`ops/IssueAttachmentOps.ts`).
+ * @param tx - The caller's transaction.
+ * @param agentSessionId - The session that linked the pull request.
+ * @param link - The session link: its label and URL.
+ * @returns True when a row was queued; false when the issue has it already.
+ */
+export async function enqueueIssueAttachment(
+  tx: TxHandle,
+  agentSessionId: number,
+  link: { label: string; url: string },
+): Promise<boolean> {
+  return queueIssueAttachment(tx, agentSessionId, link, async (content) => {
+    const seq = await nextSeq(tx, agentSessionId);
+    const [row] = await tx
+      .insert(agentActivities)
+      .values({
+        agentSessionId,
+        seq,
+        direction: "outbound",
+        kind: "issue_attachment",
+        contentType: null,
+        content: { ...content },
+        clientActivityId: crypto.randomUUID(),
+        priority: "normal",
+        deliveryStatus: "pending",
+      })
+      .returning();
+    return row;
+  });
+}
+
 /** A person's prompt (and its signal) from a `prompted` webhook. */
 export interface InboundPrompt {
   externalActivityId: string;
@@ -537,11 +577,7 @@ export function deliveryLockKey(agentSessionId: number): string {
  * @returns True for a duplicate id.
  */
 export function isDuplicateActivityError(e: LinearGraphQLError): boolean {
-  return e.errors.some(
-    (entry) =>
-      entry.extensions?.code === "CONFLICT" ||
-      /already exists/i.test(entry.message),
-  );
+  return isDuplicateIdError(e);
 }
 
 /**
@@ -760,8 +796,14 @@ async function sendRow(
   const operation =
     row.kind === "activity"
       ? CreateAgentActivity.name
-      : UpdateAgentSession.name;
+      : row.kind === "issue_attachment"
+        ? "IssueAttachment"
+        : UpdateAgentSession.name;
   try {
+    if (row.kind === "issue_attachment") {
+      await markSent(row, await sendIssueAttachment(integration, session, row));
+      return "sent";
+    }
     if (row.kind === "activity") {
       await linearRequest(
         integration,
@@ -884,10 +926,15 @@ async function defer(
 /**
  * Record a sent row and bring the mirror up to what it implies: the status an
  * activity of its type gives the session in Linear, or the plan, summary, and
- * links a session update set. One transaction, under the session's lock.
+ * links a session update set. An attachment records how it was linked on
+ * its own content. One transaction, under the session's lock.
  * @param row - The row Linear accepted.
+ * @param attachment - For an `issue_attachment`, what sending it did.
  */
-async function markSent(row: AgentActivity): Promise<void> {
+async function markSent(
+  row: AgentActivity,
+  attachment?: IssueAttachmentContent,
+): Promise<void> {
   await api.db.db.transaction(async (tx) => {
     const [session] = await tx
       .select()
@@ -904,9 +951,10 @@ async function markSent(row: AgentActivity): Promise<void> {
         externalActivityId:
           row.kind === "activity" ? row.clientActivityId : null,
         lastError: null,
+        ...(attachment ? { content: { ...attachment } } : {}),
       })
       .where(eq(agentActivities.id, row.id));
-    if (!session) return;
+    if (!session || row.kind === "issue_attachment") return;
 
     if (row.kind === "activity") {
       const implied = statusImpliedBy(row.contentType as ActivityContentType);

@@ -3,6 +3,8 @@ import { join } from "node:path";
 import { api } from "keryx";
 import { LinearGraphQLError, linearRequest } from "../../ops/LinearOps";
 import {
+  AttachmentLinkGitHubPR,
+  AttachmentLinkURL,
   CreateAgentActivity,
   CreateAgentSessionOnComment,
   CreateAgentSessionOnIssue,
@@ -301,6 +303,35 @@ describe("every Linear operation document executes against finear", () => {
     expect(linear.documents.get(id)?.content).toBe("# PRD v2");
     const listed = await run(ListProjectDocuments, { id: projectId });
     expect(listed.project.documents.nodes.map((d) => d.id)).toEqual([id]);
+  });
+
+  test("LC-ATT-01 LC-ATT-02 issue attachments: a GitHub pull request link, and a URL link", async () => {
+    // finear has no attachments: the harness's stand-in answers once finear
+    // has validated each document against Linear's schema.
+    const url = "https://github.com/acme/web/pull/9";
+    linear.githubIntegration(true);
+    try {
+      const github = await run(AttachmentLinkGitHubPR, {
+        id: crypto.randomUUID(),
+        issueId: issue.id,
+        url,
+        title: "Pull request #9",
+      });
+      expect(github.attachmentLinkGitHubPR.attachment.url).toBe(url);
+    } finally {
+      linear.githubIntegration(false);
+    }
+    const linked = await run(AttachmentLinkURL, {
+      id: crypto.randomUUID(),
+      issueId: issue.id,
+      url,
+      title: "Pull request #9",
+    });
+    expect(linked.attachmentLinkURL.success).toBe(true);
+    // One attachment per URL per issue, as Linear keeps them.
+    expect(
+      [...linear.attachments.values()].filter((a) => a.issueId === issue.id),
+    ).toHaveLength(1);
   });
 
   test("a GraphQL error is a LinearGraphQLError carrying Linear's message", async () => {

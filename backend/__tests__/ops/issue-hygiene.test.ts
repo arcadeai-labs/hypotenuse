@@ -3,6 +3,12 @@ import { eq } from "drizzle-orm";
 import { api } from "keryx";
 import { agentSessions } from "../../schema/agent_sessions";
 import {
+  callTool,
+  heldSession,
+  sessionsOnIssue,
+  subIssue,
+} from "../actions/dispatch-helpers";
+import {
   FINEAR_FIXTURES,
   FINEAR_PRIMARY_KEY,
   useFinear,
@@ -27,8 +33,9 @@ import {
 import { buildTestUniverse, HOOK_TIMEOUT, type TestUniverse } from "../setup";
 
 /**
- * Issue hygiene at claim, against finear: a person's delegation moves the
- * issue to the team's first started state; an automation's, a mention, an
+ * Issue hygiene at claim, against finear: a person's delegation, or a
+ * manager's dispatch, moves the issue to the team's first started state; an
+ * automation's, a mention, an
  * already-started issue, and a manager are left alone; a missing delegate is
  * set; the assignee is never touched; a failure is a thought, not a failed
  * claim.
@@ -143,6 +150,50 @@ describe("the started-state move", () => {
     await settle();
     expect((await itemRow(item.id)).status).toBe("claimed");
     await laptop.complete(item.id, "completed");
+  });
+
+  test("LC-DEL-07 a manager's dispatch moves the worker's issue to the team's first started state", async () => {
+    const manager = await heldSession(
+      linear,
+      appUserId,
+      laptop,
+      "Plan the export",
+      "manager",
+    );
+    const identifier = await subIssue(
+      universe.url,
+      laptop,
+      manager,
+      "Write the CSV",
+    );
+    const answer = await callTool(
+      universe.url,
+      laptop,
+      "hypotenuse_dispatch",
+      manager.sessionId,
+      { issue: identifier },
+    );
+    expect(answer.status).toBe(200);
+    await linear.drain();
+    await settle();
+    const [child] = await sessionsOnIssue(identifier);
+    // The app started the session: Linear names no person as its creator.
+    expect(child.creatorExternalUserId).toBeNull();
+    const before = await issueNow(child.externalIssueId);
+    expect(before.state.type).not.toBe("started");
+    const item = await claimFirst(child.id);
+    expect(item.kind).toBe("dispatch");
+    const now = await issueNow(child.externalIssueId);
+    expect(now.state).toMatchObject({
+      id: FINEAR_FIXTURES.primary.started,
+      type: "started",
+    });
+    expect(item.hygiene?.state).toEqual({
+      outcome: "moved",
+      detail: now.state.name,
+    });
+    await laptop.complete(item.id, "completed");
+    await laptop.complete(manager.workItemId, "completed");
   });
 
   test("an issue already started is left as it is", async () => {

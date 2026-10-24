@@ -82,6 +82,18 @@ a sign-in by link mid-turn gets that link passed through, when it is a public `h
 A long build that prints nothing still shows *"Still working"* every `keepalive_interval`, so Linear never thinks
 the session is stuck.
 
+### What happens to the issue
+
+The server keeps the issue tidy, so no agent needs the rights to. It never changes the assignee.
+
+| When | The issue |
+|---|---|
+| a worker starts on an issue you delegated, or a planning session dispatched | moves to your team's first *started* state (In Progress), unless it is already started, done, or canceled |
+| a worker starts from a mention, or from an automation | stays where it is: triage is yours |
+| a worker starts on an issue with no delegate | gets `@hypotenuse` as its delegate |
+| a pull request is linked to the session | is attached to the issue as well — through Linear's GitHub integration where it reaches the repository, else as a link — once per pull request |
+| a worker's first pull request is attached | moves to your team's review state — a started state named like *In Review* — if the team has one and the issue is not done or canceled |
+
 ## Permissions
 
 When an agent asks before running a tool, the role's `permission_policy` answers:

@@ -162,10 +162,19 @@ after a disengagement cancel (`delegate_removed`, `issue_closed`, `unassigned`, 
 still sends for the turn is dropped, and its end posts no fallback answer.
 
 **Issue hygiene runs at claim**, on the server (`ops/IssueHygieneOps.ts`), so no daemon holds `issueUpdate` rights:
-for a session's first turn, a worker moves an issue a person delegated to the team's first `started` state, sets the
-app as delegate when the issue has none, and never touches the assignee; an automation's session, a mention, and a
-manager leave the state alone. Each outcome is recorded on the work item; a failure is a thought, never a failed
-claim. The same claim links the session to its dashboard page (`addedExternalUrls`, once).
+for a session's first turn, a worker moves an issue a person delegated, or a manager dispatched, to the team's first
+`started` state, sets the app as delegate when the issue has none, and never touches the assignee; an automation's
+session, a mention, and a manager leave the state alone. Each outcome is recorded on the work item; a failure is a
+thought, never a failed claim. The same claim links the session to its dashboard page (`addedExternalUrls`, once).
+
+**A pull request linked to a session is attached to its issue** (`ops/IssueAttachmentOps.ts`), because Linear's
+pull request automations read the issue's attachments, not the session's links. Whichever path links it — the
+daemon's detection or `linear_report_pr` — also queues an `issue_attachment` outbox row, once per URL per issue. The
+outbox sends `attachmentLinkGitHubPR` for a GitHub pull request, so Linear's GitHub integration drives the issue where
+it reaches the repository, and `attachmentLinkURL` when that is refused or for another forge; the row's client id is
+the attachment's id, so a resend is a duplicate. A worker's first attachment on an issue moves it to the team's
+review state (a `started` state named like "In Review") unless it is completed or canceled; a team without one
+leaves it where it is. The result is recorded on the row; a failed move is logged, never posted.
 
 **Everything written to Linear goes through the activity outbox** (`agent_activities` rows with
 `direction = outbound`), drained by `activities:deliver`. Rows get a per-session `seq` under the session's row
@@ -341,7 +350,7 @@ rules agree — never one in use, with uncommitted changes, with unpushed commit
 | `elicitation/create` (form or url) | `elicitation` (+ `auth` for url mode) | `elicitation`, `signal: select` or `auth` |
 | `stopReason: refusal / max_tokens / max_turn_requests`, crash, timeout | `error` | `error` |
 | `session_info_update.title` | `summary` | `agentSessionUpdate(summary)` |
-| a PR URL of the session's own repository in an `execute` result or the agent's message (later also `daemon:linear-report-pr`) | `external_url` | `agentSessionUpdate(addedExternalUrls)` labelled "Pull Request" |
+| a PR URL of the session's own repository in an `execute` result or the agent's message (later also `daemon:linear-report-pr`) | `external_url` | `agentSessionUpdate(addedExternalUrls)` labelled "Pull Request", and the issue's attachment (`attachmentLinkGitHubPR`, else `attachmentLinkURL`) |
 | `usage_update` | `usage`: the turn's share of the agent's cumulative cost (less what the session had spent before the turn) and the context window; the prompt response's tokens join it at turn end | dashboard and cost records only |
 | Linear `prompted` with `signal: stop` | `cancel` frame → `session/cancel` | final `response` saying it stopped and where things stand |
 
