@@ -95,6 +95,11 @@ work item, for the dashboard and for the turn's telemetry span. Three things sto
   item is locked, and a foreign key to `runners` makes Postgres take a key-share lock on the runner row then — after
   the item, the reverse of a heartbeat's order (runner, then its items). CI's daemon suite deadlocked on exactly
   that. The ids stay for a live join; the names a person reads are copied anyway.
+- **A turn taken away still moves the baseline.** When the server requeues a claim (a lapsed lease, revocation), it
+  records what that claim reported, so the daemon must record the session's cost so far even though it writes
+  nothing else for the lost turn — or the next resume counts the lost claim's spend again. It does so only when the
+  lost turn ran on the ACP session already recorded (`acpSessionAfterTurn`). Spend the lost claim made after its
+  last event reached the server is then counted nowhere: undercounting a lost claim was chosen over counting it twice.
 - **ACP v2's `PromptResponse` declares no `usage`.** The token counts are the unstable v1 field an agent sends
   anyway; the SDK passes it through and the host reads it by cast. If a later SDK strips unknown keys, tokens go
   quietly to null — the `costed` scenario in `host.test.ts` is what would notice.
