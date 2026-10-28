@@ -9,7 +9,7 @@
 >
 > Every later page is built on this, and none of it hand-picks a color.
 
-> **Status: planned, not built.** It builds on [phase 01](./phase-01-foundation.md) (the frontend scaffold and
+> **Status: built.** It builds on [phase 01](./phase-01-foundation.md) (the frontend scaffold and
 > `design/`). The pages that *use* the kit arrive with [phase 04](./phase-04-organizations-users-and-rbac.md) and
 > later. The user asked to keep the v1 style for the docs and administration pages, so this phase is a **port** of
 > v1's design-system phase, not a redesign.
@@ -262,14 +262,14 @@ into a test (v1's serif lesson).
 
 ## Definition of done
 
-- [ ] Every generator output is regenerated from unchanged inputs, plus the additive `--status-idle`
-- [ ] The UI kit passes `ui-api-parity` against ToolExec's export list
-- [ ] Conversation-state glyphs, the bot badge, and platform chips, in web and CLI, with the same state names
-- [ ] The shell has the organization and project switchers and 2.0's sidebar; disabled destinations never name a phase
-- [ ] `/style-guide` shows every 2.0 surface with fixtures in both themes
-- [ ] The marketing home, the docs frame, and the social card carry 2.0 copy
-- [ ] `DESIGN.md` describes 2.0's surfaces; no doc still describes the runner fleet
-- [ ] Every guard test passes; e2e runs in the CI gate as **E2E Test**
+- [x] Every generator output is regenerated from unchanged inputs, plus the additive `--status-idle`
+- [x] The UI kit passes `ui-api-parity` against ToolExec's export list
+- [x] Conversation-state glyphs, the bot badge, and platform chips, in web and CLI, with the same state names
+- [x] The shell has the organization and project switchers and 2.0's sidebar; disabled destinations never name a phase
+- [x] `/style-guide` shows every 2.0 surface with fixtures in both themes
+- [x] The marketing home, the docs frame, and the social card carry 2.0 copy
+- [x] `DESIGN.md` describes 2.0's surfaces; no doc still describes the runner fleet
+- [x] Every guard test passes; e2e runs in the CI gate as **E2E Test**
 
 ## Open questions
 
@@ -278,4 +278,79 @@ into a test (v1's serif lesson).
 
 ## Learnings from the build
 
-Not built yet.
+### What is built
+
+Every Definition of done item. `/style-guide` renders every primitive and every 2.0 surface from fixtures, in both
+themes side by side; the browser suite (31 specs) runs as **E2E Test** inside the CI gate and boots only Vite.
+
+| Piece | Where |
+|---|---|
+| Generator outputs, plus `--status-idle` | `design/tokens.ts`; `theme:check` is the first step of frontend lint |
+| The state table, shared by web and CLI | `design/states.ts` |
+| UI kit (ToolExec's API) and v1's primitives | `frontend/src/ui/**`; `ui-api-parity.test.ts` holds ToolExec's frozen list |
+| Glyphs, `StatusGlyph`, `SandboxJobGlyph`, `BotBadge`, `PlatformChip` | `frontend/src/ui/{glyphs,StatusGlyph,BotBadge,PlatformChip}*` |
+| Shell, switchers, keymap, palette | `frontend/src/components/{AppShell,shell/*}`, `frontend/src/commands/*` |
+| The signature surfaces, fixture-driven | `frontend/src/components/surfaces/*`, `frontend/src/pages/styleGuideFixtures.ts` |
+| Public frame, docs frame, social card | `frontend/src/pages/{marketing,docs}`, `frontend/scripts/*` |
+| OAuth page theme test | `backend/__tests__/oauth/authorize-theme.test.ts` |
+| CLI palette and glyphs | `cli/src/output/{theme,tty}.ts` (not yet wired into a command) |
+
+### Decisions the plan left open
+
+- **The state names live in `design/states.ts`, not in the frontend.** The plan said the dashboard and the CLI
+  import "the same names"; the CLI may not import `frontend/`, and `design/` is the one directory every workspace may
+  read. It holds the states, the glyph kinds (token, Unicode, ASCII), and each status's words — and is hand-written,
+  not generated. When the conversation schema lands, the server's enum should be checked against it.
+- **Glyphs are keyed by kind, statuses by key.** Eight glyph kinds (`working`, `hibernating`, `waiting-person`,
+  `waiting-system`, `complete`, `failed`, `provisioning`, `stale`) serve eight conversation statuses
+  (`waiting:approval`, `ended:failed`, …) and four sandbox job states. The plan's table had no row for a finished
+  sandbox job; `complete` and `failed` reuse the ended glyphs. The stale glyph's CLI shape is `◦`, because `◌` is
+  provisioning's.
+- **`StatusGlyph` takes the server's union**, `{ state: "waiting", waitingOn: "approval" }`, spread as props, and
+  labels itself with what it waits on.
+- **The bot badge is the `bot` tag on the accent tint, beside the avatar,** and a bot's monogram is a rounded square
+  on `--accent-subtle`. `text-primary` on `accent-subtle` joined `CONTRAST_PAIRS`. Avatar's `agent?: string` became
+  `bot?: boolean`; `bot-badge.test.ts` asserts the badge on every bot render and that nothing outside the kit paints
+  `ui-avatar`.
+- **Disabled destinations are one list.** `components/shell/destinations.ts` holds each destination's route, icon,
+  `g` shortcut, and `available`. A destination that is not available renders as a `span` with `aria-disabled` and
+  `title="Not available yet"`, and its palette command's `when` hides it, so its keys do nothing. Every destination is
+  unavailable today; each page's phase flips one flag. The shell has no `can()` yet — `may` answers `false` — and
+  [phase 04](./phase-04-organizations-users-and-rbac.md) replaces that and `shell/shellFixtures.ts`.
+- **The switchers take props.** `OrganizationSwitcher` and `ProjectSwitcher` read `ShellData` (fixtures: Acme, with
+  Support and Platform); Members and New project are disabled items. The account menu's Account and Sign out are
+  disabled, not absent.
+- **`/docs` opens the first page** by redirect, since there is one page and no index. A page embeds a themed
+  screenshot as `![alt](illustration:<name>)`.
+- **The decay indicator stays open.** `DecayMeter` draws both a bar and a shrinking ring; the explorer defaults to
+  the bar, and `/style-guide` shows both for [phase 09](./phase-09-memory.md) to settle.
+- **The home page says "In development"** in a chip above the hero, so a visitor does not read the panels as shipped.
+
+### Traps found while building
+
+- **react-markdown blanks a URL scheme it does not know.** `illustration:shell` reached the `img` override as `""`,
+  so the docs page drew an empty image with every unit test green; the browser console said so. `MarkdownBlock` now
+  passes a `urlTransform` that keeps `illustration:` only with `diagrams` and defers to `defaultUrlTransform`
+  otherwise. `docs.spec.ts` asserts the image's `src` follows the app's theme and that it loaded.
+- **JetBrains Mono's ligatures rewrote code.** `=>` drew as `⇒` and `===` as one glyph in a `run_code` program —
+  seen only in a 2× screenshot. Code, `kbd`, `pre`, and `.mono` now set `font-variant-ligatures: none`, and
+  `fonts.test.ts` asserts it.
+- **A chip in a flex column stretches to the column.** The hero's "In development" chip ran the width of the copy;
+  `home.spec.ts` now holds its width under a third of the lede's.
+- **The writing rule's tagline is verbatim.** A paraphrase in the lede slipped past review of the copy;
+  `social.test.ts` now holds the tagline to the descriptions, the home page's `TAGLINE`, and the social card.
+- **`WEB_SERVER_THEME` unset is silent.** Keryx serves its default palette with no warning, so the authorize-theme
+  test failed until `backend/.env.example` named the theme file; `render.yaml` already did for staging.
+- **`renderToString` of the whole app needs a `window`.** The theme provider and the shell read `matchMedia` while
+  they first render; `routes.test.tsx` stubs one rather than making client-only code SSR-safe.
+- **Playwright's browser must match its version.** A preinstalled Chromium of another revision is reached with
+  `PLAYWRIGHT_CHROMIUM_PATH`; CI installs the matching one.
+
+### What the port left for later
+
+v1's `_dashboard.scss` (runner fleet, the session transcript's styles), `PresenceDot`, `CapacityBar`, and
+`RoleChip` are gone. ToolExec's page-frame styles (`_pages.scss`) are kept without the notification bell's, and the
+auth card styles stay in `_public.scss` for sign-in. `NotificationBell`, `LiveSocketContext`, `NotificationContext`,
+`AuthContext`, the skeletons, and the section components arrive with the pages that need them. The generator still
+writes v1's `--status-stopping`, `--runner-*`, and `--role-*` tokens; dropping them is an input change nothing has
+needed yet. `apple-touch-icon.png` is still not generated.

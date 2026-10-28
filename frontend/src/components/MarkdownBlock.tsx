@@ -1,0 +1,129 @@
+import type { ComponentPropsWithoutRef, ReactNode } from "react";
+import { isValidElement } from "react";
+import ReactMarkdown, {
+  type Components,
+  defaultUrlTransform,
+} from "react-markdown";
+import { Link } from "react-router-dom";
+import remarkGfm from "remark-gfm";
+import { cx } from "../ui/cx";
+import { CopyButton } from "./CopyButton";
+import { MermaidDiagram } from "./MermaidDiagram";
+import { ThemedImage } from "./ThemedImage";
+
+/**
+ * Turn heading text into the id the "on this page" rail links to.
+ * @param text - The heading's plain text.
+ * @returns A lowercase, hyphenated slug.
+ */
+export function slugify(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[`*_~]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+/**
+ * Flatten rendered children back to their text.
+ * @param node - React children.
+ * @returns The concatenated text.
+ */
+function textOf(node: ReactNode): string {
+  if (typeof node === "string" || typeof node === "number") return String(node);
+  if (Array.isArray(node)) return node.map(textOf).join("");
+  if (isValidElement<{ children?: ReactNode }>(node))
+    return textOf(node.props.children);
+  return "";
+}
+
+/** An authored docs image naming a themed illustration: `illustration:<name>`. */
+const ILLUSTRATION = /^illustration:([a-z0-9-]+)$/;
+
+/**
+ * Render untrusted or authored markdown. This is the only importer of
+ * `react-markdown` and it never enables raw HTML — that is what makes it safe
+ * to render a bot's output into the DOM.
+ *
+ * A ```` ```mermaid ```` fence draws as a diagram, and an image whose source
+ * is `illustration:<name>` draws as that illustration in the reader's theme,
+ * only with `diagrams`, which is for authored docs; everywhere else a fence
+ * stays a plain code block and an image is an ordinary one.
+ * @param props - The markdown source; `internalLinks` keeps rooted links in-app;
+ *   `diagrams` draws Mermaid fences and themed illustrations.
+ * @returns The rendered markdown.
+ */
+export function MarkdownBlock({
+  children,
+  internalLinks = false,
+  diagrams = false,
+  className,
+}: {
+  children: string;
+  internalLinks?: boolean;
+  diagrams?: boolean;
+  className?: string;
+}) {
+  const components: Components = {
+    h2: ({ children: content }) => (
+      <h2 id={slugify(textOf(content))}>{content}</h2>
+    ),
+    h3: ({ children: content }) => (
+      <h3 id={slugify(textOf(content))}>{content}</h3>
+    ),
+    a: ({ href, children: content }: ComponentPropsWithoutRef<"a">) => {
+      if (internalLinks && href?.startsWith("/") && !href.startsWith("//")) {
+        return <Link to={href}>{content}</Link>;
+      }
+      return (
+        <a href={href} target="_blank" rel="noreferrer noopener">
+          {content}
+        </a>
+      );
+    },
+    img: ({ src, alt }: ComponentPropsWithoutRef<"img">) => {
+      const name =
+        diagrams && typeof src === "string"
+          ? src.match(ILLUSTRATION)?.[1]
+          : undefined;
+      if (name) return <ThemedImage name={name} alt={alt ?? ""} />;
+      return <img src={src} alt={alt ?? ""} />;
+    },
+    pre: ({ node, children: content }) => {
+      const code = node?.children[0];
+      const language =
+        code?.type === "element" ? code.properties.className : undefined;
+      if (
+        diagrams &&
+        Array.isArray(language) &&
+        language.includes("language-mermaid")
+      ) {
+        return <MermaidDiagram source={textOf(content).replace(/\n$/, "")} />;
+      }
+      return (
+        <div className="markdown-code">
+          <pre>{content}</pre>
+          <CopyButton
+            text={textOf(content).replace(/\n$/, "")}
+            label="Copy code"
+          />
+        </div>
+      );
+    },
+  };
+  return (
+    <div className={cx("markdown", className)}>
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={components}
+        // The default transform blanks any scheme it does not know, which
+        // would erase `illustration:` before the `img` override sees it.
+        urlTransform={(url) =>
+          diagrams && ILLUSTRATION.test(url) ? url : defaultUrlTransform(url)
+        }
+      >
+        {children}
+      </ReactMarkdown>
+    </div>
+  );
+}

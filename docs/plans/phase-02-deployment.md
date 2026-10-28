@@ -303,7 +303,8 @@ linear,pylon}`; a `POST` there answers 404 until each platform's ingress lands, 
 mount exactly these routes. They are not part of `healthy`.
 
 **Dropped from v1's blueprint:** `protocol/**` everywhere, `docs/CONFIG.md` and `design/**` from the frontend
-filter (nothing copies them), `WEB_SERVER_THEME` (no theme file until the design system), `OTEL_SERVICE_NAME`
+filter (nothing copied them; *now* the frontend image copies `design/` again and its filter lists `design/**`, because
+the bundle imports the state table and the tokens), `WEB_SERVER_THEME` (no theme file until the design system), `OTEL_SERVICE_NAME`
 (nothing exports telemetry yet), and every `LINEAR_*` key — the test now refuses `SLACK_*`, `LINEAR_*`, and
 `PYLON_*` outright. The worker runs four task processors rather than v1's one, because ticks mostly wait on a model.
 

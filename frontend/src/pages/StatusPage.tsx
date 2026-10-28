@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { PageHeader } from "../components/shell/PageHeader";
+import { Alert, Table } from "../ui";
 import { apiFetch } from "../utils/client";
 import { checkLabel, type StatusResponse, statusChecks } from "../utils/status";
 
@@ -20,40 +22,33 @@ export function StatusPage() {
       );
   }, []);
 
-  if (error) {
-    return (
-      <main>
-        <h1>Server status</h1>
-        <p role="alert">The server did not answer: {error}</p>
-      </main>
-    );
-  }
-  if (!status) {
-    return (
-      <main>
-        <h1>Server status</h1>
-        <p>Asking the server…</p>
-      </main>
-    );
-  }
-
   return (
-    <main>
-      <h1>Server status</h1>
-      <p>
-        {status.name} {status.version} is{" "}
-        <strong>{status.healthy ? "healthy" : "unhealthy"}</strong>.
-      </p>
-      <table>
-        <tbody>
-          {statusChecks(status).map((check) => (
-            <tr key={check.label}>
-              <th scope="row">{check.label}</th>
-              <td>{checkLabel(check.ok)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </main>
+    <div className="page" data-testid="status-page">
+      <PageHeader title="Server status" />
+      {error ? (
+        <Alert variant="danger" role="alert">
+          The server did not answer: {error}
+        </Alert>
+      ) : !status ? (
+        <p className="text-meta">Asking the server…</p>
+      ) : (
+        <>
+          <p>
+            {status.name} {status.version} is{" "}
+            <strong>{status.healthy ? "healthy" : "unhealthy"}</strong>.
+          </p>
+          <Table size="sm">
+            <tbody>
+              {statusChecks(status).map((check) => (
+                <tr key={check.label}>
+                  <th scope="row">{check.label}</th>
+                  <td>{checkLabel(check.ok)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </Table>
+        </>
+      )}
+    </div>
   );
 }

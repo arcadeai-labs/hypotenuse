@@ -1,0 +1,19 @@
+/* Tailwind utilities are opt-in: nothing is scanned until a surface adds an
+   `@source` line here, so generated class names stay deliberate. The theme
+   maps onto our tokens, so a utility emits `var(--…)`, never a palette value.
+   Never map a name onto itself: `--font-sans: var(--font-sans)` in here is a
+   cycle that computes empty, and every page falls back to the browser serif. */
+@import "tailwindcss/utilities" source(none);
+
+@theme inline {
+  --color-app: var(--bg-app);
+  --color-panel: var(--bg-panel);
+  --color-raised: var(--bg-raised);
+  --color-primary: var(--text-primary);
+  --color-secondary: var(--text-secondary);
+  --color-tertiary: var(--text-tertiary);
+  --color-accent: var(--accent);
+  --color-border: var(--border-default);
+  --spacing: 4px;
+  --radius-md: var(--radius);
+}
