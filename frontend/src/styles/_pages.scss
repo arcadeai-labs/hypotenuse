@@ -428,3 +428,250 @@ a.shell-account-item {
 .text-success {
   color: var(--status-complete) !important;
 }
+
+// ---------------------------------------------------------------------------
+// Notifications: the sidebar bell, its menu, and the toasts
+// ---------------------------------------------------------------------------
+
+.shell-notifications {
+  position: relative;
+
+  > .shell-nav-item {
+    width: 100%;
+    border: 0;
+    background: transparent;
+    font: inherit;
+    font-weight: 500;
+    cursor: pointer;
+
+    &.is-disabled {
+      cursor: default;
+    }
+  }
+
+  // The bell sits at the foot of the sidebar, so its menu opens upward and
+  // overhangs the main column rather than the viewport's bottom edge.
+  .ui-dropdown-menu {
+    top: auto;
+    bottom: calc(100% + var(--space-1));
+    width: min(360px, 100vw - var(--space-6));
+  }
+}
+
+.shell-unread {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+// Collapsed to icons, the count becomes a dot on the bell.
+.shell-sidebar[data-collapsed="true"] .shell-notifications .shell-unread {
+  display: block;
+  position: absolute;
+  top: var(--space-1);
+  right: var(--space-2);
+  width: 6px;
+  height: 6px;
+  overflow: hidden;
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+  color: transparent;
+}
+
+.notification-empty {
+  padding: var(--space-2) var(--space-3);
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+}
+
+.notification-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-2);
+  width: 100%;
+}
+
+.notification-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+
+  &.is-unread {
+    font-weight: 600;
+
+    &::before {
+      content: "";
+      display: inline-block;
+      width: 6px;
+      height: 6px;
+      margin-right: var(--space-2);
+      border-radius: var(--radius-pill);
+      background: var(--accent);
+      vertical-align: middle;
+    }
+  }
+}
+
+.notification-actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2) var(--space-2);
+}
+
+.notification-toasts {
+  position: fixed;
+  right: var(--space-4);
+  bottom: var(--space-4);
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  width: min(360px, 100vw - var(--space-7));
+}
+
+.notification-toast {
+  margin-bottom: 0;
+  background: var(--bg-raised);
+  box-shadow: var(--shadow-2);
+  cursor: pointer;
+}
+
+.notification-toast-title {
+  font-weight: 600;
+}
+
+// ---------------------------------------------------------------------------
+// Settings and organization pages
+// ---------------------------------------------------------------------------
+
+.shell-page-subtitle {
+  color: var(--text-tertiary);
+  font-weight: 400;
+}
+
+// A card that is a link target (`#invite`) lands with its header visible.
+.settings-anchor {
+  scroll-margin-top: var(--space-4);
+}
+
+.settings-subheading {
+  margin: var(--space-5) 0 var(--space-2);
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.settings-facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--space-1) var(--space-4);
+  margin: var(--space-4) 0 0;
+
+  dt {
+    color: var(--text-tertiary);
+    font-size: var(--text-xs);
+    font-weight: 500;
+  }
+
+  dd {
+    margin: 0;
+    color: var(--text-secondary);
+  }
+}
+
+.tag-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.tag-chip-remove {
+  display: inline-grid;
+  place-items: center;
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  opacity: 0.7;
+
+  &:hover:not(:disabled) {
+    background: var(--bg-hover);
+    opacity: 1;
+  }
+
+  &:disabled {
+    cursor: default;
+    opacity: 0.35;
+  }
+}
+
+.tag-name {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--text-primary);
+
+  svg {
+    color: var(--text-tertiary);
+  }
+}
+
+.invite-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.invite-icon {
+  flex: none;
+  color: var(--text-tertiary);
+}
+
+.invite-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+// The public top bar's way in: a quiet bordered link beside Docs.
+.public-nav .public-sign-in {
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius);
+  color: var(--text-primary);
+
+  &:hover {
+    background: var(--bg-hover);
+  }
+}
+
+// A field holding one name or address does not stretch across a wide card.
+.settings-input {
+  max-width: 360px;
+}
+
+// A group of checks: labelled by its legend, with no box of its own.
+.settings-fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+
+  > legend {
+    padding: 0;
+  }
+}

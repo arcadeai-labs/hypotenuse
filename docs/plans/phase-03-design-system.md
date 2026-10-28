@@ -282,6 +282,7 @@ into a test (v1's serif lesson).
 
 Every Definition of done item. `/style-guide` renders every primitive and every 2.0 surface from fixtures, in both
 themes side by side; the browser suite (31 specs) runs as **E2E Test** inside the CI gate and boots only Vite.
+*Now:* it boots the backend too, against its own database, for the signed-in specs.
 
 | Piece | Where |
 |---|---|
@@ -316,10 +317,13 @@ themes side by side; the browser suite (31 specs) runs as **E2E Test** inside th
   `g` shortcut, and `available`. A destination that is not available renders as a `span` with `aria-disabled` and
   `title="Not available yet"`, and its palette command's `when` hides it, so its keys do nothing. Every destination is
   unavailable today; each page's phase flips one flag. The shell has no `can()` yet — `may` answers `false` — and
-  [phase 04](./phase-04-organizations-users-and-rbac.md) replaces that and `shell/shellFixtures.ts`.
+  [phase 04](./phase-04-organizations-users-and-rbac.md) replaces that and `shell/shellFixtures.ts`. *Now:* `may`
+  is `can()`, the shell reads live data (`shell/shellData.ts` holds only the types), Settings is available, and a
+  refused palette command is listed disabled with its reason rather than hidden.
 - **The switchers take props.** `OrganizationSwitcher` and `ProjectSwitcher` read `ShellData` (fixtures: Acme, with
   Support and Platform); Members and New project are disabled items. The account menu's Account and Sign out are
-  disabled, not absent.
+  disabled, not absent. *Now:* they read the signed-in person's organizations and projects; New project is disabled
+  with its reason for anyone but an owner.
 - **`/docs` opens the first page** by redirect, since there is one page and no index. A page embeds a themed
   screenshot as `![alt](illustration:<name>)`.
 - **The decay indicator stays open.** `DecayMeter` draws both a bar and a shrinking ring; the explorer defaults to

@@ -1,7 +1,9 @@
 import { Monitor, Moon, Sun } from "lucide-react";
 import { Link, NavLink, Outlet } from "react-router-dom";
+import { useAuth } from "../../context/AuthContext";
 import { type ThemePreference, useTheme } from "../../context/ThemeContext";
 import { Mark } from "../../ui";
+import { DEFAULT_LANDING } from "../../utils/returnTo";
 
 const NEXT_PREFERENCE: Record<ThemePreference, ThemePreference> = {
   system: "light",
@@ -40,11 +42,12 @@ export function ThemeToggle() {
 
 /**
  * The frame for every page a signed-out visitor can read: a top bar with the
- * mark, Docs, and the theme toggle; the page; and a footer. Sign-in joins the
- * top bar when there are accounts to sign in to.
+ * mark, Docs, the theme toggle, and Sign in — or, signed in, the way back into
+ * the app; the page; and a footer.
  * @returns The shell with the routed page inside.
  */
 export function PublicShell() {
+  const { user, loading } = useAuth();
   return (
     <div className="public-shell" data-testid="public-shell">
       <header className="public-topbar">
@@ -56,6 +59,24 @@ export function PublicShell() {
           <NavLink to="/docs" data-testid="public-docs-link">
             Docs
           </NavLink>
+          {!loading &&
+            (user ? (
+              <Link
+                to={DEFAULT_LANDING}
+                className="public-sign-in"
+                data-testid="public-open-app"
+              >
+                Open app
+              </Link>
+            ) : (
+              <Link
+                to="/sign-in"
+                className="public-sign-in"
+                data-testid="public-sign-in-link"
+              >
+                Sign in
+              </Link>
+            ))}
           <ThemeToggle />
         </nav>
       </header>

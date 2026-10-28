@@ -237,6 +237,8 @@ bun dev                                          # backend :8080, frontend :3000
   `bun run workspace:setup` gives a linked worktree its own test database, Redis index, and e2e ports, writes
   them into `.env`, and pins them as `HYPOTENUSE_WORKSPACE_ID`; `--dry-run` prints the plan, `--shared` opts out.
   A single clone skips it.
+- **The browser suite boots its own backend** against `hypotenuse_e2e` (created on first run) and Redis database 2.
+  Two checkouts running it at once share that database unless one sets `E2E_DATABASE_URL`.
 
 ## Planned stack
 
@@ -318,7 +320,7 @@ From v1 and ToolExec, each paid for once already:
 bun install
 bun run lint             # tsc + biome in backend, frontend, and cli
 bun run test             # every workspace's suites; the backend's need Postgres (with pgvector) and Redis
-bun run test:e2e         # the browser suite (Playwright; boots the Vite dev server)
+bun run test:e2e         # the browser suite (Playwright; boots the backend on hypotenuse_e2e and the Vite dev server)
 bun dev                  # the backend on :8080 and the frontend on :3000
 bun run workspace:setup  # give this checkout its own test database and Redis index
 bun run ngrok            # the reserved public tunnels to the local backend and frontend

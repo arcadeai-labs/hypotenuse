@@ -1,3 +1,5 @@
+import type { InviteListPending } from "@backend/actions/invite/invite-list-pending";
+import type { ActionResponse } from "keryx";
 import { Menu } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
@@ -11,13 +13,17 @@ import {
   COMMANDS,
   type Command,
   type CommandContext,
+  commandDeniedReason,
 } from "../commands/registry";
+import { useAuth } from "../context/AuthContext";
 import { useTheme } from "../context/ThemeContext";
+import { useMay } from "../hooks/useMay";
 import { Mark, Sheet } from "../ui";
 import { CommandPalette } from "../ui/CommandPalette";
 import { ShortcutSheet } from "../ui/ShortcutSheet";
+import { apiFetch } from "../utils/client";
 import { Sidebar } from "./shell/Sidebar";
-import { SHELL_FIXTURE } from "./shell/shellFixtures";
+import type { ShellActions, ShellData } from "./shell/shellData";
 
 /** localStorage key for the collapsed sidebar. */
 export const SIDEBAR_STORAGE_KEY = "hypotenuse.sidebar";
@@ -55,9 +61,41 @@ function useNarrow(): boolean {
 }
 
 /**
+ * How many invitations are waiting for the signed-in person, re-read when the
+ * person or the page changes (accepting one is a page away).
+ * @param userId - Who is signed in, or null.
+ * @param pathname - The current route, so leaving `/invites` re-reads.
+ * @returns The count, zero while unknown.
+ */
+function usePendingInviteCount(
+  userId: number | null,
+  pathname: string,
+): number {
+  const [count, setCount] = useState(0);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `pathname` is the re-read trigger.
+  useEffect(() => {
+    if (userId === null) {
+      setCount(0);
+      return;
+    }
+    let cancelled = false;
+    apiFetch<ActionResponse<InviteListPending>>("/invites/pending?limit=1")
+      .then((res) => {
+        if (!cancelled) setCount(res.pagination.total);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [userId, pathname]);
+  return count;
+}
+
+/**
  * The product's frame: sidebar, main column, command palette, shortcut sheet,
- * and the one global key listener. The switchers read fixtures until there
- * are organizations and projects to read. Below 768px the sidebar lives in a sheet
+ * and the one global key listener. The switchers and account menu read the
+ * session; every gated control asks `can()` through {@link useMay}, so it
+ * matches what the server enforces. Below 768px the sidebar lives in a sheet
  * behind a top bar's menu button. It is mounted in exactly one place at a time,
  * so its test ids never resolve twice.
  * @returns The shell around the routed page.
@@ -66,10 +104,49 @@ export function AppShell() {
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const { setPreference } = useTheme();
-  // Nobody is signed in yet, so there is no standing to ask: every gated
-  // command stays hidden.
-  const may = useCallback((_actionName: string) => false, []);
-  const data = SHELL_FIXTURE;
+  const auth = useAuth();
+  const { may, reason } = useMay();
+  const pendingInvites = usePendingInviteCount(auth.user?.id ?? null, pathname);
+
+  const data: ShellData = useMemo(
+    () => ({
+      organizations: auth.organizations.map((o) => ({
+        id: o.id,
+        name: o.name,
+      })),
+      activeOrganizationId: auth.activeOrganizationId,
+      projects: auth.projects.map((p) => ({ id: p.id, name: p.name })),
+      activeProjectId: auth.activeProjectId,
+      user: auth.user ? { name: auth.user.name, email: auth.user.email } : null,
+    }),
+    [
+      auth.organizations,
+      auth.activeOrganizationId,
+      auth.projects,
+      auth.activeProjectId,
+      auth.user,
+    ],
+  );
+  const { setActiveOrganization, setActiveProject, signOut } = auth;
+  const actions: ShellActions = useMemo(
+    () => ({
+      selectOrganization: (id) => void setActiveOrganization(id),
+      selectProject: setActiveProject,
+      signOut: () => {
+        void signOut().then(() => navigate("/sign-in"));
+      },
+      newProjectDenied: reason("project:create"),
+      pendingInvites,
+    }),
+    [
+      setActiveOrganization,
+      setActiveProject,
+      signOut,
+      navigate,
+      reason,
+      pendingInvites,
+    ],
+  );
   const [collapsed, setCollapsed] = useState(readCollapsed);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
@@ -99,16 +176,26 @@ export function AppShell() {
       focusSearch: () =>
         document.querySelector<HTMLElement>("[data-search]")?.focus(),
       may,
+      reason,
       pathname,
     }),
-    [navigate, setPreference, toggleSidebar, may, pathname],
+    [navigate, setPreference, toggleSidebar, may, reason, pathname],
   );
   const commands = useMemo(() => availableCommands(COMMANDS, ctx), [ctx]);
+  const deniedReason = useCallback(
+    (command: Command) => commandDeniedReason(command, ctx),
+    [ctx],
+  );
+  // A refused command is drawn in the palette but never dispatched by a key.
+  const runnable = useMemo(
+    () => commands.filter((command) => !deniedReason(command)),
+    [commands, deniedReason],
+  );
   const run = useCallback((command: Command) => command.run(ctx), [ctx]);
 
   // The matcher keeps a key buffer across renders; rebuild it only when the
   // command set changes, and read the latest context through a ref.
-  const matcher = useMemo(() => createSequenceMatcher(commands), [commands]);
+  const matcher = useMemo(() => createSequenceMatcher(runnable), [runnable]);
   const runRef = useRef(run);
   runRef.current = run;
   const overlayOpen = paletteOpen || shortcutsOpen || (narrow && mobileNavOpen);
@@ -168,6 +255,7 @@ export function AppShell() {
         >
           <Sidebar
             data={data}
+            actions={actions}
             collapsed={false}
             inSheet
             onToggle={() => setMobileNavOpen(false)}
@@ -176,7 +264,12 @@ export function AppShell() {
         </Sheet>
       ) : (
         <div className="shell-sidebar-slot">
-          <Sidebar data={data} collapsed={collapsed} onToggle={toggleSidebar} />
+          <Sidebar
+            data={data}
+            actions={actions}
+            collapsed={collapsed}
+            onToggle={toggleSidebar}
+          />
         </div>
       )}
       <main className="shell-main">
@@ -187,6 +280,7 @@ export function AppShell() {
         onOpenChange={setPaletteOpen}
         commands={commands}
         onRun={run}
+        deniedReason={deniedReason}
       />
       <ShortcutSheet
         open={shortcutsOpen}

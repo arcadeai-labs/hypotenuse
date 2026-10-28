@@ -12,11 +12,13 @@ export interface CommandContext {
   /** Focus the current page's search field, if it has one. */
   focusSearch: () => void;
   /**
-   * `can()` bound to the active project's standing: whether the person may run
-   * an action. False for everything until there is a standing to read, so a
-   * gated command is hidden rather than offered and refused.
+   * `can()` bound to the active project's and organization's standing: whether
+   * the person may run an action. A standing still in flight is not a refusal,
+   * so this answers true until the server has said otherwise.
    */
   may: (actionName: string) => boolean;
+  /** Why an action is refused, or `undefined` when it is not — `useMay().reason`. */
+  reason: (actionName: string) => string | undefined;
   /** The current route's path, for commands that act on the page on screen. */
   pathname?: string;
 }
@@ -33,15 +35,21 @@ export interface Command {
   keywords?: string[];
   /** A key sequence as the keymap reads it: `"g s"`, `"?"`, `"["`, `"mod+k"`. */
   shortcut?: string;
-  /** Hidden, and not dispatched, when this returns false. Gated commands ask `ctx.may()`. */
+  /** Hidden, and not dispatched, when this returns false — for a command whose page does not exist. */
   when?: (ctx: CommandContext) => boolean;
+  /**
+   * The actions the person must be allowed to run for this command to do
+   * anything. A refused command is listed **disabled**, with the reason, rather
+   * than hidden: disabled, never absent. See {@link commandDeniedReason}.
+   */
+  requires?: string[];
   run: (ctx: CommandContext) => void;
 }
 
 /**
  * Every command. A destination's `g` command exists only while its page does,
- * so a shortcut never lands on a page that is not there; gated commands carry
- * a `when` that asks `ctx.may()`.
+ * so a shortcut never lands on a page that is not there; a command the person
+ * may not run names the actions it needs in `requires`, and is drawn disabled.
  */
 export const COMMANDS: Command[] = [
   ...DESTINATIONS.map(
@@ -54,6 +62,24 @@ export const COMMANDS: Command[] = [
       run: (c) => c.navigate(destination.to),
     }),
   ),
+  {
+    id: "invite-member",
+    title: "Invite member",
+    group: "Project",
+    keywords: ["people", "add", "email", "team"],
+    // `invite:create` alone is any organization member; inviting into a
+    // project is a project admin's, which is what reading its invites takes.
+    requires: ["invite:create", "invite:list"],
+    run: (c) => c.navigate("/settings/members#invite"),
+  },
+  {
+    id: "new-project",
+    title: "New project",
+    group: "Project",
+    keywords: ["create", "add"],
+    requires: ["project:create"],
+    run: (c) => c.navigate("/projects/new"),
+  },
   {
     id: "go-docs",
     title: "Open docs",
@@ -123,4 +149,22 @@ export function availableCommands(
   ctx: CommandContext,
 ): Command[] {
   return commands.filter((command) => !command.when || command.when(ctx));
+}
+
+/**
+ * Why a command is refused, from the first of its `requires` the person may
+ * not run, or `undefined` when it is offered.
+ * @param command - The command.
+ * @param ctx - The current context.
+ * @returns The refusal's reason, or undefined.
+ */
+export function commandDeniedReason(
+  command: Command,
+  ctx: CommandContext,
+): string | undefined {
+  for (const action of command.requires ?? []) {
+    const reason = ctx.reason(action);
+    if (reason) return reason;
+  }
+  return undefined;
 }

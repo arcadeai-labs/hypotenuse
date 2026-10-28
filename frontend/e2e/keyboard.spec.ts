@@ -32,7 +32,9 @@ test("a half-typed g survives a re-render", async ({ page }) => {
   // The status page re-renders when the server's answer (or its absence)
   // arrives; a matcher rebuilt on render would drop the buffered `g`.
   await page.keyboard.press("g");
-  await expect(page.getByRole("alert")).toBeVisible();
+  await expect(page.getByTestId("status-page")).toContainText(
+    /is healthy|did not answer/,
+  );
   await page.keyboard.press("[");
   await expect(page.getByTestId("sidebar")).toHaveAttribute(
     "data-collapsed",

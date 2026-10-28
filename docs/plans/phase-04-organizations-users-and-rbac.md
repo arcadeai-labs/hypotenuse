@@ -365,15 +365,15 @@ curl -s localhost:8080/api/actions/permissions | jq '.permissions | map(.level) 
 
 ## Definition of done
 
-- [ ] Sign-up creates an organization, its owner, a project, and the admin tag in one transaction, with synthetic audit rows
-- [ ] Owners have admin standing in every project of their organization, flagged in `standing` and in audit metadata
-- [ ] Project membership requires organization membership; an invite accept creates both
-- [ ] The last-admin and last-owner guards lock their parent rows; the concurrency tests fail without the lock
-- [ ] `AccessOps` is the only implementation of `satisfiesAccess`; `tag:delete` refuses a referenced tag
-- [ ] `actions:permissions` reports five levels; `can()` gates every UI affordance; disabled, never absent
-- [ ] Notifications deliver over the content-free channel and over SMTP
-- [ ] `rbac.test.ts` holds the whole-set maps; e2e runs in the gate
-- [ ] User docs for accounts, organizations, projects, members, and tags
+- [x] Sign-up creates an organization, its owner, a project, and the admin tag in one transaction, with synthetic audit rows
+- [x] Owners have admin standing in every project of their organization, flagged in `standing` and in audit metadata
+- [x] Project membership requires organization membership; an invite accept creates both
+- [x] The last-admin and last-owner guards lock their parent rows; the concurrency tests fail without the lock
+- [x] `AccessOps` is the only implementation of `satisfiesAccess`; `tag:delete` refuses a referenced tag
+- [x] `actions:permissions` reports five levels; `can()` gates every UI affordance; disabled, never absent
+- [x] Notifications deliver over the content-free channel and over SMTP
+- [x] `rbac.test.ts` holds the whole-set maps; e2e runs in the gate
+- [x] User docs for accounts, organizations, projects, members, and tags
 
 ## Open questions
 
@@ -457,6 +457,36 @@ caller yet; `lua/` holds no script.
   of scope": [phase 06](./phase-06-operator-cli.md) is the CLI's sign-in, and a command without it cannot authenticate.
 - **`/api/status` probes the newest migration's column** (`NEWEST_MIGRATION_PROBE` in `ops/HealthOps.ts`), alongside
   the `vector` extension. Every migration that adds a column moves it.
+
+### The frontend
+
+| Piece | Where |
+|---|---|
+| Session, organizations, active project | `frontend/src/context/AuthContext.tsx`; active ids in `localStorage`, healed onto the first available when stale |
+| `can()` and the standings it reads | `frontend/src/utils/permissions.ts`, `context/StandingContext.tsx`, `hooks/{useProjectStanding,useOrganizationStanding,useMay}.ts` |
+| `?next=` | `utils/returnTo.ts` `safeNext()`: same-origin relative paths only (refuses `//`, `/\`, schemes, control characters) |
+| Pages | `pages/{SignInPage,SignUpPage,AccountPage,InvitesPage,NewProjectPage,SettingsPage}.tsx`, `pages/organization/*` |
+| Notifications | `context/{LiveSocketContext,NotificationContext}.tsx`, `components/shell/NotificationBell.tsx` |
+| The browser suite's backend | `frontend/scripts/e2e-backend.ts`, `e2e/{env,global-setup,session}.ts` |
+
+- **`can()` answers three ways** — allowed, denied, unresolved — and a control is drawn disabled only on *denied*,
+  so a standing still loading never flashes a refusal. A refused palette command is listed disabled with its reason
+  (`requires` on a command), and its keys do nothing.
+- **Two actions' reported levels are not the whole rule**, so the UI combines them: a project invite is offered on
+  `invite:create` *and* `invite:list` (admin), an organization invite on `invite:create` *and*
+  `organization:invite-list` (owner); Remove on an organization member reads `organization-membership:edit` (owner),
+  Leave reads `organization-membership:delete`. One level per action cannot describe a rule that depends on the
+  params; the server still decides.
+- **Signed in, with no safe `?next=`, a person lands on Organization → Projects**, since Home is not built.
+- **The browser suite boots the backend** as a second Playwright `webServer`, against `hypotenuse_e2e` (created on
+  first run) and Redis database 2, so a suite run never touches `bun dev`'s or the backend suites' data. CI gives the
+  **E2E Test** job its own pgvector and Redis services. Run the frontend's unit tests with `bun run test`: plain
+  `bun test` in `frontend/` also collects the Playwright specs.
+- **Left for later:** a page for `organization:create`, an unsaved-changes guard, desktop notifications, lists past
+  100 rows, and a separate active project per organization. `project:list` carries no per-project standing, so
+  Organization → Projects cannot show your role in each.
+- **The `shell` docs illustration is stale.** `docs:illustrations` captures `/status`, which now renders signed out
+  ("No organization"); the committed image still shows the old fixture. Recapturing it needs a signed-in capture.
 
 ### Traps found while building
 

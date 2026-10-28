@@ -74,6 +74,6 @@ export const DESTINATIONS: readonly Destination[] = [
     to: "/settings",
     label: "Settings",
     Icon: Settings,
-    available: false,
+    available: true,
   },
 ];

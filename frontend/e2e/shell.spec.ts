@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { LANDED, signUpApi } from "./session.ts";
 
 test("the sidebar collapses to icons with [ and with its toggle, and stays collapsed", async ({
   page,
@@ -43,6 +44,11 @@ test("the sidebar lists 2.0's destinations in order, each disabled until its pag
   await expect(bots).toHaveAttribute("title", "Not available yet");
   await bots.click();
   await expect(page).toHaveURL(/\/status$/);
+  // Settings exists: a link, not a disabled row.
+  await expect(page.getByTestId("nav-settings")).toHaveAttribute(
+    "href",
+    "/settings",
+  );
   await page.getByTestId("nav-docs").click();
   await expect(page).toHaveURL(/\/docs\/getting-started$/);
 });
@@ -50,20 +56,46 @@ test("the sidebar lists 2.0's destinations in order, each disabled until its pag
 test("the organization switcher sits above the project switcher and lists members and New project", async ({
   page,
 }) => {
-  await page.goto("/status");
+  const me = await signUpApi(page.request, "Shell Owner");
+  await page.goto("/organization/projects");
+  await expect(page.getByTestId("organization-switcher-toggle")).toContainText(
+    "Shell Owner",
+    LANDED,
+  );
   const org = await page.getByTestId("organization-switcher").boundingBox();
   const project = await page.getByTestId("project-switcher").boundingBox();
   if (!org || !project) throw new Error("a switcher is missing");
   expect(org.y + org.height).toBeLessThanOrEqual(project.y + 1);
   await page.getByTestId("organization-switcher-toggle").click();
-  await expect(page.getByTestId("organization-members-link")).toBeVisible();
-  await expect(page.getByTestId("new-project-link")).toHaveAttribute(
+  await page.getByTestId("organization-members-link").click();
+  await expect(page).toHaveURL(/\/organization\/members$/);
+  await expect(page.getByTestId("organization-members")).toContainText(
+    me.email,
+  );
+  await page.getByTestId("organization-switcher-toggle").click();
+  // An owner may create projects, so the item is a live link.
+  await expect(page.getByTestId("new-project-link")).not.toHaveAttribute(
     "aria-disabled",
     "true",
   );
   await page.keyboard.press("Escape");
   await page.getByTestId("project-switcher-toggle").click();
-  await expect(page.getByTestId("project-option-2")).toHaveText("Platform");
+  await expect(page.getByTestId(`project-option-${me.project.id}`)).toHaveText(
+    "Default",
+  );
+});
+
+test("signed out, the switchers say there is nothing to switch and the account menu offers sign-in", async ({
+  page,
+}) => {
+  await page.goto("/status");
+  await expect(page.getByTestId("organization-switcher-toggle")).toContainText(
+    "No organization",
+  );
+  await page.getByTestId("account-menu").click();
+  await expect(page.getByTestId("sign-out")).toBeDisabled();
+  await page.getByTestId("account-sign-in").click();
+  await expect(page).toHaveURL(/\/sign-in$/);
 });
 
 test("below 768px the sidebar is a sheet, mounted once", async ({ page }) => {
