@@ -280,7 +280,7 @@ into a test (v1's serif lesson).
 
 ### What is built
 
-Every Definition of done item. `/style-guide` renders every primitive and every 2.0 surface from fixtures, in both
+Every Definition of done item. `/docs/style-guide` renders every primitive and every 2.0 surface from fixtures, in both
 themes side by side; the browser suite (31 specs) runs as **E2E Test** inside the CI gate and boots only Vite.
 
 | Piece | Where |
@@ -322,8 +322,12 @@ themes side by side; the browser suite (31 specs) runs as **E2E Test** inside th
   disabled, not absent.
 - **`/docs` opens the first page** by redirect, since there is one page and no index. A page embeds a themed
   screenshot as `![alt](illustration:<name>)`.
+- **The style guide is a public docs page.** It began as a bare `/style-guide` outside both shells, reachable only
+  from the palette; nothing on it is private, so it moved to `/docs/style-guide`, and `/style-guide` redirects there.
+  A docs section may carry a `component` drawn under its markdown and be `wide`, which gives the rail's column to the
+  article so the two themes still sit side by side.
 - **The decay indicator stays open.** `DecayMeter` draws both a bar and a shrinking ring; the explorer defaults to
-  the bar, and `/style-guide` shows both for [phase 09](./phase-09-memory.md) to settle.
+  the bar, and `/docs/style-guide` shows both for [phase 09](./phase-09-memory.md) to settle.
 - **The home page says "In development"** in a chip above the hero, so a visitor does not read the panels as shipped.
 
 ### Traps found while building

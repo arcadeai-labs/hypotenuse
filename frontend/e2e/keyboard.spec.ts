@@ -10,7 +10,7 @@ test("⌘K opens the palette, filters, and runs a navigation command", async ({
   await expect(page.getByTestId("command-palette")).toBeVisible();
   await page.getByTestId("command-palette-input").fill("style guide");
   await page.keyboard.press("Enter");
-  await expect(page).toHaveURL(/\/style-guide$/);
+  await expect(page).toHaveURL(/\/docs\/style-guide$/);
 });
 
 test("a destination that is not built yet is neither offered nor reachable by its keys", async ({

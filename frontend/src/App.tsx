@@ -6,12 +6,11 @@ import { DocsLayout } from "./pages/docs/DocsLayout";
 import { DocsPage } from "./pages/docs/DocsPage";
 import { HomePage } from "./pages/marketing/HomePage";
 import { StatusPage } from "./pages/StatusPage";
-import { StyleGuidePage } from "./pages/StyleGuidePage";
 
 /**
  * The route table. Public pages sit in `PublicShell`; the product sits in
  * `AppShell`, whose only page so far is the server's own health. The style
- * guide stands outside both, so it can show both themes side by side.
+ * guide is a docs page.
  * @returns The routed application.
  */
 export function App() {
@@ -31,7 +30,11 @@ export function App() {
       <Route element={<AppShell />}>
         <Route path="/status" element={<StatusPage />} />
       </Route>
-      <Route path="/style-guide" element={<StyleGuidePage />} />
+      {/* The style guide's old address, from before it was a docs page. */}
+      <Route
+        path="/style-guide"
+        element={<Navigate to="/docs/style-guide" replace />}
+      />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

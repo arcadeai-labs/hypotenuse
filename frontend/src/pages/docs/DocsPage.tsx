@@ -3,7 +3,7 @@ import { MarkdownBlock } from "../../components/MarkdownBlock";
 import { findSection } from "../../content/docs/sections";
 
 /**
- * One docs page, rendered from its markdown.
+ * One docs page, rendered from its markdown, then its component if it has one.
  * @returns The page, or a not-found message for an unknown slug.
  */
 export function DocsPage() {
@@ -20,11 +20,13 @@ export function DocsPage() {
       </div>
     );
   }
+  const Component = section.component;
   return (
     <div data-testid={`docs-page-${section.slug || "index"}`}>
       <MarkdownBlock internalLinks diagrams>
         {section.markdown}
       </MarkdownBlock>
+      {Component && <Component />}
     </div>
   );
 }

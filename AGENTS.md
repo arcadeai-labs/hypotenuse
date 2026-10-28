@@ -9,7 +9,7 @@ reports back into the conversation it came from.
 > **Status:** the foundation, the deployment, and the design system are built — three Bun workspaces (`backend/`,
 > `frontend/`, `cli/`), Postgres with pgvector, CI behind **CI Complete**, a Render blueprint with staging live at
 > `api.hypotenuse.cloud` ([`docs/DEPLOY.md`](./docs/DEPLOY.md)), and the look: tokens, the UI kit, the app shell, the
-> public site and `/docs`, and `/style-guide` ([`docs/DESIGN.md`](./docs/DESIGN.md)). Nothing a person would call a
+> public site and `/docs`, and the style guide at `/docs/style-guide` ([`docs/DESIGN.md`](./docs/DESIGN.md)). Nothing a person would call a
 > feature exists yet. The build order and every plan are in
 > [`docs/plans/README.md`](./docs/plans/README.md); the system on one page is
 > [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md). Hypotenuse **v1** — local coding agents answering
