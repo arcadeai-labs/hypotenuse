@@ -1,140 +1,48 @@
 # Hypotenuse
 
-**Linear's agent sessions, answered by coding agents on your own machines.**
+**A headless agent your team shares — in Slack, Linear, and Pylon.**
 
-Delegate a Linear issue to `@hypotenuse`, or mention it in a comment. A coding agent on your laptop, or on a teammate's
-build box, picks the work up in a fresh git worktree. It streams its thinking, plan, and tool calls into the Linear
-agent session, opens a pull request, and replies. A **manager** agent can own a whole project: it writes the PRD,
-files the tickets, hands them out to **worker** agents, and reviews what comes back.
+Mention a bot in a Slack thread, delegate a Linear issue to it, or let it pick up a Pylon ticket. It answers where you
+asked, with its own identity, its own tools, and its own memory of that place. When the work needs code, it starts an
+ephemeral sandbox that clones the repository, makes the change, and opens a pull request — and reports back, asks
+questions, or asks for help in the same conversation.
 
-- **Any ACP agent.** Claude Code, Codex, Gemini CLI, GitHub Copilot, goose, OpenCode, Cursor, and anything else that
-  speaks the [Agent Client Protocol](https://agentclientprotocol.com).
-- **Your machines, your credentials.** Agents run where your code, model logins, and git keys already are. Linear
-  credentials stay on the hosted service. Runners and agents reach Linear only through narrowly scoped tools.
-- **Teams.** Many people and many runners per project. Work goes to the person who asked first, sticks to the machine
-  that holds its worktree, and otherwise goes to whoever has free capacity.
-- **Full Linear agent support.** Sessions, activities, plans, signals (`stop`, `select`, `auth`), delegation,
-  guidance, and repository suggestions. See [`docs/LINEAR_COVERAGE.md`](./docs/LINEAR_COVERAGE.md).
-- **OpenTelemetry.** Every turn is one trace in your own collector — the service, the runner, every step of the
-  agent's conversation, and the agent's own model telemetry — at a content level the project chooses and each
-  runner's owner can cap.
+- **Bots with identities.** Each bot has its own prompts, goals, model, and its own Slack and Linear app.
+- **Memory with boundaries.** Each Slack channel, Linear project, or Pylon customer has its own memory, which fades
+  with disuse; the project has a shared memory every bot can read.
+- **Shared tools.** A project's MCP servers and skills are shared by its bots. Every bot has **code mode**: it
+  writes TypeScript that runs in an isolated WebAssembly sandbox against those tools and its memory.
+- **Durable and multi-tenant.** Every message and tool call is stored; agent loops are background tasks that any
+  worker can pick up, so many bots run many conversations at once and a restart loses nothing.
+- **The platform's permissions, the project's RBAC.** Whoever can post where a bot is bound may talk to it. Who
+  may configure it, read its transcripts, or edit its memory is decided by project roles, and every such decision is
+  in the audit log.
 
 > **Status: planned, not built.** This repository holds the design: [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md)
-> and the phased plans in [`docs/plans/`](./docs/plans/README.md). The install and usage below describe the
-> intended product.
+> and the phased plans in [`docs/plans/`](./docs/plans/README.md). Hypotenuse **v1** — local coding agents answering
+> Linear agent sessions — is archived on the [`v1` branch](https://github.com/arcadeai-labs/hypotenuse/tree/v1).
 
 ## How it fits together
 
-```
-Linear ──webhooks──► Hypotenuse service (hosted, Keryx) ──work──► hypotenuse daemon (your machine)
-       ◄──activities──                                  ◄─events──      │
-                                                                         └─ ACP agent in a git worktree
-```
-
-Read [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) for the whole picture.
-
-## Install the CLI
-
-```bash
-# macOS / Linux: standalone binary
-curl -fsSL https://raw.githubusercontent.com/arcadeai-labs/hypotenuse/main/install.sh | bash
-
-# Windows (PowerShell)
-irm https://raw.githubusercontent.com/arcadeai-labs/hypotenuse/main/install.ps1 | iex
-
-# or from npm (requires Bun)
-bun install -g @arcadeai/hypotenuse      # or: npm install -g @arcadeai/hypotenuse
-
-hypotenuse upgrade                       # later: upgrades itself, whichever way it was installed
+```mermaid
+flowchart LR
+  P["Slack · Linear · Pylon"] -- webhooks --> H["Hypotenuse (Keryx)"]
+  H -- "replies, status, questions" --> P
+  H --> L["agent:tick tasks<br/>(durable, fanned out)"]
+  L --> T["memory · MCP servers · code mode"]
+  L --> S["ephemeral sandbox<br/>(Docker / Vercel)"]
+  S -- "status, questions, PR" --> H
 ```
 
-## Run a runner
+[`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) has the whole picture; [`AGENTS.md`](./AGENTS.md) has the rules
+for building it.
 
-```bash
-hypotenuse login                         # opens a browser; signs you in to the hosted service
-hypotenuse project use acme              # the project whose Linear workspace you work in
-hypotenuse runner register --name my-laptop
-hypotenuse config init                   # writes ~/.config/hypotenuse/config.toml
-$EDITOR ~/.config/hypotenuse/config.toml # agents, roles, repositories, subscriptions
-hypotenuse config validate
-hypotenuse service install               # launchd / systemd user service; or: hypotenuse daemon start
-```
+## Built on
 
-Then delegate an issue to `@hypotenuse` in Linear.
-
-A minimal config:
-
-```toml
-[server]
-url = "https://api.hypotenuse.cloud"
-project = "acme"
-
-[runner]
-name = "my-laptop"
-max_parallel_jobs = 2        # jobs at once on this machine; roles and agents can set lower max_parallel
-roles = ["worker", "manager"]
-
-[subscriptions]
-teams = ["ENG"]
-
-[agents.claude]
-preset = "claude"
-
-[agents.codex]
-preset = "codex"
-
-[roles.manager]
-agent = "claude"
-prompt_file = "~/.config/hypotenuse/prompts/manager.md"
-
-[roles.worker]
-agent = "codex"
-permission_policy = "allow"
-
-[[repositories]]
-path = "~/code/web"          # the remote and base branch come from the clone's origin
-setup = ["bun install"]
-
-[sessions]
-worktrees = "always"
-cleanup = "on-merge"
-```
-
-Every key is documented in [`docs/CONFIG.md`](./docs/CONFIG.md).
-
-## Day to day
-
-```bash
-hypotenuse daemon status                 # connection, capacity, live sessions
-hypotenuse agents list                   # coding agents running on this machine
-hypotenuse agents kill ENG-123           # stop one (the Linear session says so)
-hypotenuse worktrees list
-hypotenuse worktrees cleanup --dry-run
-hypotenuse session list                  # sessions across the project
-hypotenuse doctor                        # checks git, agents, logins, server, clock
-```
-
-## Develop
-
-Prerequisites: [Bun](https://bun.sh) 1.4+, Postgres (16+; CI runs 18), and Redis, all running locally. No Docker
-Compose: Docker only builds deployment images.
-
-```bash
-bun install
-createdb hypotenuse && createdb hypotenuse_test
-cp backend/.env.example backend/.env && cp frontend/.env.example frontend/.env
-
-bun run lint                 # tsc + biome, every workspace
-bun run test                 # every workspace; the backend fetches finear (the fake Linear) first
-bun dev                      # backend on :8080, frontend on :3000 — open http://localhost:3000/status
-```
-
-If `$USER` is unset in your shell, node-postgres cannot pick a role from `postgres://localhost/…`; put the user in
-the URL (`postgres://you@localhost:5432/hypotenuse`) in `backend/.env`.
-
-See [`AGENTS.md`](./AGENTS.md) for the rules and conventions, and [`docs/plans/`](./docs/plans/README.md) for the
-build order.
+[Keryx](https://www.keryxjs.com/), with plumbing from [ToolExec](https://github.com/arcadeai-labs/toolexec) and ideas
+from [botholomew](https://github.com/evantahler/botholomew), [membot](https://github.com/evantahler/membot), and
+[Pi Durable](https://earendil.com/posts/pi-durable/).
 
 ## License
 
-[Apache License 2.0](./LICENSE).
+Apache-2.0 — see [`LICENSE`](./LICENSE).

@@ -1,452 +1,300 @@
 # AGENTS.md — Hypotenuse
 
-Hypotenuse connects **coding agents running on people's own computers** to **Linear** as a Linear agent. Delegate an
-issue to `@hypotenuse` (or mention it) and a coding agent — Claude Code, Codex, Gemini CLI, goose, OpenCode, or any
-other [ACP](https://agentclientprotocol.com) agent — picks it up on a teammate's machine in a fresh git worktree,
-streams its thinking, plan, and tool calls into the Linear agent session, opens a pull request, and answers. A
-**manager** role writes PRDs and tickets and dispatches them to **worker** roles that implement them.
+Hypotenuse is a **headless agent that a team shares**. People reach it where they already work — **Slack** (company
+chat), **Linear** (issues), and **Pylon** (customer support) — and it answers there, with its own identity, its own
+tools, and its own memory. Many bots run in many conversations at once, across many tenants. When a task needs code,
+a bot hands it to an **ephemeral sandbox** that clones the repository, does the work, opens a pull request, and
+reports back into the conversation it came from.
 
-Three parts, one repository:
+> **Status:** planned. No phase is built yet; the repository holds the plans, this file, the design tokens, and a
+> docs check. The build order and every plan are in [`docs/plans/README.md`](./docs/plans/README.md); the system on
+> one page is [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md). Hypotenuse **v1** — local coding agents answering
+> Linear agent sessions through a runner daemon — is archived on the
+> [`v1` branch](https://github.com/arcadeai-labs/hypotenuse/tree/v1). Its plans, learnings, and code remain the
+> reference for everything 2.0 ports from it.
 
-- a hosted **[Keryx](https://www.keryxjs.com/)** service (`backend/` + `frontend/`) that receives Linear's webhooks,
-  holds every Linear credential, and routes work to runners — one Action class is simultaneously an HTTP endpoint,
-  a CLI command, a background task, and an OAuth-protected MCP tool;
-- the **`hypotenuse` CLI and daemon** (`cli/`), distributed on npm and as compiled binaries, which registers a
-  machine as a runner, runs ACP agents in worktrees, and validates its own config;
-- a shared wire contract (`protocol/`).
+**This file is the working summary: the rules, the workflow, the conventions, and enough of the planned
+architecture to find your way.** The reasoning behind each decision lives with the plan that builds it, in
+[`docs/plans/`](./docs/plans/README.md). Every plan ends in a **Learnings from the build** section: read it before
+changing something load-bearing, and write to it when you learn something new.
 
-**This file is the working summary: the rules, the conventions, and enough architecture to find your way.** The map
-is [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md). The reasoning behind each decision lives with the plan that
-builds it, in [`docs/plans/`](./docs/plans/README.md). Every doc there ends in a **Learnings from the build** section,
-and that is where to read before changing something load-bearing, and where to write when you learn something new.
+## Where it comes from
 
-> **Status:** being built, one phase at a time — see [`docs/plans/README.md`](./docs/plans/README.md) for which phases
-> have shipped.
-> The plumbing for users, projects, RBAC, audit, the frontend shell, and the operator CLI is ported from
-> [ToolExec](https://github.com/arcadeai-labs/toolexec); distribution and self-upgrade are ported from
-> [mcpx](https://github.com/arcadeai-labs/mcpx).
+| Source | What Hypotenuse takes |
+|---|---|
+| [ToolExec](https://github.com/arcadeai-labs/toolexec) | The project template: the Keryx backend, users, projects and memberships, tag-based RBAC, `AuditedAction` and the audit log, middleware, MCP tool policy, the frontend shell, the docs site, the operator CLI, the sandbox provider interface, the in-sandbox supervisor and its protocol, credential containment, human help |
+| [Hypotenuse v1](https://github.com/arcadeai-labs/hypotenuse/tree/v1) | The design system and look, the Linear OAuth / webhook / activity-outbox stack and its finear harness, OpenTelemetry export, cost records, CLI distribution |
+| [botholomew](https://github.com/evantahler/botholomew) | The tick, terminal tools, approvals that park and resume, progressive MCP disclosure, code mode with resumable continuations, prompt files and skills |
+| [membot](https://github.com/evantahler/membot) | Versioned memory documents, chunking, hybrid semantic + keyword search with rank fusion, the memory tool surface |
+| [Pi Durable](https://earendil.com/posts/pi-durable/) | Intent written before every effect, replay only what is safe, idempotency from durable ids, typed waits, background compaction |
+| [Keryx](https://www.keryxjs.com/) | One Action class is an HTTP endpoint, a CLI command, a background task, and an OAuth-protected MCP tool |
 
 ## Non-negotiable rules
 
+These bind from the first line of code. A rule that names a thing not built yet binds from the phase that builds it.
+
 1. **Tests required.** Every code addition ships with tests. Backend tests drive a **real booted server over HTTP**
-   against an isolated test database — no mocks. Linear is **[finear](https://github.com/pmdroid/finear)**, booted in
-   process; coding agents are the scripted fake ACP agent in `cli/__tests__/fixtures/`. Neither is a mock of *our*
-   code: both speak the real wire protocol to it.
+   against an isolated test database — no mocks of our own code. What we do not own is faked **in process, over its
+   real wire protocol**: Linear is [finear](https://github.com/pmdroid/finear); Slack and Pylon are fakes we build
+   from their published API schemas, signing their webhooks for real; the model is a scripted server speaking the
+   provider's HTTP API, so the real AI SDK provider code runs; a sandbox's coding agent is a scripted CLI. None of
+   those is a mock of Hypotenuse: each speaks the protocol to it.
 2. **JSDoc everywhere.** Every method and exported function has a JSDoc annotation/description.
 3. **CRUD includes a paginated `list`.** Every CRUD action set includes a `list` action using Keryx's
    `paginationInputs({ defaultLimit: 25 })` / `paginate`, answering with a `pagination: { page, limit, total, pages }`
    envelope alongside the named collection.
-4. **Keryx bugs go upstream.** If you hit a bug in **Keryx itself**, do **not** work around it. File an issue at
-   [`actionhero/keryx`](https://github.com/actionhero/keryx/issues) with a minimal repro, then stop and surface it.
-   Filed so far: Keryx handled a WebSocket connection's frames concurrently, so subscribe and unsubscribe
-   could apply out of order — is [actionhero/keryx#550](https://github.com/actionhero/keryx/issues/550), fixed in
-   Keryx 0.48.1, which is our floor; `project-notifications.test.ts` holds the regression test; and
-   [actionhero/keryx#552](https://github.com/actionhero/keryx/issues/552), open — a malformed or empty JSON body
-   escapes the web server as Bun's own 500 and leaks a `Connection` (the CLI sends a JSON content type only with a
-   body).
-5. **finear gaps go upstream too.** finear is our Linear. When it lacks a behavior real Linear has (a mention in a
-   comment starting a session, a structured `promptContext`, guidance, `client_credentials`), file it at
-   [`pmdroid/finear`](https://github.com/pmdroid/finear/issues) and drive the behavior through finear's
-   `/__test/*` control routes meanwhile. Never fake Linear behavior inside `backend/` to make a test pass. The open
-   list is in [`docs/LINEAR_COVERAGE.md`](./docs/LINEAR_COVERAGE.md#known-finear-gaps).
-6. **Every data-changing action is audited.** Any action that inserts, updates, or deletes extends `AuditedAction`
+4. **Upstream bugs go upstream.** If you hit a bug in **Keryx itself**, do **not** work around it — not even with a
+   one-line config change that would make it go away. File an issue at
+   [`actionhero/keryx`](https://github.com/actionhero/keryx/issues) with a minimal repro, then **stop and surface
+   it** to the person you are working for. The same holds for finear
+   ([`pmdroid/finear`](https://github.com/pmdroid/finear/issues)) and for any fake we depend on but do not own:
+   when it lacks a behavior the real platform has, file it and drive that behavior through the fake's test-control
+   routes meanwhile — **never fake platform behavior inside `backend/` to make a test pass**. Record every filed
+   issue, with its number and status, in this rule and in the learnings of the phase that hit it. Filed so far:
+   none for 2.0. (v1 filed [actionhero/keryx#550](https://github.com/actionhero/keryx/issues/550), fixed in 0.48.1,
+   and [#552](https://github.com/actionhero/keryx/issues/552), fixed by #553 in 0.48.2 — our floor.)
+5. **Every data-changing action is audited.** Any action that inserts, updates, or deletes extends `AuditedAction`
    and implements `runWithAudit(tx, params, connection)`, routing **every** write through `tx` and setting
    `connection.metadata.auditBefore` / `auditAfter` from `serializeX()` output. A new secret-bearing param means
-   adding its key to `SENSITIVE_KEYS` in the same commit. The unaudited writers are a closed list, argued in
-   [`phase-04-users-tenancy-and-audit.md`](./docs/plans/phase-04-users-tenancy-and-audit.md): reads, sweeps,
-   `session:create` / `session:destroy`, `webhooks:linear`, `triggers:process-event`, and `triggers:check-notifications` (machine
-   ingress, recorded in `trigger_events`), `cli-auth:device` / `cli-auth:exchange` and a CLI token's sliding-expiry touch (the CLI's
-   sign-in ingress — the person's `cli-auth:approve` / `cli-auth:activate` is the audited decision), the outbox and
-   clocks, and the daemon half (`daemon:*`, recorded in `agent_activities`,
-   `work_items`, and the `cost_records` a claim leaves as it ends) — save `daemon:dispatch`, which writes an `agent:dispatch` row through `writeAuditLog` because it
-   delegates work to the app on a person's issue. The audited thing is always **the decision a person made** — connecting Linear, registering or
-   revoking a runner, editing a routing rule, cancelling a session.
-7. **Linear credentials never leave the server.** No action returns a Linear access token, refresh token, client
-   secret, or webhook secret, and no serializer has a field one fits in. The daemon, the coding agent, and its MCP
-   tools reach Linear only through `daemon:linear-*` actions, which re-derive their scope (integration, issue,
-   role) from the agent session row on every call. That list is closed and asserted by name.
-8. **Daemon actions and human actions are disjoint.** Runner-token actions live in `DAEMON_ONLY_ACTION_NAMES`
-   (`daemon:*`) — do **not** filter by prefix alone, because the human ledger (`runner:list`, `runner:revoke`) is a
-   different prefix on purpose and must stay that way. A `beforeAct` hook refuses every other action to a runner
-   token (it carries its owner's `userId` and would otherwise pass membership for anything that person could do),
-   and refuses `daemon:*` to a human session. If a daemon needs something a human action does, **duplicate it** as
-   `daemon:*`. `daemon:*` and `webhooks:*` are never MCP tools.
-9. **Human MCP ≈ HTTP.** Almost every action with a `web.route` is published as an MCP tool for human OAuth clients.
-   `applyMcpToolPolicy` / `shouldPublishAsMcpTool` in `backend/ops/McpToolPolicyOps.ts` is the source of truth;
-   `rbac.test.ts` asserts every action's live flag equals that function. **Never MCP:** login/signup,
-   `webhooks:linear`, `linear:callback` and `cli-auth:approve` / `cli-auth:activate` (browser hops),
-   `cli-auth:device` / `cli-auth:exchange` (the CLI's sign-in ingress, which returns a token), `daemon:*`, unauthenticated introspection (`status`,
-   `swagger`, `actions:permissions`), clocks (`task.frequency > 0`), and anything with no `web.route`.
-10. **Every Linear interaction is in the coverage matrix.** A new webhook, mutation, query, signal, or activity
-    shape gets a row in [`docs/LINEAR_COVERAGE.md`](./docs/LINEAR_COVERAGE.md) in the same commit, naming the
-    module that handles it and the test that proves it. `backend/__tests__/docs/linear-coverage.test.ts` asserts
-    every row's test file exists and mentions the row's id.
-11. **Never name a plan phase outside `docs/plans/`.** No comment, JSDoc block, test name, config note, or doc says
-    "Phase 9" or "this phase". Say what a column, hook, or placeholder is *for* — "read by the routing clock, which
-    does not exist yet" — because that stays true after the schedule is forgotten.
+   adding its key to `SENSITIVE_KEYS` in the same commit. The unaudited writers are a **closed list**, argued in
+   [`phase-05-audit-logging.md`](./docs/plans/phase-05-audit-logging.md): reads, sweeps and clocks, session
+   create/destroy, machine ingress (`webhooks:*`, recorded in `trigger_events`), the agent loop's own writes
+   (`agent:tick`, recorded in `conversation_entries`), the outbox, and the sandbox's machine half (recorded in
+   `sandbox_job_events`). The audited thing is always **the decision a person made** — editing a bot, binding it
+   to a channel, approving a tool call, answering a help request, granting a repository.
+6. **Credentials never leave the server.** No action returns a platform token, signing secret, model key, MCP
+   server credential, or GitHub App key, and no serializer has a field one fits in. A sandbox holds exactly one
+   credential — its run token — and reaches models, MCP servers, and git through server-side proxies and
+   repository-scoped tokens minted per command. Code mode reaches nothing the bot could not reach as a tool.
+7. **Machine principals and human principals are disjoint.** A sandbox run token may call only the closed
+   `SANDBOX_ONLY_ACTION_NAMES` list, and a human may call none of them — enforced by a `beforeAct` hook, never by
+   name prefix alone. If a sandbox needs something a human action does, **duplicate it** as `sandbox:*`.
+8. **Human MCP ≈ HTTP.** Almost every action with a `web.route` is published as an MCP tool for human OAuth
+   clients. `applyMcpToolPolicy` / `shouldPublishAsMcpTool` in `backend/ops/McpToolPolicyOps.ts` is the source of
+   truth, and `rbac.test.ts` asserts every action's live flag equals it. **Never MCP:** login/signup, browser hops
+   (OAuth callbacks, app installs), `webhooks:*`, `sandbox:*` machine actions and `sandbox:git-credential`,
+   proxies, unauthenticated introspection, clocks (`task.frequency > 0`), and anything with no `web.route`.
+9. **The platform's permissions decide who may talk to a bot; the project's RBAC decides who may run it.** Anyone
+   who can post in a Slack channel, comment on a Linear issue, or write on a Pylon ticket where a bot is bound may
+   address that bot about that place — Hypotenuse adds no second gate and links no identities. Configuring a bot,
+   reading its transcripts, editing its memory, or binding it anywhere is gated by project RBAC: membership, the
+   reserved `admin` tag, and each bot's `accessRead` / `accessWrite` tag lists (`canReadBot` / `canWriteBot`).
+10. **Every platform interaction is in that platform's coverage matrix.** A new webhook, API call, signal, or
+    interactive element gets a row naming the module that handles it and the test that proves it, in the same
+    commit. A docs test asserts every row's test file exists and mentions the row's id.
+11. **Never name a plan phase outside `docs/plans/`.** No comment, JSDoc block, test name, config note, or user doc
+    says "Phase 9" or "this phase". Say what a column, hook, or placeholder is *for* — "read by the schedule clock,
+    which does not exist yet" — because that stays true after the schedule is forgotten. `tests/docs.test.ts`
+    enforces it over every source tree (builder docs — this file and `docs/` — may name phases).
 12. **User-facing docs ship with the feature.** Any change an operator or visitor can see or do — a settings
-    section, a routing behavior, a config key, a CLI command, an RBAC rule — updates the markdown under
-    `frontend/src/content/docs/` in the **same commit**. A new daemon config key also updates
-    [`docs/CONFIG.md`](./docs/CONFIG.md) and the zod schema's `.describe()`; a wire change updates
-    [`docs/RUNNER_PROTOCOL.md`](./docs/RUNNER_PROTOCOL.md) and bumps `PROTOCOL_VERSION` when it is not additive.
+    section, a bot capability, a platform behavior, an RBAC rule, a CLI command — updates the markdown under
+    `frontend/src/content/docs/` in the **same commit**.
 13. **The CLI tracks the operator HTTP surface.** A new action with a `web` route is a candidate for a
-    `hypotenuse <noun> <verb>` command. In the same commit, either wrap it or decide it is out of scope. Out of scope
-    by default: clocks, `daemon:*`, `webhooks:*`, `linear:callback`. A change to `cli/` that should reach users
-    **bumps `cli/package.json` `version`**; merging to `main` releases it (npm + binaries + GitHub release).
+    `hypotenuse <noun> <verb>` command. In the same commit, wrap it or decide it is out of scope. Out of scope by
+    default: clocks, `agent:tick`, `webhooks:*`, `sandbox:*` machine actions, browser hops. A change to `cli/` that
+    should reach users bumps `cli/package.json` `version`; merging to `main` releases it.
 14. **The plans are kept current, and only half of each one is.** Everything above a phase doc's
     `## Learnings from the build` heading is the **plan** — a historical record of what was going to be built. Leave
-    it alone even when it is wrong. The learnings section is the opposite — it describes what is true *now* — and so
-    does every doc that is not one of those plan sections: this file, the [plans index](./docs/plans/README.md),
-    [`ARCHITECTURE.md`](./docs/ARCHITECTURE.md), [`RUNNER_PROTOCOL.md`](./docs/RUNNER_PROTOCOL.md),
-    [`CONFIG.md`](./docs/CONFIG.md), [`LINEAR_COVERAGE.md`](./docs/LINEAR_COVERAGE.md),
-    [`DESIGN.md`](./docs/DESIGN.md), and [`DEPLOY.md`](./docs/DEPLOY.md). A change that makes any of those wrong fixes them **in the same commit**.
-    `backend/__tests__/docs/links.test.ts` resolves every relative link in `AGENTS.md`, `README.md`, and `docs/**`,
-    and asserts every plan doc still carries the `## Learnings from the build` heading.
+    it alone even when it is wrong; it is the only account of why the shipped thing differs. The learnings section
+    is the opposite — it describes what is true *now* — and so does every doc that is not one of those plan sections:
+    this file, the [plans index](./docs/plans/README.md), [`ARCHITECTURE.md`](./docs/ARCHITECTURE.md), and
+    [`DESIGN.md`](./docs/DESIGN.md). A change that makes any of those wrong fixes them **in the same commit**. When a
+    later change invalidates a whole learnings section rather than a sentence, add a note and a translation table at
+    its top instead of rewriting it in place. `tests/docs.test.ts` resolves every relative link and anchor and
+    asserts every plan doc carries the `## Learnings from the build` heading.
 15. **A pull request is not the artifact.** A PR, issue, or comment is for a human who already has the diff. Keep it
     as short as it can be while still conveying the meaning. Load-bearing argument belongs in a code comment or a
-    learnings section, not in the PR body. The same goes for what an agent writes into Linear: activities are for
-    the person watching the session, and a `response` says what happened and where — not a file-by-file list.
+    learnings section, not in the PR body. The same goes for what a bot writes into Slack, Linear, or Pylon: status
+    is for the person watching, and a reply says what happened and where — not a file-by-file list.
+16. **Paint with tokens, both themes.** Components use semantic tokens only — no color literals, no literal font
+    sizes — and every surface is checked in light **and** dark. The look changes by changing an input in
+    `design/tokens.ts`, never a generated file. A bot is always visibly a bot. [`docs/DESIGN.md`](./docs/DESIGN.md)
+    is the spec.
 
-16. **Paint with tokens, both themes.** Components use semantic tokens only — no color literals, no literal
-    font sizes — and every surface is checked in light **and** dark. The look changes by changing an input in
-    `design/tokens.ts`, never a generated file. Status is shown with the shared glyphs, an agent is always visibly
-    an agent, and the CLI prints the same palette and glyphs. [`docs/DESIGN.md`](./docs/DESIGN.md) is the spec.
+## Working on this repository
 
-## Local development
+### Always start from the plan
 
-**Always use the system's Postgres and Redis — never Docker, and never Docker Compose.** Docker is used only to build
-deployment images.
+1. **Find the phase.** Every change belongs to a phase in [`docs/plans/`](./docs/plans/README.md). Read its plan
+   *and* its learnings — and the learnings of the phases it builds on — before writing code. If the change belongs
+   to no phase, it is either a fix to a built phase (its learnings get the note) or a new phase (write the plan
+   first, and get it reviewed).
+2. **One phase, one PR.** Branch `phase-NN-<slug>` from `main`. Build the phase, tick its **Definition of done**,
+   write its **Learnings from the build**, flip its status line and the [index](./docs/plans/README.md), and update
+   this file and every live doc the change touches — all in the same PR. Each phase ends reviewable and deployable.
+   Phase 01 halts for review before Phase 02.
+3. **A mechanism described in two docs drifts.** When you change how something works, grep for every place that
+   describes it (`rg -n "<name>" docs AGENTS.md`) and fix them all in the same commit.
+4. **Enumerate every state.** A rule written as "if A and B, then X; if neither, then Y" leaves the two mixed cases
+   undefined. Write state rules as a table with one row per combination — the conversation state machine most of
+   all.
+5. **Write down what you learn.** A trap, a platform quirk, a decision the plan left open: it goes in the phase's
+   learnings the day you find it. A plan doc whose learnings stop at ship is one nobody can trust next time.
 
-```bash
-brew services start postgresql@17 redis           # once per machine
-createdb hypotenuse && createdb hypotenuse_test   # once per checkout
+### Filing upstream
 
-bun install
-cd backend && cp .env.example .env
-cd ../frontend && cp .env.example .env
-```
+When Keryx, finear, or another dependency misbehaves (rule 4):
 
-One `.env` covers development and test: `loadFromEnvIfSet` checks `${VAR}_${NODE_ENV}` before `${VAR}`. If `$USER` is
-unset (some containers), node-postgres cannot pick a role from `postgres://localhost/…` — put the user in the URL in
-your local `.env`.
+1. Reduce it to a minimal repro outside Hypotenuse.
+2. File it upstream with the repro, the version, and what you expected.
+3. **Stop** and tell the person you are working for, with the issue link. Do not land a workaround.
+4. When it is fixed, raise our version floor in its own commit and add a regression test on our side.
+5. Keep the list in rule 4 and the phase's learnings current.
 
-**finear** is fetched, not installed: `bun run --cwd backend finear:fetch` clones it at the commit pinned in
-`backend/scripts/fetch-finear.ts` into `backend/.finear/` (gitignored), and `bun run test` in `backend/` does that
-first. Bump the pin deliberately, in its own commit.
-`bun run workspace:setup` gives a worktree its own test database, Redis index, and ports when several checkouts run
-at once.
+### Pull requests
 
-**Linear in development.** Tests never touch real Linear. To try the real thing, create a private Linear OAuth app
-(see [`DEPLOY.md`](./docs/DEPLOY.md#create-the-linear-oauth-app)), run `bun run ngrok` for a public HTTPS URL (Linear
-refuses localhost webhook URLs), and set `LINEAR_CLIENT_ID`, `LINEAR_CLIENT_SECRET`, and `LINEAR_WEBHOOK_SECRET` in
-`backend/.env`.
+- Title says what changed, in plain words; the body is a few lines. Link the phase doc.
+- Run every check locally before pushing — lint, the touched suites, and the docs test. Each push starts a new
+  review; one validated push beats three speculative ones.
+- Never skip, disable, or quarantine a test to get green. A flake is not a root cause.
+- Merge `main` into a branch someone else owns; never rewrite their history.
+- Commit messages and PR text follow the repository owner's global rules for signatures and footers.
 
-**A local runner against a local server:**
+### Code conventions
 
-```bash
-bun run --cwd cli hypotenuse login --url http://localhost:8080
-bun run --cwd cli hypotenuse runner register --name dev-laptop
-bun run --cwd cli hypotenuse config init && $EDITOR ~/.config/hypotenuse/config.toml
-bun run --cwd cli hypotenuse config validate
-bun run --cwd cli hypotenuse daemon start --foreground
-```
-
-## Stack
-
-| Layer | Choice |
-|---|---|
-| Runtime / language | Bun + TypeScript (strict). No `npm`/`npx` in development — use `bun`/`bunx` |
-| Hosted framework | Keryx (latest; actions, channels, tasks, MCP, OAuth 2.1) |
-| Database | Postgres via Drizzle (`api.db.db`); migrations via `drizzle-kit`, applied by the worker |
-| Cache / queue | Redis — sessions, rate limits, `node-resque`, WebSocket pub/sub, the Linear token bucket |
-| Linear | GraphQL at `LINEAR_API_URL` (finear in tests), OAuth `actor=app`, signed webhooks |
-| Coding agents | ACP over stdio via `@agentclientprotocol/sdk` (v2 API: `client()` / `connectWith()`) |
-| Agent tools | A stdio MCP server, `hypotenuse mcp`, via `@modelcontextprotocol/sdk` |
-| Daemon state | `bun:sqlite` at `~/.local/state/hypotenuse/state.db` |
-| Validation / lint | Zod v4; Biome (`bun run lint` = `tsc && biome check .`) |
-| Frontend | Vite + React 19 + React Router 7; ToolExec's UI-kit API, repainted by our own design system (LCH-generated tokens, light + dark, Inter, Lucide, `cmdk`) — see [`docs/DESIGN.md`](./docs/DESIGN.md) |
-| CLI | commander; upgradr for self-upgrade; mcpx's logger, TTY detection, and shutdown registry |
-| Distribution | npm `@arcadeai/hypotenuse` (a `--target bun` bundle, so Bun is required) + `bun build --compile` binaries for darwin/linux/windows × x64/arm64, `install.sh` / `install.ps1` |
-| Deploy | Render, one blueprint, staging first |
-
-## Action conventions
-
-Ported unchanged from ToolExec. One class per file, grouped in a domain folder (`actions/runner/runner-register.ts`),
-auto-discovered.
+**Actions.** One class per file, grouped by domain (`actions/bot/bot-create.ts`), auto-discovered.
 
 ```ts
-export class RunnerRegister extends AuditedAction {
-  name = "runner:register";                      // CLI: bun keryx.ts runner:register --projectId 1
-  description = "…";                             // the MCP tool description the model reads
+export class BotCreate extends AuditedAction {
+  name = "bot:create";                         // CLI: bun keryx.ts bot:create --projectId 1
+  description = "…";                           // the MCP tool description the model reads
   middleware = [RateLimitMiddleware, ProjectMemberMiddleware()];
-  web = { route: "/runner", method: HTTP_METHOD.PUT };
+  web = { route: "/project/:projectId/bot", method: HTTP_METHOD.PUT };
   inputs = z.object({ /* Zod, every field .describe()d */ });
   async runWithAudit(tx, params, connection) { /* … */ }
 }
 ```
 
 - **HTTP verbs:** `PUT` = create, `GET` = read/list, `POST` = edit, `DELETE` = delete.
-- **Responses are always a named object** (`{ runner }`, `{ runners, pagination }`), never a bare array.
+- **Responses are always a named object** (`{ bot }`, `{ bots, pagination }`), never a bare array.
 - **Errors:** `TypedError({ message, type: ErrorType.* })`. Use `CONNECTION_ACTION_PARAM_VALIDATION` for input
-  validation, never `ACTION_VALIDATION` (that maps to 500).
-- **Anything a client must decide with, the server decides** (`standing`, `reserved`, a runner's `online`).
+  validation, never `ACTION_VALIDATION` (that maps to 500). An error a model will read names its next move.
+- **Anything a client must decide with, the server decides** — a conversation's state, a bot's readiness.
 - **`ops/*.ts`** hold pure logic and `serializeX()` functions, which strip secrets and emit epoch-ms timestamps.
+  Helpers live in `ops/`, never in `actions/` (Keryx instantiates every export there).
 - **`secret(z.string())`** marks a credential-bearing input for redaction.
-- **Side effects belong in `afterCommit`** — enqueueing `triggers:process-event`, pinging `runner:<id>`, broadcasting
-  to dashboard channels.
-- **Clocks are task-only — never a `web` route.**
-- **Machine ingress answers fast and works later.** `webhooks:linear` verifies, records, answers 200, and enqueues;
-  it never calls Linear or touches routing inline. Linear gives 5 seconds and retries at 1 minute, 1 hour, and
-  6 hours.
-- **Everything written to Linear goes through the activity outbox**, with a client-generated UUID on each
-  `agentActivityCreate`. Nothing calls `agentActivityCreate` directly from an action.
-- **Redis Lua lives in `backend/lua/*.lua`**, loaded at boot by `initializers/redisScripts.ts`.
+- **Side effects belong in `afterCommit`** — enqueueing a tick, delivering the outbox, broadcasting to a channel.
+- **Clocks are task-only — never a `web` route.** A clock re-enqueues itself after every run, so a per-item task
+  is never reused as a clock; sweeps get their own `*-due` action.
+- **Machine ingress answers fast and works later.** `webhooks:*` verifies the raw body, records a
+  `trigger_events` row, answers 200, and enqueues. It never calls a platform or runs a model inline.
+- **Everything written to a platform goes through the outbox**, with an idempotency key on each write.
+- **Model-facing tools are `snake_case`** (`memory_search`, `mcp_exec`, `run_code`); Keryx actions are
+  `noun:verb`.
 
-## Schema conventions
+**Schema.** Drizzle in `backend/schema/`; `serial` primary keys; **every timestamp column is
+`timestamp(..., { withTimezone: true })`**. A row that mirrors something on a platform carries `type` and keeps that
+platform's ids in `external*` columns (`externalChannelId`, `externalThreadId`, `externalUserId`) under a unique
+`(type, external id)` index, so a replayed webhook is an upsert. `user_id` / `userId` always means a Hypotenuse user;
+a platform sender is a `participants` row. External ids are `text`, never coerced. Ledger rows (cost, events) carry
+copied ids rather than foreign keys, so they never take part in a lock.
 
-`serial` primary keys; **every timestamp column is `timestamp(..., { withTimezone: true })`**.
+**Locking.** The real guard is a `SELECT … FOR UPDATE` re-check, never the cheap early-out before it. Lock in one
+order everywhere: conversation, then its sandbox jobs, then anything else. `FOR UPDATE` on a row that does not
+exist locks nothing — `INSERT … ON CONFLICT DO NOTHING`, then lock.
 
-**Triggers are typed; Linear is the first.** Every row that mirrors something in a trigger system carries `type`
-(`TRIGGER_TYPES` in `schema/integrations.ts`) and keeps that system's ids in `external*` columns —
-`externalSessionId`, `externalIssueId`, `creatorExternalUserId`, `externalUserId` — never `linear*`. `user_id` /
-`userId` always means a Hypotenuse user. External ids are `text`, never coerced, and every mirroring table carries
-`(type, external id)` under a unique index so a replayed webhook is an upsert, not a duplicate. A project's
-connection to a trigger system is an `integrations` row (one per project and type), reached through the generic
-`integration:*` actions; what only one type has lives in its `details`. Linear's own endpoints keep Linear's name
-(`webhooks:linear`, `linear:callback`, `linear:manifest-url`, the GraphQL client in `ops/LinearOps.ts`).
+## Local development
 
-## Tenancy and RBAC
+**Use the system's Postgres (with the `pgvector` extension) and Redis — never Docker or Docker Compose for them.**
+Docker is used only to build deployment images and as the development **sandbox provider**.
 
-A **project** is the tenant, and it connects at most one Linear workspace. Two gates, no role ladder, ported from
-ToolExec's `backend/middleware/rbac.ts`:
+```bash
+brew services start postgresql@17 redis          # once per machine; brew install pgvector
+createdb hypotenuse && createdb hypotenuse_test  # once per checkout
+bun install
+bun run lint && bun run test                     # today: biome + the docs test
+```
 
-| Level | Means | Middleware |
-|---|---|---|
-| `none` | session-scoped or public | — |
-| `member` | holds a membership in `params.projectId` | `ProjectMemberMiddleware()` |
-| `admin` | additionally holds the reserved `admin` tag | `AdminMiddleware()` |
+The backend, frontend, and CLI workspaces arrive with [Phase 01](./docs/plans/phase-01-foundation.md), which
+extends these commands.
 
-Members register their own runners, see sessions, and cancel work; admins connect Linear, edit routing rules, manage
-members, and revoke anyone's runner. `actions:permissions` reports every action's level, and the frontend's `can()`
-is the only place UI gating decides. Removing a membership revokes that person's runners in the same transaction.
+## Planned stack
 
-Three principals reach the API: a **browser session** (cookie), a **CLI token** (`hyp_cli_…`, issued after the
-person approves the CLI in the dashboard; acts as that person, never on `daemon:*`), and a **runner token**
-(`hyp_rt_…`; `daemon:*` only). `backend/middleware/session.ts` resolves exactly one per request, in a `beforeAct`
-hook: a cookie session wins; a live `hyp_cli_` bearer sets the person's `userId` in memory only, never in a Redis
-session; a presented token that does not authenticate gets one 401 whatever the reason.
+| Layer | Choice |
+|---|---|
+| Runtime / language | Bun + TypeScript (strict). No `npm`/`npx` in development — use `bun`/`bunx` |
+| Hosted framework | Keryx ≥ 0.48.2 (actions, tasks, channels, MCP server, OAuth 2.1) |
+| Database | Postgres via Drizzle, with `pgvector`; migrations via `drizzle-kit`, applied by the worker |
+| Cache / queue | Redis — sessions, rate limits, `node-resque` task queues, WebSocket pub/sub, leases |
+| Models | Vercel AI SDK (`ai`) — the provider and model are chosen per bot; `embed()` for memory |
+| MCP | Keryx serves our MCP; `@modelcontextprotocol/sdk`'s client consumes the shared MCP servers |
+| Code mode | QuickJS compiled to WebAssembly, inside the worker, with a curated host API |
+| Sandboxes | ToolExec's `SandboxProvider` interface: Docker (development, CI), then Vercel (production) |
+| Validation / lint | Zod v4; Biome |
+| Frontend | Vite + React 19 + React Router 7; v1's design system (LCH tokens, light + dark, Inter, Lucide) |
+| CLI | commander, as an operator client over HTTP; npm `@arcadeai/hypotenuse` + compiled binaries |
+| Deploy | Render, one blueprint (api, worker, frontend, Redis, Postgres), staging first |
 
-## Architecture rules while writing code
+## Planned architecture
 
-The map is [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md). What follows is the part that is a **rule**:
+[`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) is the map. The parts that are **rules**:
 
-- **Postgres is the source of truth; WebSocket frames are content-free pings.** A runner that misses a ping finds the
-  work on its next heartbeat. A dashboard reconnect re-reads.
-- **A change to a turn tells the dashboard through `WorkEffects.sessions`.** Anything that writes a work item adds its
-  session there, and `applyEffects` publishes `project:<id>:sessions` after commit. A turn that cannot be placed
-  records why as a sentence and a code (`waitingCode`); the codes are `routing-rule:preview`'s, and both come from
-  `RoutingOps.evaluateRunners`, which must keep `eligibleRunners`' conditions one for one (a test holds them).
-- **One turn under way per agent session** (a partial unique index over `offered`, `claimed`, `running`). A turn ends in exactly one place (`WorkItemOps.finishWorkItem`, reached from `daemon:complete`, cancellation, lease expiry, and the queue timeout), which
-  releases the runner slot and answers the session if the turn did not.
-- **Lock a session before its work items, and both before a runner row.** Cancellation starts from the session and
-  a daemon's writes from an item; any other order deadlocks a Stop against a running turn. Lock an item with
-  `WorkItemOps.lockItemWithSession`. A dispatch locks the worker's session, then its manager's — before writing the
-  child's parent column, whose key-share lock two dispatches would otherwise both try to upgrade.
-- **Dispatch is one level deep, and a review is a turn, not a prompt.** A manager's `hypotenuse_dispatch` makes a
-  worker child (`parentAgentSessionId`); its turns that end come back as `review` work items on the manager, their
-  input in `work_items.payload`. A change request is a `prompt` item on the worker's own session with a visible
-  thought. A cancelled worker turn, or one that ended on a question, wakes no review: that would re-engage what a
-  person stopped or is answering.
-- **Every claim that ends leaves a cost record.** `CostOps.recordClaimCost` runs in `finishWorkItem` and before
-  every requeue (`requeuedColumns` clears the item's `usage`, which is per claim), copying the claim's attribution —
-  session, manager, issue, runner and owner, issuer, role, agent — beside what it spent. The daemon reports a
-  turn's own spend: ACP's `cost` is the session's running total, so the mapper subtracts the baseline the daemon
-  recorded at the last turn's end (`local_sessions.acp_cost_usd`). Hypotenuse never prices tokens itself.
-- **A question mid-turn is answered in the turn.** A held turn that posts an `elicitation` is marked awaiting an
-  answer; the person's next follow-up is appended to that item's `answers` (`WorkItemOps.answerWaitingTurn`) and
-  delivered by heartbeat, not queued. Whatever the daemon does not report in `answersConsumed` becomes the next
-  `prompt` turn when the item ends or is requeued (`releaseAnswers`) — except after a stop.
-- **The agent host owns the ACP SDK through one module.** `cli/src/acp/connection.ts` is the only importer of
-  `@agentclientprotocol/sdk` (pinned exactly); everything else imports its types from there.
-- **A session is sticky to its runner** because its worktree lives there. Re-offering it elsewhere means a fresh
-  worktree and replayed history. While it waits, an ephemeral thought names the runner it waits for; after the
-  move, only the response's signature names the new runner.
-- **History comes from activities, not comments.** Comments can be edited; activities are frozen.
-- **Acknowledge within 10 seconds.** Every `created` session gets a server-emitted `thought` before routing, so a
-  slow runner never makes the agent look unresponsive.
-- **Respect disengagement.** `stop`, un-delegation, session dismissal, unassigning the app, and an issue moving to a
-  completed or canceled state (or being deleted) each cancel the live turn, and nothing re-engages without a new
-  prompt or delegation. Every cancellation withdraws the session's queued activities that are not a `response` or
-  `error` (`supersedeNonFinal`). The ones where the person stepped away (`DISENGAGED_CANCEL_REASONS`) are silent
-  **on the server**: later events are dropped and the turn's end posts no fallback, whatever the daemon does. A
-  stop's text is quoted back (`stopQuote`), never acted on.
-- **Every inbox notification has a decided outcome, and none starts work.** `ops/LinearNotificationOps.ts` holds the
-  table; a notification that needs a second look (a mention, a status change, whose new state Linear does not send)
-  sets `trigger_events.checkAfter` for the `triggers:check-notifications` clock, because processing never calls
-  Linear inside its transaction.
-- **An `auth` link is the server's call.** The daemon names what needs a login (`provider`); the server links the
-  runner's auth page (`/runners/:id/auth/:provider`), passes through only a public `https` URL (`isPublicUrl`), and
-  sets `userId` to the runner owner's linked identity. A login is a question that ends the turn.
-- **Issue hygiene is the server's, at claim.** `ops/IssueHygieneOps.ts` moves a person's delegation to started and
-  sets a missing delegate; it never touches the assignee, never fails a claim, and no daemon gets `issueUpdate`.
-- **A worktree is removed only when the safety rules allow** (`cli/src/worktree/cleanup.ts`): never one in use;
-  uncommitted changes, unpushed commits, and a `.hypotenuse-keep` file keep it unless `--force`; branches go with
-  `git branch -d`, never `-D`. Hypotenuse never stashes, resets, or cleans a person's checkout.
-- **The daemon never holds a Linear token**, and the coding agent never sees the runner token: the MCP server
-  reaches the server through the daemon's control socket.
-- **Telemetry is relayed, built, and never in the way.** The daemon posts a turn's OTLP to `daemon:telemetry`
-  and the `telemetry:export` clock sends it to each exporter, so collector headers never leave the server. One
-  trace per turn, named by `work_items.traceparent`; a server span of a turn goes through `WorkEffects.spans`
-  (emitted after commit) or `TelemetryOps.emitSpans`, and code calling Linear for a turn runs in a
-  `withTraceScope`. Free text goes under `hypotenuse.content.*` — the worker filters each exporter to its level by
-  that prefix — and nothing a turn does waits on telemetry. Server telemetry is emitted only for a project with
-  an enabled exporter (`projectTelemetry`, cached per process).
+- **The data model.** Organization → Project → Bots, Channels, Conversations. A project also holds its global
+  memory, shared MCP servers, shared skills, model connections, and platform installs. A **bot** has prompts, an
+  identity (its own Slack app and Linear app), goals, and a model; it is attached to the project's shared skills
+  and MCP servers. A **channel** is a memory boundary — a Slack channel, a Linear project (its team when the issue
+  has none), a Pylon customer account. A **conversation** is one thread of work inside a channel — a Slack thread,
+  a Linear agent session, a Pylon issue.
+- **Postgres is the source of truth; the loop holds nothing in memory.** Every message, model step, and tool call
+  is a `conversation_entries` row. Each `agent:tick` task leases a conversation, hydrates its history from those
+  rows, takes one step, stores the result, and enqueues the next tick or parks. Any worker can run any tick; Keryx
+  queues fan the load out.
+- **Intent before effect.** A tool call is written before it runs. A call with an intent and no result was
+  interrupted: it re-runs only if the tool is replay-safe, and otherwise the model is told it was interrupted.
+- **A conversation is `working`, `hibernating`, `waiting`, or `ended`.** `waiting` always names what it waits on
+  (an answer, an approval, a sandbox, a timer). A tick ends in a terminal tool; a model that stops without one is
+  nudged once, then the turn fails. A tick never ends silently.
+- **Memory has two scopes and decays.** Channel memory belongs to one channel and fades with disuse; project memory
+  is shared by every bot and channel in the project and fades slowly. Facts are promoted from channel to project
+  with their provenance.
+- **Tools are disclosed progressively.** A bot sees `mcp_search` / `mcp_info` / `mcp_exec`, not every tool of every
+  server; calls outside its allowlist need an approval, which parks the conversation until a person decides.
+- **Code mode is a tool, not an escape hatch.** `run_code` runs TypeScript in a WASM sandbox whose host API is
+  memory and MCP, through the same permission and approval gate as the direct tools. A gated call inside a program
+  suspends it; approval resumes the same program, never a regenerated one.
+- **Platforms are adapters.** Each implements verify, parse, send, and the interactive surface — status, streamed
+  text, plan steps, questions, approvals, escalation — with the richest elements that platform offers.
+- **Code work happens in sandboxes, never on the host.** A sandbox job belongs to the conversation that started it,
+  reports status and asks questions back into it, and wakes it when it finishes.
+- **WebSocket frames are content-free pings.** The dashboard re-reads over HTTP; a reconnect re-reads.
 
-## Testing
+## Lessons carried forward
 
-- **Telemetry:** the collector is `backend/__tests__/fixtures/otlp-collector.ts`, an OTLP/HTTP receiver that
-  records and decodes every request (protobuf or JSON, gzip or not) and answers `429`/`503` on demand; the e2e
-  pump runs `telemetry:export`, and a relay test runs `exportAll()` itself. The fake agent's `otel` step posts
-  "native" telemetry to `$OTEL_EXPORTER_OTLP_ENDPOINT`. Move an exporter's backoff by deleting its
-  `telemetry:backoff:<id>` key.
-- **Backend:** `cd backend && bun test`. `buildTestUniverse()` seeds the ToolExec cast (Peach admin, Mario, Luigi,
-  Toad, and Bowser the outsider) over real HTTP. `useFinear()` — called after the file's `buildTestUniverse()`
-  `beforeAll` — boots finear in process with this server's OAuth client (the `LINEAR_*_TEST` values) registered
-  against the server's real callback and webhook URLs, points `config.linear` at it, and exposes finear's control
-  routes. `linear.install(projectId, sessionId)` drives connect → finear's consent screen → callback. finear sits
-  behind a small proxy that records every request (with its variables) and can stamp Linear's rate-limit headers,
-  answer one request `RATELIMITED`, or lose one response — the things finear does not do. It also stands in for
-  finear's missing documents (validated against Linear's full schema first) and takes `createAsUser` off an
-  `issueCreate`, which finear refuses. Every Linear call goes through
-  `ops/LinearOps.ts` `linearRequest`, with documents in `ops/linear/operations.ts`, each executed against finear in
-  `linear-ops.test.ts`. finear signs and delivers webhooks to the server for real; `__tests__/linear/inject.ts`
-  signs what finear cannot send, typed with `@linear/sdk/webhooks`. Suites run processing and the outbox in-process
-  with `settle()` (`__tests__/linear/sessions.ts`); `ack.test.ts` alone starts a real Resque worker, to measure the
-  acknowledgement as deployed.
-- **CLI / daemon:** `cd cli && bun test` for unit tests; `backend/__tests__/cli/` spawns the real CLI against the
-  booted server, approving its sign-in over HTTP as a test user; `cli/test/e2e/test-upgrade.sh` installs the branch
-  by npm, bun, and binary (it installs globally — CI or a throwaway machine only); `backend/__tests__/daemon/`
-  spawns the real `hypotenuse daemon --foreground` against the booted backend and finear, in a temporary home
-  with its own config, credentials, state, and a git clone, sometimes through `daemon/proxy.ts` — a recording
-  HTTP + WebSocket proxy that can make the server vanish and come back. `HYPOTENUSE_MACHINE_ID` gives each such
-  daemon its own machine. Its coding agent is the fake ACP agent (`cli/__tests__/fixtures/fake-acp-agent.ts`), a
-  real ACP agent on the SDK's agent side playing a JSON scenario from `fixtures/scenarios/` (`FAKE_ACP_SCENARIO`)
-  and recording every request it receives (`FAKE_ACP_RECORD`); `cli/__tests__/acp/` drives the agent host against
-  it directly. No test in CI launches a real coding agent.
-- **End to end:** `backend/__tests__/e2e/` drives every interaction a person has with `@hypotenuse` across all
-  three process boundaries at once, and judges it where the person would — the session as finear holds it.
-  `useE2E()` (`e2e/harness.ts`) boots the server and finear, starts real daemons in `DaemonHome`s, and runs a
-  **pump** (`settle()` every 100 ms) in place of the worker's queues; tests never `settle()` themselves, and
-  still move the lease and queue clocks by writing columns. Teardown fails a file whose daemon left a child
-  process alive. CI runs `__tests__/daemon` and `__tests__/e2e` as **E2E Daemon**, and **Backend Test** skips
-  both. `e2e/real-agent.test.ts` is skipped unless `HYPOTENUSE_E2E_AGENT=claude`, which only the nightly
-  workflow (`nightly-real-agent.yml`, outside the gate) sets.
-- **Control time by writing columns or advancing finear's clock, never by waiting.** A test that advances
-  finear's clock aligns `webhookClock` (`ops/LinearWebhookOps.ts`) to it, or the server refuses finear's
-  deliveries as replays.
-- **Redis outlives `clearDatabase()`, and ids restart.** Anything keyed by a row id (a token bucket, a lease, a
-  queued job, a dispatch reservation) must be cleared with the tables; `buildTestUniverse()` does it for the Linear,
-  runner, and dispatch keys and the queue.
-- **Assert the property, not the symptom** — byte-identical refusal bodies, whole-set comparisons of allowlists,
-  exact Linear activity sequences.
-- **Docs are tested:** links, the Learnings heading, and the Linear coverage matrix — which refuses a `planned`
-  row, so a new Linear behaviour lands with its test.
+From v1 and ToolExec, each paid for once already:
+
+- **Keryx validates params before `beforeAct` hooks,** and reports a schema failure by the param's first path
+  segment.
+- **Keryx instantiates every exported function under `actions/` and `initializers/`.**
+- **A clock gets queue locks and re-enqueues itself after every run** — including a run enqueued with params.
+- **No retry is applied to tasks by default.** A thrown job lands in Resque's failed queue; durability is ours.
+- **Redis outlives `clearDatabase()`, and ids restart.** Anything keyed by a row id must be cleared with the tables.
+- **Delivery after a claim is at-most-once.** Never replay a step that may have had side effects; re-read a lost
+  claim rather than re-claim it.
+- **A failed wait is not an error.** Answer `pending` or `timedOut` with a sentence a model can act on.
+- **Webhook ingress:** verify the signature over the raw body, answer within the platform's clock (Slack 3 s,
+  Linear 5 s), dedupe on the platform's delivery id, give byte-identical refusals, and never rate-limit a platform's
+  deliveries into failures.
+- **Linear:** a `created` agent session needs an activity within 10 seconds; nothing may follow an `elicitation`;
+  never write a literal mention of the app; revoking any token of an `actor=app` install uninstalls it.
+- **A refusal that must be byte-identical cannot be a `TypedError`** — its envelope carries a timestamp.
+- **Edit docs by exact anchor, never by first substring,** and run the docs test after any scripted doc edit.
+- **Parallel sub-agents get disjoint files;** the parent owns shared entry points and makes the commit.
+- **Green is not the same as right for anything a person looks at.** Look at both themes before opening a frontend
+  PR, then turn what you caught into a test.
 
 ## Commands
 
 ```bash
-bun install                                   # root (workspaces)
-bun dev                                       # backend :8080 + frontend :3000
-bun run ngrok                                 # public URL for real Linear webhooks
-bun run lint                                  # tsc + biome, every workspace
-bun run test                                  # every workspace (not `bun test` at the root)
-
-cd frontend && bun run theme:build            # regenerate tokens, mark, favicons, OAuth theme from design/tokens.ts
-cd frontend && bun run test:e2e               # Playwright; PLAYWRIGHT_CHROMIUM_PATH for a preinstalled browser
-cd frontend && bun run docs:illustrations     # light + dark screenshots (frontend running)
-cd frontend && bun run social:image           # redraw public/social.png, the link-preview card
-open http://localhost:3000/style-guide        # every primitive and fixture surface, both themes side by side
-cd backend && bun run test                    # fetches finear, then real server + finear
-cd backend && bun test path/to/file.test.ts   # one file (after a first `bun run finear:fetch`)
-cd backend && bun keryx.ts linear:manifest-url  # the pre-filled Linear app-creation link (APPLICATION_URL must be public HTTPS)
-cd backend && bun keryx.ts integrations:refresh-tokens # run the token refresh clock once
-cd cli && bun test                            # CLI + daemon unit tests
-cd backend && bun test __tests__/daemon       # the real daemon against the real server and finear
-cd backend && bun test __tests__/e2e          # every process at once, judged by what finear holds
-bun run --cwd cli hypotenuse --help
-bun run --cwd cli hypotenuse -c ./examples/config.toml config validate --offline
-bun run --cwd cli hypotenuse config schema > frontend/public/schemas/config-v1.json   # after a schema change
-bun run --cwd cli hypotenuse doctor
-bun run --cwd cli hypotenuse worktrees list                # and `worktrees cleanup --dry-run`
-cd cli && bun run build                       # compiled binary at dist/hypotenuse
-cd cli && bun run bundle                      # the npm bundle at dist/hypotenuse.js (prepack runs it)
-bash cli/test/e2e/test-upgrade.sh             # npm + bun + binary installs, globally — CI or a throwaway box
-
-bun run --cwd cli hypotenuse telemetry exporter list   # the project's OpenTelemetry exporters and their health
-bun run --cwd cli hypotenuse cost summary --by owner   # what the project's turns cost, by runner owner (or session, issue, day, …)
-redis-cli XLEN telemetry:stream:1             # what waits for export in project 1's telemetry stream
-
-curl localhost:8080/api/actions/permissions   # every action's RBAC level
+bun install
+bun run lint          # biome check
+bun run test          # tests/docs.test.ts: links, anchors, Learnings headings, no phase names
 ```
-
-## Working on this repository as an agent
-
-Lessons from building it, kept here so the next session starts with them.
-
-- **One phase, one PR.** Branch `phase-NN-<slug>` from `main`, build the phase, tick its Definition of done, write its
-  **Learnings from the build**, and update this file and the live docs in the same PR. Each phase ends reviewable.
-- **A mechanism described in two docs drifts.** Every review finding on the planning PR was one doc saying something
-  another had already changed: the MCP token path in `ARCHITECTURE.md` against the MCP plan, or a lock rule in
-  `CONFIG.md` against the daemon plan. When you change how something works, grep `docs/` for every place that
-  describes it (`rg -n "<name>" docs AGENTS.md`) and fix them all in the same commit.
-- **Enumerate every state.** A rule written as "if A and B, then X; if neither, then Y" leaves the two mixed cases
-  undefined, and a reviewer will find them. Write state rules as a table with one row per combination.
-- **Edit docs by exact anchor, never by first substring.** A script that finds `## Learnings from the build` by
-  `str.index` matches the first mention, which may be inside a table, and silently truncates the doc. Anchor on
-  `"\n## Heading\n"`, assert it occurs exactly once, and run `bun test __tests__/docs` in `backend/` after any
-  scripted doc edit.
-- **Sandboxed sessions:** GitHub's tarball API and settings APIs may be refused (finear is fetched with `git` for
-  this reason; branch protection needs an admin); GitHub GraphQL may be unavailable (resolve review threads through
-  the REST routes the error message names); `bun install` inside `docker build` may fail on an intercepting proxy
-  (CI's Docker jobs are then the proof). Say so in the phase's learnings rather than working around a refusal.
-- **Run every check locally before pushing — Bugbot reviews every push.** Each push to a PR starts a new review,
-  and a finding means another round. Lint, the touched suites, and `bun test __tests__/docs` first; one validated push
-  beats three speculative ones.
-- **Green is not the same as right for anything a person looks at.** A self-referencing CSS variable sent every page
-  to the browser's serif with lint, unit tests, build, and e2e all passing. Before opening a frontend PR, run
-  `bun run docs:illustrations` (or open `/style-guide`) and look at both themes; then turn what you caught into a
-  test.
-- **Parallel sub-agents get disjoint files.** When a phase splits across forks in one worktree, name each fork's
-  files explicitly, keep shared entry points (`App.tsx`, `package.json`, `app.scss`) with the parent, and let only
-  the parent commit. Each fork checks its own files; the parent runs the whole suite once they land. Suites running
-  at once on one `hypotenuse_test` fail each other: give each its own `DATABASE_URL_TEST` and `REDIS_URL_TEST`.
-- **Keryx validates params before `beforeAct` hooks.** The principal hook — and with it the daemon/human wall —
-  only sees a request whose params already passed the action's schema; a test sweeping the registry through the
-  wall must send valid params.
-- **Keryx instantiates every exported function with a prototype under `actions/`**, not only classes. Helpers
-  shared by actions live in `ops/`.
-- **A daemon test waits on what crosses a process, never on a timer of ours.** Spawn the daemon, then poll the
-  database or its log (`DaemonHome.waitForLog`, `until`); move leases by writing columns and running `work:reap`.
-  A CLI process that holds a socket or timer open never exits — close every connection on every outcome.
-- **A refusal that must be byte-identical cannot be a `TypedError`.** Keryx's error envelope carries a timestamp,
-  and middleware can only throw. The agent tools' scope middleware records its verdict on the connection and the
-  action answers the fixed 403 itself (`notPermittedResponse`).
-- **Nothing may follow a question in a Linear session.** Linear derives the session's state from its last activity,
-  so a thought or an action after an `elicitation` takes it out of `awaitingInput`. A turn that asked with
-  `linear_ask_user` emits no further activity — not even a timeout's or a drain's stop message; only the
-  person's own Stop is answered.
-- **Keryx reports a schema failure by the param's first path segment.** When a caller must know which element of
-  an array was refused (`daemon:events`), validate the elements in the action.
-- **Signatures and footers** follow the repository owner's global rules for commits and PR text.
 
 ## Where the detail lives
 
 | Topic | Doc |
 |---|---|
 | The system on one page | [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) |
-| Server ⇄ daemon wire contract | [`docs/RUNNER_PROTOCOL.md`](./docs/RUNNER_PROTOCOL.md) |
-| Daemon config file | [`docs/CONFIG.md`](./docs/CONFIG.md) |
-| Every Linear agent feature and its test | [`docs/LINEAR_COVERAGE.md`](./docs/LINEAR_COVERAGE.md) |
-| Design language, tokens, glyphs, the four signature surfaces | [`docs/DESIGN.md`](./docs/DESIGN.md) |
-| Deploying the hosted service, creating the Linear app | [`docs/DEPLOY.md`](./docs/DEPLOY.md) |
-| Build order and every plan | [`docs/plans/README.md`](./docs/plans/README.md) |
+| Build order, status, and every plan | [`docs/plans/README.md`](./docs/plans/README.md) |
+| Design language, tokens, glyphs | [`docs/DESIGN.md`](./docs/DESIGN.md) |
+| Hypotenuse v1, archived | [`v1` branch](https://github.com/arcadeai-labs/hypotenuse/tree/v1) |

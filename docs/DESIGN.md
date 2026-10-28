@@ -5,6 +5,13 @@ OAuth page, and the `hypotenuse` CLI. This is a live document (rule 14 in [`AGEN
 the design language as it is meant to be, and once built, as it is. The plan that builds it is
 [`phase-03-design-system.md`](./plans/phase-03-design-system.md).
 
+> **Carried from v1.** Hypotenuse 2.0 keeps v1's look: the direction, color generator (`design/tokens.ts`),
+> typography, space, glyphs, and writing rules below hold as written. The code paths named here (`frontend/…`) were
+> v1's and return when the design-system phase rebuilds them. The signature surfaces still describe v1's product — a
+> runner fleet, a coding session transcript — and are redrawn for bots, conversations, and memory by
+> [`phase-03-design-system.md`](./plans/phase-03-design-system.md) and
+> [`phase-21-dashboard.md`](./plans/phase-21-dashboard.md), which update this doc when they land.
+
 ## Direction: a quiet companion to Linear
 
 People open Hypotenuse *from* Linear and go back *to* Linear. The dashboard should feel like the same kind of tool:

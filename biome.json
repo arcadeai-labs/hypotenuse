@@ -30,7 +30,9 @@
       "!**/types/",
       "!**/.cache/**",
       "!**/bun.lockb",
-      "!**/templates/**"
+      "!**/templates/**",
+      "!design",
+      "!**/*.md"
     ]
   }
 }

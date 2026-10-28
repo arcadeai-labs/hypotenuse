@@ -1,5 +1,0 @@
-{
-  "authMethods": [{ "id": "agent-login", "name": "Log in", "type": "agent" }],
-  "authRequired": "until-authenticate",
-  "turns": [[{ "echoPrompt": true }, { "stop": "end_turn" }]]
-}
