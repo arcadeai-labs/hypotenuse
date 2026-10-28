@@ -55,7 +55,7 @@ function Section({
 }) {
   return (
     <section className="sg-section">
-      <h2 className="sg-section-title">{title}</h2>
+      <h3 className="sg-section-title">{title}</h3>
       {children}
     </section>
   );
@@ -229,7 +229,8 @@ function StyleGuideContent() {
 
 /**
  * Every primitive and fixture surface, in both themes side by side, so a
- * reviewer compares light and dark at once. Lives outside both shells.
+ * reviewer compares light and dark at once. Drawn under the style guide's
+ * docs page; each half paints its own theme whatever the reader's is.
  * @returns The page.
  */
 export function StyleGuidePage() {
@@ -242,9 +243,10 @@ export function StyleGuidePage() {
           data-theme={theme}
           data-testid={`style-guide-${theme}`}
         >
-          <h1 className="sg-title">
-            <Mark size={18} label={null} /> Style guide · {theme}
-          </h1>
+          <h2 className="sg-title">
+            <Mark size={18} label={null} />{" "}
+            {theme === "light" ? "Light" : "Dark"}
+          </h2>
           <StyleGuideContent />
         </div>
       ))}

@@ -28,7 +28,7 @@ const ILLUSTRATIONS: Illustration[] = [
   { name: "shell", path: "/status", width: 1280, height: 720 },
   {
     name: "style-guide",
-    path: "/style-guide",
+    path: "/docs/style-guide",
     selector: "[data-testid=style-guide-{theme}]",
     width: 1440,
     height: 900,

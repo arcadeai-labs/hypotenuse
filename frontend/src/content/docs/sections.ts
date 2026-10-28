@@ -1,8 +1,11 @@
+import type { ComponentType } from "react";
+import { StyleGuidePage } from "../../pages/StyleGuidePage";
 import accounts from "./accounts.md?raw";
 import gettingStarted from "./getting-started.md?raw";
 import members from "./members.md?raw";
 import organizations from "./organizations.md?raw";
 import projects from "./projects.md?raw";
+import styleGuide from "./style-guide.md?raw";
 import tags from "./tags.md?raw";
 
 /** One page of the public docs. */
@@ -11,6 +14,10 @@ export interface DocsSection {
   slug: string;
   title: string;
   markdown: string;
+  /** A live component drawn under the markdown, for a page that shows rather than tells. */
+  component?: ComponentType;
+  /** Gives the page the rail's width too, for a component that needs the room. */
+  wide?: boolean;
 }
 
 /** Every docs page, in navigation order. A new page is a markdown file and a row here. */
@@ -25,6 +32,13 @@ export const DOCS_SECTIONS: DocsSection[] = [
   { slug: "projects", title: "Projects", markdown: projects },
   { slug: "members", title: "Members", markdown: members },
   { slug: "tags", title: "Tags", markdown: tags },
+  {
+    slug: "style-guide",
+    title: "Style guide",
+    markdown: styleGuide,
+    component: StyleGuidePage,
+    wide: true,
+  },
 ];
 
 /**

@@ -27,15 +27,13 @@ import { SettingsPage } from "./pages/SettingsPage";
 import { SignInPage } from "./pages/SignInPage";
 import { SignUpPage } from "./pages/SignUpPage";
 import { StatusPage } from "./pages/StatusPage";
-import { StyleGuidePage } from "./pages/StyleGuidePage";
 import { Alert } from "./ui";
 
 /**
  * The route table. Public pages, sign-in, and sign-up sit in `PublicShell`;
  * the product sits in `AppShell`, behind {@link ProtectedRoute} — the one
  * place that decides where a signed-out visitor goes. The server's health
- * stays readable signed out. The style guide stands outside both frames, so
- * it can show both themes side by side.
+ * stays readable signed out. The style guide is a docs page.
  *
  * The whole tree sits inside the session, standing, live socket, and
  * notification providers, because the shell reads all four on every page.
@@ -109,7 +107,11 @@ export function App() {
                   </Route>
                 </Route>
               </Route>
-              <Route path="/style-guide" element={<StyleGuidePage />} />
+              {/* The style guide's old address, from before it was a docs page. */}
+              <Route
+                path="/style-guide"
+                element={<Navigate to="/docs/style-guide" replace />}
+              />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </NotificationProvider>

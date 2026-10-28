@@ -12,7 +12,7 @@ import {
  * The docs frame: section nav on the left, a 72ch article, and an "on this
  * page" rail. Below 768px the nav folds behind a button naming the current
  * section, and the rail is hidden. Both stay mounted, so one selector resolves
- * at every width.
+ * at every width. A wide section gives the rail's column to the article.
  * @returns The layout with the routed page as the article.
  */
 export function DocsLayout() {
@@ -26,7 +26,11 @@ export function DocsLayout() {
   const navOpen = openOn === page;
 
   return (
-    <div className="docs-layout" data-testid="docs-layout">
+    <div
+      className="docs-layout"
+      data-testid="docs-layout"
+      data-wide={section?.wide ?? false}
+    >
       <div className="docs-nav-frame">
         <button
           type="button"

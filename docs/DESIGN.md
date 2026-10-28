@@ -3,7 +3,7 @@
 How Hypotenuse looks and reads, on every surface it has: the dashboard, the public site and `/docs`, the Keryx
 OAuth page, and the `hypotenuse` CLI. This is a live document (rule 14 in [`AGENTS.md`](../AGENTS.md)): it describes
 the design system as built. The plan that built it is [`phase-03-design-system.md`](./plans/phase-03-design-system.md);
-`/style-guide` renders every primitive and every surface below, in both themes side by side.
+`/docs/style-guide`, a public docs page, renders every primitive and every surface below, in both themes side by side.
 
 ## Direction: a quiet companion to where your team works
 
@@ -209,7 +209,7 @@ for screen readers with what it waits on. `hibernating` is the normal rest state
 
 ## Signature surfaces
 
-Each is a component in `frontend/src/components/surfaces/`, drawn from fixtures in `/style-guide` until the page
+Each is a component in `frontend/src/components/surfaces/`, drawn from fixtures in `/docs/style-guide` until the page
 that reads real rows arrives. The components take their own props (`surfaces/types.ts`), not the server's rows, so a
 page maps one onto the other and the component does not change.
 
@@ -265,7 +265,7 @@ on/off chips; MCP servers and skills by name), its **model** (the registry name 
 Scope, then document, then versions. Scopes are the project and each channel, with its platform chip and a count.
 Each document shows its newest version and how faded it is; each version names the bot that wrote it and links to
 the conversation entry it came from, and a promoted fact says which channel it was promoted from. The decay
-indicator is drawn both as a short bar and as a shrinking ring in `/style-guide`; which one the explorer keeps is an
+indicator is drawn both as a short bar and as a shrinking ring in `/docs/style-guide`; which one the explorer keeps is an
 open question for the memory plan.
 
 ### 4. The public site and `/docs`

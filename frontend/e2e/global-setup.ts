@@ -48,7 +48,9 @@ export default async function globalSetup(config: FullConfig) {
     const page = await browser.newPage();
     await page.goto(`${baseURL}/status`, { waitUntil: "networkidle" });
     await page.goto(`${baseURL}/sign-in`, { waitUntil: "networkidle" });
-    await page.goto(`${baseURL}/style-guide`, { waitUntil: "networkidle" });
+    await page.goto(`${baseURL}/docs/style-guide`, {
+      waitUntil: "networkidle",
+    });
   } finally {
     await browser.close();
   }

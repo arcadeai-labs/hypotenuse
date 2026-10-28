@@ -93,7 +93,7 @@ pgvector from migration 0000, the docs tests in the backend suite, and CI behind
 [`DEPLOY.md`](../DEPLOY.md); `api.hypotenuse.cloud` is healthy with `vector`.
 **[Phase 03](./phase-03-design-system.md) is built**: the generated tokens with `--status-idle`, the shared state table
 in `design/states.ts`, the UI kit, conversation-state glyphs and the bot badge in web and CLI, the app shell with
-organization and project switchers, the public site, `/docs`, `/style-guide`, and the browser suite as **E2E Test**.
+organization and project switchers, the public site, `/docs` with the style guide at `/docs/style-guide`, and the browser suite as **E2E Test**.
 **[Phase 04](./phase-04-organizations-users-and-rbac.md) is built**: sign-up into an owned organization and a Default
 project; organizations, projects, memberships, invites, tags, and notifications; five RBAC levels with owners' admin
 standing in every project; `AccessOps`; `AuditedAction` on every write; the settings and organization pages; and a

@@ -121,9 +121,16 @@ describe("routes", () => {
     );
   });
 
-  test("the style guide renders both themes side by side", () => {
-    const html = renderAt("/style-guide");
+  test("the style guide is a public docs page that renders both themes side by side", () => {
+    const html = renderAt("/docs/style-guide");
+    expect(html).toContain('data-testid="public-shell"');
+    expect(html).toContain('data-testid="docs-section-style-guide"');
+    expect(html).toContain('data-wide="true"');
     expect(html).toContain('data-testid="style-guide-light"');
     expect(html).toContain('data-testid="style-guide-dark"');
+  });
+
+  test("the style guide's old address redirects rather than rendering a page of its own", () => {
+    expect(renderAt("/style-guide")).toBe("");
   });
 });

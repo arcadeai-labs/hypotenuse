@@ -91,7 +91,7 @@ export const COMMANDS: Command[] = [
     id: "go-style-guide",
     title: "Open style guide",
     group: "Navigation",
-    run: (c) => c.navigate("/style-guide"),
+    run: (c) => c.navigate("/docs/style-guide"),
   },
   {
     id: "theme-light",
