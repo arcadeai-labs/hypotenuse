@@ -1,0 +1,55 @@
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { api } from "keryx";
+import { HOOK_TIMEOUT, serverUrl } from "../setup";
+
+let url: string;
+
+beforeAll(async () => {
+  await api.start();
+  url = serverUrl();
+}, HOOK_TIMEOUT);
+
+afterAll(async () => {
+  await api.stop();
+}, HOOK_TIMEOUT);
+
+/** The slice of an OpenAPI document these tests read. */
+interface OpenApiDocument {
+  openapi: string;
+  info: { title: string; version: string };
+  paths: Record<string, Record<string, { operationId: string }>>;
+}
+
+describe("swagger", () => {
+  test("serves an OpenAPI 3.0.0 document for this package over HTTP", async () => {
+    const res = await fetch(`${url}/api/swagger`);
+    expect(res.status).toBe(200);
+    const doc = (await res.json()) as OpenApiDocument;
+    expect(doc.openapi).toBe("3.0.0");
+    expect(doc.info.title).toBe("hypotenuse-backend");
+  });
+
+  test("documents every action with a web route", async () => {
+    const doc = (await (
+      await fetch(`${url}/api/swagger`)
+    ).json()) as OpenApiDocument;
+    expect(doc.paths["/status"]?.get?.operationId).toBe("status");
+    expect(doc.paths["/swagger"]?.get?.operationId).toBe("swagger");
+  });
+});
+
+describe("the web server", () => {
+  test("the only actions are status and swagger", () => {
+    // Every later action arrives with the feature that needs it; anything
+    // else here was left over from a scaffold.
+    expect(api.actions.actions.map((a) => a.name).sort()).toEqual([
+      "status",
+      "swagger",
+    ]);
+  });
+
+  test("an unknown route answers 404, not 500", async () => {
+    const res = await fetch(`${url}/api/no-such-action`);
+    expect(res.status).toBe(404);
+  });
+});

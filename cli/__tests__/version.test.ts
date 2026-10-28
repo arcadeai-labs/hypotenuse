@@ -37,6 +37,24 @@ describe("hypotenuse CLI from source", () => {
     expect(code).toBe(0);
     expect(stdout).toContain("Usage: hypotenuse");
   });
+
+  test("no arguments prints the help and succeeds", async () => {
+    const { code, stdout } = await run(["bun", "run", SOURCE]);
+    expect(code).toBe(0);
+    expect(stdout).toContain("Usage: hypotenuse");
+  });
+
+  test("an unknown option fails and names it", async () => {
+    const { code, stderr } = await run(["bun", "run", SOURCE, "--bogus"]);
+    expect(code).toBe(1);
+    expect(stderr).toContain("unknown option '--bogus'");
+  });
+
+  test("an unknown command fails rather than doing nothing", async () => {
+    const { code, stderr } = await run(["bun", "run", SOURCE, "frobnicate"]);
+    expect(code).toBe(1);
+    expect(stderr).not.toBe("");
+  });
 });
 
 describe("hypotenuse CLI as a compiled binary", () => {

@@ -13,8 +13,11 @@ import pkg from "../package.json";
  * @returns The configured commander program, not yet parsed.
  */
 export function buildProgram(): Command {
-  return new Command()
+  const program = new Command()
     .name("hypotenuse")
     .description(pkg.description)
     .version(pkg.version, "-v, --version", "print the CLI version");
+  // Bare `hypotenuse` shows what it can do, rather than exiting silently.
+  program.action(() => program.help());
+  return program;
 }
