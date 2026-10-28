@@ -1,9 +1,8 @@
 # Deploying Hypotenuse
 
-> **Nothing is deployed yet.** This runbook describes the intended deployment. It is a live document (rule 14 in
-> [`AGENTS.md`](../AGENTS.md)): the first person to deploy corrects whatever turns out to be wrong, in the same
-> commit as the fix. The reasoning behind the blueprint is in
-> [`plans/phase-02-deployment.md`](./plans/phase-02-deployment.md).
+> **Staging is deployed** at `api.hypotenuse.cloud` and `www.hypotenuse.cloud`. This runbook is a live document
+> (rule 14 in [`AGENTS.md`](../AGENTS.md)): whoever finds a step wrong corrects it in the same commit as the fix.
+> The reasoning behind the blueprint is in [`plans/phase-02-deployment.md`](./plans/phase-02-deployment.md).
 
 One `render.yaml` blueprint, one **staging** environment, auto-deployed on merge to `main`. Production comes later.
 The `hypotenuse` CLI is not deployed here; it ships through npm and GitHub Releases.
