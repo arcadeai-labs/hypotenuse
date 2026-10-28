@@ -45,7 +45,7 @@ hashed per step, so a transcript records exactly what the model saw (pi-durable'
    turn's instruction.
 7. The *capabilities* section from [10](./phase-10-shared-mcp-servers.md) and a fixed *style rules* section.
 8. Human actions, the bot editor's Prompt, Goals, and Skills tabs, CLI commands, and user docs.
-9. Migrating [07](./phase-07-model-providers-and-bots.md)'s instruction text and goals into rows of these tables.
+9. Migrating [07](./phase-07-model-providers-and-bots.md)'s `persona` into the *Identity* section; goals are new here.
 
 **Out:**
 
@@ -101,7 +101,7 @@ A new bot gets seed sections, as botholomew's `init` seeds files:
 - *How I work*: always, editable.
 - *Things I have learned*: always, editable.
 
-Their text comes from [07](./phase-07-model-providers-and-bots.md)'s fields, migrated here.
+*Identity* starts as [07](./phase-07-model-providers-and-bots.md)'s `persona`, migrated here; the other two start empty.
 
 ### 2. Assembly order
 

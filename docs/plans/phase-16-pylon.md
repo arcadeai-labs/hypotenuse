@@ -15,7 +15,7 @@ Pylon is customer support, which changes two things compared with Slack and Line
 **In:**
 
 - **Identity per bot.** A Pylon API token created by a Pylon admin with **its own identity**: the token has its own name, icon, and role, and its actions are attributed to that name. Pylon offers this when a token is created (Settings → Integrations & dev → API tokens). The token is pasted into Hypotenuse and sealed on `bot_installations`. US/EU region is selected; a token sent to the wrong region answers `401 wrong_region_token`.
-- **Ingress.** A Pylon webhook destination per bot installation, pointing at `/api/webhooks/pylon/<installationKey>`, with its signing secret pasted back. Verification:
+- **Ingress.** A Pylon webhook destination per bot installation, pointing at `/api/webhooks/pylon/<routingKey>`, with its signing secret pasted back. Verification:
   - `Pylon-Webhook-Signature: hs256=<hex>` over `<Pylon-Webhook-Timestamp>.<raw body>`, HMAC-SHA256;
   - the legacy `X-Pylon-Signature` (hex HMAC of the raw body) is accepted only if a destination is marked legacy.
 - **Mapping:**
@@ -81,7 +81,7 @@ Then the admin creates a webhook destination in Pylon pointing at the URL Hypote
 
 ### 2. Ingress — `webhooks:pylon`
 
-`POST /api/webhooks/pylon/:installationKey`, with `web.rawBody: true`, no rate limit, and never MCP:
+`POST /api/webhooks/pylon/:routingKey`, with `web.rawBody: true`, no rate limit, and never MCP:
 
 1. Resolve the key to an installation.
 2. Read `Pylon-Webhook-Timestamp` and reject if it is more than 300 s from Postgres's clock.
@@ -165,7 +165,7 @@ No new tables:
 - `bot_installations` (`type: "pylon"`):
   - `externalTeamId` = Pylon org id from `/me`
   - `details`:
-    - `region`, `selfId`, `selfName`, `installationKey`
+    - `region`, `selfId`, `selfName` (the routing key is the framework's `routingKeyHash` column)
     - `listen { teamIds[], tags[] }`
     - `triggers { autoTriage, mention, assignment }`
     - `customerReplyPolicy`
@@ -187,7 +187,7 @@ No new tables:
 | `pylon:settings-edit` | `POST /bot/:botId/pylon/settings` (policy, triggers, listen) | admin | yes | yes |
 | `pylon:status` | `GET /bot/:botId/pylon` | member + `canReadBot` | yes | no |
 | `pylon:disconnect` | `DELETE /bot/:botId/pylon` | admin | yes | yes |
-| `webhooks:pylon` | `POST /webhooks/pylon/:installationKey` | none (signed) | **never** | no (machine ingress) |
+| `webhooks:pylon` | `POST /api/webhooks/pylon/:routingKey` | none (signed) | **never** | no (machine ingress) |
 
 `apiToken` and `webhookSecret` join `SENSITIVE_KEYS`.
 

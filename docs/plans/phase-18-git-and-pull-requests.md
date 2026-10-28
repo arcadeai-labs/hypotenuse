@@ -130,7 +130,7 @@ sandbox_job_git_tokens: { id serial, jobId, repository, permission, tokenHash, e
 | `github:installation-detach` | `DELETE /project/:projectId/github/installation/:id` | admin | yes | yes |
 | `repository-grant:create` / `edit` / `delete` / `list` / `view` | `PUT/POST/DELETE/GET /project/:projectId/repository-grant[s]` | admin (list/view: member) | yes | yes (writes) |
 | `sandbox:git-credential` | `GET /sandbox/git-credential` | job token | **never** (not even sandbox MCP) | no (recorded per job) |
-| `webhooks:github` | `POST /webhooks/github` | none (signed) | **never** | no (machine ingress) |
+| `webhooks:github` | `POST /api/webhooks/github` | none (signed) | **never** | no (machine ingress) |
 
 The GitHub App private key and webhook secret are server config, never stored per project. Tokens never appear in responses. `password` (in `sandbox:git-credential`'s response) is the one place a GitHub token crosses; the response is excluded from logs by the action.
 

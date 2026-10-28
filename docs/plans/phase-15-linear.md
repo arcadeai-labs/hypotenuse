@@ -16,7 +16,7 @@ Everything between those two edges ports as is: OAuth with refresh rotation, sig
 **In:**
 
 - Linear OAuth app **per bot**:
-  - Hypotenuse generates the pre-filled app-creation link (Linear's app manifest, `schemaVersion 1.0.0`) with the bot's name, icon, description, callback URL, and webhook URL (`/api/webhooks/linear/<installationKey>`).
+  - Hypotenuse generates the pre-filled app-creation link (Linear's app manifest, `schemaVersion 1.0.0`) with the bot's name, icon, description, callback URL, and webhook URL (`/api/webhooks/linear/<routingKey>`).
   - The admin creates the app in Linear and pastes back `client_id`, `client_secret`, and the webhook signing secret.
   - The app is created `distribution: public`, or a second workspace cannot install it.
 - Install per workspace with `actor=app`, PKCE, and scopes `read`, `write`, `app:assignable`, `app:mentionable`, `issues:create`, `comments:create`. Refresh rotation with a 30-minute replay grace; refresh under a row lock; only `invalid_grant` marks an installation `error`.
@@ -101,7 +101,7 @@ These are v1's lessons. Each cost a bug, an uninstall, or a day.
 - name = the bot's display name (Linear may suffix a collision, LC-OAUTH-23; we store the name Linear reports, `appUserName`);
 - icon, description;
 - `redirectUris` = `/api/linear/callback`;
-- `webhookUrl` = `/api/webhooks/linear/<installationKey>`;
+- `webhookUrl` = `/api/webhooks/linear/<routingKey>`;
 - webhooks enabled for `AgentSessionEvent`, `AppUserNotification`, `PermissionChange`, `OAuthApp`, `Issue`;
 - `distribution: public`.
 
@@ -109,7 +109,7 @@ These are v1's lessons. Each cost a bug, an uninstall, or a day.
 
 The admin creates the app in Linear and pastes back `clientId`, `clientSecret`, and `webhookSecret` (`linear:app-register`). Each is sealed into a `bot_installations` row (`type: "linear"`, `status: "created"`). Linear has no app-creation API, so there is no automated path.
 
-`<installationKey>` routes a delivery to the right app's webhook secret before parsing, just as in [Slack](./phase-14-slack.md). An unknown key is 404. This is the one refusal that is not a workspace refusal: no Linear app of ours has that URL.
+`<routingKey>` routes a delivery to the right app's webhook secret before parsing, just as in [Slack](./phase-14-slack.md). An unknown key is 404. This is the one refusal that is not a workspace refusal: no Linear app of ours has that URL.
 
 ### 2. Install
 
@@ -131,7 +131,7 @@ The same bot installed into a second workspace is a second installation row unde
 
 ### 3. Ingress — `webhooks:linear`
 
-`POST /api/webhooks/linear/:installationKey`, with `web.rawBody: true`, no rate limit, and never MCP:
+`POST /api/webhooks/linear/:routingKey`, with `web.rawBody: true`, no rate limit, and never MCP:
 
 1. Resolve the key to an app.
 2. Verify `Linear-Signature` (HMAC-SHA256 hex of the raw body) in constant time.
@@ -227,7 +227,7 @@ No new tables:
 - `bot_installations` (`type: "linear"`):
   - `externalTeamId` = Linear `organizationId`
   - `details`:
-    - `appUserId`, `appUserName`, `urlKey`, `scopes[]`, `installationKey`
+    - `appUserId`, `appUserName`, `urlKey`, `scopes[]` (the routing key is the framework's `routingKeyHash` column)
     - `teamAccess { canAccessAllPublicTeams, teamIds[] }`
     - sealed `{ clientId, clientSecret, webhookSecret, webhookSecretPrevious?, accessToken, refreshToken }`
     - `accessTokenExpiresAt`, `refreshStartedAt`
@@ -249,7 +249,7 @@ No new tables:
 | `linear:install-url` | `GET /bot/:botId/linear/install-url` | admin | yes | no |
 | `linear:callback` | `GET /linear/callback` | session (browser hop) | **never** | yes |
 | `linear:uninstall` | `DELETE /bot/:botId/linear/installation/:id` | admin | yes | yes |
-| `webhooks:linear` | `POST /webhooks/linear/:installationKey` | none (signed) | **never** | no (machine ingress) |
+| `webhooks:linear` | `POST /api/webhooks/linear/:routingKey` | none (signed) | **never** | no (machine ingress) |
 | `installations:refresh-tokens` | task-only clock | — | never | no (clock) |
 | `triggers:check-notifications` | task-only clock | — | never | no (clock) |
 

@@ -111,8 +111,8 @@ conversation.projectId}`. Every memory query takes a `MemoryScope` built from th
 
 ### 3. Embeddings
 
-- `MemoryOps.embed` calls AI SDK `embedMany()` with the project's embedding model (`model_connections` row with
-  `purpose: "embedding"`, configured in [07](./phase-07-model-providers-and-bots.md)).
+- `MemoryOps.embed` calls AI SDK `embedMany()` with the project's embedding model (a `model_aliases` row of
+  `kind: "embedding"` on one of [07](./phase-07-model-providers-and-bots.md)'s connections; this phase adds that kind).
 - The column is `vector(MEMORY_EMBEDDING_DIMENSIONS)`, a deployment constant (1536 by default). A model whose
   native size differs must support a `dimensions` option (OpenAI's `text-embedding-3-*` do), or the connection
   is refused at configuration time with a message that says so.

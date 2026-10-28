@@ -48,8 +48,8 @@ Much of this is a port, and each port says so in its phase:
 | [14](./phase-14-slack.md) | Slack | One Slack app per bot; mentions, DMs, threads; streamed replies, status, plan steps; buttons for questions and approvals |
 | [15](./phase-15-linear.md) | Linear | One Linear app per bot; agent sessions as conversations; v1's OAuth, webhook, outbox, and finear stack ported |
 | [16](./phase-16-pylon.md) | Pylon | Pylon issues as conversations, customer accounts as channels; internal notes by default |
-| [17](./phase-17-sandboxes.md) | Sandboxes | ToolExec's provider interface with Docker; sandbox jobs owned by a conversation; the supervisor protocol; status, questions, and help relayed back |
-| [18](./phase-18-git-and-pull-requests.md) | Git and pull requests | GitHub App, repository grants, per-command scoped tokens, the model proxy, pull requests reported to the conversation |
+| [17](./phase-17-sandboxes.md) | Sandboxes | ToolExec's provider interface with Docker; sandbox jobs owned by a conversation; the supervisor protocol; the model and MCP gateway proxies; status, questions, and help relayed back |
+| [18](./phase-18-git-and-pull-requests.md) | Git and pull requests | GitHub App, repository grants, per-command scoped tokens, pull requests reported to the conversation |
 | [19](./phase-19-vercel-sandboxes.md) | Vercel sandboxes | The production provider, with a provider-conformance suite shared with Docker |
 | [20](./phase-20-schedules.md) | Schedules | Per-bot cron schedules that wake a bot to work toward its goals |
 | [21](./phase-21-dashboard.md) | Dashboard | Mission control: bots, live conversations and transcripts, the memory explorer, approvals and help, sandboxes |

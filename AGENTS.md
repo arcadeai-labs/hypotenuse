@@ -57,11 +57,17 @@ These bind from the first line of code. A rule that names a thing not built yet 
    and implements `runWithAudit(tx, params, connection)`, routing **every** write through `tx` and setting
    `connection.metadata.auditBefore` / `auditAfter` from `serializeX()` output. A new secret-bearing param means
    adding its key to `SENSITIVE_KEYS` in the same commit. The unaudited writers are a **closed list**, argued in
-   [`phase-05-audit-logging.md`](./docs/plans/phase-05-audit-logging.md): reads, sweeps and clocks, session
-   create/destroy, machine ingress (`webhooks:*`, recorded in `trigger_events`), the agent loop's own writes
-   (`agent:tick`, recorded in `conversation_entries`), the outbox, and the sandbox's machine half (recorded in
-   `sandbox_job_events`). The audited thing is always **the decision a person made** — editing a bot, binding it
-   to a channel, approving a tool call, answering a help request, granting a repository.
+   [`phase-05-audit-logging.md`](./docs/plans/phase-05-audit-logging.md), and this list and that table change
+   together: reads and `actions:permissions`; `session:create` / `session:destroy`; `notification:mark-read`;
+   clocks and sweeps; the CLI's sign-in ingress (`cli-auth:device` / `cli-auth:exchange`, a token's sliding
+   expiry); machine ingress (`webhooks:*`, recorded in `trigger_events`) and its processing
+   (`triggers:process-event`, `triggers:process-pending`, recorded in `trigger_events` and `conversation_inbox`);
+   `agent:tick` and every tool a bot runs (recorded in `conversation_entries`); outbox delivery (`outbox_messages`);
+   the sandbox's machine half (`sandbox:events` / `heartbeat` / `complete` and the in-sandbox tools, recorded in
+   `sandbox_jobs` and `sandbox_job_events`); and `cost_records`. The audited thing is always **the decision a
+   person made** — editing a bot, binding it to a channel, approving a tool call, answering a help request,
+   granting a repository. A decision a platform participant makes in a channel (an approval clicked in Slack) is
+   audited too, as `actorType: "participant"`.
 6. **Credentials never leave the server.** No action returns a platform token, signing secret, model key, MCP
    server credential, or GitHub App key, and no serializer has a field one fits in. A sandbox holds exactly one
    credential — its run token — and reaches models, MCP servers, and git through server-side proxies and
@@ -77,8 +83,10 @@ These bind from the first line of code. A rule that names a thing not built yet 
 9. **The platform's permissions decide who may talk to a bot; the project's RBAC decides who may run it.** Anyone
    who can post in a Slack channel, comment on a Linear issue, or write on a Pylon ticket where a bot is bound may
    address that bot about that place — Hypotenuse adds no second gate and links no identities. Configuring a bot,
-   reading its transcripts, editing its memory, or binding it anywhere is gated by project RBAC: membership, the
-   reserved `admin` tag, and each bot's `accessRead` / `accessWrite` tag lists (`canReadBot` / `canWriteBot`).
+   reading its transcripts, editing its memory, or binding it anywhere is gated by project RBAC, ToolExec's model:
+   membership, tags as roles with the reserved `admin` tag, each bot's `accessRead` / `accessWrite` tag lists
+   (`canReadBot` / `canWriteBot`), and an organization owner's admin standing in every project of the
+   organization.
 10. **Every platform interaction is in that platform's coverage matrix.** A new webhook, API call, signal, or
     interactive element gets a row naming the module that handles it and the test that proves it, in the same
     commit. A docs test asserts every row's test file exists and mentions the row's id.

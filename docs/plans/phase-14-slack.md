@@ -78,12 +78,12 @@ Slack is the general company chat, so it is where most people meet the bot. It i
   - `reactions:write`
   - `files:read`
 - `oauth_config.redirect_urls`: our callback.
-- `settings.event_subscriptions.request_url`: `/api/webhooks/slack/<installationKey>`.
+- `settings.event_subscriptions.request_url`: `/api/webhooks/slack/<routingKey>`.
 - `settings.event_subscriptions.bot_events`: the events in scope.
 - `settings.interactivity.request_url`: the same URL.
 - `org_deploy_enabled: false`, `socket_mode_enabled: false`.
 
-The `<installationKey>` is an opaque per-installation token in the path. It tells ingress which `bot_installations` row's signing secret to verify with, before anything is parsed. One URL per app is what Slack expects, and it means a bad key and a bad signature can both be the same byte-identical 404 (see §3).
+The `<routingKey>` is an opaque per-installation token in the path. It tells ingress which `bot_installations` row's signing secret to verify with, before anything is parsed. One URL per app is what Slack expects, and it means a bad key and a bad signature can both be the same byte-identical 404 (see §3).
 
 There are two ways to create the app, and both end in the same `bot_installations` row (`type: "slack"`, `status: "created"`):
 
@@ -117,9 +117,9 @@ A DM with the bot is always bound (`mode: "all"`). The person chose to talk to i
 
 ### 3. Ingress — `webhooks:slack`
 
-`POST /api/webhooks/slack/:installationKey`, with `web.rawBody: true`, no rate-limit middleware, never MCP.
+`POST /api/webhooks/slack/:routingKey`, with `web.rawBody: true`, no rate-limit middleware, never MCP.
 
-1. Resolve `installationKey` to an installation row. If the key is unknown or the installation has been deleted, answer the byte-identical 404.
+1. Resolve the `routingKey` to an installation row by its hash ([13](./phase-13-channel-framework.md)). If the key is unknown or the installation has been deleted, answer the byte-identical 404.
 2. Read `X-Slack-Request-Timestamp`. If it is more than 300 s from Postgres's clock, answer the same 404 body.
 3. Compute `v0=` + hex(HMAC-SHA256(signing_secret, `v0:<timestamp>:<raw body>`)) and constant-time compare it with `X-Slack-Signature`. During rotation, also try `signingSecretPrevious`. On mismatch, answer the same 404 body.
 4. Content type `application/json`:
@@ -210,7 +210,7 @@ No new tables. Slack fills generic ones:
 - `bot_installations.details` (jsonb, per `type: "slack"`):
   - `appId`, `clientId`, `teamId`, `teamName`, `botUserId`
   - `scopes[]`
-  - `installationKey` (indexed, unique)
+  - `routingKeyHash` (the channel framework's, indexed, unique)
   - `manifestRevision`
   - sealed `{ clientSecret, signingSecret, signingSecretPrevious?, botToken }`
 - `channels`:
@@ -232,7 +232,7 @@ No new tables. Slack fills generic ones:
 | `slack:callback` | `GET /slack/callback` | session (browser hop) | **never** | yes (the person's install) |
 | `slack:manifest-sync` | `POST /bot/:botId/slack/manifest` | admin | yes | yes |
 | `slack:uninstall` | `DELETE /bot/:botId/slack/installation/:id` | admin | yes | yes |
-| `webhooks:slack` | `POST /webhooks/slack/:installationKey` | none (signed) | **never** | no (machine ingress, recorded in `trigger_events`) |
+| `webhooks:slack` | `POST /api/webhooks/slack/:routingKey` | none (signed) | **never** | no (machine ingress, recorded in `trigger_events`) |
 | `channel-binding:*` | from [the channel framework](./phase-13-channel-framework.md) | admin | yes | yes |
 
 `clientSecret`, `signingSecret`, `botToken`, and `configToken` join `SENSITIVE_KEYS` in the same commit.
@@ -283,7 +283,7 @@ The decision table in §4, one function per row, with an exhaustive `switch` on 
 
 ## Test plan
 
-- **Signing:** valid; stale timestamp (±301 s); wrong secret; previous secret during rotation; unknown installation key. The three refusals have byte-identical bodies.
+- **Signing:** valid; stale timestamp (±301 s); wrong secret; previous secret during rotation; unknown routing key. The three refusals have byte-identical bodies.
 - **Three seconds:** `ack.test.ts` runs a real Resque worker and measures `webhooks:slack` end to end under a slow model fixture.
 - **Retries:** the fake delivers the same event three times with `X-Slack-Retry-Num`. There is one inbox row and one answer.
 - **Double delivery:** `app_mention` plus `message.channels` for one message gives one inbox row.

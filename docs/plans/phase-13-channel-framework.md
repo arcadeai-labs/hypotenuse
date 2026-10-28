@@ -274,9 +274,10 @@ Around that:
     approvals.
   - `listed`: only the external user ids in `approverExternalIds`.
   
-  A permitted decision calls `ApprovalOps.decide` with `decidedByParticipantId` and `decidedVia: <type>`. It is
-  not audited as a person's action (participants are not users). It is recorded on the approval row and the
-  trigger event. Setting the policy is the audited decision.
+  A permitted decision calls `ApprovalOps.decide` with `decidedByParticipantId` and `decidedVia: <type>`, and
+  writes an `audit_logs` row with `actorType: "participant"` and the `participantId`, inside the same processing
+  transaction ([05](./phase-05-audit-logging.md)). It is recorded on the approval row and the trigger event too.
+  Setting the policy is also an audited decision.
 
 ### 8. Escalation
 
@@ -406,7 +407,7 @@ help_requests: id serial pk, projectId, botId, conversationId, entryId,
 | `help:list` / `view` | `GET /help…` | member, filtered by `canReadBot` | yes | no |
 | `help:answer` | `POST /help/:id` | `canReadBot` and recipient-eligible | yes | yes |
 | `help:cancel` | `DELETE /help/:id` | `canWriteBot` | yes | yes |
-| `webhooks:webhook` (and later `webhooks:slack`, …) | `POST /webhooks/<type>/:routingKey` | none (signature) | **never** | no (machine ingress, recorded in `trigger_events`) |
+| `webhooks:webhook` (and later `webhooks:slack`, …) | `POST /api/webhooks/<type>/:routingKey` | none (signature) | **never** | no (machine ingress, recorded in `trigger_events`) |
 | `triggers:process-event` | — (task) | — | no | no |
 | `triggers:process-pending` | — (clock, 5 s) | — | no | no |
 | `outbox:deliver` / `outbox:deliver-due` | — (task / clock) | — | no | no |

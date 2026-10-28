@@ -90,9 +90,10 @@ A job reads the provider when it starts, not when it is created. A job created b
 
 ## Schema sketch
 
-No new tables:
+One table ported, no new ones of our own:
 
-- `project_connections` gains kind `vercel`, with credentials `{ token (sealed), teamId, projectId }`.
+- `project_connections` — ToolExec's sealed connection table, ported here because Vercel is its first kind (Docker
+  needs no credentials) — holds kind `vercel`, with credentials `{ token (sealed), teamId, projectId }`.
 - `project_settings`: `sandboxProvider`, `sandboxConfig jsonb`.
 - `bots.settings.requireEgressAllowlist boolean`.
 
