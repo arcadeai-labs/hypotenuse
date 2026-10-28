@@ -18,7 +18,8 @@ questions, or asks for help in the same conversation.
   may configure it, read its transcripts, or edit its memory is decided by project roles, and every such decision is
   in the audit log.
 
-> **Status: the foundation is built; nothing a person would call a feature is.** The design is
+> **Status: the foundation, the deployment, and the design system are built; nothing a person would call a feature
+> is.** The design is
 > [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) and the phased plans in [`docs/plans/`](./docs/plans/README.md). Hypotenuse **v1** — local coding agents answering
 > Linear agent sessions — is archived on the [`v1` branch](https://github.com/arcadeai-labs/hypotenuse/tree/v1).
 
@@ -48,6 +49,7 @@ createdb hypotenuse && createdb hypotenuse_test
 bun install
 cp backend/.env.example backend/.env && cp frontend/.env.example frontend/.env
 bun run test        # every workspace's tests
+bun run test:e2e    # the browser suite
 bun dev             # the API on http://localhost:8080, the app on http://localhost:3000
 curl -s localhost:8080/api/status | jq '.healthy, .database'
 ```

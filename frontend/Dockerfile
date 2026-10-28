@@ -21,6 +21,8 @@ RUN bun install --frozen-lockfile
 # The Vite build needs backend SOURCES, not just its manifest — `tsc -b`
 # resolves action response types through the `@backend/*` path alias.
 COPY backend/ backend/
+# The design inputs: the bundle imports design/states.ts and design/tokens.json.
+COPY design/ design/
 COPY frontend/ frontend/
 
 RUN bun run --cwd frontend build

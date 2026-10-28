@@ -371,8 +371,9 @@ recorded and the extension present.
 `verbatimModuleSyntax`, `import { type X } from "@backend/…"` survives as a side-effect import, so only
 `import type` counts as type-only.
 
-**No `test:e2e` script yet.** No browser suite exists, and a root script that resolves to nothing would fail the
-day someone runs it. It arrives with the first Playwright suite, alongside the design system.
+**No `test:e2e` script yet.** No browser suite existed, and a root script that resolves to nothing would fail the
+day someone runs it. *Now:* the design system added the Playwright suite, the root `test:e2e` script, and the
+**E2E Test** job in the CI gate.
 
 **The docs tests moved in the same commit as CI.** `links.test.ts` had to lose its slug example, which named a
 phase and failed `no-phase-names.test.ts` the moment both lived under `backend/`. The scan keeps `design/` beside
@@ -389,6 +390,7 @@ the three new trees and needs more than ten files. The plan-count guard is `> 20
 - Verified locally on Postgres 16 with pgvector 0.6.0; CI runs `pgvector/pgvector:pg18`. The open question about
   also testing plain `postgres:18` stays at its default: the pgvector image alone.
 
-**The frontend has no styles at all.** One unstyled `/status` page reads `ActionResponse<Status>` through
-`@backend/*`; renaming a field the page reads fails `tsc -b`. Tokens, the shell, and both themes are the design
-system's.
+**The frontend had no styles at all.** One unstyled `/status` page read `ActionResponse<Status>` through
+`@backend/*`; renaming a field the page reads fails `tsc -b`. *Now:* `/status` sits in the app shell and paints with
+the kit ([the design system's learnings](./phase-03-design-system.md#learnings-from-the-build)); the typed read is
+unchanged.

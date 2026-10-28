@@ -179,6 +179,8 @@ services:
         # `tsc -b` resolves action response types through `@backend/*`, so a
         # backend change can break — or fix — the frontend build.
         - backend/**
+        # The bundle imports the state table and the generated tokens.
+        - design/**
         - bun.lock
         - package.json
     envVars:

@@ -4,14 +4,18 @@
  * LCH, and a pure generator that turns them into every semantic color token for
  * light and dark. The spec is docs/DESIGN.md.
  *
- *   bun design/tokens.ts --write   regenerate the three outputs
+ *   bun design/tokens.ts --write   regenerate every output
  *   bun design/tokens.ts --check   exit 1 if any output differs from a fresh generation
  *
  * Outputs (committed, never edited by hand):
  *   frontend/src/styles/_tokens.generated.scss   CSS custom properties per theme
  *   design/tokens.json                            hex values, read by the CLI palette
  *   backend/theme/hypotenuse-theme.ts             the Keryx OAuth page's `--keryx-*` theme
+ *   backend/theme/email-palette.ts                mail chrome
+ *   design/mark.svg, design/app-icon.png          the mark, and the mark as an opaque tile
+ *   frontend/public/favicon{,-dark}.svg           the web app's icon
  *   backend/assets/favicon{.ico,.svg,-dark.svg}   the API origin's icon, for MCP clients
+ *   backend/templates/lion.svg                    the mark on the OAuth page
  *
  * No dependencies: the LCH → sRGB conversion and WCAG contrast are below.
  */
@@ -63,6 +67,8 @@ const HUES = {
   manager: { h: 300, c: 45 },
   online: { h: 150, c: 50 },
   draining: { h: 75, c: 62 },
+  // A conversation at rest: calm and cool, distinct from the grey of a stale lease.
+  idle: { h: 230, c: 22 },
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -270,6 +276,7 @@ export function generateTheme(inputs: ThemeInputs): ThemeTokens {
   t["status-waiting"] = glyph(HUES.waiting);
   t["status-complete"] = glyph(HUES.complete);
   t["status-error"] = glyph(HUES.error);
+  t["status-idle"] = glyph(HUES.idle);
   t["status-stale"] = t["text-disabled"];
   t["status-stopping"] = glyph(HUES.stopping);
   t["runner-online"] = glyph(HUES.online);
@@ -300,6 +307,8 @@ export const CONTRAST_PAIRS: Array<{ fg: string; bg: string; min: number }> = [
   { fg: "text-tertiary", bg: "bg-app", min: 4.5 },
   { fg: "text-tertiary", bg: "bg-panel", min: 4.5 },
   { fg: "text-primary", bg: "bg-selected", min: 4.5 },
+  // The bot badge's tag and a bot's monogram.
+  { fg: "text-primary", bg: "accent-subtle", min: 4.5 },
   { fg: "accent", bg: "bg-app", min: 4.5 },
   { fg: "accent", bg: "bg-panel", min: 4.5 },
   { fg: "text-on-accent", bg: "accent", min: 4.5 },
@@ -309,6 +318,7 @@ export const CONTRAST_PAIRS: Array<{ fg: string; bg: string; min: number }> = [
   { fg: "diff-remove", bg: "bg-panel", min: 4.5 },
   ...[
     "status-active",
+    "status-idle",
     "status-waiting",
     "status-complete",
     "status-error",

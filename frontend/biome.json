@@ -31,5 +31,10 @@
       "!**/test-results",
       "!**/bun.lockb"
     ]
+  },
+  "css": {
+    "parser": {
+      "tailwindDirectives": true
+    }
   }
 }

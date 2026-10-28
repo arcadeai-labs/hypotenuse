@@ -90,7 +90,11 @@ Each phase ends in a reviewable, deployable state. **Phase 01 halts for review b
 **[Phase 01](./phase-01-foundation.md) is built**: the `backend/`, `frontend/`, and `cli/` workspaces, Postgres with
 pgvector from migration 0000, the docs tests in the backend suite, and CI behind **CI Complete**.
 **[Phase 02](./phase-02-deployment.md) is built and deployed to staging**: the Render blueprint, its invariant test, and
-[`DEPLOY.md`](../DEPLOY.md); `api.hypotenuse.cloud` is healthy with `vector`. No other phase is built; every later plan's **Learnings from the
+[`DEPLOY.md`](../DEPLOY.md); `api.hypotenuse.cloud` is healthy with `vector`.
+**[Phase 03](./phase-03-design-system.md) is built**: the generated tokens with `--status-idle`, the shared state table
+in `design/states.ts`, the UI kit, conversation-state glyphs and the bot badge in web and CLI, the app shell with
+organization and project switchers, the public site, `/docs`, `/style-guide`, and the browser suite as **E2E Test**.
+No other phase is built; every later plan's **Learnings from the
 build** section reads "Not built yet." until its phase lands.
 
 ### Decisions so far

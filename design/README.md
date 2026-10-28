@@ -22,6 +22,10 @@ bun run --cwd frontend theme:check   # fail if any output is stale (part of fron
 | `backend/assets/favicon.ico`, `backend/assets/favicon{,-dark}.svg` | the API origin's icon — MCP clients and favicon services ask the server's origin for `/favicon.ico`; the ICO is the light mark rasterized at 16–64 px |
 | `backend/templates/lion.svg` | the mark on the OAuth page, painted from that page's own variables |
 
+`states.ts` is the other input: the conversation and sandbox job states a status glyph stands for, and each one's
+glyph, token, Unicode shape, and words. The web kit's `StatusGlyph` and the CLI palette both import it, so a renamed
+state is a type error in both. It is hand-written, not generated.
+
 **Never edit a generated file.** Change an input in `tokens.ts` and rebuild. `frontend/src/__tests__/tokens.test.ts`
 compares every output with a fresh generation, so a hand edit fails CI.
 

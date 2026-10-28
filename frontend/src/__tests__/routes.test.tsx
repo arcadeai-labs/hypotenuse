@@ -2,6 +2,20 @@ import { describe, expect, test } from "bun:test";
 import { renderToString } from "react-dom/server";
 import { MemoryRouter } from "react-router-dom";
 import { App } from "../App";
+import { ThemeProvider } from "../context/ThemeContext";
+
+// The app is client-only: the theme provider and the shell read the viewport
+// and the stored theme while they first render. A light, narrow-less window is
+// enough for a first paint without a browser.
+const browser = globalThis as unknown as { window?: unknown };
+browser.window ??= {
+  matchMedia: (query: string) => ({
+    matches: false,
+    media: query,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+  }),
+};
 
 /**
  * Render the whole app at a path, without a browser. Effects do not run on
@@ -11,26 +25,67 @@ import { App } from "../App";
  */
 function renderAt(path: string): string {
   return renderToString(
-    <MemoryRouter initialEntries={[path]}>
-      <App />
-    </MemoryRouter>,
+    <ThemeProvider>
+      <MemoryRouter initialEntries={[path]}>
+        <App />
+      </MemoryRouter>
+    </ThemeProvider>,
   );
 }
 
 describe("routes", () => {
-  test("the home page names the product and links to the server status", () => {
+  test("the home page carries the hero inside the public frame", () => {
     const html = renderAt("/");
-    expect(html).toContain("<h1>Hypotenuse</h1>");
-    expect(html).toContain('href="/status"');
+    expect(html).toContain('data-testid="public-shell"');
+    expect(html).toContain("A teammate in every channel");
   });
 
-  test("an unknown path falls back to the home page rather than a blank screen", () => {
-    expect(renderAt("/no/such/page")).toContain("<h1>Hypotenuse</h1>");
+  test("an unknown path redirects rather than rendering a page of its own", () => {
+    // `<Navigate>` acts in an effect, so a first paint is empty; the browser
+    // suite follows the redirect home.
+    expect(renderAt("/no/such/page")).toBe("");
   });
 
-  test("/status says it is asking the server before the answer arrives", () => {
+  test("/status sits in the app shell and says it is asking the server", () => {
     const html = renderAt("/status");
-    expect(html).toContain("<h1>Server status</h1>");
+    expect(html).toContain('data-testid="app-shell"');
+    expect(html).toContain("Server status");
     expect(html).toContain("Asking the server");
+  });
+
+  test("every destination is in the sidebar; one not built yet is disabled and says so without a phase", () => {
+    const html = renderAt("/status");
+    for (const id of [
+      "home",
+      "conversations",
+      "bots",
+      "memory",
+      "sandboxes",
+      "settings",
+    ]) {
+      const item = html.match(
+        new RegExp(`<[a-z]+[^>]*data-testid="nav-${id}"[^>]*>`),
+      )?.[0];
+      expect(item, id).toBeDefined();
+      expect(item).toContain('aria-disabled="true"');
+      expect(item).toContain('title="Not available yet"');
+    }
+    expect(html).not.toMatch(/phase/i);
+  });
+
+  test("the organization switcher sits above the project switcher", () => {
+    const html = renderAt("/status");
+    expect(html.indexOf('data-testid="organization-switcher"')).toBeGreaterThan(
+      -1,
+    );
+    expect(html.indexOf('data-testid="organization-switcher"')).toBeLessThan(
+      html.indexOf('data-testid="project-switcher"'),
+    );
+  });
+
+  test("the style guide renders both themes side by side", () => {
+    const html = renderAt("/style-guide");
+    expect(html).toContain('data-testid="style-guide-light"');
+    expect(html).toContain('data-testid="style-guide-dark"');
   });
 });

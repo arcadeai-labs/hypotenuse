@@ -123,6 +123,32 @@ jobs:
       - run: bun run test
       # A missing prop the unit suite never instantiates still fails here.
       - run: bun run build
+      # Fonts are self-hosted: nothing in the build may reach for a font CDN.
+      - run: "! grep -rEl 'fonts\\.(googleapis|gstatic)\\.com|use\\.typekit\\.net|fonts\\.bunny\\.net' dist"
+
+  # The browser suite: theme switching without a flash, the shell and its
+  # keymap, the public home, the docs frame, and the style guide. It boots only
+  # the Vite dev server; a spec that needs the backend adds it as a second
+  # `webServer` in playwright.config.ts.
+  e2e:
+    name: E2E Test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+        working-directory: .
+      - run: bunx playwright install --with-deps chromium
+      - run: bun run test:e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: frontend/playwright-report
+          retention-days: 7
 
   frontend-docker:
     name: Frontend Docker
@@ -143,6 +169,7 @@ jobs:
         cli,
         frontend-lint,
         frontend-test,
+        e2e,
         frontend-docker,
       ]
     steps:

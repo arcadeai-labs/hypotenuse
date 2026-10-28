@@ -6,9 +6,11 @@ tools, and its own memory. Many bots run in many conversations at once, across m
 a bot hands it to an **ephemeral sandbox** that clones the repository, does the work, opens a pull request, and
 reports back into the conversation it came from.
 
-> **Status:** the foundation and the deployment are built — three Bun workspaces (`backend/`, `frontend/`, `cli/`),
-> Postgres with pgvector, CI behind **CI Complete**, and a Render blueprint with staging live at `api.hypotenuse.cloud`
-> ([`docs/DEPLOY.md`](./docs/DEPLOY.md)). Nothing a person would call a feature exists yet. The build order and every plan are in
+> **Status:** the foundation, the deployment, and the design system are built — three Bun workspaces (`backend/`,
+> `frontend/`, `cli/`), Postgres with pgvector, CI behind **CI Complete**, a Render blueprint with staging live at
+> `api.hypotenuse.cloud` ([`docs/DEPLOY.md`](./docs/DEPLOY.md)), and the look: tokens, the UI kit, the app shell, the
+> public site and `/docs`, and `/style-guide` ([`docs/DESIGN.md`](./docs/DESIGN.md)). Nothing a person would call a
+> feature exists yet. The build order and every plan are in
 > [`docs/plans/README.md`](./docs/plans/README.md); the system on one page is
 > [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md). Hypotenuse **v1** — local coding agents answering
 > Linear agent sessions through a runner daemon — is archived on the
@@ -116,7 +118,12 @@ These bind from the first line of code. A rule that names a thing not built yet 
     as short as it can be while still conveying the meaning. Load-bearing argument belongs in a code comment or a
     learnings section, not in the PR body. The same goes for what a bot writes into Slack, Linear, or Pylon: status
     is for the person watching, and a reply says what happened and where — not a file-by-file list.
-16. **Paint with tokens, both themes.** Components use semantic tokens only — no color literals, no literal font
+16. **Every change ships with proof of work.** A pull request shows that the change does what it says, in a form a
+    reviewer can check without running it: for anything a person looks at, **screenshots in light and dark**,
+    committed to the branch and embedded in the PR body; for anything else, the commands run and what they printed
+    (the suites, a `curl` against the booted server, the CLI's output). "Tests pass" is not proof on its own — say
+    which checks ran and show what they showed. A step that could not be run is named as not run, with why.
+17. **Paint with tokens, both themes.** Components use semantic tokens only — no color literals, no literal font
     sizes — and every surface is checked in light **and** dark. The look changes by changing an input in
     `design/tokens.ts`, never a generated file. A bot is always visibly a bot. [`docs/DESIGN.md`](./docs/DESIGN.md)
     is the spec.
@@ -154,6 +161,8 @@ When Keryx, finear, or another dependency misbehaves (rule 4):
 ### Pull requests
 
 - Title says what changed, in plain words; the body is a few lines. Link the phase doc.
+- The body carries the proof of work (rule 16): screenshots in both themes for a visible change, commands and their
+  output for the rest. `bun run --cwd frontend docs:illustrations` captures the standard pages in both themes.
 - Run every check locally before pushing — lint, the touched suites, and the docs test. Each push starts a new
   review; one validated push beats three speculative ones.
 - Never skip, disable, or quarantine a test to get green. A flake is not a root cause.
@@ -308,12 +317,15 @@ From v1 and ToolExec, each paid for once already:
 bun install
 bun run lint             # tsc + biome in backend, frontend, and cli
 bun run test             # every workspace's suites; the backend's need Postgres (with pgvector) and Redis
+bun run test:e2e         # the browser suite (Playwright; boots the Vite dev server)
 bun dev                  # the backend on :8080 and the frontend on :3000
 bun run workspace:setup  # give this checkout its own test database and Redis index
 bun run ngrok            # the reserved public tunnels to the local backend and frontend
 
 cd backend && bun run migrations     # generate a migration from schema/ changes, then `bun run format`
 cd cli && bun run build              # compile dist/hypotenuse
+cd frontend && bun run theme:build   # regenerate every design/tokens.ts output after changing an input
+cd frontend && bun run docs:illustrations  # light + dark screenshots, with `bun dev` running
 ```
 
 The docs tests run in the backend suite: every relative link and anchor in `AGENTS.md`, `README.md`, and `docs/`
