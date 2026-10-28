@@ -79,6 +79,12 @@ services:
       # The frontend's public origin, and only it — a mismatch fails CORS.
       - key: WEB_SERVER_ALLOWED_ORIGINS
         value: "https://www.hypotenuse.cloud"
+      # The OAuth authorize page's theme, generated from design/tokens.ts. Keryx
+      # refuses to boot when this names a file that does not exist, and a
+      # Blueprint sync never removes a key it does not mention, so the blueprint
+      # owns this one.
+      - key: WEB_SERVER_THEME
+        value: "theme/hypotenuse-theme.ts"
       # Our own public origin: the OAuth/MCP issuer, and the base of every
       # webhook URL a platform app's manifest embeds.
       - key: APPLICATION_URL
