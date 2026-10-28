@@ -57,6 +57,11 @@ env group, and ignores it on a service during Blueprint updates.
 | `TASKS_ENABLED` / `TASK_PROCESSORS` | `false` / `0` | `true` / `4` | |
 | `VITE_API_URL` | — | — | the frontend's build arg, `https://api.hypotenuse.cloud` |
 
+**Keys a sync does not mention survive it.** The staging services predate 2.0, and Render keeps every
+dashboard key `render.yaml` does not name, so v1's `LINEAR_*` and `OTEL_SERVICE_NAME` are still set (read by
+nothing) — and a key naming a file, like `WEB_SERVER_THEME`, must point at one that exists, or the api does not
+boot. That is why the blueprint declares `WEB_SERVER_THEME` itself.
+
 **Platform secrets are not environment variables.** Each bot is its own Slack app and its own Linear app, so its
 signing secrets and tokens are stored encrypted with that bot's installation. The blueprint test refuses any
 `SLACK_*`, `LINEAR_*`, or `PYLON_*` key.

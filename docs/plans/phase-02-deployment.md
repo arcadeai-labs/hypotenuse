@@ -282,6 +282,14 @@ with `status` (`ops/HealthOps.ts`) and throws a `TypedError` (500; Keryx has no 
 check; `status` stays the typed 200 report the dashboard reads. `status-vector.test.ts` asserts the 500 against
 a database without the extension, and the blueprint test pins the path.
 
+**v1's Render services were still there, and their dashboard env outlived v1.** The merge auto-deployed the
+frontend, but the api crashed at boot: the service still carried v1's `WEB_SERVER_THEME=theme/hypotenuse-theme.ts`,
+and Keryx refuses to start when the theme file it names is missing. A Blueprint sync would not have fixed it —
+Render never removes a key `render.yaml` does not mention. The fix ships the file (rendered by
+`design/tokens.ts`'s own `renderKeryxTheme`, byte-identical to what the generator writes) and declares
+`WEB_SERVER_THEME` in the blueprint so the Blueprint owns it; `render-blueprint.test.ts` asserts the file exists
+and matches the generator. Any other key left from v1 (`LINEAR_*`, `OTEL_SERVICE_NAME`) is read by nothing.
+
 **The webhook routes are constants with nothing mounted yet.** `ops/WebhookUrlOps.ts` holds `/webhooks/{slack,
 linear,pylon}`; a `POST` there answers 404 until each platform's ingress lands, and the platform phases must
 mount exactly these routes. They are not part of `healthy`.

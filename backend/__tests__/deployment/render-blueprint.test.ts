@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
+import { generateAll, renderKeryxTheme } from "../../../design/tokens";
 
 // `render.yaml` is not code, so nothing else in the suite would notice if it
 // drifted from what the app reads — and the feedback loop for a broken blueprint
@@ -320,5 +321,15 @@ describe("render.yaml", () => {
   test("the api answers across origins with a cookie the browser will send", () => {
     expect(valueOf("hypotenuse-api", "SESSION_COOKIE_SECURE")).toBe("true");
     expect(valueOf("hypotenuse-api", "SESSION_COOKIE_SAME_SITE")).toBe("None");
+  });
+
+  test("the api points WEB_SERVER_THEME at a file that exists, generated from the tokens", () => {
+    // Keryx refuses to boot on a missing theme file, which is how a v1 value
+    // left in the dashboard took the api down; and a sync never removes it.
+    const themePath = valueOf("hypotenuse-api", "WEB_SERVER_THEME");
+    expect(themePath).toBe("theme/hypotenuse-theme.ts");
+    expect(readRepoFile(join("backend", themePath!))).toBe(
+      renderKeryxTheme(generateAll()),
+    );
   });
 });
