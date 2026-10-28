@@ -1,279 +1,253 @@
-# Phase 2 — Deployment
+# Phase 02 — Deployment
 
-> **Goal:** One `render.yaml` blueprint that deploys the API, a worker, and the frontend — plus Redis and
-> Postgres — to a single staging environment, auto-deploying on merge to `main`, with a **public HTTPS
-> origin Linear can deliver webhooks to**. A local developer gets the same property through a reserved
-> ngrok tunnel, because Linear refuses to deliver to `localhost`.
+> **Goal:** One `render.yaml` blueprint deploys a staging environment: the API, a worker, and the frontend, plus
+> Redis and Postgres with pgvector. It auto-deploys on merge to `main` and has a **public HTTPS origin** that
+> Slack, Linear, and Pylon can deliver webhooks to. A local developer gets the same property through a reserved
+> ngrok tunnel, because none of the three platforms delivers to `localhost`.
 
-> **Status: built (not yet deployed).** Nothing is deployed. The blueprint is ToolExec's, renamed and pruned, plus
-> the Linear keys and the public webhook URL every later phase assumes.
+> **Status: planned, not built.** It builds on [phase 01](./phase-01-foundation.md): both Dockerfiles, the
+> `vector` check in `/api/status`, and CI Complete. Production stays out until the platform phases land.
 
-Hypotenuse's reason for having a hosted half at all is that **Linear webhooks need a public URL**. A daemon on a
-laptop cannot receive them, and a tunnel per laptop would mean one Linear app per person. So the hosted
-service is the only Linear-facing endpoint, and it has to exist — at a stable hostname — before
-[phase 6](./phase-06-linear-connection.md) can register a Linear OAuth app against it. That is why deployment
-comes second, before any domain model: the callback URL and the webhook URL are inputs to creating the
-Linear app, and changing them later means editing the app in Linear and re-consenting every workspace.
+Hypotenuse 2.0 is headless. People never talk to it on our pages; they talk to it in Slack, Linear, and Pylon.
+Every one of those conversations begins as a webhook from a platform to us. So the hosted service needs a stable
+public hostname **before** any bot gets a platform app:
 
-Copy `toolexec/render.yaml` and `toolexec/docs/DEPLOY.md`, rename `toolexec` → `hypotenuse`, and delete the
-sandbox, GitHub-App, model-proxy, and Vercel material. Read ToolExec's
-[phase 2 learnings](https://github.com/arcadeai-labs/toolexec/blob/main/docs/plans/phase-02-deployment.md#learnings-from-the-build)
-first — they record two failures this blueprint must not repeat (an instance type Render accepts and then
-silently does not create; `generateValue` minting two different encryption keys).
+- Every manifest Hypotenuse generates embeds that host:
+  - Slack's request URL and redirect URL ([phase 14](./phase-14-slack.md));
+  - Linear's callback and webhook URL ([phase 15](./phase-15-linear.md));
+  - Pylon's webhook target ([phase 16](./phase-16-pylon.md)).
+- Changing the host later means editing one app per bot, on every platform. With one app per bot, that is a
+  much bigger cost than v1's single Linear app.
+
+So deployment comes second, before any domain model. The blueprint is v1's, which was ToolExec's renamed and
+pruned. This phase adds the 2.0 differences:
+
+- pgvector;
+- a webhook path per platform;
+- worker sizing for agent ticks rather than runner pings;
+- **no Docker sandbox provider in production.** Render services cannot run Docker; production sandboxes are
+  [Vercel](./phase-19-vercel-sandboxes.md).
+
+Read v1's [phase 02 learnings](https://github.com/arcadeai-labs/hypotenuse/blob/v1/docs/plans/phase-02-deployment.md)
+first. They record failures this blueprint must not repeat:
+- an instance type Render accepts and then silently does not create;
+- `generateValue` minting two different encryption keys;
+- nginx answering its own absolute 301 to an internal port;
+- `sync: false` being ignored inside an env group.
 
 ## Scope
 
-**In:** `render.yaml` with `web` + `worker` + `frontend` + `keyvalue` + `postgres`; the env matrix including
-the `LINEAR_*` keys (empty, `sync: false`); migration ownership; health checks; `buildFilter` paths; the
-`hypotenuse-shared` env group; public hostnames; the reserved ngrok tunnel for local webhook development;
-`backend/__tests__/deployment/render-blueprint.test.ts`; [`docs/DEPLOY.md`](../DEPLOY.md).
+**In:**
+- `render.yaml` with `web` + `worker` + `frontend` + `keyvalue` + `postgres`.
+- The env matrix.
+- Migration ownership.
+- Health checks.
+- `buildFilter` paths.
+- The `hypotenuse-shared` env group.
+- Public hostnames, reusing v1's `hypotenuse.cloud`.
+- The pgvector requirement on the managed database.
+- The reserved ngrok tunnel.
+- `backend/__tests__/deployment/render-blueprint.test.ts`.
+- A new `docs/DEPLOY.md` runbook.
+- The public webhook base URL reported by `/api/status`.
 
-**Out:** creating the Linear OAuth app and filling its secrets (the runbook describes it; the code that reads
-them is [phase 6](./phase-06-linear-connection.md)). A production environment — staging only until the
-phases land. SMTP credentials (declared `sync: false`; read by notifications in
-[phase 4](./phase-04-users-tenancy-and-audit.md)). Hosting the CLI — it ships through npm and GitHub Releases
-([phase 5](./phase-05-cli-and-distribution.md)), never from Render.
+**Out:**
+- Creating any platform app. Per-bot manifests are generated by the platform phases, and the runbook only says
+  where the URLs come from.
+- Production.
+- SMTP credentials: listed in a comment and set in the dashboard; read from
+  [phase 04](./phase-04-organizations-users-and-rbac.md).
+- The sandbox image and its publish workflow ([phase 17](./phase-17-sandboxes.md)).
+- Separate worker pools per queue ([phase 23](./phase-23-scale-and-conformance.md)).
+- Hosting the CLI, which ships through npm and GitHub Releases ([phase 06](./phase-06-operator-cli.md)).
+
+## What already exists
+
+| Piece | Where |
+|---|---|
+| The blueprint, env group, plan ids, domains | [v1 `render.yaml`](https://github.com/arcadeai-labs/hypotenuse/blob/v1/render.yaml) |
+| Blueprint invariant test (strict Zod schema of the subset we use, `COMPUTE_PLANS`) | [v1 `render-blueprint.test.ts`](https://github.com/arcadeai-labs/hypotenuse/blob/v1/backend/__tests__/deployment/render-blueprint.test.ts) |
+| Runbook shape | [v1 `docs/DEPLOY.md`](https://github.com/arcadeai-labs/hypotenuse/blob/v1/docs/DEPLOY.md), [ToolExec `docs/DEPLOY.md`](https://github.com/arcadeai-labs/toolexec/blob/main/docs/DEPLOY.md) |
+| ngrok script and config | `backend/scripts/start-ngrok.ts`, `ngrok.yml`, ported in [phase 01](./phase-01-foundation.md) |
+| `nginx.test.ts` (no redirect, no `public/` entry shadowing a route) | v1 `frontend/src/__tests__/nginx.test.ts` |
+
+## What this must not weaken
+
+1. **Web and worker are the same image**, differing only by environment (`WEB_SERVER_ENABLED`, `TASKS_ENABLED`,
+   `DATABASE_AUTO_MIGRATE`). Nothing branches on "am I a worker".
+2. **The worker owns migrations.** Only `hypotenuse-worker` sets `DATABASE_AUTO_MIGRATE=true`, so the web service
+   never races a schema change.
+3. **The web service runs no tasks.** Every platform gives a webhook a few seconds:
+   - Linear: 5 s;
+   - Slack: 3 s, with retries carrying `X-Slack-Retry-Num`;
+   - Pylon: retries on a timeout.
+
+   A web process running agent ticks would compete with ingress for its event loop.
+4. **Redis is `noeviction`.** It holds sessions, the Resque queues (including every pending `agent:tick`),
+   WebSocket pub/sub, conversation leases, and per-installation rate-limit buckets. An evicted queue key is a
+   conversation that never wakes.
+5. **One `SECRETS_ENCRYPTION_KEY`, set once in the group**, never `generateValue` per service. The web service
+   encrypts a model key and the worker decrypts it for a tick.
 
 ## Design
 
 ```
-┌──────────────────────┐  ┌──────────────────────┐  ┌──────────────────────┐
-│ hypotenuse-api       │  │ hypotenuse-worker    │  │ hypotenuse-frontend  │
-│ api.<domain>         │  │                      │  │ www.<domain>         │
-│ type: web            │  │ type: worker         │  │ type: web            │
-│ backend/Dockerfile   │  │ backend/Dockerfile   │  │ frontend/Dockerfile  │
-│ TASKS        off     │  │ TASKS        on      │  │ nginx :10000         │
-│ MIGRATE      off     │  │ MIGRATE      on ◀────┼── owns the schema     │
-│ health /api/status   │  │ (no HTTP)            │  │ health /             │
-│ POST /api/webhooks/linear  ◀── Linear          │  │                      │
-│ ws:// runner + dashboard pings                 │  │                      │
-└──────────┬───────────┘  └──────────┬───────────┘  └──────────────────────┘
-           └───────────────┬─────────┘
-            ┌──────────────▼───────┐  ┌──────────────────────┐
-            │ hypotenuse-redis     │  │ hypotenuse-db        │
-            │ keyvalue, noeviction │  │ postgres 18          │
-            └──────────────────────┘  └──────────────────────┘
+┌──────────────────────────┐  ┌──────────────────────────┐  ┌──────────────────────┐
+│ hypotenuse-api           │  │ hypotenuse-worker        │  │ hypotenuse-frontend  │
+│ api.hypotenuse.cloud     │  │ TASKS on, MIGRATE on     │  │ www.hypotenuse.cloud │
+│ TASKS off, MIGRATE off   │  │ queues: agents, ingress, │  │ nginx :10000         │
+│ /api/webhooks/{slack,    │  │   outbox, orchestrator,  │  │ health /             │
+│   linear,pylon}  ◀── platforms   default             │  │                      │
+│ /mcp (human OAuth, and   │  │ (no HTTP)                │  │                      │
+│   sandbox run tokens)    │  │                          │  │                      │
+│ ws: dashboard pings      │  │                          │  │                      │
+└────────────┬─────────────┘  └────────────┬─────────────┘  └──────────────────────┘
+             └──────────────┬──────────────┘
+          ┌─────────────────▼──┐   ┌────────────────────────────┐
+          │ hypotenuse-redis   │   │ hypotenuse-db              │
+          │ keyvalue, noeviction│  │ postgres 18 + vector ext.  │
+          └────────────────────┘   └────────────────────────────┘
 ```
 
-Three properties carry the weight, all inherited from ToolExec:
+**Queues.** Declared now in `backend/config/tasks.ts` so later phases put their tasks on the right one rather than
+`default`. A worker works them left to right.
 
-- **Web and worker are the same image**, differing only by environment (`WEB_SERVER_ENABLED`,
-  `TASKS_ENABLED`, `DATABASE_AUTO_MIGRATE`). Nothing branches on "am I a worker".
-- **The worker owns migrations.** Only `hypotenuse-worker` sets `DATABASE_AUTO_MIGRATE=true`.
-- **Redis is `noeviction`.** Sessions, the node-resque queues, WebSocket pub/sub, and — from
-  [phase 7](./phase-07-webhook-ingress-and-session-mirror.md) — the per-installation Linear token bucket all
-  live there. An evicted queue key is a lost webhook; an evicted bucket key is a burst into Linear's rate
-  limit. Neither may be silently dropped.
+| Queue | Holds | First used |
+|---|---|---|
+| `ingress` | processing a recorded platform event into a conversation's inbox | [phase 13](./phase-13-channel-framework.md) |
+| `outbox` | delivering to a platform | [phase 13](./phase-13-channel-framework.md) |
+| `agents` | `agent:tick` | [phase 08](./phase-08-durable-agent-loop.md) |
+| `orchestrator` | clocks (`*-due`, reapers, sweeps) | [phase 04](./phase-04-organizations-users-and-rbac.md) |
+| `default` | everything else | — |
 
-Two properties are specific to Hypotenuse:
+Ingress and the outbox come before `agents` on purpose. A person's message must reach the inbox, and a finished
+answer must leave the outbox, ahead of another tick on some other conversation. Ticks are the long work; they
+wait. Fair ordering across tenants is [phase 23](./phase-23-scale-and-conformance.md).
 
-- **The webhook endpoint lives on the API service, and the API answers it inside Linear's 5-second budget
-  without doing the work.** Verification and one insert happen on the web process; processing is a
-  `linear:process-event` task on the worker. That split is why the worker must have task processors and the
-  web must not — a web process that ran tasks would compete with webhook ingress for its event loop.
-- **Runner daemons hold long-lived WebSockets to the API service.** The blueprint test asserts nothing in
-  Render's config caps request duration below a heartbeat interval, and DEPLOY.md notes that a deploy drains
-  sockets with close code 1001, which the daemon treats as "reconnect", not "fail"
-  ([phase 10](./phase-10-daemon-and-config.md)).
+**pgvector on Render.**
+- Render's managed Postgres ships the `vector` extension, and migration 0000 creates it.
+- The worker runs migrations; if the extension were missing, the worker's first boot would fail loudly.
+- The API's `/api/status` reports `vector: false` and `healthy: false`, and the health check holds the deploy.
+
+**Webhook base URL.**
+- `/api/status` reports `webhooks: { slack, linear, pylon }`, the absolute URLs derived from `APPLICATION_URL`
+  plus the routes the platform phases will mount.
+- Like v1's `linear.webhookUrl`, they are reported but never part of `healthy`. A deployment without any bot
+  installed is still healthy.
+- The routes are fixed constants in `ops/WebhookUrlOps.ts`, so a generated manifest and the server can never
+  disagree.
+
+**`APPLICATION_URL` is set on the worker too.** The worker writes dashboard links into Slack, Linear, and Pylon
+messages. Keryx's default, `http://localhost:8080`, is the ToolExec failure where a worker quietly wrote
+unreachable URLs.
+
+## Schema sketch
+
+None.
+
+## Actions and policy sketch
+
+| Action | Route | RBAC | MCP | Audited |
+|---|---|---|---|---|
+| `status` (extended: `webhooks`, `dashboardUrl`) | `GET /api/status` | none | never | no (read) |
+
+## Frontend and user docs
+
+- `frontend/nginx.conf` keeps `absolute_redirect off` and `try_files $uri /index.html`.
+- Static assets live under `public/doc-assets/`, never a directory named like a route.
+- No user docs: deployment is an operator runbook, `docs/DEPLOY.md`, linked from `AGENTS.md`.
 
 ## Steps
 
-### 1. `render.yaml` — services and plans
+### 1. Blueprint — `render.yaml`
 
-| Service | Type | Plan | Dockerfile | Health check | `buildFilter.paths` |
-|---|---|---|---|---|---|
-| `hypotenuse-api` | `web` | `1c-2g` | `backend/Dockerfile`, context `.` | `/api/status` | `backend/**`, `protocol/**`, `bun.lock`, `package.json` |
-| `hypotenuse-worker` | `worker` | `1c-2g` | same | — | same |
-| `hypotenuse-frontend` | `web` | `starter` | `frontend/Dockerfile`, context `.` | `/` | `frontend/**`, `backend/**`, `protocol/**`, `bun.lock`, `package.json` |
-| `hypotenuse-redis` | `keyvalue` | `starter` | — | — | `maxmemoryPolicy: noeviction` |
-| `hypotenuse-db` | `postgres` | `basic-256mb` | — | — | `postgresMajorVersion: "18"` |
+Copy v1's and rename nothing (the names are already `hypotenuse-*`):
+- Remove `protocol/**` from every `buildFilter`.
+- Add `ops/WebhookUrlOps.ts`'s routes to the header comment.
+- Plans are spec-based ids (`1c-2g`), never marketing names.
+- Postgres version `18`, with a comment that the `vector` extension is required.
 
-Use **spec-based plan ids**, never marketing names. The frontend rebuilds on `backend/**` and `protocol/**`
-because its type checking resolves them. `cli/**` triggers nothing on Render.
+### 2. Env matrix — `hypotenuse-shared` and per-service keys
 
-Public hostnames are declared as `domains:` on the two web services, not only in the dashboard:
-`api.<domain>` on `hypotenuse-api`, `www.<domain>` (and the apex, for the redirect only) on
-`hypotenuse-frontend`. The concrete domain is chosen at first deploy and written into the blueprint and the
-test in the same commit.
-
-### 2. Env matrix
-
-| Key | api | worker | Source |
+| Key | api | worker | Notes |
 |---|---|---|---|
-| `DATABASE_URL` | ✓ | ✓ | `fromDatabase: hypotenuse-db` |
-| `REDIS_URL` | ✓ | ✓ | `fromService: hypotenuse-redis` |
-| `NODE_ENV` | `production` | `production` | `hypotenuse-shared` |
-| `PROCESS_NAME` | `hypotenuse-api` | `hypotenuse-worker` | literal |
-| `OTEL_SERVICE_NAME` | `hypotenuse-api` | `hypotenuse-worker` | literal — Sentry's `serverName` |
-| `WEB_SERVER_ENABLED` | (default) | `false` | literal |
-| `WEB_SERVER_HOST` / `WEB_SERVER_PORT` | `0.0.0.0` / `10000` | — | literal |
-| `WEB_SERVER_API_ROUTE` | `/api` | — | literal |
-| `WEB_SERVER_ALLOWED_ORIGINS` | `https://www.<domain>` | — | literal |
-| `APPLICATION_URL` | `https://api.<domain>` | `https://api.<domain>` | literal — the OAuth issuer, the Linear callback base, and the URL the worker writes into Linear `externalUrls` |
-| `FRONTEND_URL` | — | — | `hypotenuse-shared` — the worker sends mail and writes dashboard links |
-| `SESSION_COOKIE_SECURE` / `SESSION_COOKIE_SAME_SITE` | `true` / `None` | — | literal — cross-origin frontend |
-| `MCP_SERVER_ENABLED` | `true` | — | literal |
-| `MCP_OAUTH_TRUST_PROXY` | **`true`** | — | literal — otherwise the issuer resolves to Render's internal origin and the CLI's OAuth login breaks |
-| `DATABASE_AUTO_MIGRATE` | `false` | **`true`** | literal |
-| `TASKS_ENABLED` / `TASK_PROCESSORS` | `false` / `0` | `true` / `1` | literal |
-| `SECRETS_ENCRYPTION_KEY` | ✓ | ✓ | `hypotenuse-shared`, `generateValue: true` **exactly once** — encrypts Linear tokens |
-| `LINEAR_CLIENT_ID` / `LINEAR_CLIENT_SECRET` / `LINEAR_WEBHOOK_SECRET` | ✓ | ✓ | `hypotenuse-shared`, added in the dashboard (see below) |
-| `LINEAR_API_URL` / `LINEAR_OAUTH_URL` | — | — | not set in production (defaults `https://api.linear.app` / `https://linear.app`); tests point them at finear |
-| `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASSWORD` / `SMTP_FROM` | ✓ | ✓ | `hypotenuse-shared`, dashboard |
-| `SENTRY_DSN`, `SENTRY_ENVIRONMENT`, `SENTRY_TRACES_SAMPLE_RATE=0`, `SENTRY_ENABLE_METRICS=false`, `SENTRY_ENABLE_LOGS=false` | ✓ | ✓ | `hypotenuse-shared` literals — errors only, as ToolExec |
-| `LOG_LEVEL` / `LOG_FORMAT` | `info` / `json` | same | `hypotenuse-shared` |
+| `SECRETS_ENCRYPTION_KEY` | group | group | set once in the dashboard; 32 bytes base64 |
+| `APPLICATION_URL` | `https://api.hypotenuse.cloud` | same | asserted identical |
+| `FRONTEND_URL` | `https://www.hypotenuse.cloud` | same | dashboard links |
+| `DATABASE_AUTO_MIGRATE` | `false` | `true` | |
+| `TASKS_ENABLED` / `TASK_PROCESSORS` | `false` / `0` | `true` / `4` | |
+| `MCP_SERVER_ENABLED`, `MCP_OAUTH_TRUST_PROXY` | `true` | — | |
+| `SESSION_COOKIE_SECURE` / `SAME_SITE` | `true` / `None` | — | cross-origin frontend |
+| `SMTP_*` | dashboard | dashboard | comment only; `sync: false` is ignored in a group |
 
-Frontend: `VITE_API_URL=https://api.<domain>` as a build argument.
+Platform keys (Slack signing secrets, Linear client secrets, Pylon tokens) are **not** environment variables in
+2.0. With one platform app per bot, they are per-bot rows, encrypted in `bot_installations`
+([phase 13](./phase-13-channel-framework.md)). This is the largest change from v1's env matrix, and the
+blueprint test asserts that no `LINEAR_*`, `SLACK_*`, or `PYLON_*` key exists.
 
-**Dashboard-only secrets go on the env group, not on services.** ToolExec learned that Render ignores
-`sync: false` inside an `envVarGroup`, and ignores it on a service during Blueprint *updates*. So the
-`LINEAR_*` and `SMTP_*` keys are not declared `sync: false` anywhere; they are added once to
-`hypotenuse-shared` in the dashboard, and both backend services pull `fromGroup: hypotenuse-shared`, which
-preserves keys a sync does not mention. The blueprint test asserts that no `LINEAR_*` key appears in
-`render.yaml` with a `value:` — a secret in a committed file is the failure this prevents.
+### 3. Webhook URLs — `backend/ops/WebhookUrlOps.ts`, `backend/actions/status.ts`
 
-`SECRETS_ENCRYPTION_KEY` must be identical on api and worker: the api writes encrypted Linear tokens during
-the OAuth callback and the worker decrypts them on every `activities:deliver` tick. Declared once in the
-group, never per service.
+`webhookUrl(platform)` and the `/api/status` block. The routes are constants that the platform phases mount
+unchanged.
 
-### 3. The webhook URL is a fixed, documented constant
+### 4. Local webhook development — `bun run ngrok`
 
-Linear's app settings take one webhook URL per OAuth app, and it must be HTTPS, non-loopback, and not a
-private address. For staging it is:
-
-```
-https://api.<domain>/api/webhooks/linear
-```
-
-and the OAuth callback is `https://api.<domain>/api/linear/callback`. Both are derived from `APPLICATION_URL`
-in code (`linearWebhookUrl()` / `linearCallbackUrl()` in `backend/ops/LinearOps.ts`,
-[phase 6](./phase-06-linear-connection.md)) and printed by `GET /api/status` under `linear.webhookUrl` so an
-operator can paste them into Linear without guessing. Changing the API hostname is therefore a three-place
-change — Render, Linear's app settings, and every connected workspace's consent if the callback moved — and
-[`DEPLOY.md`](../DEPLOY.md) says so.
-
-### 4. Local webhook development — `bun run ngrok`, `ngrok.yml`, `frontend/devTunnel.ts`
-
-Linear will not deliver to `http://localhost:8080`. Copy ToolExec's reserved-tunnel setup:
-
-- `ngrok.yml` — two reserved `.ngrok.app` domains, one for the backend and one for the frontend.
-- `backend/scripts/start-ngrok.ts` — starts both and prints the backend's webhook and callback URLs.
-- `frontend/devTunnel.ts` — makes Vite accept the tunnel host.
-
-A developer creates **their own** Linear OAuth app for development, pointed at their tunnel (the manifest
-link in DEPLOY.md pre-fills it), and puts its credentials in `backend/.env`. Tests never need any of this:
-finear runs in-process and delivers to the test server's loopback URL directly.
+v1's script with the reserved domain. `devTunnel.ts` lets the frontend accept the tunnel's host.
+`docs/DEPLOY.md` says to set `APPLICATION_URL` to the tunnel while developing a platform app, and why: every
+manifest embeds it.
 
 ### 5. Blueprint invariants — `backend/__tests__/deployment/render-blueprint.test.ts`
 
-Port ToolExec's test (it parses the real `render.yaml` with `Bun.YAML.parse`) and assert:
+Port v1's strict schema and add these assertions:
+- the database carries a comment naming `vector`;
+- no platform-secret keys appear in any service;
+- `TASKS_ENABLED` is false on api and true on worker;
+- `APPLICATION_URL` is identical on both backends;
+- every host derived from `APPLICATION_URL` and `WEB_SERVER_ALLOWED_ORIGINS` is attached as a domain on the
+  service that answers it.
 
-- exactly five resources with the names above, and the plan ids are members of a `COMPUTE_PLANS` enum of ids
-  Render actually has; Postgres major is `18`;
-- **exactly one** service sets `DATABASE_AUTO_MIGRATE=true`, and it is the worker;
-- only the worker has `TASKS_ENABLED=true` and `TASK_PROCESSORS>0`; the api has `TASK_PROCESSORS=0`;
-- `SECRETS_ENCRYPTION_KEY` is declared once, in `hypotenuse-shared`, and both backend services pull the group;
-- no key starting `LINEAR_`, `SMTP_PASSWORD`, or `SENTRY_AUTH` has a literal `value:`;
-- `APPLICATION_URL` and `WEB_SERVER_ALLOWED_ORIGINS` are `https://` and each matches a `domains:` entry on the
-  service that answers on it; nothing names the apex;
-- `hypotenuse-redis` is `noeviction`;
-- every service's `buildFilter.paths` covers `protocol/**` where it compiles it;
-- the port the Dockerfiles `EXPOSE` matches `WEB_SERVER_PORT`.
+### 6. Runbook — `docs/DEPLOY.md`
 
-### 6. `docs/DEPLOY.md`
+A new live doc with these sections:
+- First deploy (Blueprint, DNS, the dashboard-only secrets).
+- Verifying pgvector.
+- Rotating `SECRETS_ENCRYPTION_KEY` (not supported without a re-encrypt task; say so).
+- "Where each platform's URLs come from."
+- The nginx `curl` rehearsal.
 
-The runbook: topology, a local rehearsal that boots the real image with the blueprint's own env, first deploy,
-creating the Linear app, verification, rollback, and secret rotation. Written in this phase as a live document
-(rule 14), saying plainly that nothing is deployed until it is.
+`AGENTS.md`'s detail table gains a row for it in the same commit.
+
+## Test plan
+
+- `render-blueprint.test.ts`, as above.
+- `status.test.ts`: `webhooks` URLs derive from `APPLICATION_URL`, and are absent from `healthy`.
+- `nginx.test.ts`, ported.
 
 ## Verification
 
 ```bash
-cd backend && bun test __tests__/deployment
-docker build -f backend/Dockerfile .
-docker build -f frontend/Dockerfile --build-arg VITE_API_URL=https://example.invalid .
-
-# after the blueprint deploys
-curl -s https://api.<domain>/api/status | jq '{healthy, checks, linear}'
-curl -s https://api.<domain>/.well-known/oauth-authorization-server | jq -r .issuer   # the public origin
-curl -s -o /dev/null -w '%{http_code}\n' -X POST https://api.<domain>/api/webhooks/linear   # route exists (refusal once phase 7 lands)
+cd backend && bun test __tests__/deployment __tests__/actions/status.test.ts
+cd ../frontend && bun test src/__tests__/nginx.test.ts
+curl -s https://api.hypotenuse.cloud/api/status | jq '{healthy, webhooks, database}'   # after a person deploys
+curl -sI https://www.hypotenuse.cloud/docs | head -1                                    # 200, never a 301
 ```
-
-- Worker logs show migrations applied and `resque:worker:0 started`; api logs show neither.
-- `/api/status` answers 200 with healthy database and Redis, and reports the webhook and callback URLs.
-- The OAuth discovery `issuer` is `https://api.<domain>`, not an internal origin.
-- The frontend loads over HTTPS and reaches the API with the session cookie (`Secure`, `SameSite=None`).
-- Touching only `cli/**` triggers no Render deploy.
 
 ## Definition of done
 
-- [x] `render.yaml` defines `hypotenuse-api`, `hypotenuse-worker`, `hypotenuse-frontend`, `hypotenuse-redis`, `hypotenuse-db`
-- [x] Api and worker share `backend/Dockerfile`; only the worker migrates and runs tasks
-- [x] `hypotenuse-shared` holds `SECRETS_ENCRYPTION_KEY` (generated once), `NODE_ENV`, and logging (no Sentry yet — see learnings)
-- [x] `LINEAR_*` and `SMTP_*` live on the env group via the dashboard; none appears with a value in the file
-- [x] `MCP_OAUTH_TRUST_PROXY=true`
-- [x] Public hostnames declared as `domains:`; webhook and callback URLs derived from `APPLICATION_URL` and shown on `/api/status`
-- [x] Reserved ngrok tunnel for local webhook development (ported with the foundation)
-- [x] `render-blueprint.test.ts` asserts every invariant above
-- [x] `docs/DEPLOY.md` covers rehearsal, first deploy, the Linear app, rollback, and rotation
-- [ ] Staging deploys automatically on merge to `main` — needs the Render Blueprint created by someone with Render access
+- [ ] `render.yaml` with five resources, one shared group, and spec-based plan ids
+- [ ] The worker alone migrates and runs tasks; queues declared in `config/tasks.ts`
+- [ ] `/api/status` reports `vector` and the three webhook URLs
+- [ ] The blueprint test asserts every invariant above
+- [ ] `docs/DEPLOY.md` exists and `AGENTS.md` links it
+- [ ] A person with Render access has deployed staging, and `/api/status` is healthy there. This needs a Render
+      account, which an agent session does not have; record who did it in the learnings.
+
+## Open questions
+
+- Whether `agents` gets its own worker service from the start, so a burst of ticks can never delay ingress. The
+  default is one worker with ordered queues, revisited with load data in
+  [phase 23](./phase-23-scale-and-conformance.md).
 
 ## Learnings from the build
 
-### What is built, and what only a person with Render access can do
-
-The blueprint, its invariant test, and the Linear URL reporting are built and tested. **Nothing is deployed**: creating
-the Render Blueprint, attaching DNS, and adding the dashboard-only secrets need a Render account, which an agent
-session does not have. `docs/DEPLOY.md` is the checklist for whoever does it first, and the unticked Definition of done
-item above is that step.
-
-### The domain
-
-The project owns `hypotenuse.cloud`: `www.hypotenuse.cloud` is the frontend, `api.hypotenuse.cloud` the backend, and
-the apex is attached only so Render redirects it to `www`. The blueprint test does **not** hard-code the domain: it
-derives the expected hosts from `APPLICATION_URL` and `WEB_SERVER_ALLOWED_ORIGINS` and checks each is attached as a
-`domains:` entry on the service that answers it, so a future domain change is an edit to `render.yaml` alone. The
-example URLs across the docs (`api.hypotenuse.cloud` in configs, `www.hypotenuse.cloud` for dashboard links and the
-config JSON Schema) use the same two hosts.
-
-### nginx must never redirect, and `public/` must never shadow a route
-
-The SPA fallback was `try_files $uri $uri/ /index.html`, and `public/docs/illustrations/` made `/docs` a real
-directory in the image. A reload of `/docs` matched it through `$uri/`, and nginx answered its own trailing-slash 301
-— absolute, built from the port it listens on — to `http://www.hypotenuse.cloud:10000/docs/`, which Render does not
-expose; `/docs/` itself was a 403 for want of an `index.html`. In-app navigation never asked nginx, so only a reload
-or a shared link broke. The fix is both halves: `absolute_redirect off` with `try_files $uri /index.html`, and the
-illustrations moved to `public/doc-assets/`. `frontend/src/__tests__/nginx.test.ts` holds the directives and
-asserts no top-level entry in `public/` is a route segment in `App.tsx`; `DEPLOY.md` has the `curl` rehearsal.
-
-### Decisions that differ from the plan's table
-
-- **`APPLICATION_URL` is set on the worker too**, not only the API. The worker writes dashboard and session links into
-  Linear (`externalUrls`), and Keryx's default is `http://localhost:8080` — the ToolExec failure mode where a worker
-  quietly wrote unreachable URLs. The test asserts both backends carry the same `https://` origin.
-- **No Sentry keys yet.** ToolExec's blueprint commits a Sentry DSN for `@keryxjs/sentry`; Hypotenuse does not depend
-  on that plugin yet, so the keys would configure nothing. They arrive with the plugin.
-- **`SMTP_*` are not declared `sync: false` in the group.** Render ignores `sync: false` inside an `envVarGroup`, so
-  ToolExec's declarations there were decorative. They are listed in a comment instead and set in the dashboard.
-
-### `/api/status` reports the Linear URLs
-
-`linear.webhookUrl` and `linear.callbackUrl` come from `ops/LinearOps.ts` (`linearWebhookUrl()`,
-`linearCallbackUrl()`), derived from `config.server.web.applicationUrl` plus the API route, and `linear.configured`
-says whether the three `LINEAR_*` secrets are present. They are reported, never part of `healthy`: a deployment
-without a Linear app yet is still a healthy server. `config/linear.ts` is the `linear` config namespace the
-connection phase reads.
-
-### A config augmentation must travel with its readers
-
-`config/linear.ts` declares `config.linear` by augmenting Keryx's `KeryxConfig`. The frontend type-checks
-`actions/status.ts` through the `@backend/*` alias and reaches `ops/LinearOps.ts`, but not `config/index.ts` — so
-`config.linear` did not exist in that program and `tsc -b` failed. Every ops file that reads an app config namespace
-carries `import type {} from "../config/<namespace>"`, which costs nothing at runtime and brings the augmentation
-along wherever the file is type-checked.
-
-### The ToolExec blueprint test was not ported wholesale
-
-ToolExec's is 800+ lines, most of it about sandboxes, GitHub App keys, and proxies Hypotenuse does not have. The port
-keeps its strict Zod schema of the blueprint subset (so a typo'd key fails to parse) and the `COMPUTE_PLANS` enum (the
-`starter plus` trap), and asserts only the invariants this plan lists.
+Not built yet.

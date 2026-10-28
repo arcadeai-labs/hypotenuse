@@ -1,4 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" data-glyph="hypotenuse">
-  <path d="M28 4 L28 28 L4 28 Z" fill="#27282a"/>
-  <path d="M28 4 L4 28" stroke="#007f7d" stroke-width="3" stroke-linecap="round"/>
-</svg>

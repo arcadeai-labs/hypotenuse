@@ -1,465 +1,340 @@
-# Phase 1 — Foundation
+# Phase 01 — Foundation
 
-> **Goal:** A Bun workspace holding a Keryx backend, a Vite/React frontend, the `hypotenuse` CLI, and the
-> shared `protocol` package, all four with passing tests, all four running in CI behind a single required
-> status check. `AGENTS.md` encodes the non-negotiable rules, and a fake Linear (finear) boots in-process
-> inside the backend test harness before any Linear code is written.
+> **Goal:** A Bun workspace holding a Keryx backend, a Vite/React frontend, and the `hypotenuse` operator CLI.
+> All three have passing tests and run in CI behind the one required status check, **CI Complete**. Postgres has
+> the `vector` extension from the first migration. The docs tests that guarded the planning-only repository move
+> into the backend and keep guarding it.
 
-> **Status: built.** The repository was empty. This phase is the scaffold every later phase
-> builds on, and it halts for review before [phase 2](./phase-02-deployment.md).
+> **Status: planned, not built.** It builds on the planning-only repository: `AGENTS.md`, `docs/`, the kept
+> `design/` inputs, `tests/docs.test.ts`, and a CI workflow with one docs job. Everything here is scaffold.
+> The phase **halts for review** before [phase 02](./phase-02-deployment.md).
 
-Hypotenuse is built on the same stack and the same conventions as
-[ToolExec](https://github.com/arcadeai-labs/toolexec), which is the template for everything that is not
-Linear, runners, or ACP. **Copy ToolExec's shape rather than inventing one.** The files worth reading first are
-`toolexec/package.json`, `toolexec/biome.json`, `toolexec/backend/bunfig.toml`,
-`toolexec/backend/__tests__/setup.ts`, `toolexec/backend/scripts/{workspace,setup-workspace}.ts`,
-`toolexec/frontend/vite.config.ts`, `toolexec/cli/package.json`, and `toolexec/.github/workflows/ci.yml`, and
-ToolExec's own [phase 1 learnings](https://github.com/arcadeai-labs/toolexec/blob/main/docs/plans/phase-01-foundation.md#learnings-from-the-build),
-which are the reason several of the steps below are not what a fresh scaffold would give you.
+Hypotenuse 2.0 starts from an almost-empty repository on purpose. v1's runner daemon, ACP host, worktrees, and
+runner protocol are gone; they live on the [`v1` branch](https://github.com/arcadeai-labs/hypotenuse/tree/v1).
+What 2.0 needs from day one is what v1 also needed: a Keryx server that tests boot over real HTTP, a frontend that
+reads backend types without codegen, a CLI that never imports the server, and a CI gate that never needs branch
+protection touched again.
 
-Two things are new relative to ToolExec and both belong in the foundation rather than later:
+Both ancestors already paid for this scaffold:
 
-- **A fourth workspace, `protocol/`.** The server ⇄ daemon contract ([`RUNNER_PROTOCOL.md`](../RUNNER_PROTOCOL.md))
-  is written once, as Zod schemas, and imported by both `backend/` and `cli/`. If it lived in either, the other
-  would grow a hand-written copy, and the first field rename would make the two disagree on the wire without a
-  type error anywhere. Creating the empty package now is what makes "where does this schema go?" have one
-  answer from the first PR that needs it.
-- **finear in the test harness.** Every Linear-facing test in this repository runs against
-  [finear](https://github.com/pmdroid/finear), a fake Linear that serves Linear's own GraphQL schema, a real
-  OAuth consent flow, and signed webhooks. Proving it boots inside `bun test` now — before
-  [phase 6](./phase-06-linear-connection.md) depends on it — means the first Linear plan starts with a working
-  fake instead of discovering its integration gaps under deadline.
+- [ToolExec](https://github.com/arcadeai-labs/toolexec) is the template for all plumbing: users, projects, RBAC,
+  audit, sandboxes, and the operator CLI.
+- v1 is ToolExec's scaffold, already trimmed, plus a handful of fixes found in review.
+
+So the rule for this phase: **take a file from v1 where v1 already trimmed ToolExec, and from ToolExec where v1
+never had one.** Invent nothing.
+
+Read both foundation phases before starting:
+
+- [ToolExec phase 1](https://github.com/arcadeai-labs/toolexec/blob/main/docs/plans/phase-01-foundation.md)
+- [v1 phase 1](https://github.com/arcadeai-labs/hypotenuse/blob/v1/docs/plans/phase-01-foundation.md)
+
+Each learnings section explains why a step below differs from what `keryx new` would produce.
+
+Two things are new relative to v1, and both belong in the foundation:
+
+- **pgvector from the first migration.** [Memory](./phase-09-memory.md) stores embeddings in a `vector` column,
+  and the cheapest time to require a Postgres extension is before anything depends on it. Requiring it now makes
+  every developer's Postgres and every CI service container right before the first embedding is written. Finding
+  out in phase 09 would mean finding out from a red CI run.
+- **No `protocol/` workspace.** v1 needed one because a daemon on someone's laptop and the server shared a wire
+  contract. 2.0's only out-of-process peer is the in-sandbox supervisor. As in ToolExec, it is source under
+  `backend/sandbox/runner/` that imports nothing from the backend and is copied into the sandbox
+  ([phase 17](./phase-17-sandboxes.md)). A fourth workspace would be a package with one consumer.
 
 ## Scope
 
-**In:** repo layout and the four workspaces; the backend scaffold (`keryx new`) and the gaps it leaves; the
-frontend scaffold with the `@backend/*` type alias; an empty `cli/` that prints `--version` and `--help`; an
-empty `protocol/` exporting `PROTOCOL_VERSION`; the test harness for every workspace; the finear dev
-dependency and its in-process smoke test; `workspace:setup` for several checkouts; Dockerfiles; CI with a
-`complete` gate; branch protection; `AGENTS.md` (Claude Code reads it directly; no `CLAUDE.md`); the docs-links test;
-`.env.example` files; local development instructions in `README.md`.
+**In:**
+- Repository layout and the three workspaces.
+- The backend scaffold (`keryx new`) and the gaps it leaves.
+- The frontend scaffold with the `@backend/*` type alias.
+- An empty `cli/` that prints `--version` and `--help`.
+- The test harness for every workspace.
+- `workspace:setup` for running several checkouts at once.
+- The `vector` extension in migration 0000 and in `/api/status`.
+- Both Dockerfiles.
+- The full CI workflow behind **CI Complete**.
+- Moving `tests/docs.test.ts` into `backend/__tests__/docs/`, with the no-phase-names scan extended to the new
+  source trees.
+- `.env.example` files.
+- Making `AGENTS.md`'s Local development and Commands sections true.
 
-**Out:** the Render blueprint ([phase 2](./phase-02-deployment.md)). Theming, users, projects, RBAC, audit,
-notifications ([phase 4](./phase-04-users-tenancy-and-audit.md)). Any real CLI command, the release pipeline,
-binaries, and self-upgrade ([phase 5](./phase-05-cli-and-distribution.md)). Anything that talks to Linear
-([phase 6](./phase-06-linear-connection.md) onward). The only backend actions in this phase are the
-framework's own `status` and `swagger`.
+**Out:**
+- The Render blueprint ([phase 02](./phase-02-deployment.md)).
+- Tokens, UI kit, shell, and docs site frame ([phase 03](./phase-03-design-system.md)).
+- Organizations, users, projects, RBAC ([phase 04](./phase-04-organizations-users-and-rbac.md)).
+- Audit ([phase 05](./phase-05-audit-logging.md)).
+- Any real CLI command, the release pipeline, binaries, and self-upgrade ([phase 06](./phase-06-operator-cli.md)).
+- Model providers and bots ([phase 07](./phase-07-model-providers-and-bots.md)).
+- finear, which arrives with [Linear](./phase-15-linear.md) because nothing before it speaks to Linear.
+- The scripted model server, which arrives with the first model call ([phase 07](./phase-07-model-providers-and-bots.md)).
+
+The only backend actions in this phase are `status` and `swagger`.
+
+## What already exists
+
+| Piece | Where | Take it from |
+|---|---|---|
+| Root `package.json` shape, `trustedDependencies: ["esbuild"]` | [ToolExec `package.json`](https://github.com/arcadeai-labs/toolexec/blob/main/package.json) | ToolExec (three workspaces, like ours) |
+| `biome.json` | already in this repository | kept as is |
+| `backend/bunfig.toml`, trimmed `backend/__tests__/setup.ts` | [v1 `backend/__tests__/setup.ts`](https://github.com/arcadeai-labs/hypotenuse/blob/v1/backend/__tests__/setup.ts) | v1, without finear, runner, daemon, and Linear helpers |
+| `backend/actions/status.ts` (schema probe column, `tracing = false`) | [v1 `backend/actions/status.ts`](https://github.com/arcadeai-labs/hypotenuse/blob/v1/backend/actions/status.ts) | v1, without the Linear URL block |
+| `backend/scripts/{workspace,setup-workspace}.ts` | v1 | v1, including the two review fixes and `__tests__/scripts/workspace.test.ts` |
+| `backend/scripts/start-ngrok.ts`, `ngrok.yml` | v1 | v1; [phase 02](./phase-02-deployment.md) explains why a public URL is needed from the first platform onward |
+| Frontend configs, `utils/client.ts` (`apiFetch`) | [v1 `frontend/`](https://github.com/arcadeai-labs/hypotenuse/tree/v1/frontend) | v1's configs, without the design system (that is [phase 03](./phase-03-design-system.md)) |
+| `cli/` skeleton, `imports.test.ts` | v1 | v1, without `protocol` and daemon dependencies |
+| Dockerfiles, `frontend/nginx.conf` | v1 | v1, with `protocol/` removed from the copy steps; nginx keeps `absolute_redirect off` |
+| Docs tests | `tests/docs.test.ts` in this repository | moved, not rewritten |
+| CI gate | `.github/workflows/ci.yml` in this repository | extended |
+
+## What this must not weaken
+
+1. **CI Complete stays the only required check**, and it keeps asserting that every result *is* `success`. A
+   denylist fails open the day GitHub invents a new outcome; it already did once, with `abandoned`.
+2. **The docs tests keep running**:
+   - every relative link and anchor in `AGENTS.md`, `README.md`, and `docs/**` resolves;
+   - every phase doc carries `## Learnings from the build`;
+   - no phase number appears outside `docs/plans/`.
+
+   Moving them must never leave a commit where none of these run.
+3. **System Postgres and Redis, never Docker Compose.** Docker builds deployment images and, from
+   [phase 17](./phase-17-sandboxes.md), is the development sandbox provider. It never runs our databases.
+4. **The CLI never imports the server at runtime.** A compiled binary carrying Keryx, a Postgres driver, and Redis
+   clients would be heavier. Worse, the first `import "bun"` deep in a server module would break
+   `bun build --compile` for one platform only.
 
 ## Design
 
 ```
 hypotenuse/
-├── package.json            workspaces: backend, frontend, cli, protocol
-├── biome.json              formatter only (2 spaces, width 80, double quotes) — copied from ToolExec
-├── AGENTS.md               the rules (read by Claude Code and other agents)
-├── README.md
-├── docs/                   ARCHITECTURE, RUNNER_PROTOCOL, CONFIG, LINEAR_COVERAGE, DEPLOY, plans/
-├── backend/                Keryx app (index.ts, keryx.ts, migrations.ts, config/, actions/, schema/, …)
-├── frontend/               Vite + React 19 + React Router 7 + Tailwind v4 + local UI kit
-├── cli/                    @arcadeai/hypotenuse — bin `hypotenuse` (src/cli.ts, Bun shebang)
-└── protocol/               @hypotenuse/protocol — Zod schemas, no runtime dependencies but zod
+├── package.json            workspaces: backend, frontend, cli; trustedDependencies ["esbuild"]
+├── biome.json              formatter only — unchanged
+├── AGENTS.md  README.md  LICENSE
+├── design/                 token inputs (kept); generator runs in phase 03
+├── docs/                   ARCHITECTURE, DESIGN, plans/
+├── backend/                Keryx app: index.ts, keryx.ts, migrations.ts, config/, actions/, schema/, ops/, …
+├── frontend/               Vite + React 19 + React Router 7
+└── cli/                    @arcadeai/hypotenuse — bin `hypotenuse`
 ```
 
-Dependency direction is one-way and asserted by a test (step 11):
+Dependencies run one way only, and a test asserts it:
 
 | Workspace | May import | Must never import |
 |---|---|---|
-| `protocol/` | `zod` | anything in this repo |
-| `backend/` | `protocol/` | `cli/`, `frontend/` |
-| `cli/` | `protocol/` (bundled into the binary) | `backend/` at runtime (type-only `@backend/*` is allowed, as in ToolExec), `keryx`, `drizzle-orm` |
-| `frontend/` | `@backend/*` **type-only**, `protocol/` types | `cli/` |
+| `backend/` | its own modules | `cli/`, `frontend/` |
+| `cli/` | its own modules | `keryx`, `drizzle-orm`, `pg`, `ioredis`, a value import from `@backend/*` (type-only is allowed) |
+| `frontend/` | `@backend/*` **type-only** | `cli/` |
 
-The CLI is a separate product that runs on somebody's laptop. If it imported Keryx at runtime, a compiled
-binary would carry a web framework, a Postgres driver, and Redis clients it never uses — and the first
-`import "bun"` deep in a server module would break `bun build --compile` for one platform only.
+**pgvector.**
+- The first migration is hand-written: `CREATE EXTENSION IF NOT EXISTS vector;`. Drizzle generates every
+  migration after it.
+- `/api/status` reports `database.extensions.vector: true|false` and counts it in `healthy`. A server whose
+  database lacks the extension is unhealthy before anything tries to write an embedding.
+- Locally: `brew install pgvector` beside `postgresql@17`. In CI: the `pgvector/pgvector:pg18` service image. On
+  Render, the extension is available on managed Postgres; [phase 02](./phase-02-deployment.md) asserts it.
+
+**Keryx version.** Pin to what `keryx new` installs, which must be **≥ 0.48.2**.
+- 0.48.1 fixed the WebSocket frame-ordering defect v1 filed as
+  [actionhero/keryx#550](https://github.com/actionhero/keryx/issues/550).
+- 0.48.2 answers an unparseable request body with a 400 instead of escaping as Bun's own 500 (#553, the fix for
+  v1's [#552](https://github.com/actionhero/keryx/issues/552)).
+- Record both in `AGENTS.md`'s upstream list as fixed.
+
+## Schema sketch
+
+No application tables. Migration `0000_vector.sql` creates the extension, and nothing else. `status.ts`'s schema
+probe reads `pg_extension` until the first table lands in [phase 04](./phase-04-organizations-users-and-rbac.md).
+From then on it probes the newest migration's column, because Keryx binds before `DATABASE_AUTO_MIGRATE` finishes.
+
+## Actions and policy sketch
+
+| Action | Route | RBAC | MCP | Audited |
+|---|---|---|---|---|
+| `status` | `GET /api/status` | none | never (unauthenticated introspection) | no (read) |
+| `swagger` | `GET /api/swagger` | none | never | no (read) |
+
+## Frontend and user docs
+
+- One `/status` route renders the backend's answer typed through `ActionResponse<Status>`. It proves backend
+  types reach the frontend without codegen.
+- There are no user docs yet; the docs site frame is [phase 03](./phase-03-design-system.md).
+- `README.md` documents the prerequisites (Bun, Postgres 18 with pgvector, Redis) and the first run.
 
 ## Steps
 
-### 1. Repo root — `package.json`, `biome.json`, `.gitignore`, `.dockerignore`
+### 1. Repository root — `package.json`, `.gitignore`, `bun.lock`
 
-```json
-{
-  "name": "hypotenuse-workspace",
-  "private": true,
-  "type": "module",
-  "workspaces": ["backend", "frontend", "cli", "protocol"],
-  "trustedDependencies": ["esbuild"],
-  "scripts": {
-    "dev": "bun run --parallel dev:backend dev:frontend",
-    "dev:backend": "bun run --cwd backend dev",
-    "dev:frontend": "bun run --cwd frontend dev",
-    "ngrok": "bun run --cwd backend scripts/start-ngrok.ts",
-    "lint": "bun run --cwd protocol lint && bun run --cwd backend lint && bun run --cwd frontend lint && bun run --cwd cli lint",
-    "test": "bun run --cwd protocol test && bun run --cwd backend test && bun run --cwd frontend test && bun run --cwd cli test",
-    "test:e2e": "bun run --cwd frontend test:e2e",
-    "workspace:setup": "bun run --cwd backend workspace:setup"
-  }
-}
-```
-
-- `biome.json` — copy `toolexec/biome.json` verbatim (formatter only, linter disabled, organize imports).
-- `trustedDependencies: ["esbuild"]` **replaces** Bun's default trust list, so no native addon's install
-  script runs. Keep it exactly; ToolExec's `deps/native-addons.test.ts` is ported in step 11 to assert it.
-- `.gitignore` adds `dist/`, `*.sqlite`, `.env`, `test-results/`, `playwright-report/`, `.cache/`.
-- **`bun run test`, never `bun test`, at the root** — Bun's own runner shadows the script and skips
-  `backend/bunfig.toml`. Say so in `AGENTS.md`.
+- Replace the planning `package.json` with ToolExec's three-workspace shape, renamed `hypotenuse-workspace`.
+  Scripts: `dev`, `dev:backend`, `dev:frontend`, `ngrok`, `lint`, `test`, `test:e2e`, `workspace:setup`.
+- Keep `trustedDependencies: ["esbuild"]` exactly. It **replaces** Bun's default trust list, so no native addon's
+  install script runs. `backend/__tests__/deps/native-addons.test.ts` asserts it.
+- `bun run test` at the root, never `bun test`: Bun's own runner shadows the script and skips
+  `backend/bunfig.toml`. `AGENTS.md` already says so.
 
 ### 2. Backend scaffold — `backend/`
 
-```bash
-bunx keryx@latest new backend -y      # with database and Redis; no example actions
-```
+`bunx keryx@latest new backend -y`, with database and Redis and without example actions. Then close the gaps
+from v1:
 
-Pin `keryx` to the version the scaffold installs, which must be **≥ 0.48** (the version the research for
-these plans read; ToolExec's floor of 0.42.4 is the loopback OAuth redirect fix that human MCP clients
-depend on). Then close the gaps, copying from ToolExec:
+- `bunfig.toml`: `timeout = 15000`, `preload = ["./__tests__/setup.ts"]`.
+- `__tests__/setup.ts` keeps:
+  - `import "../index"` first;
+  - `HOOK_TIMEOUT`;
+  - `serverUrl()` (the *bound* port);
+  - `retryClearDatabase()`, `runAction()`, `drainTasks()`;
+  - the narrow ioredis-teardown `unhandledRejection` filter.
 
-| File | Source | Why |
-|---|---|---|
-| `backend/bunfig.toml` | `toolexec/backend/bunfig.toml` | `timeout = 15000`, `preload = ["./__tests__/setup.ts"]` |
-| `backend/__tests__/setup.ts` | `toolexec/backend/__tests__/setup.ts`, **trimmed** | keep `import "../index"` first, `setMaxListeners(999)`, `HOOK_TIMEOUT`, `serverUrl()` (the *bound* port), `retryClearDatabase()`, `runAction()`, `drainTasks()`, and the narrow ioredis-teardown `unhandledRejection` filter. Drop GitHub-App, Docker, and sandbox helpers. `buildTestUniverse()` arrives in [phase 4](./phase-04-users-tenancy-and-audit.md) |
-| `backend/tsconfig.json` | `toolexec/backend/tsconfig.json` | strict, `bundler`, `verbatimModuleSyntax`, `noUnused*`; exclude `drizzle` |
-| `backend/biome.json` | `toolexec/backend/biome.json` | — |
-| `backend/config/index.ts` + framework namespaces | `toolexec/backend/config/` minus `runs.ts`, `sandbox.ts`, `proxy.ts`, `secrets.ts`, `audit.ts`, `notifications.ts`, `sentry.ts` | app namespaces arrive with the phases that read them |
-| `backend/actions/status.ts` | `toolexec/backend/actions/status.ts` | replaces Keryx's built-in; sets `tracing = false`. Its schema probe column moves with every migration (ToolExec phase 1 learnings: the server binds before migrations finish) |
-| `backend/scripts/{workspace,setup-workspace}.ts` | ToolExec, renamed | see step 7 |
-| `backend/scripts/start-ngrok.ts`, `/ngrok.yml` | ToolExec, renamed | see [phase 2](./phase-02-deployment.md) — Linear will not deliver to `localhost` |
+  `buildTestUniverse()` arrives in [phase 04](./phase-04-organizations-users-and-rbac.md).
+- `tsconfig.json`: strict, `bundler`, `verbatimModuleSyntax`, `noUnused*`, with `drizzle` excluded.
+- `config/`: keep the scaffold's (newer than ToolExec's). Application namespaces arrive with the phases that read
+  them.
+- `actions/status.ts`: from v1, with the `vector` check added.
+- Delete the scaffold's `users`, `sessions`, and `me`. ToolExec's versions arrive in phase 04.
+- `lua/.gitkeep`: an empty `lua/` directory fails boot, and git keeps no empty directories.
 
-If the scaffold is broken in a way ToolExec already filed upstream and the fix has shipped, take the fixed
-version; if a new scaffold bug appears, **rule 4 applies on day one**: file it at
-[`actionhero/keryx`](https://github.com/actionhero/keryx/issues) and stop.
+If the scaffold is broken in a way that is new, **rule 4 applies on day one**: file it at
+[`actionhero/keryx`](https://github.com/actionhero/keryx/issues) with a minimal repro, and stop.
 
-Scripts (`backend/package.json`):
+### 3. Backend environment — `backend/.env.example`
 
-```json
-"start":           "bun keryx.ts start",
-"dev":             "bun --watch keryx.ts start",
-"migrations":      "bun run migrations.ts",
-"workspace:setup": "bun run scripts/setup-workspace.ts",
-"test":            "bun test",
-"lint":            "tsc && biome check .",
-"format":          "tsc && biome check --write ."
-```
+Start from v1's. Delete every `LINEAR_*`, runner, and daemon key. Keep the `_TEST` variants, including:
 
-### 3. Backend env — `backend/.env.example`
+- `TASK_PROCESSORS_TEST=0`. A bare `TASK_PROCESSORS=1` started a Resque worker under `bun test` in v1's CI.
+- `RATE_LIMIT_ENABLED_TEST=false`.
+- `WEB_SERVER_PORT_TEST=0`.
 
-Start from `toolexec/backend/.env.example` and delete every sandbox, run, proxy, GitHub-App, and model block.
-What remains, plus the Linear keys that later phases read (declared now, empty, so the shape of a working
-`.env` is visible from the first clone):
+Add `SECRETS_ENCRYPTION_KEY` (declared now, read from [phase 04](./phase-04-organizations-users-and-rbac.md)).
+Remember that `loadFromEnvIfSet` checks `X_<NODE_ENV>` first.
 
-```bash
-NODE_ENV=development
-PROCESS_NAME=hypotenuse
-WEB_SERVER_PORT=8080
-WEB_SERVER_PORT_TEST=0                 # random free port per test file
-APPLICATION_URL=http://localhost:8080
-FRONTEND_URL=http://localhost:3000
-WEB_SERVER_ALLOWED_ORIGINS=http://localhost:3000
-DATABASE_URL=postgres://localhost:5432/hypotenuse
-DATABASE_URL_TEST=postgres://localhost:5432/hypotenuse_test
-DATABASE_AUTO_MIGRATE=true
-REDIS_URL=redis://localhost:6379/0
-REDIS_URL_TEST=redis://localhost:6379/1
-MCP_SERVER_ENABLED=true
-RATE_LIMIT_UNAUTH_LIMIT=100            # e2e signs up several users; see ToolExec phase 1 learnings
-LOG_LEVEL=info
-LOG_LEVEL_TEST=fatal
+### 4. pgvector — `backend/drizzle/0000_vector.sql`, `backend/actions/status.ts`
 
-# Linear — read from the Linear connection onward; empty until then
-LINEAR_CLIENT_ID=
-LINEAR_CLIENT_SECRET=
-LINEAR_WEBHOOK_SECRET=
-LINEAR_API_URL=https://api.linear.app
-LINEAR_OAUTH_URL=https://linear.app
-```
+Write the hand-written extension migration and the status check above. Then
+`backend/__tests__/actions/status.test.ts` boots the real server and asserts `healthy` with database, Redis, and
+`vector` all true, run **twice in a row**. That proves per-file random ports and test-database isolation.
 
-`loadFromEnvIfSet` checks `${VAR}_${NODE_ENV}` before `${VAR}`, so `_TEST` variants select themselves when
-`bun test` sets `NODE_ENV=test`. Create both databases: `createdb hypotenuse && createdb hypotenuse_test`.
-**System Postgres and Redis, never Docker Compose** — the same rule as ToolExec, for the same reasons.
+### 5. Frontend scaffold — `frontend/`
 
-### 4. Backend smoke test — `backend/__tests__/actions/status.test.ts`
+Copy v1's configs: `package.json`, `vite.config.ts`, `tsconfig*.json`, `biome.json`, `index.html`, `devTunnel.ts`,
+`.env.example`, `nginx.conf`.
 
-Copy ToolExec's: boot the real server, `GET /api/status`, assert 200 with healthy database and Redis checks.
-This proves the harness end to end, and running it twice in a row proves per-file random ports and test
-database isolation.
+- `resolve.alias["@backend"]` in `vite.config.ts` and `paths["@backend/*"]` in `tsconfig.app.json` are
+  **configured twice and must agree**.
+- `erasableSyntaxOnly` stays off: Keryx's source uses enums.
+- Copy `src/utils/client.ts` (`apiFetch<T>`) and its test.
 
-### 5. finear in the harness — `backend/__tests__/linear/finear.ts`
+### 6. Several checkouts at once — `backend/scripts/{workspace,setup-workspace}.ts`
 
-finear is not published to npm (`"private": true`) and has no Docker image. Add it as a **git dev
-dependency pinned to a commit**, so an upstream change can never alter a test's meaning without a PR here:
+Copy v1's, with `HYPOTENUSE_WORKSPACE_ID` and the `hypotenuse_test` database stem. It is a setup step, not a
+runtime rule: a single clone skips it. Parallel agent forks on this repository depend on it, which `AGENTS.md`
+already says.
 
-```json
-// backend/package.json
-"devDependencies": {
-  "finear": "github:pmdroid/finear#c0a3036"
-}
-```
+### 7. The empty CLI — `cli/`
 
-finear pins Bun via `.bun-version`; if it needs a newer Bun than CI's, that is finear's problem to file, not
-ours to work around (`AGENTS.md`: **finear gaps go upstream**, the same discipline as Keryx bugs).
+- `package.json`:
+  - name `@arcadeai/hypotenuse`;
+  - version `2.0.0-alpha.0` (the major bump is argued in [phase 06](./phase-06-operator-cli.md));
+  - `repository.url` exactly `https://github.com/arcadeai-labs/hypotenuse.git`, because upgradr derives the
+    GitHub repository from it.
+- `src/cli.ts`: a commander program with `--version`.
+- Tests:
+  - `__tests__/version.test.ts`: from source.
+  - `__tests__/imports.test.ts`: enforces the dependency table.
+- `bun run build` compiles one binary. CI builds it from this phase on, so a `--compile` regression is caught
+  before it becomes a release problem.
 
-The helper wraps finear's in-process API so every later Linear test reads the same way:
+### 8. Docs tests move — `backend/__tests__/docs/{links,no-phase-names}.test.ts`
 
-```ts
-import { createApplication } from "finear/src/application";
+- Move `tests/docs.test.ts` into two files: `links.test.ts` and `no-phase-names.test.ts`. Delete `tests/`.
+- The no-phase-names scan covers:
+  - `backend/**/*.{ts,tsx,sql,json,md}`;
+  - `frontend/src/**/*.{ts,tsx,css,scss,md}`;
+  - `cli/**/*.{ts,tsx,md,json}`.
 
-/** Boots finear in-process on a random port with an in-memory database, and tears it down after the file. */
-export function useFinear(options: { clients?: FinearClientConfig[] } = {}) {
-  let app: Awaited<ReturnType<typeof createApplication>>;
-  const controlToken = crypto.randomUUID();
-  beforeAll(async () => {
-    app = await createApplication({ databasePath: ":memory:", port: 0, controlToken, clients: options.clients ?? [] });
-  }, HOOK_TIMEOUT);
-  afterAll(async () => { await app.close(); }, HOOK_TIMEOUT);
-  return {
-    url: () => app.url,
-    controlToken,
-    drain: () => app.drain(),          // flush the webhook outbox now
-    advance: (ms: number) => app.advance(ms),
-    reset: () => app.reset(),
-  };
-}
-```
+  It ignores `node_modules`, `dist`, `.cache`, `drizzle/meta`, and `backend/.finear`, and asserts that more than
+  ten files were scanned. Without that floor, a glob that matched nothing would pass.
+- The plan-count guard in `links.test.ts` is `> 20`, because this repository plans 23 phases.
+- Do this move in the **same commit** as the CI change in step 9, so no commit leaves the docs unchecked.
 
-This phase only needs the smoke test, `backend/__tests__/linear/finear-smoke.test.ts`: boot finear, query
-`viewer { id name }` with the fixture key `finear-fixture-primary-key` over real HTTP, and assert the fixture
-user "Human 1" answers. Registering an OAuth client with a webhook, scripting consent, and the clock-skew
-tolerance arrive with [phase 6](./phase-06-linear-connection.md) and
-[phase 7](./phase-07-webhook-ingress-and-session-mirror.md); record in this phase's learnings anything finear
-did that surprised you.
+### 9. CI — `.github/workflows/ci.yml`
 
-### 6. Frontend scaffold — `frontend/`
-
-Do **not** `bun create vite` from nothing: ToolExec's frontend has already paid for every lesson in its
-phase 1 and phase 3 learnings. Copy the configuration and the bare app, then delete everything domain-shaped:
-
-- Configs, verbatim and renamed: `frontend/{package.json,vite.config.ts,tsconfig.json,tsconfig.app.json,
-  tsconfig.node.json,biome.json,index.html,devTunnel.ts,.env.example,playwright.config.ts}`.
-- `vite.config.ts` keeps `resolve.alias["@backend"]` and `tsconfig.app.json` keeps
-  `"paths": { "@backend/*": ["../backend/*"] }` — **configured twice and they must agree**. Keep
-  `erasableSyntaxOnly` off; Keryx's source uses enums.
-- `frontend/src/utils/client.ts` — ToolExec's `apiFetch<T>`: prefixes `${VITE_API_URL}/api`, sends
-  `credentials: "include"`, throws on Keryx's `{ error: { message } }` envelope even on HTTP 200.
-- `frontend/src/main.tsx` and `frontend/src/App.tsx` with a single `/status` route rendering the backend's
-  status through `ActionResponse<Status>` — the proof that backend types reach the frontend without codegen.
-- The UI kit (`frontend/src/ui/*`), styles, and theme are ported in
-  [phase 4](./phase-04-users-tenancy-and-audit.md), not here.
-
-Scripts: `dev`, `build` (`tsc -b && vite build`), `test` (`bun test src/__tests__`), `lint`
-(`tsc -b && biome check .`), `test:e2e` (`playwright test`).
-
-Smoke test, `frontend/src/__tests__/client.test.ts` (copied): `apiFetch` prefixes `/api`, sends
-`credentials: "include"`, and throws on an error envelope returned with a 200.
-
-### 7. Several checkouts at once — `backend/scripts/{workspace,setup-workspace}.ts`
-
-Copy ToolExec's verbatim, renaming `TOOLEXEC_WORKSPACE_ID` → `HYPOTENUSE_WORKSPACE_ID` and the database stem
-`toolexec_test` → `hypotenuse_test`. It derives a workspace id (explicit env, Conductor, Orca, or a linked git
-worktree), then writes `DATABASE_URL_TEST`, `REDIS_URL_TEST`, and the two e2e ports into `.env` once. It is a
-setup step, not a runtime rule: skipping it is the right answer for a single clone. This matters more here
-than in ToolExec, because Hypotenuse's own users will run coding agents in many worktrees of *this* repo.
-
-### 8. The empty `protocol/` workspace — `protocol/`
-
-```
-protocol/
-├── package.json     {"name": "@hypotenuse/protocol", "private": true, "type": "module",
-│                     "exports": {".": "./src/index.ts"}, "dependencies": {"zod": "^4"}}
-├── tsconfig.json    same strict settings as cli/
-├── biome.json
-├── src/index.ts     export const PROTOCOL_VERSION = 1;
-└── __tests__/version.test.ts
-```
-
-Source-only: both consumers compile it themselves (Keryx runs TypeScript directly, and `bun build --compile`
-bundles it into the CLI). There is nothing to publish. Every schema the daemon and the server exchange lands
-here, starting in [phase 8](./phase-08-runners.md).
-
-### 9. The empty `cli/` workspace — `cli/`
-
-Enough to prove the package shape that [phase 5](./phase-05-cli-and-distribution.md) fills in:
-
-- `cli/package.json`: `"name": "@arcadeai/hypotenuse"`, `"version": "0.0.1"`, `"type": "module"`,
-  `"bin": { "hypotenuse": "./src/cli.ts" }` (the published package points it at a bundled
-  `dist/hypotenuse.js` instead — [phase 5](./phase-05-cli-and-distribution.md) explains why), `"repository": { "type": "git", "url":
-  "https://github.com/arcadeai-labs/hypotenuse.git" }` (exact — `upgradr` derives the GitHub repo from it),
-  dependencies `commander`, `@hypotenuse/protocol` (`workspace:*`).
-- `cli/src/cli.ts`: `#!/usr/bin/env bun`, a commander program with `--version` read from `package.json`.
-- `cli/__tests__/version.test.ts`: spawns `bun run src/cli.ts --version` and asserts the package version.
-- `cli/__tests__/imports.test.ts`: walks `cli/src/**` and fails on any import of `keryx`, `drizzle-orm`,
-  `pg`, `ioredis`, or a value import from `@backend/*` (the dependency-direction table above).
-- `bun run --cwd cli build` = `bun build --compile --minify --sourcemap ./src/cli.ts --outfile dist/hypotenuse`
-  — built in CI from this phase on, so a `--compile` regression is caught before it is a release problem.
-
-### 10. Dockerfiles — `backend/Dockerfile`, `frontend/Dockerfile`, `frontend/nginx.conf`
-
-Copy ToolExec's, renamed:
-
-- Backend: `oven/bun:1` → `oven/bun:1-slim`, copy the root `bun.lock` **plus every workspace's
-  `package.json`** (four now) before `bun install --frozen-lockfile`, copy `protocol/` and `backend/`,
-  `RUN bun keryx.ts build` (pre-generates the OpenAPI cache; without it boot peaks around 1.4 GB),
-  `WORKDIR /app/backend`, `EXPOSE 10000`, `CMD ["bun", "keryx.ts", "start"]`.
-- Frontend: same install prelude, then copy `protocol/`, `backend/`, and `frontend/` — the Vite build needs
-  backend *sources* for the `@backend` type alias — `RUN bun run --cwd frontend build`, runtime
-  `nginx:1.27-alpine` with SPA fallback on port 10000. `VITE_API_URL` is a build `ARG`.
-
-### 11. Invariant tests ported on day one
-
-Each of these is a few dozen lines in ToolExec and catches a class of mistake that is expensive to find late:
-
-| Test | Source | Asserts |
-|---|---|---|
-| `backend/__tests__/docs/links.test.ts` | ToolExec, extended | every relative link and anchor in `AGENTS.md`, `README.md`, and `docs/**` resolves; **every `docs/plans/phase-*.md` contains `## Learnings from the build`** |
-| `backend/__tests__/deps/native-addons.test.ts` | ToolExec | the root `trustedDependencies` is exactly `["esbuild"]` |
-| `backend/__tests__/docs/no-phase-names.test.ts` | new | no source file under `backend/`, `frontend/src/`, `cli/`, or `protocol/` (user docs in `frontend/src/content/docs/` included) matches `/\b[Pp]hase \d+\b/` (rule 11) |
-| `cli/__tests__/imports.test.ts` | new | step 9 |
-
-### 12. CI — `.github/workflows/ci.yml`
-
-Copy ToolExec's, minus the sandbox-image and Kubernetes jobs, plus a protocol job and a CLI build:
+Replace the planning `docs` job with ToolExec's jobs, minus the sandbox-image and Kubernetes jobs:
 
 | Job | Name | Services |
 |---|---|---|
-| `protocol` | Protocol Lint & Test | — |
 | `backend-lint` | Backend Lint | — |
-| `backend-test` | Backend Test | `postgres:18`, `redis` |
+| `backend-test` | Backend Test | `pgvector/pgvector:pg18`, `redis` |
 | `backend-docker` | Backend Docker | — |
-| `cli` | CLI Lint, Test & Build | — (`bun build --compile` for `bun-linux-x64` only; the full matrix is the release's job) |
+| `cli` | CLI Lint, Test & Build | — |
 | `frontend-lint` | Frontend Lint | — |
-| `frontend-test` | Frontend Test | — (unit tests, then `bun run build` as a step) |
+| `frontend-test` | Frontend Test | — (unit tests, then `bun run build`) |
 | `frontend-docker` | Frontend Docker | — |
 | `complete` | **CI Complete** | — |
 
-The gate is ToolExec's final form, not its first: `if: always()`, `needs:` every other job, `needs` passed
-through `env` (never interpolated into the script), and the check asserts **every result *is* `success`**.
-A denylist of `failure|cancelled` fails open the day GitHub invents an outcome — it did, `abandoned`, and
-ToolExec's gate printed "All CI jobs passed" with no CI having run.
+The `complete` job keeps its exact shape:
+- `if: always()`;
+- `needs:` lists every other job;
+- `needs` is passed through `env`, never interpolated into the script;
+- `jq -e 'to_entries | all(.value.result == "success")'`.
 
-```yaml
-  complete:
-    name: CI Complete
-    runs-on: ubuntu-latest
-    if: always()
-    needs: [protocol, backend-lint, backend-test, backend-docker, cli, frontend-lint, frontend-test, frontend-docker]
-    steps:
-      - name: Every job succeeded
-        env:
-          NEEDS: ${{ toJSON(needs) }}
-        run: |
-          echo "$NEEDS" | jq -e 'to_entries | all(.value.result == "success")' > /dev/null \
-            || { echo "$NEEDS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'; exit 1; }
-          echo "All CI jobs succeeded"
-```
+A job added later goes into `needs`, never into branch protection.
 
-E2E arrives with the first browser-visible feature in [phase 4](./phase-04-users-tenancy-and-audit.md) and
-joins `needs` then — no branch-protection change, which is the point of the gate.
+### 10. Dockerfiles — `backend/Dockerfile`, `frontend/Dockerfile`
 
-### 13. Branch protection — one-time call, recorded here
+Copy v1's and drop `protocol/` from the copy lists.
+- The backend image runs `bun keryx.ts build`, which pre-generates the swagger cache. Without it, boot peaks
+  around 1.4 GB.
+- The frontend build copies `backend/` sources because of the `@backend` type alias.
 
-"CI Complete" is the single required check, so adding a job never requires touching branch protection:
+### 11. Invariant tests ported on day one
 
-```bash
-gh api -X PUT repos/arcadeai-labs/hypotenuse/branches/main/protection \
-  -F required_status_checks[strict]=true \
-  -F 'required_status_checks[contexts][]=CI Complete' \
-  -F enforce_admins=false \
-  -F required_pull_request_reviews[required_approving_review_count]=0 \
-  -F restrictions=
-```
+| Test | Asserts |
+|---|---|
+| `backend/__tests__/deps/native-addons.test.ts` | root `trustedDependencies` is exactly `["esbuild"]` |
+| `backend/__tests__/config/tasks.test.ts` | `TASK_PROCESSORS_TEST=0` wins under test |
+| `backend/__tests__/scripts/workspace.test.ts` | the workspace script's two review fixes |
+| `cli/__tests__/imports.test.ts` | the dependency table |
 
-### 14. `AGENTS.md` and `README.md`
+## Test plan
 
-`AGENTS.md` already exists from the planning PR; this phase makes its
-commands block true. `README.md` documents prerequisites (Bun, Postgres 18, Redis — no Docker Compose), first
-run, and a pointer to [`docs/plans/`](./README.md).
+- `backend`: status twice; the `vector` check (a test database without the extension reports `healthy: false`,
+  driven by `DROP EXTENSION` in a throwaway database); docs, native-addon, task-config, and workspace tests.
+- `frontend`: `apiFetch` prefixes `/api`, sends `credentials: "include"`, and throws on an error envelope
+  returned with a 200.
+- `cli`: version from source and from a compiled binary; imports.
 
 ## Verification
 
 ```bash
 bun install
-createdb hypotenuse && createdb hypotenuse_test
+brew install pgvector && createdb hypotenuse && createdb hypotenuse_test
 cd backend && cp .env.example .env && bun run migrations && bun run lint && bun test
-bun test __tests__/linear/finear-smoke.test.ts      # finear boots in-process and answers `viewer`
-cd ../protocol && bun run lint && bun test
 cd ../cli && bun run lint && bun test && bun run build && ./dist/hypotenuse --version
 cd ../frontend && cp .env.example .env && bun run lint && bun run build && bun test
-cd .. && bun dev                                     # backend :8080, frontend :3000
-curl -s localhost:8080/api/status | jq
-docker build -f backend/Dockerfile .
-docker build -f frontend/Dockerfile --build-arg VITE_API_URL=http://localhost:8080 .
+cd .. && bun dev && curl -s localhost:8080/api/status | jq '.database'
 ```
 
-- `bun test` in `backend/` boots a real server on a random port and `/api/status` answers 200 with healthy
-  database and Redis, **twice in a row**.
-- The finear smoke test passes without network access beyond loopback.
-- `dist/hypotenuse --version` prints the `cli/package.json` version from a compiled binary.
-- The frontend's `/status` page renders the backend's answer typed through `ActionResponse<Status>`.
-- A PR shows every job plus "CI Complete"; breaking one assertion turns the gate red; `main` refuses a direct
-  push.
+- `bun test` in `backend/` answers `/api/status` with `healthy: true` and `vector: true`, twice.
+- A PR shows every job plus CI Complete. Breaking one assertion turns the gate red.
 - `bun run workspace:setup --dry-run` in a linked worktree prints a distinct database and Redis index.
 
 ## Definition of done
 
-- [x] Root workspace with `backend/`, `frontend/`, `cli/`, `protocol/`; `bun dev` runs backend and frontend
-- [x] `backend/bunfig.toml` and a trimmed `backend/__tests__/setup.ts` exist; status test passes twice
-- [x] `backend/.env.example` covers dev and `_TEST` variants and declares the empty `LINEAR_*` keys
-- [x] finear is pinned to a commit (fetched by git, not installed — see learnings); `useFinear()` exists; the smoke test passes
-- [x] `protocol/` exports `PROTOCOL_VERSION`; `cli/` prints its version from source and from a compiled binary
-- [x] The dependency-direction, native-addon, docs-links, and no-phase-names tests pass
-- [x] Both Dockerfiles build from the repo root (in CI; see learnings)
-- [x] CI runs eight jobs plus "CI Complete", which asserts every result is `success`
-- [ ] Branch protection on `main` requires exactly "CI Complete" — needs a repo admin (see learnings)
-- [x] `AGENTS.md` and `README.md` commands are true
+- [ ] Root workspace with `backend/`, `frontend/`, `cli/`; `bun dev` runs the backend and the frontend
+- [ ] `backend/bunfig.toml` and a trimmed `__tests__/setup.ts`; the status test passes twice in a row
+- [ ] Migration 0000 creates `vector`; `/api/status` reports it and counts it in `healthy`
+- [ ] Local docs, CI services, and `.env.example` all require pgvector
+- [ ] The docs tests live in `backend/__tests__/docs/` and scan the new source trees; `tests/` is gone
+- [ ] The native-addon, task-config, workspace, and CLI imports tests pass
+- [ ] Both Dockerfiles build in CI
+- [ ] CI runs seven jobs plus CI Complete, which asserts every result is `success`
+- [ ] `AGENTS.md` Local development and Commands are true
+- [ ] **Stop for review** before [phase 02](./phase-02-deployment.md)
 
-**Stop here for review before [phase 2](./phase-02-deployment.md).**
+## Open questions
+
+- Whether CI should also run against plain `postgres:18` with the extension installed by a step, so a Render
+  version skew is caught. The default is the pgvector image alone.
 
 ## Learnings from the build
 
-### finear is fetched with git, not installed as a dependency
-
-The plan made finear a `github:` dev dependency. Bun resolves every GitHub-hosted dependency — `github:` and
-`git+https://github.com/…` alike — through GitHub's **tarball API** (`api.github.com/repos/…/tarball/<sha>`), and
-sandboxed agent environments (including the one this phase was built in) refuse that endpoint while allowing an
-ordinary `git fetch`. A dependency that cannot install takes the whole `bun install` down with it, not just the
-one package.
-
-So `backend/scripts/fetch-finear.ts` fetches exactly one commit with `git` into `backend/.finear/` (gitignored), and
-`bun run test` in `backend/` runs it first. The pin is the `FINEAR_COMMIT` constant in that script. finear's two
-runtime dependencies, `@linear/sdk` and `graphql`, are backend devDependencies **at the versions finear pins**
-(`97.1.0`, `16.11.0`), so finear's sources resolve them from our install. Bumping finear means bumping those two
-in the same commit if finear's `package.json` moved them.
-
-`__tests__/linear/finear.ts` declares the slice of finear's API it uses instead of importing finear's types:
-`tsc` follows a type import into the imported file and type-checks it under *our* `tsconfig`, and finear's
-sources do not pass `noImplicitReturns` and Bun's newer `fetch` typings. Excluding `.finear` in `tsconfig.json`
-does not help — `exclude` only stops files from being roots, not from being reached by an import.
-
-### What finear did that is worth knowing
-
-- A personal API key goes in `Authorization` raw, with no `Bearer` — as Linear's own API expects.
-- An unknown key answers HTTP 200 with a GraphQL `errors` array, not a 401. Assert on the body.
-- In-process boot plus `viewer` takes well under a second; there is no reason to share one finear across files.
-
-### Smaller things
-
-- **`keryx new` scaffolds users, sessions, and `me`** (with a migration) by default. They were deleted here; the
-  users phase brings ToolExec's versions. The scaffold's `config/` is *newer* than ToolExec's (it adds MCP
-  anonymous-session settings), so it was kept rather than overwritten with ToolExec's.
-- **node-postgres needs a user.** With `postgres://localhost/…` it takes the role from `$USER`; in a container where
-  `$USER` is unset it fails with "no PostgreSQL user name specified". `.env.example` stays user-less (right on a
-  laptop), and `AGENTS.md` says to put the user in a local `.env` when needed.
-- **A test-only override needs a `_TEST` key in `.env.example`.** `loadFromEnvIfSet` reads `X_TEST`, then `X`, and only
-  then the config's own default — so a bare `TASK_PROCESSORS=1` in the example file beat the config's
-  `NODE_ENV=test ? 0 : 1` and started a Resque worker under `bun test` in CI. `TASK_PROCESSORS_TEST=0` is set, and
-  `__tests__/config/tasks.test.ts` asserts it.
-- **Ported scripts get the same review as new code.** Both workspace-script bugs Bugbot found (Redis not returning
-  to the shared index on `--shared`; a URL with a query string compounding its suffix) were in ToolExec's
-  `setup-workspace.ts` as copied. `__tests__/scripts/workspace.test.ts` now covers both.
-- **The plan-count guard** in `links.test.ts` was ToolExec's `> 20`; Hypotenuse has 17 phases, so it is `> 15`.
-- **Playwright and the UI kit are not here.** The plan listed `playwright.config.ts` among the copied frontend
-  configs, but with no browser-visible feature there is nothing for it to run; it arrives with the first e2e spec.
-- **Docker images could not be built in the agent sandbox** (its TLS-intercepting proxy breaks `bun install` inside
-  a container with `SELF_SIGNED_CERT_IN_CHAIN`). CI's two Docker jobs are the proof that both images build.
-- **Branch protection is a repository setting this phase cannot apply from an agent session** (writes to settings
-  APIs are refused). A repo admin applies it: require "CI Complete" — and, since Bugbot reviews every PR, "Cursor
-  Bugbot" — on `main`, with no direct pushes.
+Not built yet.

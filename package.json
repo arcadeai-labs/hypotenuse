@@ -1,20 +1,16 @@
 {
   "name": "hypotenuse-workspace",
   "version": "0.0.1",
-  "description": "Hypotenuse — coding agents on your machines, answering Linear agent sessions",
+  "description": "Hypotenuse — a persistent multiplayer, multichannel agent for your team",
   "private": true,
   "license": "Apache-2.0",
   "type": "module",
-  "workspaces": ["backend", "frontend", "cli", "protocol"],
-  "trustedDependencies": ["esbuild"],
   "scripts": {
-    "dev": "bun run --parallel dev:backend dev:frontend",
-    "dev:backend": "bun run --cwd backend dev",
-    "dev:frontend": "bun run --cwd frontend dev",
-    "ngrok": "bun run --cwd backend scripts/start-ngrok.ts",
-    "lint": "bun run --cwd protocol lint && bun run --cwd backend lint && bun run --cwd frontend lint && bun run --cwd cli lint",
-    "test": "bun run --cwd protocol test && bun run --cwd backend test && bun run --cwd frontend test && bun run --cwd cli test",
-    "test:e2e": "bun run --cwd frontend test:e2e",
-    "workspace:setup": "bun run --cwd backend workspace:setup"
+    "lint": "biome check .",
+    "test": "bun test tests"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.6",
+    "@types/bun": "latest"
   }
 }

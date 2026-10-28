@@ -1,355 +1,281 @@
-# Phase 3 — Design system
+# Phase 03 — Design system
 
-> **Goal:** Build Hypotenuse's own look before any page is built on it: a Linear-native, light-and-dark design
-> system generated from three inputs; the self-drawn status glyphs and the `◢` mark; the app shell (sidebar, list,
-> detail-with-properties, command palette); restyled versions of ToolExec's UI kit behind the same component API; the
-> public site's frame; and a palette the CLI shares. The spec is [`../DESIGN.md`](../DESIGN.md). This phase makes it
-> real and tested.
+> **Goal:** The v1 look, regenerated from the kept `design/` inputs and re-pointed at 2.0's nouns. It covers:
+> - light and dark tokens, the self-hosted fonts, and the `◢` mark;
+> - ToolExec's UI-kit API, repainted;
+> - the app shell, the docs site frame, and `/style-guide`;
+> - status glyphs for **conversation states** rather than runner sessions;
+> - the CLI palette.
+>
+> Every later page is built on this, and none of it hand-picks a color.
 
-> **Status: planned, not built.** This is the one frontend phase that is **not** a ToolExec port. ToolExec's
-> components, hooks, and page logic are still copied in
-> [phase 4](./phase-04-users-tenancy-and-audit.md). What changes is everything they are painted with.
+> **Status: planned, not built.** It builds on [phase 01](./phase-01-foundation.md) (the frontend scaffold and
+> `design/`). The pages that *use* the kit arrive with [phase 04](./phase-04-organizations-users-and-rbac.md) and
+> later. The user asked to keep the v1 style for the docs and administration pages, so this phase is a **port** of
+> v1's design-system phase, not a redesign.
 
-ToolExec ended on a single dense midnight theme (its phase 25): JetBrains-flavored density, a violet accent, and no
-light mode. That suits an operator console. Hypotenuse's dashboard is a companion people reach *from* Linear. Its
-lists, status glyphs, and properties panel should feel familiar to someone who lives in Linear, in both light and
-dark, without looking like a Linear knock-off.
+v1 built a whole design system: an LCH token generator, contrast solved against every ground a color sits on,
+both themes, Inter and JetBrains Mono self-hosted, our own status glyphs, a Linear-calm shell, the docs site, and a
+CLI that prints the same palette. Its learnings record five traps, and every one of them would bite again:
 
-The economical path is to **keep ToolExec's component API and replace its paint**. Phase 4 copies `ui/*`, the
-section-editor framework, `useFirstLoad`, `AuthContext`, and every page that depends on them. If those components
-keep their props and `data-testid`s, the copied pages and e2e selectors work unchanged, and this phase only touches
-styles, tokens, the shell, and a handful of new components.
+- the Tailwind `@theme` self-reference that turned every page serif with all checks green;
+- the sidebar mounted twice;
+- the keymap dropping a half-typed `g`;
+- `<picture>` following the OS rather than the app;
+- a `public/docs` directory shadowing `/docs`.
+
+The inputs are still in this repository (`design/tokens.ts`, `design/tokens.json`, `design/mark.svg`,
+`design/app-icon.png`), so "keep the style" is literal: **change no input, port the generator's outputs and the
+code that paints with them.**
+
+What changes is vocabulary. v1's surfaces were sessions, runners, and routing. 2.0's are bots, channels,
+conversations, memory, and sandboxes. The shell's navigation and the glyph table change accordingly, and
+[`DESIGN.md`](../DESIGN.md) is rewritten for those nouns in this phase's commit. Its direction, color, type, and
+space sections hold as written.
 
 ## Scope
 
 **In:**
-
-- The **token generator**: LCH inputs → semantic tokens for light and dark → SCSS custom properties,
-  `design/tokens.json`, and the backend's OAuth-page CSS.
-- **Theme selection:** System, Light, or Dark, with the pre-paint boot script and `localStorage`.
-- **Fonts:** Inter Variable and JetBrains Mono, self-hosted.
-- **Glyphs:** session status, runner presence, role chips, the agent badge, and the `◢` mark and favicon set.
-- **ToolExec's `#ui/*` kit restyled** (same exports, props, and test ids), plus new primitives: `ListGroup` /
-  `ListRow`, `PropertiesPanel`, `StatusGlyph`, `Chip`, `Kbd`, `CommandPalette`, `Sheet`.
-- **The app shell:** sidebar, header, list layout, detail + properties layout, the mobile sheet, and the keyboard map.
-- The **public frame**: marketing `HomePage` (copy, hero diagram), `/docs` layout with a theme-aware `<picture>`,
-  and the sign-in and sign-up page shells, unwired until phase 4.
-- The **Keryx OAuth page** in both themes, via `prefers-color-scheme`.
-- The **CLI palette and glyph module**, `cli/src/output/theme.ts`, generated from the same tokens.
-- `/style-guide`: every component, both themes side by side.
-- **Tests:** contrast, token-generation determinism, source scans (no raw colors, no literal `rem` font sizes), e2e
-  theme switching with no flash, and screenshot capture in both themes.
+- **Generator outputs:**
+  - `frontend/src/styles/_tokens.generated.scss`;
+  - `backend/theme/hypotenuse-theme.ts`, the Keryx OAuth page theme;
+  - `backend/templates/lion.svg` (our mark, under the name Keryx expects);
+  - favicons;
+  - `backend/theme/email-palette.ts` for mail chrome;
+  - `cli/src/output/theme.ts`, built from `tokens.json`.
+- **Theme and fonts:** System, Light, and Dark, with the pre-paint boot script. Inter Variable and JetBrains Mono,
+  self-hosted.
+- **UI kit:** ToolExec's `#ui/*` kit with the same exports, props, and test ids, plus v1's primitives (`ListGroup`,
+  `ListRow`, `PropertiesPanel`, `StatusGlyph`, `Chip`, `Kbd`, `CommandPalette`, `Sheet`).
+- **Glyphs:** the conversation-state glyph set; the **bot badge**; platform chips.
+- **Shell and keyboard:** the app shell with 2.0's sidebar; the keymap.
+- **Public frame:** the marketing home and the `/docs` layout with `ThemedImage`.
+- **`/style-guide`** with fixture data for every 2.0 surface.
+- **The rewritten [`DESIGN.md`](../DESIGN.md).**
+- **Guard tests:** token determinism, contrast, no raw colors, type scale, fonts, self-referencing custom
+  properties, UI-API parity, nginx, keymap, and e2e theme switching.
 
 **Out:**
+- Wiring sign-in and sign-up ([phase 04](./phase-04-organizations-users-and-rbac.md)).
+- Every data page:
+  - settings, members, audit ([phases 04](./phase-04-organizations-users-and-rbac.md)–[05](./phase-05-audit-logging.md));
+  - bots ([phase 07](./phase-07-model-providers-and-bots.md));
+  - conversations and mission control ([phase 21](./phase-21-dashboard.md)).
 
-- Real authentication behind the forms ([phase 4](./phase-04-users-tenancy-and-audit.md)).
-- Every data page: settings and members ([phase 4](./phase-04-users-tenancy-and-audit.md)); sessions, the transcript,
-  runners, and routing ([phase 15](./phase-15-dashboard.md)). This phase builds their **frames and components** and
-  shows them with fixture data in `/style-guide`.
-- CLI commands themselves ([phase 5](./phase-05-cli-and-distribution.md)). This phase ships only the palette and glyph
-  module they print with.
+  This phase builds their **frames and components** with fixtures only.
+- CLI commands ([phase 06](./phase-06-operator-cli.md)); only the palette and glyph module land here.
+- New themes. One generator, two modes; ToolExec's five-look system is not ported.
+
+## What already exists
+
+| Piece | Where |
+|---|---|
+| Inputs and generator | `design/tokens.ts` (in this repository), [`design/README.md`](https://github.com/arcadeai-labs/hypotenuse/blob/v1/design/README.md) |
+| Generated outputs, UI kit, shell, glyphs, docs frame, style guide | [v1 `frontend/src/`](https://github.com/arcadeai-labs/hypotenuse/tree/v1/frontend/src) |
+| The plan and its learnings | [v1 phase 03 — design system](https://github.com/arcadeai-labs/hypotenuse/blob/v1/docs/plans/phase-03-design-system.md) |
+| Guard tests | v1 `frontend/src/__tests__/{tokens,contrast,no-raw-colors,type-scale,fonts,custom-properties,ui-api-parity,ui-variants,keymap,shell-keys,nginx}.test.ts` |
+| OAuth page theme test | v1 `backend/__tests__/oauth/authorize-theme.test.ts` |
+| CLI palette | v1 `cli/src/output/theme.ts` and `__tests__/output/theme.test.ts` |
+| UI-kit API it must keep | [ToolExec `frontend/src/ui/`](https://github.com/arcadeai-labs/toolexec/tree/main/frontend/src/ui) |
+
+## What this must not weaken
+
+1. **Components consume semantic tokens only.**
+   - `no-raw-colors.test.ts` refuses hex, `rgb(`, `hsl(`, `lch(`, and `oklch(` outside the generated file.
+   - `type-scale.test.ts` refuses literal font sizes.
+2. **Generated files are never edited.** `tokens.test.ts` regenerates in memory and asserts byte-equality.
+3. **Both themes clear contrast on every ground they sit on.** The worst ground decides.
+4. **An agent is always visibly an agent.** Every avatar that stands for a bot carries the bot badge. A bot's
+   message must never be mistaken for a person's, in the dashboard, in the CLI, or in a screenshot.
+5. **Fonts are self-hosted.** CI greps `dist/` for font CDNs.
 
 ## Design
 
-### Three layers, one direction of flow
+### Status glyphs for conversations
 
-```
-design/tokens.ts  (inputs: base, accent, contrast × light/dark; generator)
-      │  bun run --cwd frontend theme:build
-      ├──► frontend/src/styles/_tokens.generated.scss   [data-theme="light"] { … }  [data-theme="dark"] { … }
-      ├──► design/tokens.json                           read by cli/src/output/theme.ts at build time
-      └──► backend/theme/hypotenuse-theme.ts            the CSS string Keryx inlines into /oauth/authorize
-```
+The shape language is v1's: rings for in progress, discs for finished, a centre dot for "a person is needed". The
+rows are 2.0's conversation states and sandbox job states.
 
-- `design/` is a plain directory, not a workspace. It holds data and one generator script with no runtime
-  dependencies, so `frontend/`, `cli/`, and `backend/` can all read it without a dependency edge between them.
-- Generated files are committed. `frontend/src/__tests__/tokens.test.ts` regenerates them in memory and asserts
-  byte-equality with what is on disk, so a hand edit to a generated file fails CI. This replaces ToolExec's "the theme
-  is written twice by design" test with "written once, generated three times".
-- **Components consume semantic tokens only.** `frontend/src/__tests__/no-raw-colors.test.ts` scans
-  `src/**/*.{scss,css,tsx}` for hex, `rgb(`, `hsl(`, `lch(`, and `oklch(` literals outside `_tokens.generated.scss`.
+| State | Glyph | CLI | Token |
+|---|---|---|---|
+| conversation `working` | ring with a quarter arc (slow spin; stops under reduced motion) | `◔` | `--status-active` |
+| conversation `hibernating` | hollow ring | `○` | `--status-idle` |
+| conversation `waiting` on `answer` / `approval` | ring with a centre dot | `◉` | `--status-waiting` |
+| conversation `waiting` on `sandbox` / `timer` | ring with a small clock tick | `◷` | `--status-pending` |
+| conversation `ended` (complete) | filled disc with a check | `✓` | `--status-complete` |
+| conversation `ended` (failed) | filled disc with a cross | `✕` | `--status-error` |
+| sandbox job `provisioning` | dotted ring | `◌` | `--status-pending` |
+| sandbox job `running` | as `working` | `◔` | `--status-active` |
 
-### The generator
+- `--status-idle` is a **new generator output**. It is solved like the other status tokens, as a glyph color at
+  3:1 against a panel. It is the only input-side change this phase makes, and it is additive.
+- `hibernating` is the normal rest state of a conversation, so it must read as calm, not stale.
+- v1's `--status-stale` is kept for "a lease expired and the reaper has not run yet".
+- The glyph components live in `frontend/src/ui/glyphs/`, keyed by the state names above. The dashboard and the
+  CLI import the **same names**, so a renamed state is a type error in both.
 
-`design/tokens.ts` exports `generateTheme({ base, accent, contrast, mode })`. It is pure, deterministic, and has no
-dependencies; LCH → sRGB conversion is about 40 lines and is tested against reference values.
+### The bot badge and platform chips
 
-- **Surface ramp:** `--bg-app` … `--bg-selected` are steps in L from the base. Light steps downward; dark steps upward.
-- **Text ramp:** `--text-primary` … `--text-disabled` are chosen by contrast target against `--bg-app`, not by fixed L.
-  This is what keeps both themes legible when the base or contrast input changes.
-- **Accent family:** `--accent`, `--accent-hover`, `--accent-subtle`, and `--text-on-accent` (whichever of
-  near-white or near-black clears 4.5:1).
-- **Status, presence, and role tokens** have fixed hues and are adjusted in L and C per theme to clear 3:1 against
-  `--bg-panel`.
-- The **contrast** input scales the L distance between steps (30 default; higher means more separation), the same
-  lever Linear exposes.
-
-### Theme selection
-
-- `index.html` contains an inline boot script of about 15 lines that runs before the stylesheet applies. It reads
-  `localStorage["hypotenuse.theme"]` (`system` | `light` | `dark`). For `system`, or when nothing is stored, it uses
-  `matchMedia("(prefers-color-scheme: dark)")`. It sets `document.documentElement.dataset.theme`. A `media` change
-  listener updates `system` live.
-- `frontend/src/context/ThemeContext.tsx` exposes `{ preference, resolved, setPreference }`. The account menu and the
-  command palette ("Theme: Dark") are the two controls.
-- Charts, Markdown code blocks, and screenshots read `resolved`. Nothing else needs to know the theme, because tokens
-  do the work.
-
-### The UI kit: same API, new paint
-
-`frontend/src/ui/*` is copied from ToolExec in phase 4. This phase lands it **first**, restyled, so phase 4's copy is a
-no-op for these files. The contract:
-
-| Kept exactly | Changed |
-|---|---|
-| Export names, prop names, `variant` tones (`UI_VARIANT_TONES`), `data-testid`s, `SectionCard` / `SectionNav` behavior, `SkeletonRows` / `SkeletonBlocks` element types | All SCSS, radius (0 → 6/8px), type (Inter), density (14px → 13px with 36px rows), focus ring, hover and selected states, light theme |
-
-`frontend/src/__tests__/ui-variants.test.ts` (ported) still asserts that every tone in `UI_VARIANT_TONES` has a rule.
-
-New primitives (`frontend/src/ui/`):
-
-| Component | Role |
-|---|---|
-| `ListGroup`, `ListRow` | Linear-style grouped list: a collapsible group header with a count, and 36px rows with leading glyph, identifier, title, trailing chips, and avatar. Keyboard focusable, `j`/`k` aware |
-| `PropertiesPanel`, `Property` | the 280px right-hand panel: label/value rows, inline chips, links |
-| `StatusGlyph` | `status: AgentSessionStatus` → the SVG from `ui/glyphs/` with `aria-label` |
-| `PresenceDot`, `RoleChip`, `AgentBadge`, `Chip` | runner presence, M/W role, agent kind, generic chip |
-| `CapacityBar` | slot segments with an optional label and link per segment |
-| `CommandPalette` | `cmdk`-based. Commands come from a registry (`frontend/src/commands/`) and are filtered by `can()` |
-| `Kbd`, `ShortcutSheet` | key hints and the `?` sheet |
-| `Sheet` | the mobile sidebar and narrow-viewport properties drawer |
-| `Avatar` | person or agent. An agent always carries `AgentBadge` (AIG principle 1) |
+- **Bot badge.** v1's agent badge, renamed. A small chip reading **bot** over the bot's avatar, with the bot's name
+  beside it. The avatar is the bot's uploaded image ([phase 07](./phase-07-model-providers-and-bots.md)); without
+  one it is a monogram on `--accent-subtle`, never a person-like default.
+- **Platform chips.** `Slack`, `Linear`, `Pylon`, and `API` are set as text in a neutral chip. There are no logos:
+  trademark use is one more thing to get wrong, and text is legible in both themes.
 
 ### The shell
 
-`frontend/src/components/AppShell.tsx` replaces ToolExec's `Layout` for signed-in pages:
+```
+┌──────────────┬──────────────────────────────────────────────────────────────┐
+│ ◢ Hypotenuse │  Conversations                    [Filter] [Display]  ⌘K      │
+│ acme ▾       ├──────────────────────────────────────────────────────────────┤
+│ Support ▾    │  ▾ Waiting for a person · 1                                   │
+│              │  ◉  #billing · "refund for Globex?"       bot Ada   Slack     │
+│  Home        │  ▾ Working · 2                                                 │
+│  Conversations│ ◔  ENG-142 · "add retry to ingress"      bot Kit   Linear    │
+│  Bots      3 │  ◷  Globex · "export fails on CSV"         bot Ada   Pylon     │
+│  Memory      │  ▾ Hibernating · 41                                            │
+│  Sandboxes   │  ○  #eng-help · "how do I run e2e?"        bot Kit   Slack     │
+│  Settings    │                                                                │
+│  Docs ↗      │                                                                │
+└──────────────┴──────────────────────────────────────────────────────────────┘
+```
 
-- **Sidebar** (`components/shell/Sidebar.tsx`): `◢ Hypotenuse`, project switcher (`AuthContext.projects`), nav items
-  with live counts (fed later by the sessions and runners channels; zero or hidden until then), collapse with `[`.
-- **Header** (`components/shell/PageHeader.tsx`): title, filter chips, a *Display* menu, and right-aligned actions.
-- **Layouts:** `ListLayout` (header + grouped list) and `DetailLayout` (header + main + `PropertiesPanel`).
-- **Keyboard map** (`frontend/src/commands/keymap.ts`): `⌘K`, `g h|s|r|o`, `j`/`k`, `enter`, `esc`, `/`, `?`, `[`.
-  One registry feeds the palette, the shortcut sheet, and the e2e spec.
-- **Below 768px:** the sidebar becomes a `Sheet`, `DetailLayout` stacks, and rows drop their trailing columns.
+- **Sidebar order:**
+  - the switchers: organization, then project;
+  - Home, Conversations, Bots, Memory, Sandboxes, Settings, Docs.
 
-Public pages (`/`, `/docs/*`, `/sign-in`, `/sign-up`) use `components/shell/PublicShell.tsx`: top bar with mark,
-Docs, Sign in, and a theme toggle, plus a footer.
+  Each destination is gated by `can()` from [phase 04](./phase-04-organizations-users-and-rbac.md), and is
+  **disabled, never absent**, until its phase lands. Disabled items read "Not available yet", never a phase
+  number.
+- **The organization switcher** is new. It sits above the project switcher, and its menu holds the organization's
+  members and "New project" for owners.
+- **Keymap:** `g h/c/b/m/s` for Home, Conversations, Bots, Memory, and Sandboxes. `⌘K`, `j`/`k`, `enter`, `esc`,
+  `/`, and `?` keep v1's meaning. The keymap reads its context through a ref (v1's trap).
+- **The sidebar is mounted in exactly one place**, chosen by a width check, so test ids are never duplicated.
 
-### The CLI palette
+### The signature surfaces, rewritten in `DESIGN.md`
 
-`cli/src/output/theme.ts` imports `design/tokens.json` with `with { type: "json" }`, which embeds it in the compiled
-binary. It exports:
+1. **The conversation transcript.** A log, not a chat. Its source is `conversation_entries`
+   ([phase 08](./phase-08-durable-agent-loop.md)):
+   - message rows with the participant's platform name and avatar;
+   - bot lines with the badge;
+   - thinking collapsed to one `···` line;
+   - one row per tool call (verb, parameter in mono, duration);
+   - `run_code` rows showing the program and its host calls;
+   - sandbox jobs as nested cards;
+   - questions and approvals as the only accented cards.
 
-- `color(token, text)`: truecolor (`COLORTERM=truecolor|24bit`), else nearest xterm-256, else plain. It honors
-  `NO_COLOR`, `FORCE_COLOR`, `--no-color`, `--json`, and non-TTY output through mcpx's `early-env` / `tty` modules,
-  ported here.
-- `glyph(status)` returns the Unicode glyphs from [`DESIGN.md`](../DESIGN.md#iconography-and-glyphs), or the ASCII
-  fallback when `LANG` / `LC_ALL` is not UTF-8.
-- `table(rows, columns)`: borderless, dim headers, right-aligned numerics, middle truncation.
-- `banner()`: `◢ hypotenuse <version>`.
+   A question is answered **where it was asked**. The card deep-links to the Slack thread, Linear session, or
+   Pylon issue, because the platform's own permissions decide who may answer
+   ([phase 13](./phase-13-channel-framework.md)).
+2. **The bot page.** Identity (avatar, name, persona), where it listens (channel bindings by platform), its tools
+   (memory, MCP servers, skills, code mode, sandboxes), its model, and its access tags.
+3. **The memory explorer.** Scope (project or a channel), then document, then versions, each with provenance back
+   to the conversation entry that wrote it and a decay indicator.
+4. **The public site and `/docs`, and the CLI.** v1's frames with 2.0's copy.
 
-The CLI uses the **dark** token values when the terminal background is unknown. It uses light values if
-`COLORFGBG` says the background is light.
+The mark keeps its shape. `DESIGN.md` re-reads it: the hypotenuse is the shortest path between where a team
+already talks and the work getting done.
+
+## Schema sketch
+
+None.
+
+## Actions and policy sketch
+
+| Action | Route | RBAC | MCP | Audited |
+|---|---|---|---|---|
+| — | — | — | — | — |
+
+No actions. The OAuth authorize page's theme is configuration (`WEB_SERVER_THEME`).
+
+## Frontend and user docs
+
+- **Public pages:**
+  - `frontend/src/pages/marketing/HomePage.tsx` with 2.0 copy, under the hero "A teammate in every channel".
+  - Three panels: mention it where you work → it remembers the channel → it hands code to a sandbox and answers
+    with a PR.
+- **Docs frame:** `frontend/src/content/docs/sections.ts` with one page, `getting-started.md`, and the frame's
+  tests (`docs-sections`, `markdown-safety`, e2e `docs.spec.ts`).
+- **Illustrations:** live in `public/doc-assets/illustrations/`, captured in both themes by
+  `bun run docs:illustrations`.
+- **Social card:** `frontend/public/social.png`, redrawn by `bun run social:image` with the new copy.
 
 ## Steps
 
-### 1. Tokens and generator — `design/tokens.ts`, `design/tokens.json`, `design/mark.svg`, `design/README.md`
+### 1. Generator outputs — `bun run --cwd frontend theme:build`
 
-The inputs from [`DESIGN.md`](../DESIGN.md#color), `generateTheme`, LCH↔sRGB helpers, and a `build` entry that writes
-the three outputs. `design/README.md` explains the inputs and says never to edit generated files.
+- Add `--status-idle` to `design/tokens.ts`'s status set and `CONTRAST_PAIRS`.
+- Regenerate every output listed in [`design/README.md`](https://github.com/arcadeai-labs/hypotenuse/blob/v1/design/README.md).
+- `theme:check` joins frontend lint.
 
-### 2. Generated outputs and build script — `frontend/scripts/build-theme.ts`, `frontend/package.json` (`theme:build`)
+### 2. Kit and primitives — `frontend/src/ui/**`
 
-Writes `frontend/src/styles/_tokens.generated.scss`, `design/tokens.json`, and `backend/theme/hypotenuse-theme.ts`.
-`bun run lint` in `frontend/` runs `theme:build --check`.
+Port v1's kit. `ui-api-parity.test.ts` keeps ToolExec's frozen export list, so pages copied in phase 04 drop in
+unchanged.
 
-### 3. Fonts — `frontend/src/styles/fonts.scss`
+### 3. Glyphs and badge — `frontend/src/ui/glyphs/`, `frontend/src/ui/BotBadge.tsx`, `frontend/src/ui/PlatformChip.tsx`
 
-`@fontsource-variable/inter` and `@fontsource-variable/jetbrains-mono`, latin subsets, `font-display: swap`. Body
-`font-feature-settings` as in the spec. No Google Fonts requests: a test scans built `dist/` for
-`fonts.googleapis.com`.
+The state table above as components. `StatusGlyph` takes a `ConversationState` plus the `waitingOn` kind.
 
-### 4. Base styles — `frontend/src/styles/{_base,_type,_space,_motion}.scss`, `frontend/src/styles/app.scss`
+### 4. Shell — `frontend/src/components/{AppShell,shell/*}`, `frontend/src/context/ThemeContext.tsx`
 
-Reset, type ramp as ratios of `--font-size`, spacing tokens, radius, shadows (light only), the reduced-motion block,
-focus-visible ring, and selection color. Tailwind v4 is kept as in ToolExec (`source(none)` plus explicit `@source`),
-with its theme mapped to our tokens so utilities emit `var(--…)`.
+The sidebar, the organization and project switchers (fixtures until phase 04), the mobile sheet, the keymap, and
+the command palette.
 
-### 5. Theme selection — `frontend/index.html` (boot script), `frontend/src/context/ThemeContext.tsx`
+### 5. Public frame and style guide — `frontend/src/pages/{marketing,docs,style-guide}/**`
 
-As designed. The account-menu control lands with the shell in step 8. The palette command lands in step 9.
+`/style-guide` renders every primitive and every 2.0 surface from `styleGuideFixtures.ts`, in both themes side by
+side.
 
-### 6. Glyphs and the mark — `frontend/src/ui/glyphs/*.tsx`, `frontend/public/{favicon.svg,favicon-dark.svg,apple-touch-icon.png}`
+### 6. OAuth theme and CLI palette — `backend/theme/hypotenuse-theme.ts`, `cli/src/output/theme.ts`
 
-One component per glyph in [`DESIGN.md`](../DESIGN.md#iconography-and-glyphs), each with `aria-label`. The *active*
-glyph's rotation is CSS and is stopped under reduced motion. The favicon has light and dark variants selected via
-`media` on the `<link>`.
+Port both, plus their tests. The CLI glyph module exports the same state names as the web glyphs.
 
-### 7. UI kit restyle and new primitives — `frontend/src/ui/*`, `frontend/src/ui/core.tsx`, `frontend/src/styles/_ui.scss`
+### 7. `DESIGN.md`
 
-Land ToolExec's `ui/*` (copied from `toolexec/frontend/src/ui/`) with the new SCSS, and add the new primitives in the
-table above. Prop and test-id parity is checked by
-`frontend/src/__tests__/ui-api-parity.test.ts`. That test holds a frozen list of ToolExec's exported names and props
-and fails if one disappears.
+Rewrite the glyph table, the bot badge, the layout, and the signature surfaces. Drop the runner fleet and the "four
+surfaces" numbering where it no longer fits. Grep `docs/` and `AGENTS.md` for every description of a glyph or the
+shell, and fix them in the same commit.
 
-### 8. Shell — `frontend/src/components/AppShell.tsx`, `components/shell/{Sidebar,PageHeader,PublicShell,AccountMenu}.tsx`, `components/layouts/{ListLayout,DetailLayout}.tsx`
+## Test plan
 
-The account menu holds the theme control and sign-out (wired in phase 4).
-
-### 9. Command palette and keyboard — `frontend/src/ui/CommandPalette.tsx`, `frontend/src/commands/{registry,keymap}.ts`, `frontend/src/ui/ShortcutSheet.tsx`
-
-The registry entries are `{ id, title, keywords, shortcut?, when?: (ctx) => boolean, run }`. In this phase it holds
-navigation and theme commands; later phases add theirs (e.g. "Cancel session", "Revoke runner"), each gated by
-`can()`.
-
-### 10. Public frame — `frontend/src/pages/marketing/HomePage.tsx`, `frontend/src/pages/docs/{DocsLayout,DocsPage}.tsx`, `frontend/src/components/ThemedImage.tsx`, `frontend/src/content/docs/{index,why}.md`
-
-- Hero copy and the triangle diagram, drawn as inline SVG from tokens so it works in both themes.
-- The three-step explainer, a supported-agents strip as text, install commands with copy buttons, and security
-  points.
-- The docs layout: section nav, a 72ch article, and an "on this page" rail.
-- `ThemedImage` renders `<picture>` with `-light.png` / `-dark.png` sources.
-
-### 11. Auth page shells — `frontend/src/pages/{SignInPage,SignUpPage}.tsx`
-
-Centred card on `PublicShell` with client-side validation. They post nowhere until phase 4, as ToolExec's phase 3 did.
-
-### 12. Keryx OAuth page — `backend/templates/{oauth-authorize.html,oauth-common.css,hypotenuse.svg}`, `backend/theme/hypotenuse-theme.ts`
-
-Ported structure from `toolexec/backend/templates/`. Both themes are expressed as
-`@media (prefers-color-scheme: dark)` blocks generated from the tokens. `WEB_SERVER_THEME=theme/hypotenuse-theme.ts`.
-
-### 13. Style guide — `frontend/src/pages/StyleGuidePage.tsx` at `/style-guide`
-
-Every primitive and glyph, with a fixture session list, a fixture transcript (prompt, thought, ephemeral action,
-action with result and diff stats, plan, elicitation, response, error, turn separator), a fixture runner card and
-table, and the properties panel. It renders twice side by side, `data-theme="light"` and `data-theme="dark"` on two
-containers, so a reviewer sees both at once. This page is where phases 4 and 15 take their fixtures from.
-
-### 14. CLI palette — `cli/src/output/{theme,early-env,tty}.ts`, `cli/__tests__/output/theme.test.ts`
-
-As designed. Tests cover truecolor / 256 / none selection, glyph fallbacks under `LANG=C`, middle truncation, and that
-every token `theme.ts` names exists in `design/tokens.json`.
-
-### 15. Screenshot pipeline — `frontend/scripts/capture-doc-illustrations.ts`, `frontend/package.json` (`docs:illustrations`)
-
-Ported from ToolExec's script. It captures each illustration twice (light, dark) into
-`frontend/public/docs/illustrations/<name>-{light,dark}.png`. In this phase it covers `/style-guide` and the home
-page; later phases add their pages.
-
-### 16. Tests — `frontend/src/__tests__/*`, `frontend/e2e/{theme,shell,keyboard,home}.spec.ts`
-
-| Test | Asserts |
-|---|---|
-| `tokens.test.ts` | generated files equal a fresh generation; LCH→sRGB matches reference values; the generator is deterministic |
-| `contrast.test.ts` | every declared text/background pair ≥ 4.5:1, and glyph, focus, and large text ≥ 3:1, **in both themes** |
-| `no-raw-colors.test.ts` | no color literals outside generated tokens |
-| `type-scale.test.ts` | no literal `rem`/`px` font sizes in component rules (ToolExec's `studio-layout` rule, kept) |
-| `ui-api-parity.test.ts` | ToolExec's `ui/*` exports and props still exist |
-| `ui-variants.test.ts` | (ported) every tone has a rule |
-| `e2e/theme.spec.ts` | the stored preference applies before first paint (no frame with the other theme's `--bg-app`); System follows an emulated `prefers-color-scheme` change; the toggle persists across reload |
-| `e2e/shell.spec.ts` | sidebar collapse, mobile sheet at 390px, `DetailLayout` stacking |
-| `e2e/keyboard.spec.ts` | `⌘K` opens, filters, and runs a navigation command; `g s` navigates; `?` shows the sheet |
-| `e2e/home.spec.ts` | public home and `/docs` render signed out in both themes; copy buttons copy |
+- **Frontend unit tests:** v1's guard tests ported unchanged, plus:
+  - `glyphs.test.ts`: every `ConversationState × waitingOn` pair maps to exactly one glyph and token, as a whole-set
+    comparison against a literal map;
+  - `bot-badge.test.ts`: a bot avatar without the badge is impossible to render through the kit.
+- **e2e:** `theme.spec.ts` (no flash, choice remembered), `shell.spec.ts`, `keyboard.spec.ts`, `home.spec.ts`,
+  `docs.spec.ts`.
+- **Backend:** `authorize-theme.test.ts`.
+- **CLI:** `theme.test.ts`.
 
 ## Verification
 
 ```bash
-bun install
-bun run --cwd frontend theme:build
-bun run --cwd frontend lint            # includes theme:build --check
-bun run --cwd frontend test
-bun run --cwd frontend test:e2e -- theme shell keyboard home
-bun run --cwd cli test -- output
-bun dev && open http://localhost:3000/style-guide
+cd frontend && bun run theme:check && bun run lint && bun test && bun run build && bun run test:e2e
+open http://localhost:3000/style-guide       # look at both themes before opening the PR
+bun run docs:illustrations                   # light + dark screenshots
 ```
 
-Manually:
-
-- On `/style-guide`, compare light and dark side by side: every glyph is distinguishable without color (shape
-  differs), every chip is readable, and the transcript fixture reads top to bottom as a log.
-- Switch the OS appearance with the preference on System. The app follows without a reload.
-- Hard-reload with Dark stored on a light OS. There is no white flash.
-- Run `hypotenuse --version` in a truecolor terminal, under `TERM=xterm-256color`, and under `NO_COLOR=1`. Run
-  `LANG=C hypotenuse --version` to see the ASCII fallback.
+Green is not the same as right. Look at both themes in `/style-guide` before pushing, then turn whatever you caught
+into a test (v1's serif lesson).
 
 ## Definition of done
 
-- [x] `design/tokens.ts` generates both themes deterministically; the three generated outputs are committed and
-      checked in CI
-- [x] Semantic tokens only in components; raw-color and font-size scans pass
-- [x] Contrast passes for every declared pair in both themes
-- [x] System / Light / Dark selection with a pre-paint boot script; no flash in e2e
-- [x] Inter and JetBrains Mono self-hosted; no third-party font requests
-- [x] Status, presence, role, and agent glyphs; the `◢` mark and favicons in both themes
-- [x] ToolExec's `ui/*` API preserved (parity test) and restyled; new primitives in place
-- [x] App shell with sidebar, list and detail layouts, properties panel, command palette, keyboard map, and mobile sheet
-- [x] Public home, `/docs` frame with theme-aware images, and sign-in/sign-up shells
-- [x] Keryx OAuth page in both themes from generated CSS
-- [x] `/style-guide` shows every component and fixture surface in both themes at once
-- [x] `cli/src/output/theme.ts` shares the tokens and glyphs, with correct color-depth and locale fallbacks
-- [x] Screenshot pipeline captures light and dark
+- [ ] Every generator output is regenerated from unchanged inputs, plus the additive `--status-idle`
+- [ ] The UI kit passes `ui-api-parity` against ToolExec's export list
+- [ ] Conversation-state glyphs, the bot badge, and platform chips, in web and CLI, with the same state names
+- [ ] The shell has the organization and project switchers and 2.0's sidebar; disabled destinations never name a phase
+- [ ] `/style-guide` shows every 2.0 surface with fixtures in both themes
+- [ ] The marketing home, the docs frame, and the social card carry 2.0 copy
+- [ ] `DESIGN.md` describes 2.0's surfaces; no doc still describes the runner fleet
+- [ ] Every guard test passes; e2e runs in the CI gate as **E2E Test**
+
+## Open questions
+
+- Whether the memory explorer's decay indicator is a glyph or a bar. Settle it with fixtures in `/style-guide`
+  before [phase 09](./phase-09-memory.md) builds the page.
 
 ## Learnings from the build
 
-### What is built
-
-All thirteen Definition of done items. The tokens, the UI kit, the shell, the public frame, the style guide, the CLI
-palette, and the screenshot pipeline are in; the four e2e specs (`theme`, `shell`, `keyboard`, `home`) run in a new
-**E2E Test** job inside the CI gate. They drive the frontend alone (`playwright.config.ts` boots only Vite); specs
-that need the backend add it as a second `webServer` when they arrive.
-
-### The generator, as built
-
-- **Text and state colors are solved against every ground they sit on, and the worst one decides.** Solving only
-  against `--bg-app` failed twice on the first run: in light the app ground is *darker* than the panel, so the accent
-  cleared the panel and missed the ground; in dark the panel is *lighter*, so tertiary text missed the panel.
-  `solveForContrast` takes the list of grounds.
-- **A designed lightness wins whenever it already clears.** A pure "lowest L that passes" search made dark mode's
-  accent and status colors as dim as legality allowed (`#009896` for an input of L 70). The solver takes a `prefer`
-  lightness — the accent's input L, 55/70 for glyphs — and searches only when it fails. `accent-hover` is solved
-  further from the ground than the accent, so it can never lose contrast.
-- **There is no `frontend/scripts/build-theme.ts`.** `theme:build` and `theme:check` run `design/tokens.ts`
-  directly; a wrapper would have been a second place the output list lived.
-- **The generator also writes the mark**: `design/mark.svg`, `frontend/public/favicon{,-dark}.svg`, and
-  `backend/templates/lion.svg`. Keryx resolves the OAuth page's artwork partial by the fixed name `lion.svg`, so
-  that file is our mark under the framework's name; it paints from `currentColor` and `--keryx-color-primary` so it
-  follows that page's `prefers-color-scheme`. There is no `apple-touch-icon.png` — it needs a rasterizer, and an SVG
-  favicon pair covered the Definition of done.
-- `backend/__tests__/oauth/authorize-theme.test.ts` fetches the real authorize page and asserts both themes'
-  generated values appear **after** Keryx's default block, and that our mark replaced the lion.
-
-### Traps found while building
-
-- **Tailwind's `@theme` shares names with our tokens.** `--font-sans: var(--font-sans)` inside `@theme inline` is a
-  self-reference, which computes to nothing: every page rendered in the browser's serif with lint, tests, and build
-  all green. `custom-properties.test.ts` now fails on any custom property defined as itself.
-- **Status tokens are glyph colors, not text colors.** They are solved to about 3:1 against a panel. The UI kit's
-  `success`/`info`/`warning`/`danger` tones map onto them, so toned controls set primary text on a tint of the tone
-  rather than tone-colored text.
-- **The sidebar is mounted in exactly one place**, chosen by a width check: the sticky column when wide, the `Sheet`
-  when narrow. A CSS-hidden second copy duplicates every `nav-*` test id, and Playwright's strict mode fails the
-  moment the sheet opens.
-- **The keymap reads its context through a ref.** Rebuilding the sequence matcher on every render dropped a
-  half-typed `g` whenever something re-rendered between `g` and `s`. `⌘K` is the one key honored while typing.
-- **`ThemedImage` is an `<img>` chosen from the resolved theme, not a `<picture>`.** A `<picture>` media query
-  follows the OS, which disagrees with the app whenever someone picked a theme.
-- **Illustrations live in `public/doc-assets/illustrations/`, not `public/docs/`.** A `docs` directory in the build
-  shadowed the `/docs` route in nginx, so a reload 301'd to the internal port; the deployment learnings have the
-  detail, and `nginx.test.ts` refuses any `public/` entry named like a top-level route.
-- **A flag on the command line beats an inherited `FORCE_COLOR`.** mcpx let `FORCE_COLOR=1` from the environment
-  override `--no-color`; the CLI's `early-env` and `detectColorDepth` both put the typed flag first.
-- **`--version` prints the bare version.** `DESIGN.md` said it printed the banner; scripts and the self-upgrader
-  parse it, so the banner is for `hypotenuse` with no arguments, and `DESIGN.md` now says so.
-
-### What the UI-kit port left for later
-
-`SkeletonRows`, `SkeletonBlocks`, `LoadingLabel`, `SectionCard`, and `SectionNav` live in ToolExec's
-`components/`, not `ui/`, so they arrive with the pages that need them. The "kept exactly" row above still binds
-them: `SkeletonRows` emits `<tr>`, `SkeletonBlocks` emits divs. `ui-api-parity.test.ts` holds the frozen list of
-ToolExec's `ui/` exports.
-
-### Running the browser locally
-
-`PLAYWRIGHT_CHROMIUM_PATH` points Playwright (and `docs:illustrations`) at a preinstalled Chromium when the
-installed `@playwright/test` would otherwise download its own; CI installs the matching one.
+Not built yet.

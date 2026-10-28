@@ -1,15 +1,19 @@
 # Hypotenuse — Build Plans
 
-Hypotenuse connects **coding agents on people's own machines** to **Linear** as a Linear agent. A hosted
-[Keryx](https://www.keryxjs.com/) service receives Linear's webhooks at a public URL, holds every Linear credential,
-and routes each agent session to a registered **runner**. A runner is the `hypotenuse` daemon on somebody's laptop
-or build box. The daemon runs an [ACP](https://agentclientprotocol.com) coding agent (Claude Code, Codex,
-Gemini CLI, …) in a git worktree and streams what it does back into the Linear session. One Linear app,
-`@hypotenuse`, plays two roles: a **manager** that writes PRDs and tickets and dispatches them, and **workers** that
-implement them.
+Hypotenuse 2.0 is **a persistent multiplayer, multichannel agent for your team**. Bots live in a project; each has its own prompts, identity,
+goals, and model, and its own Slack and Linear app. People reach a bot in **Slack**, **Linear**, and **Pylon**, and
+the platform's own permissions decide who may. Every bot remembers each channel it works in — memory that decays —
+and shares the project's memory, MCP servers, and skills. Every bot has **code mode**: TypeScript in a WebAssembly
+sandbox that calls those tools. The agent loop is a set of durable [Keryx](https://www.keryxjs.com/) tasks over
+Postgres, so the load fans out across workers and a restart loses nothing. Code work runs in ephemeral **sandboxes**
+that report back, ask questions, and open pull requests.
 
-The map of the finished system is [`../ARCHITECTURE.md`](../ARCHITECTURE.md). This index is the order it gets built
-in.
+The map of the finished system is [`../ARCHITECTURE.md`](../ARCHITECTURE.md); the rules for building it are in
+[`../../AGENTS.md`](../../AGENTS.md). This index is the order it gets built in.
+
+Hypotenuse **v1** — ACP coding agents on teammates' machines answering Linear agent sessions — was built in 21 phases
+and is archived, plans and all, on the [`v1` branch](https://github.com/arcadeai-labs/hypotenuse/tree/v1/docs/plans).
+These plans start over at Phase 01.
 
 ## Where the plumbing comes from
 
@@ -17,107 +21,88 @@ Much of this is a port, and each port says so in its phase:
 
 | From | What | Phases |
 |---|---|---|
-| [ToolExec](https://github.com/arcadeai-labs/toolexec) | Workspace layout, Keryx backend conventions, test harness, CI gate, Render blueprint; users, projects, memberships, tags, invites, RBAC descriptors, `AuditedAction`, notifications; the frontend shell, UI kit, `AuthContext`, `LiveSocketContext`, public docs; the operator CLI's command shape; the run-token and webhook-ingress patterns; the plan-doc format itself | 1, 2, 4, 5, 7, 8, 15 |
-| [mcpx](https://github.com/arcadeai-labs/mcpx) | npm + compiled-binary distribution, `auto-release.yml`, `install.sh` / `install.ps1`, upgradr self-upgrade, the CLI's logger / TTY / shutdown modules, `test-upgrade.sh` | 3, 5, 10 |
-| [finear](https://github.com/pmdroid/finear) | Linear, for every test: GraphQL against Linear's own schema, OAuth `actor=app`, signed webhooks, agent sessions and activities, and `/__test/*` control routes | 1, 6, 7, 17 |
+| [ToolExec](https://github.com/arcadeai-labs/toolexec) | Workspace layout, Keryx conventions, test harness, CI gate, Render blueprint; users, projects, memberships, invites, **tags-as-roles RBAC**, **`AuditedAction` and the audit log**, notifications, MCP tool policy; the frontend shell and docs site; the operator CLI; the sandbox provider interface, ledger, supervisor and its protocol, run tokens, credential containment, direct git, human help; the design for Slack as a remote interface | 01, 02, 04, 05, 06, 10, 13, 14, 17, 18, 19 |
+| [Hypotenuse v1](https://github.com/arcadeai-labs/hypotenuse/tree/v1) | The design system, UI kit, and look; Linear OAuth, webhook verification, rate-limit bucket, activity outbox, and the finear harness; CLI tokens and distribution; OpenTelemetry export; cost records; SSRF-safe egress | 03, 06, 10, 15, 22 |
+| [botholomew](https://github.com/evantahler/botholomew) | The tick and its terminal tools; approvals that park a task and resume it; progressive MCP disclosure (`mcp_search` / `mcp_info` / `mcp_exec`); code mode with signed, replayable continuations; prompt files, skills, and self-editing | 08, 10, 11, 12 |
+| [membot](https://github.com/evantahler/membot) | Versioned memory documents, markdown-aware chunking, hybrid semantic + keyword search with reciprocal-rank fusion, the memory tool surface | 09 |
+| [Pi Durable](https://earendil.com/posts/pi-durable/) | Intent stored before every effect; replay only what declares itself safe; idempotency keys from durable ids; typed waits; background compaction | 08, 12 |
+| [finear](https://github.com/pmdroid/finear) | Linear, for every test | 15 |
 
 ## Build order
 
 | Phase | Title | Deliverable |
 |---|---|---|
-| [1](./phase-01-foundation.md) | Foundation | Bun workspaces `backend` / `frontend` / `cli` / `protocol`; ToolExec scaffolds ported; finear booting in process; CI with one `complete` gate; `AGENTS.md`; docs link test |
-| [2](./phase-02-deployment.md) | Deployment | One Render blueprint: api + worker + frontend + Redis + Postgres; the public webhook URL; staging only |
-| [3](./phase-03-design-system.md) | Design system | A Linear-native look in light and dark, generated from three LCH inputs; self-drawn status glyphs and the `◢` mark; ToolExec's UI-kit API restyled; app shell, command palette, public site and docs frame; the CLI palette |
-| [4](./phase-04-users-tenancy-and-audit.md) | Users, tenancy, and audit | ToolExec's pages on the design system; signup, projects, memberships, tags, invites, RBAC, `actions:permissions`, `AuditedAction`, notifications, `buildTestUniverse()`, MCP tool policy |
-| [5](./phase-05-cli-and-distribution.md) | CLI and distribution | `hypotenuse` CLI with operator commands and OAuth login; six compiled binaries + npm on every version bump; install scripts; `upgrade` / `check-update` |
-| [6](./phase-06-linear-connection.md) | Linear connection | `actor=app` install per project; encrypted, refreshed, rotated tokens; `LinearOps` with rate-limit handling; the finear harness |
-| [7](./phase-07-webhook-ingress-and-session-mirror.md) | Webhook ingress and session mirror | Signed, deduplicated `POST /api/webhooks/linear`; `agent_sessions` / `agent_activities`; the activity outbox and token bucket; 10-second acknowledgement; permission and revocation events |
-| [8](./phase-08-runners.md) | Runners | Runner registration and tokens; `daemon:connect` / `daemon:heartbeat`; the `runner:<id>` ping channel; presence; the daemon/human action wall |
-| [9](./phase-09-work-routing.md) | Work routing | `work_items` with offers, claims, and leases; role selection rules; repository selection via `issueRepositorySuggestions` and `select`; issuer preference; sticky sessions; `daemon:events` / `daemon:complete` |
-| [10](./phase-10-daemon-and-config.md) | Daemon and config | `hypotenuse daemon`; the TOML config, its zod schema, `config validate`; local state; the control socket; service install; `doctor`; drain-and-re-exec on upgrade |
-| [11](./phase-11-acp-agent-host.md) | ACP agent host | Agent presets; `initialize` / auth / `session/new` / `load`; prompt assembly; the ACP → Linear mapping; permission policies through `select` elicitations; stop |
-| [12](./phase-12-worktrees-and-session-lifecycle.md) | Worktrees and session lifecycle | A worktree per session; setup commands; timeouts and keepalives; cleanup policies; PR links; issue state and delegate hygiene; `agents` / `worktrees` commands |
-| [13](./phase-13-hypotenuse-mcp.md) | Hypotenuse MCP | `hypotenuse mcp` stdio server; role-scoped Linear tools; the closed `daemon:linear-*` proxy |
-| [14](./phase-14-manager-and-dispatch.md) | Manager and dispatch | The manager role: PRDs, ticket breakdown, `hypotenuse_dispatch`, review turns, loop guards |
-| [15](./phase-15-dashboard.md) | Dashboard | Integrations (the Linear connection), runners, sessions and transcripts, routing rules, identities; live channels; CLI parity; user docs |
-| [16](./phase-16-signals-and-hardening.md) | Signals and hardening | Every signal (`stop`, `auth`, `select`, `continue`); `AppUserNotification`; rate-limit and replay hardening; the AIG checklist |
-| [17](./phase-17-conformance-and-e2e.md) | Conformance and end to end | Every `LINEAR_COVERAGE.md` row closed; the full daemon + finear + fake-agent suite; an optional nightly real-agent run |
-| [18](./phase-18-opentelemetry-export.md) | OpenTelemetry export | Per-project OTLP exporters; one trace per turn joining server, daemon, and the agent's native telemetry; content levels, a runner-side cap, redaction; relayed through the server so collector credentials never reach a runner |
-| [19](./phase-19-event-log.md) | Event log | Every webhook delivery a project's workspace sent, what it did, and how its work was routed — role, rule, runner, or why it waits; the dashboard's Events page, `hypotenuse event`, kept 14 days |
-| [20](./phase-20-project-planning.md) | Project planning | A manager session on a Linear project's comment thread, with no planning issue; plans reviewed in document comments by people and reviewer agents; a mention in a document comment wakes it |
-| [21](./phase-21-cost-attribution.md) | Cost attribution | A cost record per claim of every turn: the tokens and dollars the agent reported for that turn alone, attributed to its session, issue, manager, runner, owner, issuer, role, agent, and repository; `cost:list` / `cost:summary`, `hypotenuse cost`, the session's cost |
+| [01](./phase-01-foundation.md) | Foundation | Bun workspaces (backend, frontend, CLI) seeded from ToolExec; Keryx; Postgres with pgvector; tests green against a booted server; the docs tests; CI behind `CI Complete` |
+| [02](./phase-02-deployment.md) | Deployment | One Render blueprint — api, worker, frontend, Redis, Postgres with pgvector — staging first |
+| [03](./phase-03-design-system.md) | Design system | v1's tokens, UI kit, app shell, public site, `/docs`, and `/style-guide`, in light and dark |
+| [04](./phase-04-organizations-users-and-rbac.md) | Organizations, users, and RBAC | Organizations above ToolExec's users, projects, memberships, invites, and tags-as-roles RBAC; per-object read/write tag lists |
+| [05](./phase-05-audit-logging.md) | Audit logging | ToolExec's `AuditedAction`: every decision a person makes logged in the same transaction; the closed list of unaudited writers |
+| [06](./phase-06-operator-cli.md) | Operator CLI | `hypotenuse` over HTTP: sign-in, projects, bots, conversations; npm and compiled binaries; self-upgrade |
+| [07](./phase-07-model-providers-and-bots.md) | Model providers and bots | Encrypted model connections and a named model registry; bots with identity, prompts, goals, model, and access tags. No execution |
+| [08](./phase-08-durable-agent-loop.md) | Durable agent loop | Conversations, the inbox, the entry log, and `agent:tick`: lease, hydrate, step, intent-before-effect, park; recovery; compaction; cost per tick; the HTTP API channel |
+| [09](./phase-09-memory.md) | Memory | Channel and project memory: versioned documents, pgvector + full-text hybrid search, decay, promotion with provenance, memory tools and explorer |
+| [10](./phase-10-shared-mcp-servers.md) | Shared MCP servers | Per-project MCP servers with server-side credentials; progressive disclosure; per-bot allowlists; the approval gate; large results |
+| [11](./phase-11-skills-prompts-and-goals.md) | Skills, prompts, and goals | Shared skills, prompt sections, goals, guarded self-editing, a generated capabilities section |
+| [12](./phase-12-code-mode.md) | Code mode | `run_code`: TypeScript in QuickJS-WASM against `memory.*` and `mcp.*`, with limits and resumable continuations |
+| [13](./phase-13-channel-framework.md) | Channel framework | Platform adapters, bot installations, channels and bindings, participants, ingress, the outbox, the interactive surface, escalation to people |
+| [14](./phase-14-slack.md) | Slack | One Slack app per bot; mentions, DMs, threads; streamed replies, status, plan steps; buttons for questions and approvals |
+| [15](./phase-15-linear.md) | Linear | One Linear app per bot; agent sessions as conversations; v1's OAuth, webhook, outbox, and finear stack ported |
+| [16](./phase-16-pylon.md) | Pylon | Pylon issues as conversations, customer accounts as channels; internal notes by default |
+| [17](./phase-17-sandboxes.md) | Sandboxes | ToolExec's provider interface with Docker; sandbox jobs owned by a conversation; the supervisor protocol; the model and MCP gateway proxies; status, questions, and help relayed back |
+| [18](./phase-18-git-and-pull-requests.md) | Git and pull requests | GitHub App, repository grants, per-command scoped tokens, pull requests reported to the conversation |
+| [19](./phase-19-vercel-sandboxes.md) | Vercel sandboxes | The production provider, with a provider-conformance suite shared with Docker |
+| [20](./phase-20-schedules.md) | Schedules | Per-bot cron schedules that wake a bot to work toward its goals |
+| [21](./phase-21-dashboard.md) | Dashboard | Mission control: bots, live conversations and transcripts, the memory explorer, approvals and help, sandboxes |
+| [22](./phase-22-telemetry-and-cost.md) | Telemetry and cost | OpenTelemetry export, one trace per tick; priced cost records; per-bot and per-project budgets |
+| [23](./phase-23-scale-and-conformance.md) | Scale and conformance | Load and fairness across tenants, quotas, cross-platform end-to-end conformance, a security checklist |
 
-Each phase doc is named `phase-NN-<kebab-title>.md`, so searching for "routing" or "worktree" finds the file without
-opening this index.
+Each phase doc is `phase-NN-<kebab-title>.md`, so a search for "slack" or "memory" finds the file without opening this
+index.
 
-Each phase ends in a reviewable, deployable state. **Phase 1 halts for review before Phase 2.**
+Each phase ends in a reviewable, deployable state. **Phase 01 halts for review before Phase 02.**
 
 ## How the phases depend on each other
 
 ```
-1 ─► 2 ─► 3 ─► 4 ─► 5 ─────────────────────► 10 ─► 11 ─► 12 ─► 13 ─► 14
-               │                             ▲
-               └─► 6 ─► 7 ─► 8 ─► 9 ─────────┘
-                                   └─► 15 (after 9; grows with 12–14)
-                                                     16, 17 (last)
-                                                     18 (after 9 and 11–15)
-                                                     19 (after 7, 9, and 15)
-                                                     20 (after 14 and 19)
-                                                     21 (after 9, 11, and 14)
+01 ─► 02 ─► 03 ─► 04 ─► 05 ─► 06
+                         └──► 07 ─► 08 ─┬─► 09 ─┐
+                                        ├─► 10 ─┼─► 12
+                                        ├─► 11 ─┘
+                                        └─► 13 ─┬─► 14 (Slack)
+                                                ├─► 15 (Linear)
+                                                ├─► 16 (Pylon)
+                                                └─► 17 ─► 18 ─► 19
+                                    20 (needs 08, 11, 13)   21 (needs 09–17)
+                                    22 (needs 08)            23 (last)
 ```
 
-- **The look comes before any page.** The [design system](./phase-03-design-system.md) lands ToolExec's UI-kit API
-  restyled. Phase 4's ported pages then drop in unchanged, and phase 15's pages are built from its primitives and its
-  `/style-guide` fixtures.
-- **The server half (6–9) and the daemon half (10–13) meet in the protocol.**
-  [`../RUNNER_PROTOCOL.md`](../RUNNER_PROTOCOL.md) is written before either side ships. Phase 9's server endpoints are
-  tested with a scripted HTTP client; phase 10's daemon is tested against the real server from phase 9.
-- **A session never looks unresponsive, however little is built.** Phase 7 acknowledged every session and, with no
-  routing yet, answered with an `error` saying no runner is connected. Phase 9 replaced that ending: a turn no runner
-  can take says why it waits, and expires with an `error` naming the reason.
-- **The manager (14) is built on the worker path (11–13)**, not beside it. A manager turn is a work item with a
-  different role, prompt, and tool set. Dispatch makes worker work items, and review makes manager work items.
-- **Coverage is tracked from the first Linear phase.** Phases 6 onward each add rows to
-  [`../LINEAR_COVERAGE.md`](../LINEAR_COVERAGE.md) as they ship. Phase 17 closes the remainder and makes the matrix
-  a test.
+- **08 is the spine.** Everything a bot does is a tool called inside a tick; every later phase adds tools, wake
+  reasons, or a place to render what a tick did.
+- **The HTTP API channel ships with 08,** so the loop, memory, MCP, skills, and code mode are tested headlessly
+  before any platform exists.
+- **The approval gate is born in 10** and answered in the dashboard and API there; 13 gives it an in-channel
+  surface, and 14–16 render it natively.
+- **Platforms (14–16) and sandboxes (17) are independent of each other** once 13 lands, and can be built in any
+  order or in parallel.
 
 ## Status
 
-**Phases 1–19 and 21 are built, and 20 is planned** (phase 2 is not yet deployed, the CLI has not had its first release, no real
-Linear workspace has been connected yet, no real coding agent has run a turn outside a person's own machine, and no
-real collector has received a project's telemetry). Every document here is a plan with the open questions settled as **decisions so far**. Each
-ends in an empty **Learnings from the build** section that fills in as the phase ships. From then on that section,
-and not the plan above it, is the live account (rule 14 in [`AGENTS.md`](../../AGENTS.md)).
+**No phase is built.** The repository holds this index, the phase plans, [`AGENTS.md`](../../AGENTS.md),
+[`ARCHITECTURE.md`](../ARCHITECTURE.md), [`DESIGN.md`](../DESIGN.md), the design tokens under `design/`, and the docs
+test. Every plan's **Learnings from the build** section reads "Not built yet." until its phase lands.
 
 ### Decisions so far
 
-- **One Linear app, two roles.** The role (manager or worker) is chosen per session by a project's ordered routing
-  rules, not by which app was mentioned.
-- **Triggers are typed; Linear is the first.** `integrations` (a project's connection to one workspace of one
-  trigger type), `trigger_events`, `agent_sessions`, external identities, and runner subscriptions carry `type`
-  (`linear` today) and keep the trigger system's ids in `external*` columns — `externalSessionId`,
-  `externalIssueId`, `externalUserId`. `user_id` always means a Hypotenuse user. The human API is generic
-  (`integration:*` with a `type` input, Settings → Integrations, `hypotenuse integration`); what talks to Linear
-  (`webhooks:linear`, `linear:callback`, the GraphQL client, `daemon:linear-*`) stays Linear's own.
-- **One Linear workspace per Hypotenuse project.** The deployment owns one Linear OAuth app. A project connects one
-  workspace with `actor=app`, and runners subscribe to subsets of it: teams, projects, labels, repositories, roles,
-  and agent kinds.
-- **Linear credentials are server-only.** Runners and coding agents reach Linear through `daemon:linear-*` actions,
-  scoped per session. Handing a runner the Linear MCP server and a token was rejected: it would put workspace-wide
-  write access on every laptop.
-- **CLI and runner authentication.** `hypotenuse login` signs in **on the web**. The dashboard approves the CLI
-  (loopback + PKCE, or a device code over SSH), and the server issues a `hyp_cli_` token it stores and checks itself.
-  Keryx's OAuth server is kept for human MCP clients only. `runner register` then mints a runner token, shown once and stored as a sha256. HTTP requests carry it as a bearer
-  token. The WebSocket uses a session cookie obtained from `daemon:connect`.
-- **Postgres is truth; the socket is a ping.** The daemon's 15-second heartbeat also returns offers and cancels.
-- **Routing preference.** A follow-up goes to the runner that holds the session, then to the issuer's runners, then
-  to any eligible runner.
-- **Config is TOML** at `~/.config/hypotenuse/config.toml`, validated by a zod schema that also emits JSON Schema.
-- **ACP SDK v2.** `@agentclientprotocol/sdk` 2.0 (released 2026-10-19) removed `ClientSideConnection`; we build on
-  `client()` / `connectWith()` and pin the version.
-- **The npm package is a Bun bundle** (`dist/hypotenuse.js`, `--target bun`, with `protocol/` inlined), so it needs
-  Bun as mcpx's does. The compiled binaries need nothing.
-- **A Linear-native look, light and dark.** [`../DESIGN.md`](../DESIGN.md) echoes Linear's grammar without cloning
-  its assets. The session transcript, the runner fleet, the public site and docs, and the CLI's output are the four
-  surfaces that get real design attention.
-- **`AGENTS.md` only.** Claude Code and other agents read it directly, so there is no `CLAUDE.md`.
+| Topic | Decision |
+|---|---|
+| v1 | Archived on the `v1` branch. Its runner daemon and ACP agent host are dropped: all code work happens in sandboxes, and the CLI is an operator client |
+| Template | ToolExec, including its RBAC (tags as roles, the reserved `admin` tag, `none` / `member` / `admin` levels, per-object `accessRead` / `accessWrite`) and its audit history (`AuditedAction`, `audit_logs`, `audit:list`, the Audit page) |
+| Tenancy | An organization holds members and projects; everything else — platform installs, model keys, MCP servers, skills, memory, bots — belongs to a project |
+| Models | The Vercel AI SDK; provider and model chosen per bot; embeddings through the same SDK |
+| Bot identity | One platform app per bot: each bot is its own Slack app and its own Linear OAuth app, created from manifests Hypotenuse generates |
+| Memory boundaries | Slack: a channel. Linear: a Linear project (the team when an issue has none). Pylon: a customer account. Plus one project-wide scope |
+| Memory store | Postgres with pgvector and full text, hybrid rank fusion as in membot; decay and promotion are new |
+| Who may talk to a bot | The platform's own permissions; no identity linking. Project RBAC governs configuration, transcripts, and memory |
+| Sandboxes | ToolExec's provider interface; Docker first (development, CI), Vercel next (production) |
+| Code mode | QuickJS compiled to WebAssembly inside the worker; no network, filesystem, or timers; host API of memory and MCP |
+| Agent loop | Durable Keryx tasks; every message, intent, and result in Postgres; one tick at a time per conversation |
