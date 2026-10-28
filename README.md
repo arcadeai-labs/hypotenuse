@@ -1,6 +1,6 @@
 # Hypotenuse
 
-**A headless agent your team shares — in Slack, Linear, and Pylon.**
+**A persistent multiplayer, multichannel agent for your team.**
 
 Mention a bot in a Slack thread, delegate a Linear issue to it, or let it pick up a Pylon ticket. It answers where you
 asked, with its own identity, its own tools, and its own memory of that place. When the work needs code, it starts an

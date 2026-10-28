@@ -274,6 +274,9 @@ $ hypotenuse daemon status
 
 ## Writing
 
+- **The tagline is "A persistent multiplayer, multichannel agent for your team."** Use it verbatim everywhere
+  a one-line description appears: the README, the marketing home, page titles and Open Graph tags, the social card,
+  the npm package, and the CLI's `--help`.
 - Sentence case everywhere (buttons, headings, menu items).
 - Name the actor: "codex on evan-mbp is working on ENG-142", not "Processing…".
 - Empty states say what would make them non-empty and offer the command or button that does it.

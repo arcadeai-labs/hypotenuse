@@ -1,6 +1,6 @@
 # Hypotenuse — Build Plans
 
-Hypotenuse 2.0 is a **headless agent a team shares**. Bots live in a project; each has its own prompts, identity,
+Hypotenuse 2.0 is **a persistent multiplayer, multichannel agent for your team**. Bots live in a project; each has its own prompts, identity,
 goals, and model, and its own Slack and Linear app. People reach a bot in **Slack**, **Linear**, and **Pylon**, and
 the platform's own permissions decide who may. Every bot remembers each channel it works in — memory that decays —
 and shares the project's memory, MCP servers, and skills. Every bot has **code mode**: TypeScript in a WebAssembly

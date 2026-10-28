@@ -1,7 +1,7 @@
 {
   "name": "hypotenuse-workspace",
   "version": "0.0.1",
-  "description": "Hypotenuse — a headless agent your team shares, in Slack, Linear, and Pylon",
+  "description": "Hypotenuse — a persistent multiplayer, multichannel agent for your team",
   "private": true,
   "license": "Apache-2.0",
   "type": "module",

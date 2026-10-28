@@ -1,6 +1,6 @@
 # AGENTS.md — Hypotenuse
 
-Hypotenuse is a **headless agent that a team shares**. People reach it where they already work — **Slack** (company
+Hypotenuse is **a persistent multiplayer, multichannel agent for your team**. It is headless: people reach it where they already work — **Slack** (company
 chat), **Linear** (issues), and **Pylon** (customer support) — and it answers there, with its own identity, its own
 tools, and its own memory. Many bots run in many conversations at once, across many tenants. When a task needs code,
 a bot hands it to an **ephemeral sandbox** that clones the repository, does the work, opens a pull request, and
