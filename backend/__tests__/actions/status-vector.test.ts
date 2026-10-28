@@ -43,20 +43,28 @@ function freePort(): number {
 }
 
 /**
- * Poll the second server's status route until it answers.
- * @returns The first status body it serves.
- * @throws {Error} If it never answers within the hook timeout.
+ * Poll the second server's status route until its migrations have run.
+ *
+ * Answering is not enough: the web server may bind before
+ * `DATABASE_AUTO_MIGRATE` finishes, and until migration 0000 runs the throwaway
+ * database has no `vector` — which is exactly what the second test asserts
+ * about, so reading it early would pass for the wrong reason or fail the first.
+ * @returns The first status body that reports the extension.
+ * @throws {Error} If the server never reports it within the hook timeout.
  */
-async function waitForStatus(): Promise<ActionResponse<Status>> {
+async function waitForMigrated(): Promise<ActionResponse<Status>> {
   const deadline = Date.now() + HOOK_TIMEOUT - 5_000;
   while (Date.now() < deadline) {
     try {
       const res = await fetch(`${url}/api/status`);
-      if (res.ok) return (await res.json()) as ActionResponse<Status>;
+      if (res.ok) {
+        const body = (await res.json()) as ActionResponse<Status>;
+        if (body.database?.extensions.vector) return body;
+      }
     } catch {}
     await Bun.sleep(100);
   }
-  throw new Error(`no server answered at ${url} before the deadline`);
+  throw new Error(`no migrated server answered at ${url} before the deadline`);
 }
 
 /**
@@ -93,7 +101,7 @@ beforeAll(async () => {
     stdout: "ignore",
     stderr: "ignore",
   });
-  await waitForStatus();
+  await waitForMigrated();
 }, HOOK_TIMEOUT);
 
 afterAll(async () => {

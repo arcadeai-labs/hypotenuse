@@ -1,12 +1,15 @@
 {
   "name": "@arcadeai/hypotenuse",
   "version": "2.0.0-alpha.0",
-  "description": "Hypotenuse — the operator CLI for a persistent multiplayer, multichannel agent for your team",
+  "description": "Hypotenuse \u2014 the operator CLI for a persistent multiplayer, multichannel agent for your team",
   "type": "module",
   "license": "Apache-2.0",
   "bin": {
     "hypotenuse": "./dist/hypotenuse.js"
   },
+  "files": [
+    "dist/hypotenuse.js"
+  ],
   "repository": {
     "type": "git",
     "url": "https://github.com/arcadeai-labs/hypotenuse.git"
@@ -24,7 +27,9 @@
     "test": "bun test",
     "lint": "tsc && biome check .",
     "format": "tsc && biome check --write .",
-    "build": "bun build --compile --minify --sourcemap ./src/cli.ts --outfile dist/hypotenuse"
+    "build": "bun build --compile --minify --sourcemap ./src/cli.ts --outfile dist/hypotenuse",
+    "bundle": "bun build ./src/cli.ts --target bun --packages external --outfile dist/hypotenuse.js",
+    "prepack": "bun run bundle"
   },
   "dependencies": {
     "commander": "^14.0.3"
