@@ -77,7 +77,7 @@ test("every page paints in the self-hosted Inter, never a fallback serif", async
     "/",
     "/docs/getting-started",
     "/status",
-    "/style-guide",
+    "/docs/style-guide",
   ]) {
     await page.goto(path);
     await page.evaluate(() => document.fonts.ready);

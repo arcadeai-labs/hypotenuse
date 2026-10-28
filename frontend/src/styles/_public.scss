@@ -407,6 +407,23 @@ $docs-rail-min: 1099.98px;
     grid-template-columns: minmax(0, 1fr);
     gap: var(--space-4);
   }
+
+  // A wide page takes the rail's column too, at every width.
+  &[data-wide="true"] {
+    grid-template-columns: 200px minmax(0, 1fr);
+
+    @media (max-width: $docs-rail-min) {
+      grid-template-columns: 180px minmax(0, 1fr);
+    }
+
+    @media (max-width: $narrow) {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .docs-rail {
+      display: none;
+    }
+  }
 }
 
 .docs-nav-frame {
@@ -590,7 +607,8 @@ $docs-rail-min: 1099.98px;
 .sg-page {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  min-height: 100dvh;
+  gap: var(--space-4);
+  margin-top: var(--space-6);
 
   @media (max-width: 1100px) {
     grid-template-columns: minmax(0, 1fr);
@@ -602,6 +620,8 @@ $docs-rail-min: 1099.98px;
   flex-direction: column;
   gap: var(--space-6);
   padding: var(--space-6);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
   background: var(--bg-app);
   color: var(--text-primary);
 }

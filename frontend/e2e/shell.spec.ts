@@ -109,7 +109,7 @@ test("the detail layout puts properties beside the main column, and under it bel
     return { main, props };
   };
   await page.setViewportSize({ width: 1440, height: 900 });
-  await page.goto("/style-guide");
+  await page.goto("/docs/style-guide");
   const wide = await boxes();
   expect(wide.props.x).toBeGreaterThanOrEqual(
     wide.main.x + wide.main.width - 1,
