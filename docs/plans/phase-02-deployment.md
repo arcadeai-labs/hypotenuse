@@ -5,9 +5,8 @@
 > Slack, Linear, and Pylon can deliver webhooks to. A local developer gets the same property through a reserved
 > ngrok tunnel, because none of the three platforms delivers to `localhost`.
 
-> **Status: built; not yet deployed.** It builds on [phase 01](./phase-01-foundation.md): both Dockerfiles, the
-> `vector` check in `/api/status`, and CI Complete. Production stays out until the platform phases land. Applying
-> the blueprint needs a Render account (see the learnings).
+> **Status: built and deployed to staging.** It builds on [phase 01](./phase-01-foundation.md): both Dockerfiles,
+> the `vector` check in `/api/status`, and CI Complete. Production stays out until the platform phases land.
 
 Hypotenuse 2.0 is headless. People never talk to it on our pages; they talk to it in Slack, Linear, and Pylon.
 Every one of those conversations begins as a webhook from a platform to us. So the hosted service needs a stable
@@ -240,7 +239,7 @@ curl -sI https://www.hypotenuse.cloud/docs | head -1                            
 - [x] `/api/status` reports `vector` and the three webhook URLs
 - [x] The blueprint test asserts every invariant above
 - [x] `docs/DEPLOY.md` exists and `AGENTS.md` links it
-- [ ] A person with Render access has deployed staging, and `/api/status` is healthy there. This needs a Render
+- [x] A person with Render access has deployed staging, and `/api/status` is healthy there. This needs a Render
       account, which an agent session does not have; record who did it in the learnings.
 
 ## Open questions
@@ -251,11 +250,24 @@ curl -sI https://www.hypotenuse.cloud/docs | head -1                            
 
 ## Learnings from the build
 
-**What is built, and what only a person with Render access can do.** The blueprint, its invariant test, the queue
-order, and the webhook URLs in `/api/status` are built and tested. **Nothing is deployed**: creating the Render
-Blueprint, attaching DNS, and watching the first boot need a Render account, which the agent session that built this
-did not have (the Render API answered, but no key was configured). [`DEPLOY.md`](../DEPLOY.md) is the checklist for
-whoever does it first, and the unticked Definition of done item above is that step — record the name and date here.
+**Deployed to staging on 2026-10-28, by Evan Tahler.** No new Blueprint was created: v1's Render services
+(`hypotenuse-api`, `-worker`, `-frontend`, `-redis`, `-db`) were still auto-deploying from `main`, so merging this
+phase deployed it. The frontend came up at once; the api crashed at boot on a stale v1 env key (below) until the
+theme fix merged. The agent session that built this had no Render access (the Render API answered, but no key was
+configured), so Evan read the deploy log and merged; the session verified from outside:
+
+| Check | Result |
+|---|---|
+| `GET https://api.hypotenuse.cloud/api/health` | 200, `vector: true` |
+| `GET /api/status` | `healthy: true`, the three webhook URLs on `https://api.hypotenuse.cloud`, `dashboardUrl` `https://www.hypotenuse.cloud` |
+| OAuth issuer | `https://api.hypotenuse.cloud` (the proxy is trusted) |
+| `www.hypotenuse.cloud/`, `/status`, `/status/` | 200; the apex answers 301 to `www` |
+
+v1's database already existed, so migration 0000 ran on top of v1's tables and journal; `CREATE EXTENSION IF NOT
+EXISTS vector` succeeded on Render's managed Postgres. Those v1 tables are still there, read by nothing; dropping
+them is a decision for the first phase whose schema would collide with a name. The Blueprint has not been synced,
+so dashboard values `render.yaml` changed (the worker's `TASK_PROCESSORS`, the health check path) may still be
+v1's — a Blueprint sync applies them.
 
 **Rehearsed in Docker against the blueprint's own env.** Both images built; the backend image ran once as each
 role, with every literal `value:` from `render.yaml` and its group, against a fresh local database:

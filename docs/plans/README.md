@@ -89,8 +89,8 @@ Each phase ends in a reviewable, deployable state. **Phase 01 halts for review b
 
 **[Phase 01](./phase-01-foundation.md) is built**: the `backend/`, `frontend/`, and `cli/` workspaces, Postgres with
 pgvector from migration 0000, the docs tests in the backend suite, and CI behind **CI Complete**.
-**[Phase 02](./phase-02-deployment.md) is built but not yet deployed**: the Render blueprint, its invariant test, and
-[`DEPLOY.md`](../DEPLOY.md); applying it needs a person with Render access. No other phase is built; every later plan's **Learnings from the
+**[Phase 02](./phase-02-deployment.md) is built and deployed**: staging runs at `api.hypotenuse.cloud` and
+`www.hypotenuse.cloud` from the Render blueprint, with its invariant test and [`DEPLOY.md`](../DEPLOY.md). No other phase is built; every later plan's **Learnings from the
 build** section reads "Not built yet." until its phase lands.
 
 ### Decisions so far
