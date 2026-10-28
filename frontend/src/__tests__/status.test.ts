@@ -16,6 +16,12 @@ function status(overrides: Partial<StatusResponse> = {}): StatusResponse {
     healthy: true,
     checks: { database: true, redis: true },
     database: { extensions: { vector: true } },
+    dashboardUrl: "http://localhost:3000",
+    webhooks: {
+      slack: "http://localhost:8080/api/webhooks/slack",
+      linear: "http://localhost:8080/api/webhooks/linear",
+      pylon: "http://localhost:8080/api/webhooks/pylon",
+    },
     ...overrides,
   };
 }

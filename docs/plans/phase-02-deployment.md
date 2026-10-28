@@ -5,8 +5,9 @@
 > Slack, Linear, and Pylon can deliver webhooks to. A local developer gets the same property through a reserved
 > ngrok tunnel, because none of the three platforms delivers to `localhost`.
 
-> **Status: planned, not built.** It builds on [phase 01](./phase-01-foundation.md): both Dockerfiles, the
-> `vector` check in `/api/status`, and CI Complete. Production stays out until the platform phases land.
+> **Status: built; not yet deployed.** It builds on [phase 01](./phase-01-foundation.md): both Dockerfiles, the
+> `vector` check in `/api/status`, and CI Complete. Production stays out until the platform phases land. Applying
+> the blueprint needs a Render account (see the learnings).
 
 Hypotenuse 2.0 is headless. People never talk to it on our pages; they talk to it in Slack, Linear, and Pylon.
 Every one of those conversations begins as a webhook from a platform to us. So the hosted service needs a stable
@@ -234,11 +235,11 @@ curl -sI https://www.hypotenuse.cloud/docs | head -1                            
 
 ## Definition of done
 
-- [ ] `render.yaml` with five resources, one shared group, and spec-based plan ids
-- [ ] The worker alone migrates and runs tasks; queues declared in `config/tasks.ts`
-- [ ] `/api/status` reports `vector` and the three webhook URLs
-- [ ] The blueprint test asserts every invariant above
-- [ ] `docs/DEPLOY.md` exists and `AGENTS.md` links it
+- [x] `render.yaml` with five resources, one shared group, and spec-based plan ids
+- [x] The worker alone migrates and runs tasks; queues declared in `config/tasks.ts`
+- [x] `/api/status` reports `vector` and the three webhook URLs
+- [x] The blueprint test asserts every invariant above
+- [x] `docs/DEPLOY.md` exists and `AGENTS.md` links it
 - [ ] A person with Render access has deployed staging, and `/api/status` is healthy there. This needs a Render
       account, which an agent session does not have; record who did it in the learnings.
 
@@ -250,4 +251,49 @@ curl -sI https://www.hypotenuse.cloud/docs | head -1                            
 
 ## Learnings from the build
 
-Not built yet.
+**What is built, and what only a person with Render access can do.** The blueprint, its invariant test, the queue
+order, and the webhook URLs in `/api/status` are built and tested. **Nothing is deployed**: creating the Render
+Blueprint, attaching DNS, and watching the first boot need a Render account, which the agent session that built this
+did not have (the Render API answered, but no key was configured). [`DEPLOY.md`](../DEPLOY.md) is the checklist for
+whoever does it first, and the unticked Definition of done item above is that step — record the name and date here.
+
+**Rehearsed in Docker against the blueprint's own env.** Both images built; the backend image ran once as each
+role, with every literal `value:` from `render.yaml` and its group, against a fresh local database:
+
+| Role | Observed |
+|---|---|
+| `hypotenuse-worker` | `database migrated successfully`, four resque workers started, no HTTP listener |
+| `hypotenuse-api` | no migration or resque lines; `/api/status` healthy with `vector: true`, the three webhook URLs on `https://api.hypotenuse.cloud`, and `dashboardUrl` `https://www.hypotenuse.cloud` |
+
+The nginx rehearsal answered `/`, `/status`, `/status/`, and an unknown path with `200 text/html`.
+
+**`SECRETS_ENCRYPTION_KEY` stays `generateValue: true`, once, in the group** — v1's form, not the plan table's "set
+in the dashboard". Generated once on the group, it is one value both services pull, which is the invariant the
+plan protects; the test asserts it is declared nowhere else. Nothing reads it yet.
+
+**`dashboardUrl` reads a `frontend` config namespace** (`config/frontend.ts`, `FRONTEND_URL`). `actions/status.ts`
+carries `import type {} from "../config/frontend"`, because the frontend type-checks the action through
+`@backend/*` and never sees `config/index.ts` — v1's lesson, applied before it could fail.
+
+**The health check is `/api/health`, not `/api/status`.** Render reads only a health check's HTTP status, and
+`status` answers 200 with the verdict in its body, so pointing the check at it — as the plan said — would have
+promoted a deploy whose database lacked `vector`. Cursor Bugbot caught it in review. `health` shares one probe
+with `status` (`ops/HealthOps.ts`) and throws a `TypedError` (500; Keryx has no 503 type) naming each failing
+check; `status` stays the typed 200 report the dashboard reads. `status-vector.test.ts` asserts the 500 against
+a database without the extension, and the blueprint test pins the path.
+
+**The webhook routes are constants with nothing mounted yet.** `ops/WebhookUrlOps.ts` holds `/webhooks/{slack,
+linear,pylon}`; a `POST` there answers 404 until each platform's ingress lands, and the platform phases must
+mount exactly these routes. They are not part of `healthy`.
+
+**Dropped from v1's blueprint:** `protocol/**` everywhere, `docs/CONFIG.md` and `design/**` from the frontend
+filter (nothing copies them), `WEB_SERVER_THEME` (no theme file until the design system), `OTEL_SERVICE_NAME`
+(nothing exports telemetry yet), and every `LINEAR_*` key — the test now refuses `SLACK_*`, `LINEAR_*`, and
+`PYLON_*` outright. The worker runs four task processors rather than v1's one, because ticks mostly wait on a model.
+
+**`render.yaml` cannot be validated against Render locally.** The test holds a strict Zod schema of the subset we
+use, and the `COMPUTE_PLANS` enum guards the `starter plus` trap, but Render's own validator only runs when a
+Blueprint is applied. Treat the first apply as part of the review.
+
+**The open question stays at its default:** one worker with ordered queues; a separate `agents` worker waits for
+load data.

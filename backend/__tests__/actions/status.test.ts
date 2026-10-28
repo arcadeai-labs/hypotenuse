@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { type ActionResponse, api } from "keryx";
+import { type ActionResponse, api, config } from "keryx";
 import type { Status } from "../../actions/status";
 import { HOOK_TIMEOUT, serverUrl } from "../setup";
 
@@ -38,5 +38,39 @@ describe("status", () => {
     expect(body.healthy).toBe(true);
     expect(body.name).toBe("hypotenuse-test");
     expect(body.uptime).toBeGreaterThanOrEqual(0);
+  });
+});
+
+describe("status: where platforms deliver", () => {
+  test("reports each platform's webhook URL under APPLICATION_URL", async () => {
+    const body = (await (
+      await fetch(`${url}/api/status`)
+    ).json()) as ActionResponse<Status>;
+    const base = `${config.server.web.applicationUrl.replace(/\/+$/, "")}/api/webhooks`;
+    expect(body.webhooks).toEqual({
+      slack: `${base}/slack`,
+      linear: `${base}/linear`,
+      pylon: `${base}/pylon`,
+    });
+    for (const webhook of Object.values(body.webhooks)) {
+      expect(new URL(webhook).pathname.startsWith("/api/webhooks/")).toBe(true);
+    }
+  });
+
+  test("reports the dashboard's origin", async () => {
+    const body = (await (
+      await fetch(`${url}/api/status`)
+    ).json()) as ActionResponse<Status>;
+    expect(body.dashboardUrl).toBe(config.frontend.url);
+  });
+
+  test("a healthy server with no platform app installed is healthy", async () => {
+    // Nothing is mounted at the webhook routes yet, and no bot exists; the
+    // URLs are information for whoever creates a platform app, not a check.
+    const body = (await (
+      await fetch(`${url}/api/status`)
+    ).json()) as ActionResponse<Status>;
+    expect(body.healthy).toBe(true);
+    expect(Object.keys(body.checks).sort()).toEqual(["database", "redis"]);
   });
 });

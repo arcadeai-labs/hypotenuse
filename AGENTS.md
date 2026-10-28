@@ -6,9 +6,9 @@ tools, and its own memory. Many bots run in many conversations at once, across m
 a bot hands it to an **ephemeral sandbox** that clones the repository, does the work, opens a pull request, and
 reports back into the conversation it came from.
 
-> **Status:** the foundation is built — three Bun workspaces (`backend/`, `frontend/`, `cli/`), Postgres with
-> pgvector, and CI behind **CI Complete** — and it halts for review before anything else lands. Nothing a person
-> would call a feature exists yet. The build order and every plan are in
+> **Status:** the foundation and the deployment are built — three Bun workspaces (`backend/`, `frontend/`, `cli/`),
+> Postgres with pgvector, CI behind **CI Complete**, and a Render blueprint for staging
+> ([`docs/DEPLOY.md`](./docs/DEPLOY.md)). Nothing a person would call a feature exists yet. The build order and every plan are in
 > [`docs/plans/README.md`](./docs/plans/README.md); the system on one page is
 > [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md). Hypotenuse **v1** — local coding agents answering
 > Linear agent sessions through a runner daemon — is archived on the
@@ -326,4 +326,5 @@ resolves, every plan carries `## Learnings from the build`, and no source tree n
 | The system on one page | [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) |
 | Build order, status, and every plan | [`docs/plans/README.md`](./docs/plans/README.md) |
 | Design language, tokens, glyphs | [`docs/DESIGN.md`](./docs/DESIGN.md) |
+| Deploying staging on Render, platform webhook URLs | [`docs/DEPLOY.md`](./docs/DEPLOY.md) |
 | Hypotenuse v1, archived | [`v1` branch](https://github.com/arcadeai-labs/hypotenuse/tree/v1) |
