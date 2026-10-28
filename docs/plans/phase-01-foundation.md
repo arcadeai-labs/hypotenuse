@@ -328,7 +328,7 @@ cd .. && bun dev && curl -s localhost:8080/api/status | jq '.database'
 - [x] Both Dockerfiles build in CI
 - [x] CI runs seven jobs plus CI Complete, which asserts every result is `success`
 - [x] `AGENTS.md` Local development and Commands are true
-- [ ] **Stop for review** before [phase 02](./phase-02-deployment.md)
+- [x] **Stop for review** before [phase 02](./phase-02-deployment.md)
 
 ## Open questions
 
