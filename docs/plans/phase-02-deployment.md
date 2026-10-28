@@ -5,9 +5,8 @@
 > Slack, Linear, and Pylon can deliver webhooks to. A local developer gets the same property through a reserved
 > ngrok tunnel, because none of the three platforms delivers to `localhost`.
 
-> **Status: built; not yet deployed.** It builds on [phase 01](./phase-01-foundation.md): both Dockerfiles, the
-> `vector` check in `/api/status`, and CI Complete. Production stays out until the platform phases land. Applying
-> the blueprint needs a Render account (see the learnings).
+> **Status: built and deployed to staging.** It builds on [phase 01](./phase-01-foundation.md): both Dockerfiles,
+> the `vector` check in `/api/status`, and CI Complete. Production stays out until the platform phases land.
 
 Hypotenuse 2.0 is headless. People never talk to it on our pages; they talk to it in Slack, Linear, and Pylon.
 Every one of those conversations begins as a webhook from a platform to us. So the hosted service needs a stable
@@ -240,7 +239,7 @@ curl -sI https://www.hypotenuse.cloud/docs | head -1                            
 - [x] `/api/status` reports `vector` and the three webhook URLs
 - [x] The blueprint test asserts every invariant above
 - [x] `docs/DEPLOY.md` exists and `AGENTS.md` links it
-- [ ] A person with Render access has deployed staging, and `/api/status` is healthy there. This needs a Render
+- [x] A person with Render access has deployed staging, and `/api/status` is healthy there. This needs a Render
       account, which an agent session does not have; record who did it in the learnings.
 
 ## Open questions
@@ -251,11 +250,20 @@ curl -sI https://www.hypotenuse.cloud/docs | head -1                            
 
 ## Learnings from the build
 
-**What is built, and what only a person with Render access can do.** The blueprint, its invariant test, the queue
-order, and the webhook URLs in `/api/status` are built and tested. **Nothing is deployed**: creating the Render
-Blueprint, attaching DNS, and watching the first boot need a Render account, which the agent session that built this
-did not have (the Render API answered, but no key was configured). [`DEPLOY.md`](../DEPLOY.md) is the checklist for
-whoever does it first, and the unticked Definition of done item above is that step — record the name and date here.
+**Staging is deployed.** Evan Tahler brought it up on 2026-10-28: v1's Render services and domains were still in
+place, the merge of the blueprint auto-deployed them, and the api came up once the theme fix below landed. An agent
+session has no Render account, so the deploy was a person's; checking it needs none. Verified from outside the same
+day:
+
+| Probe | Answer |
+|---|---|
+| `GET api.hypotenuse.cloud/api/health` | 200, `database` and `redis` true, `vector: true` |
+| `GET api.hypotenuse.cloud/api/status` | `healthy: true`, the three webhook URLs on `https://api.hypotenuse.cloud`, `dashboardUrl` `https://www.hypotenuse.cloud` |
+| `GET www.hypotenuse.cloud` `/`, `/docs`, `/status`, `/status/`, an unknown path | 200 `text/html`, never a redirect |
+| `POST api.hypotenuse.cloud/api/webhooks/slack` | 404 — nothing is mounted until the platform phases |
+
+`vector: true` is also the worker's proof of life: only it migrates, and migration 0000 creates the extension.
+Nothing outside Render can see the worker's queues; they are first exercised when ticks exist.
 
 **Rehearsed in Docker against the blueprint's own env.** Both images built; the backend image ran once as each
 role, with every literal `value:` from `render.yaml` and its group, against a fresh local database:
