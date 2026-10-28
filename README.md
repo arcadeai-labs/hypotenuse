@@ -18,8 +18,8 @@ questions, or asks for help in the same conversation.
   may configure it, read its transcripts, or edit its memory is decided by project roles, and every such decision is
   in the audit log.
 
-> **Status: planned, not built.** This repository holds the design: [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md)
-> and the phased plans in [`docs/plans/`](./docs/plans/README.md). Hypotenuse **v1** — local coding agents answering
+> **Status: the foundation is built; nothing a person would call a feature is.** The design is
+> [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) and the phased plans in [`docs/plans/`](./docs/plans/README.md). Hypotenuse **v1** — local coding agents answering
 > Linear agent sessions — is archived on the [`v1` branch](https://github.com/arcadeai-labs/hypotenuse/tree/v1).
 
 ## How it fits together
@@ -36,6 +36,24 @@ flowchart LR
 
 [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) has the whole picture; [`AGENTS.md`](./AGENTS.md) has the rules
 for building it.
+
+## Running it locally
+
+You need [Bun](https://bun.sh), Postgres 18 with the [pgvector](https://github.com/pgvector/pgvector) extension
+available, and Redis — installed on your machine, not in Docker.
+
+```bash
+brew install postgresql@18 pgvector redis && brew services start postgresql@18 redis
+createdb hypotenuse && createdb hypotenuse_test
+bun install
+cp backend/.env.example backend/.env && cp frontend/.env.example frontend/.env
+bun run test        # every workspace's tests
+bun dev             # the API on http://localhost:8080, the app on http://localhost:3000
+curl -s localhost:8080/api/status | jq '.healthy, .database'
+```
+
+The first boot migrates the database, which creates the `vector` extension; `/api/status` reports
+`healthy: false` on a database without it.
 
 ## Built on
 

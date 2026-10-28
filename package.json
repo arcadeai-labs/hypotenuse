@@ -5,9 +5,16 @@
   "private": true,
   "license": "Apache-2.0",
   "type": "module",
+  "workspaces": ["backend", "frontend", "cli"],
+  "trustedDependencies": ["esbuild"],
   "scripts": {
-    "lint": "biome check .",
-    "test": "bun test tests"
+    "dev": "bun run --parallel dev:backend dev:frontend",
+    "dev:backend": "bun run --cwd backend dev",
+    "dev:frontend": "bun run --cwd frontend dev",
+    "ngrok": "bun run --cwd backend scripts/start-ngrok.ts",
+    "lint": "bun run --cwd backend lint && bun run --cwd frontend lint && bun run --cwd cli lint",
+    "test": "bun run --cwd backend test && bun run --cwd frontend test && bun run --cwd cli test",
+    "workspace:setup": "bun run --cwd backend workspace:setup"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.6",

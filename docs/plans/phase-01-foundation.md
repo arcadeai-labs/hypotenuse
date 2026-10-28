@@ -5,9 +5,9 @@
 > the `vector` extension from the first migration. The docs tests that guarded the planning-only repository move
 > into the backend and keep guarding it.
 
-> **Status: planned, not built.** It builds on the planning-only repository: `AGENTS.md`, `docs/`, the kept
-> `design/` inputs, `tests/docs.test.ts`, and a CI workflow with one docs job. Everything here is scaffold.
-> The phase **halts for review** before [phase 02](./phase-02-deployment.md).
+> **Status: built.** It built on the planning-only repository: `AGENTS.md`, `docs/`, the kept `design/` inputs,
+> `tests/docs.test.ts`, and a CI workflow with one docs job. Everything here is scaffold. The phase **halts for
+> review** before [phase 02](./phase-02-deployment.md).
 
 Hypotenuse 2.0 starts from an almost-empty repository on purpose. v1's runner daemon, ACP host, worktrees, and
 runner protocol are gone; they live on the [`v1` branch](https://github.com/arcadeai-labs/hypotenuse/tree/v1).
@@ -319,15 +319,15 @@ cd .. && bun dev && curl -s localhost:8080/api/status | jq '.database'
 
 ## Definition of done
 
-- [ ] Root workspace with `backend/`, `frontend/`, `cli/`; `bun dev` runs the backend and the frontend
-- [ ] `backend/bunfig.toml` and a trimmed `__tests__/setup.ts`; the status test passes twice in a row
-- [ ] Migration 0000 creates `vector`; `/api/status` reports it and counts it in `healthy`
-- [ ] Local docs, CI services, and `.env.example` all require pgvector
-- [ ] The docs tests live in `backend/__tests__/docs/` and scan the new source trees; `tests/` is gone
-- [ ] The native-addon, task-config, workspace, and CLI imports tests pass
-- [ ] Both Dockerfiles build in CI
-- [ ] CI runs seven jobs plus CI Complete, which asserts every result is `success`
-- [ ] `AGENTS.md` Local development and Commands are true
+- [x] Root workspace with `backend/`, `frontend/`, `cli/`; `bun dev` runs the backend and the frontend
+- [x] `backend/bunfig.toml` and a trimmed `__tests__/setup.ts`; the status test passes twice in a row
+- [x] Migration 0000 creates `vector`; `/api/status` reports it and counts it in `healthy`
+- [x] Local docs, CI services, and `.env.example` all require pgvector
+- [x] The docs tests live in `backend/__tests__/docs/` and scan the new source trees; `tests/` is gone
+- [x] The native-addon, task-config, workspace, and CLI imports tests pass
+- [x] Both Dockerfiles build in CI
+- [x] CI runs seven jobs plus CI Complete, which asserts every result is `success`
+- [x] `AGENTS.md` Local development and Commands are true
 - [ ] **Stop for review** before [phase 02](./phase-02-deployment.md)
 
 ## Open questions
@@ -337,4 +337,58 @@ cd .. && bun dev && curl -s localhost:8080/api/status | jq '.database'
 
 ## Learnings from the build
 
-Not built yet.
+**What the scaffold gave, and what it did not.** `bunx keryx@latest new backend -y --no-example` installs Keryx
+0.48.2 (the floor) and no `users`, `sessions`, or `me` — there was nothing to delete. Its `config/` matches v1's
+apart from the namespaces v1 added for features, so it is kept as generated; Biome only reorders a few of its
+imports. Its `tasks.ts` works every queue (`["*"]`): queue priority is a decision for the first phase that adds a
+second queue, and the v1 test that asserted `triggers` came first was not ported.
+
+**Migration 0000 is a drizzle-kit custom migration, not a loose file.** `drizzle-kit generate --custom --name
+vector` writes the journal entry and an empty snapshot, so the first generated migration diffs against an empty
+schema and lands as `0001`. drizzle-kit refuses to run with no `meta/_journal.json` and with no schema file, so the
+first run needed a seeded journal and a throwaway `schema/*.ts`, both removed. Keryx's `generateMigrations()` is a
+no-op while `schema/` is empty. drizzle-kit writes JSON without a trailing newline, which Biome rejects: run
+`bun run format` after `bun run migrations`.
+
+**The extension probe is also the migration probe.** `/api/status` answers `checks: { database, redis }` plus
+`database: { extensions: { vector } }` (`null` when the server runs without a database), and `healthy` requires
+`vector`. Because migration 0000 is what creates the extension, reading `pg_extension` also covers the race the v1
+probe existed for — the web server binding before `DATABASE_AUTO_MIGRATE` finishes — until the first table gives it
+a newest column to read.
+
+**The missing-extension test boots a second server.** Dropping `vector` from `hypotenuse_test` would be
+unrecoverable if the file died midway, because migration 0000 is already recorded there and nothing would run it
+again. `status-vector.test.ts` creates a throwaway database, spawns `bun keryx.ts start` against it on a free port
+(the migration creates the extension), drops the extension under it, and reads `/api/status` over HTTP; then it
+kills the process and drops the database `WITH (FORCE)`.
+
+**"Twice in a row"** is run as two consecutive `bun run test` invocations, plus `status.test.ts` and
+`status-vector.test.ts` booting servers back to back in one run. Both pass; the second run finds the migration
+recorded and the extension present.
+
+**The import-boundary test enforces the whole table,** not only the CLI's row: it scans `backend/`, `frontend/`, and
+`cli/src/`, resolves relative paths into a workspace, and matches package names and `@backend/*`. Under
+`verbatimModuleSyntax`, `import { type X } from "@backend/…"` survives as a side-effect import, so only
+`import type` counts as type-only.
+
+**No `test:e2e` script yet.** No browser suite exists, and a root script that resolves to nothing would fail the
+day someone runs it. It arrives with the first Playwright suite, alongside the design system.
+
+**The docs tests moved in the same commit as CI.** `links.test.ts` had to lose its slug example, which named a
+phase and failed `no-phase-names.test.ts` the moment both lived under `backend/`. The scan keeps `design/` beside
+the three new trees and needs more than ten files. The plan-count guard is `> 20`.
+
+**Local traps.**
+
+- node-postgres takes the user from `$USER`. A shell without it (some containers) fails Keryx's boot with an opaque
+  `Failed query: SELECT NOW()`; put the user in `DATABASE_URL_TEST`.
+- Bun 1.4 installs workspaces isolated: packages live under `node_modules/.bun/`, and each workspace's
+  `node_modules` holds links. The native-addon scan walks dot-directories, so it still sees every package.
+- Behind a TLS-intercepting proxy, `bun install` inside `docker build` fails with `SELF_SIGNED_CERT_IN_CHAIN`. Add
+  the CA in a local copy of the Dockerfile; the committed one stays clean, and CI needs nothing.
+- Verified locally on Postgres 16 with pgvector 0.6.0; CI runs `pgvector/pgvector:pg18`. The open question about
+  also testing plain `postgres:18` stays at its default: the pgvector image alone.
+
+**The frontend has no styles at all.** One unstyled `/status` page reads `ActionResponse<Status>` through
+`@backend/*`; renaming a field the page reads fails `tsc -b`. Tokens, the shell, and both themes are the design
+system's.
