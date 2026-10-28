@@ -1,6 +1,7 @@
 # Hypotenuse — Render blueprint. One file, one STAGING environment.
 #
 #   hypotenuse-api        type: web       backend/Dockerfile    HTTP, MCP, platform webhooks, dashboard sockets.
+#                         health /api/health (non-2xx when unhealthy)
 #                         api.hypotenuse.cloud                    No tasks, no migrations.
 #   hypotenuse-worker     type: worker    backend/Dockerfile    Tasks + migrations. No HTTP.
 #   hypotenuse-frontend   type: web       frontend/Dockerfile   nginx serving the Vite build.
@@ -42,9 +43,11 @@ services:
     region: oregon
     branch: main
     autoDeploy: true
-    # Unhealthy until migration 0000 has created `vector`, so a deploy against a
-    # database without the extension is held rather than promoted.
-    healthCheckPath: /api/status
+    # Render reads only the HTTP status, never a body: /api/health answers 500
+    # until migration 0000 has created `vector` (and whenever Postgres or Redis
+    # is unreachable), so such a deploy is held rather than promoted.
+    # /api/status always answers 200 and is the report, not the probe.
+    healthCheckPath: /api/health
     domains:
       - api.hypotenuse.cloud
     buildFilter:

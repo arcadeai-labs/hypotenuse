@@ -275,6 +275,13 @@ plan protects; the test asserts it is declared nowhere else. Nothing reads it ye
 carries `import type {} from "../config/frontend"`, because the frontend type-checks the action through
 `@backend/*` and never sees `config/index.ts` — v1's lesson, applied before it could fail.
 
+**The health check is `/api/health`, not `/api/status`.** Render reads only a health check's HTTP status, and
+`status` answers 200 with the verdict in its body, so pointing the check at it — as the plan said — would have
+promoted a deploy whose database lacked `vector`. Cursor Bugbot caught it in review. `health` shares one probe
+with `status` (`ops/HealthOps.ts`) and throws a `TypedError` (500; Keryx has no 503 type) naming each failing
+check; `status` stays the typed 200 report the dashboard reads. `status-vector.test.ts` asserts the 500 against
+a database without the extension, and the blueprint test pins the path.
+
 **The webhook routes are constants with nothing mounted yet.** `ops/WebhookUrlOps.ts` holds `/webhooks/{slack,
 linear,pylon}`; a `POST` there answers 404 until each platform's ingress lands, and the platform phases must
 mount exactly these routes. They are not part of `healthy`.

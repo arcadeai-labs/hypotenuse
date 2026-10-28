@@ -16,7 +16,7 @@ The `hypotenuse` CLI is not deployed here; it ships through npm and GitHub Relea
 │ api.hypotenuse.cloud     │  │ type: worker, 1c-2g      │  │ www.hypotenuse.cloud │
 │ type: web, 1c-2g         │  │ TASKS on (4 processors)  │  │ type: web, starter   │
 │ TASKS off, MIGRATE off   │  │ MIGRATE on ◀── owns the  │  │ nginx :10000         │
-│ health /api/status       │  │   schema; no HTTP        │  │ health /             │
+│ health /api/health       │  │   schema; no HTTP        │  │ health /             │
 └────────────┬─────────────┘  └────────────┬─────────────┘  └──────────────────────┘
              └──────────────┬──────────────┘
           ┌─────────────────▼───┐   ┌────────────────────────────┐
@@ -70,7 +70,7 @@ signing secrets and tokens are stored encrypted with that bot's installation. Th
    is attached only to redirect to `www`. `render.yaml` already declares all three; add the DNS records the
    dashboard names for each and wait for their certificates.
 4. **Watch the worker's first boot.** Its log shows `database migrated successfully` — migration 0000 creates the
-   `vector` extension — before the api reports healthy. Until then the api's health check fails and Render holds
+   `vector` extension — before the api reports healthy. Until then `/api/health` answers 500 and Render holds
    the deploy.
 5. **Record who deployed and when** in the learnings of
    [`plans/phase-02-deployment.md`](./plans/phase-02-deployment.md#learnings-from-the-build).
@@ -83,7 +83,13 @@ curl -s https://api.hypotenuse.cloud/.well-known/oauth-authorization-server | jq
 curl -sI https://www.hypotenuse.cloud/status | head -1                                         # 200, never a 301
 ```
 
-`healthy` is `true` only with `database.extensions.vector` true.
+`healthy` is `true` only with `database.extensions.vector` true. Render's health check reads `/api/health`, not
+`/api/status`: Render looks only at the HTTP status, and `/api/status` answers 200 whatever it finds, while
+`/api/health` answers 500 naming each failing check (`unhealthy: database extension vector`).
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' https://api.hypotenuse.cloud/api/health                # 200
+```
 
 ## Verifying pgvector
 

@@ -310,9 +310,11 @@ describe("render.yaml", () => {
     expect(databases).toContain("`vector` extension");
   });
 
-  test("the api's health check is the route that counts the vector extension", () => {
+  test("the api's health check is the probe that fails when unhealthy", () => {
+    // Render reads only the HTTP status. /api/status answers 200 whatever it
+    // finds, so pointing the check there would promote an unhealthy deploy.
     const api = service("hypotenuse-api");
-    expect("healthCheckPath" in api && api.healthCheckPath).toBe("/api/status");
+    expect("healthCheckPath" in api && api.healthCheckPath).toBe("/api/health");
   });
 
   test("the api answers across origins with a cookie the browser will send", () => {

@@ -39,10 +39,11 @@ describe("swagger", () => {
 });
 
 describe("the web server", () => {
-  test("the only actions are status and swagger", () => {
+  test("the only actions are health, status, and swagger", () => {
     // Every later action arrives with the feature that needs it; anything
     // else here was left over from a scaffold.
     expect(api.actions.actions.map((a) => a.name).sort()).toEqual([
+      "health",
       "status",
       "swagger",
     ]);

@@ -119,6 +119,11 @@ describe("status: the vector extension", () => {
     expect(body.healthy).toBe(true);
   });
 
+  test("the health probe answers 200 while it is there", async () => {
+    const res = await fetch(`${url}/api/health`);
+    expect(res.status).toBe(200);
+  });
+
   test("a reachable database without it is unhealthy", async () => {
     await throwaway`DROP EXTENSION vector`;
     const body = await status();
@@ -126,5 +131,14 @@ describe("status: the vector extension", () => {
     expect(body.checks.redis).toBe(true);
     expect(body.database?.extensions.vector).toBe(false);
     expect(body.healthy).toBe(false);
+  });
+
+  test("and the health probe fails it with a status a load balancer reads", async () => {
+    // A deploy's health check sees only the HTTP status, so the verdict must
+    // be a non-2xx answer, and its message names what failed.
+    const res = await fetch(`${url}/api/health`);
+    expect(res.status).toBe(500);
+    const body = (await res.json()) as { error: { message: string } };
+    expect(body.error.message).toBe("unhealthy: database extension vector");
   });
 });
