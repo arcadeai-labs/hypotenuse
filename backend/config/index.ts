@@ -1,6 +1,7 @@
 import { configActions } from "./actions";
 import { configChannels } from "./channels";
 import { configDatabase } from "./database";
+import { configFrontend } from "./frontend";
 import { configLogger } from "./logger";
 import { configObservability } from "./observability";
 import { configPlugins } from "./plugins";
@@ -26,6 +27,7 @@ export default {
   session: configSession,
   server: { cli: configServerCli, web: configServerWeb, mcp: configServerMcp },
   tasks: configTasks,
+  frontend: configFrontend,
 };
 
 /**

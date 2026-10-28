@@ -1,12 +1,16 @@
 import { sql } from "drizzle-orm";
-import { Action, api, HTTP_METHOD } from "keryx";
+import { Action, api, config, HTTP_METHOD } from "keryx";
 import { z } from "zod";
+// Brings `config.frontend` along wherever this file is type-checked, including
+// the frontend's program, which never sees `config/index.ts`.
+import type {} from "../config/frontend";
+import { webhookUrls } from "../ops/WebhookUrlOps";
 import packageJSON from "../package.json";
 
 export class Status implements Action {
   name = "status";
   description =
-    "Returns server health and runtime information including the server name, process ID, package version, uptime in milliseconds, memory consumption in MB, dependency health checks for the database and Redis, and which required Postgres extensions the database has (`database.extensions.vector`). A check is `null` when that dependency is disabled (e.g. no `DATABASE_URL`), and disabled checks do not affect `healthy`; a database missing a required extension is unhealthy. Does not require authentication.";
+    "Returns server health and runtime information including the server name, process ID, package version, uptime in milliseconds, memory consumption in MB, dependency health checks for the database and Redis, and which required Postgres extensions the database has (`database.extensions.vector`), the dashboard's URL (`dashboardUrl`), and the absolute URLs Slack, Linear, and Pylon deliver webhooks to (`webhooks`), derived from this deployment's public origin. A check is `null` when that dependency is disabled (e.g. no `DATABASE_URL`), and disabled checks do not affect `healthy`; a database missing a required extension is unhealthy. Does not require authentication.";
   inputs = z.object({});
   web = { route: "/status", method: HTTP_METHOD.GET };
   tracing = false;
@@ -66,6 +70,12 @@ export class Status implements Action {
         redis: redisHealthy,
       },
       database,
+      // Where the dashboard lives: the API and the dashboard are different
+      // origins in a deployment, and only the server knows both.
+      dashboardUrl: config.frontend.url,
+      // What every platform app's manifest embeds. Reported, never part of
+      // `healthy`: a deployment with no bot installed anywhere is healthy.
+      webhooks: webhookUrls(),
     };
   }
 }
