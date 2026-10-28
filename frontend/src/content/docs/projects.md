@@ -8,6 +8,9 @@ skills, its model connections, and its platform installs. Every project belongs 
 You see a project if you are a **member** of it, or if you **own** its organization. The project switcher lists
 exactly those. Being in the organization alone shows you nothing — see [Organizations](/docs/organizations).
 
+**Organization → Projects** lists the same projects with **your role** in each: *Member*, *Admin* (you hold the
+project's admin tag), or *Admin (owner)* (you are an admin because you own the organization).
+
 ## Members and admins
 
 Inside a project there are two levels, and no ladder of roles between them:

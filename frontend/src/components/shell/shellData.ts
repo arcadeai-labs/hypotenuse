@@ -44,6 +44,8 @@ export interface ShellActions {
    * from `can("project:create")`, so it is the server's answer.
    */
   newProjectDenied?: string;
+  /** Why "New organization" is refused (signed out), or `undefined`. */
+  newOrganizationDenied?: string;
   /** How many invitations are waiting for the person, for the account menu. */
   pendingInvites?: number;
 }

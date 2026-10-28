@@ -482,11 +482,17 @@ caller yet; `lua/` holds no script.
   first run) and Redis database 2, so a suite run never touches `bun dev`'s or the backend suites' data. CI gives the
   **E2E Test** job its own pgvector and Redis services. Run the frontend's unit tests with `bun run test`: plain
   `bun test` in `frontend/` also collects the Playwright specs.
-- **Left for later:** a page for `organization:create`, an unsaved-changes guard, desktop notifications, lists past
-  100 rows, and a separate active project per organization. `project:list` carries no per-project standing, so
-  Organization → Projects cannot show your role in each.
-- **The `shell` docs illustration is stale.** `docs:illustrations` captures `/status`, which now renders signed out
-  ("No organization"); the committed image still shows the old fixture. Recapturing it needs a signed-in capture.
+- **`project:list` carries each project's `standing`**, computed by `projectStandings` in two queries per page by the
+  same rule as `resolveProjectAccess`; `project.test.ts` asserts it equals `project:view`'s for a member, an explicit
+  admin, and an owner who never joined. Organization → Projects names it per row (`utils/projectRole.ts`).
+- **New organization** is `/organizations/new`, offered in the organization switcher and the palette to anyone signed
+  in; the new organization becomes active and lands on its empty Projects page.
+- **Left for later:** an unsaved-changes guard, desktop notifications, lists past 100 rows, and a separate active
+  project per organization.
+- **Signed-in docs illustrations are seeded.** `docs:illustrations` marks a shot `signedIn` and signs in as a fixed
+  person in a fixed tenant (Ada Lovelace, owner of Acme, with Support and Platform), creating them over the API the
+  first time; `shell` is Organization → Projects as that person. It needs the backend running as well as the
+  frontend.
 
 ### Traps found while building
 

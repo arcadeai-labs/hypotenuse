@@ -3,7 +3,8 @@ import { GatedButton } from "../../components/GatedButton";
 import { useOrganization } from "../../components/organization/context";
 import { SectionCard } from "../../components/sections/SectionCard";
 import { useAuth } from "../../context/AuthContext";
-import { Button, Table } from "../../ui";
+import { Badge, Button, Table } from "../../ui";
+import { projectRole } from "../../utils/projectRole";
 
 /**
  * `/organization/projects` — the projects of the active organization the
@@ -64,6 +65,7 @@ export function OrganizationProjectsPage() {
         <thead>
           <tr>
             <th scope="col">Name</th>
+            <th scope="col">Your role</th>
             <th scope="col">Slug</th>
             <th scope="col">Created</th>
             <th scope="col" className="text-end">
@@ -72,36 +74,48 @@ export function OrganizationProjectsPage() {
           </tr>
         </thead>
         <tbody>
-          {projects.map((project) => (
-            <tr
-              key={project.id}
-              data-testid={`organization-project-${project.id}`}
-            >
-              <td>
-                {project.name}
-                {project.id === activeProjectId && (
-                  <span className="text-meta"> · active</span>
-                )}
-              </td>
-              <td className="mono">{project.slug}</td>
-              <td className="tabular">
-                {new Date(project.createdAt).toLocaleDateString()}
-              </td>
-              <td className="text-end">
-                <Button
-                  size="sm"
-                  variant="outline-secondary"
-                  onClick={() => open(project.id)}
-                  data-testid={`open-project-${project.id}`}
-                >
-                  Open settings
-                </Button>
-              </td>
-            </tr>
-          ))}
+          {projects.map((project) => {
+            const role = projectRole(project.standing);
+            return (
+              <tr
+                key={project.id}
+                data-testid={`organization-project-${project.id}`}
+              >
+                <td>
+                  {project.name}
+                  {project.id === activeProjectId && (
+                    <span className="text-meta"> · active</span>
+                  )}
+                </td>
+                <td>
+                  <Badge
+                    bg={role.admin ? "info" : "secondary"}
+                    title={role.title}
+                    data-testid={`organization-project-role-${project.id}`}
+                  >
+                    {role.label}
+                  </Badge>
+                </td>
+                <td className="mono">{project.slug}</td>
+                <td className="tabular">
+                  {new Date(project.createdAt).toLocaleDateString()}
+                </td>
+                <td className="text-end">
+                  <Button
+                    size="sm"
+                    variant="outline-secondary"
+                    onClick={() => open(project.id)}
+                    data-testid={`open-project-${project.id}`}
+                  >
+                    Open settings
+                  </Button>
+                </td>
+              </tr>
+            );
+          })}
           {projects.length === 0 && (
             <tr>
-              <td colSpan={4} className="text-muted" data-testid="no-projects">
+              <td colSpan={5} className="text-muted" data-testid="no-projects">
                 {standing.isOwner
                   ? "No projects yet. Create one with New project."
                   : "You belong to no project here yet. Ask an admin of one to invite you."}

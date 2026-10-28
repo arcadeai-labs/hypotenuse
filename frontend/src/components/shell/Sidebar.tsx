@@ -119,6 +119,7 @@ export function Sidebar({
         activeOrganizationId={data.activeOrganizationId}
         onSelect={actions.selectOrganization}
         newProjectDenied={actions.newProjectDenied}
+        newOrganizationDenied={actions.newOrganizationDenied}
         onNavigate={onNavigate}
       />
       <ProjectSwitcher

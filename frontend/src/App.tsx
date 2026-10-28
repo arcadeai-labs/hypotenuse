@@ -18,6 +18,7 @@ import { DocsLayout } from "./pages/docs/DocsLayout";
 import { DocsPage } from "./pages/docs/DocsPage";
 import { InvitesPage } from "./pages/InvitesPage";
 import { HomePage } from "./pages/marketing/HomePage";
+import { NewOrganizationPage } from "./pages/NewOrganizationPage";
 import { NewProjectPage } from "./pages/NewProjectPage";
 import { OrganizationMembersPage } from "./pages/organization/OrganizationMembersPage";
 import { OrganizationPage } from "./pages/organization/OrganizationPage";
@@ -70,6 +71,10 @@ export function App() {
                   <Route path="/account" element={<AccountPage />} />
                   <Route path="/invites" element={<InvitesPage />} />
                   <Route path="/projects/new" element={<NewProjectPage />} />
+                  <Route
+                    path="/organizations/new"
+                    element={<NewOrganizationPage />}
+                  />
                   <Route path="/settings" element={<SettingsPage />}>
                     <Route
                       index

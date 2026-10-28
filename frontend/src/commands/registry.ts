@@ -81,6 +81,14 @@ export const COMMANDS: Command[] = [
     run: (c) => c.navigate("/projects/new"),
   },
   {
+    id: "new-organization",
+    title: "New organization",
+    group: "Project",
+    keywords: ["create", "add", "company", "team"],
+    requires: ["organization:create"],
+    run: (c) => c.navigate("/organizations/new"),
+  },
+  {
     id: "go-docs",
     title: "Open docs",
     group: "Navigation",

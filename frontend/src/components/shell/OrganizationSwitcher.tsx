@@ -11,6 +11,8 @@ export interface OrganizationSwitcherProps {
   onSelect: (organizationId: number) => void;
   /** Why "New project" is refused, or `undefined` when it is offered. */
   newProjectDenied?: string;
+  /** Why "New organization" is refused, or `undefined` when it is offered. */
+  newOrganizationDenied?: string;
   /** Called after a choice (the mobile sheet closes on it). */
   onNavigate?: () => void;
 }
@@ -53,7 +55,8 @@ function LinkItem({
  * The sidebar's organization switcher, above the project switcher: every
  * organization the person belongs to, then the active one's projects, members,
  * and settings, and New project — which only an owner may use, and which
- * everyone else sees disabled with the reason.
+ * everyone else sees disabled with the reason — then New organization, which
+ * anyone signed in may start.
  * @param props - See {@link OrganizationSwitcherProps}.
  * @returns The switcher.
  */
@@ -62,6 +65,7 @@ export function OrganizationSwitcher({
   activeOrganizationId,
   onSelect,
   newProjectDenied,
+  newOrganizationDenied,
   onNavigate,
 }: OrganizationSwitcherProps) {
   const active = organizations.find((o) => o.id === activeOrganizationId);
@@ -134,6 +138,14 @@ export function OrganizationSwitcher({
           label="New project"
           testId="new-project-link"
           deniedReason={noOrganization ?? newProjectDenied}
+          onNavigate={onNavigate}
+        />
+        <Dropdown.Divider />
+        <LinkItem
+          to="/organizations/new"
+          label="New organization"
+          testId="new-organization-link"
+          deniedReason={newOrganizationDenied}
           onNavigate={onNavigate}
         />
       </Dropdown.Menu>

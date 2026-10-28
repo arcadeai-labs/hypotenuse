@@ -174,3 +174,64 @@ test("an owner sees every project of the organization, with admin standing in ea
   await expect(page.getByTestId("owner-standing")).toBeVisible(LANDED);
   await expect(page.getByTestId("project-name")).toBeEnabled();
 });
+
+test("anyone signed in starts a new organization from the switcher, and owns it", async ({
+  page,
+}) => {
+  await signUpApi(page.request, "Founder");
+  await page.goto("/organization/projects");
+  await page.getByTestId("organization-switcher-toggle").click(LANDED);
+  await page.getByTestId("new-organization-link").click();
+  await expect(page).toHaveURL(/\/organizations\/new$/);
+
+  await page.getByTestId("new-organization-name").fill("Second Shop");
+  await page.getByTestId("new-organization-submit").click();
+
+  // It is active, empty, and its owner may create its first project.
+  await expect(page).toHaveURL(/\/organization\/projects$/, LANDED);
+  await expect(page.getByTestId("organization-switcher-toggle")).toContainText(
+    "Second Shop",
+  );
+  await expect(page.getByTestId("no-projects")).toContainText(
+    "Create one with New project",
+  );
+  await expect(page.getByTestId("organization-new-project")).toBeEnabled();
+});
+
+test("the Projects page names your role in each project", async ({
+  page,
+  request,
+}) => {
+  const owner = await signUpApi(request, "Role Owner");
+  const email = uniqueEmail("teammate");
+  const sent = await api<{ invite: { id: number } }>(
+    request,
+    "PUT",
+    `/organization/${owner.organization.id}/invite`,
+    { projectId: owner.project.id, inviteeEmail: email },
+  );
+  const teammate = await signUpApi(page.request, "Role Teammate", email);
+  await api(page.request, "POST", `/invite/${sent.invite.id}/accept`);
+
+  await page.goto("/organization/projects");
+  await page.getByTestId("organization-switcher-toggle").click(LANDED);
+  await page
+    .getByTestId(`organization-option-${owner.organization.id}`)
+    .click();
+  const role = page.getByTestId(
+    `organization-project-role-${owner.project.id}`,
+  );
+  await expect(role).toHaveText("Member", LANDED);
+
+  // Made an owner, the teammate administers the project without its admin
+  // tag, and the badge says where that comes from.
+  await api(
+    request,
+    "POST",
+    `/organization/${owner.organization.id}/member/${teammate.user.id}`,
+    { role: "owner" },
+  );
+  await page.reload();
+  await expect(role).toHaveText("Admin (owner)", LANDED);
+  await expect(role).toHaveAttribute("title", /own this organization/);
+});

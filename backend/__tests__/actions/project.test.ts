@@ -114,6 +114,59 @@ describe("project:list", () => {
   });
 });
 
+describe("project:list standing", () => {
+  test("each project carries the caller's standing, equal to project:view's", async () => {
+    // Daisy owns the organization without joining any of its projects; Peach
+    // is the explicit admin; Mario is a plain member of Castle.
+    await call(
+      u.url,
+      u.peach,
+      "POST",
+      `/organization/${u.organizationId}/member/${u.daisy.userId}`,
+      { role: "owner" },
+    );
+    try {
+      for (const [who, expected] of [
+        [u.mario, { isAdmin: false, viaOrganizationOwner: false }],
+        [u.peach, { isAdmin: true, viaOrganizationOwner: false }],
+        [u.daisy, { isAdmin: true, viaOrganizationOwner: true }],
+      ] as const) {
+        const { body } = await call<{
+          projects: {
+            id: number;
+            standing: ActionResponse<ProjectView>["standing"];
+          }[];
+        }>(u.url, who, "GET", `/projects?organizationId=${u.organizationId}`);
+        expect(body.projects.length, who.name).toBeGreaterThan(0);
+        for (const project of body.projects) {
+          const view = await call<ActionResponse<ProjectView>>(
+            u.url,
+            who,
+            "GET",
+            `/project/${project.id}`,
+          );
+          expect(project.standing, `${who.name} in ${project.id}`).toEqual(
+            view.body.standing,
+          );
+        }
+        const castle = body.projects.find((p) => p.id === u.projectId);
+        expect(castle?.standing, who.name).toEqual({
+          isMember: true,
+          ...expected,
+        });
+      }
+    } finally {
+      await call(
+        u.url,
+        u.peach,
+        "POST",
+        `/organization/${u.organizationId}/member/${u.daisy.userId}`,
+        { role: "member" },
+      );
+    }
+  });
+});
+
 describe("project:edit and project:delete", () => {
   test("a member cannot rename; an admin can, and the slug follows", async () => {
     const refused = await call(

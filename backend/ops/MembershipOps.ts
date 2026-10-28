@@ -1,4 +1,4 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { api } from "keryx";
 import { organizationMemberships } from "../schema/organization_memberships";
 import {
@@ -184,6 +184,66 @@ export function projectStanding(access: {
     isAdmin: isAdmin(access.callerTags),
     viaOrganizationOwner: access.viaOrganizationOwner,
   };
+}
+
+/**
+ * The caller's standing in each of a page of projects, by the same rule as
+ * {@link resolveProjectAccess} — two queries for the whole page rather than one
+ * resolution per project. Every project passed in must be one the caller can see
+ * (`visibleProjectsCondition`); this answers how, not whether.
+ * @param userId - The caller.
+ * @param page - The projects, each with its organization.
+ * @param db - A database handle (defaults to the shared pool).
+ * @returns Each project's standing, keyed by project id.
+ */
+export async function projectStandings(
+  userId: number,
+  page: Pick<Project, "id" | "organizationId">[],
+  db: DbHandle = api.db.db,
+): Promise<Map<number, ReturnType<typeof projectStanding>>> {
+  const standings = new Map<number, ReturnType<typeof projectStanding>>();
+  if (page.length === 0) return standings;
+
+  const explicit = await db
+    .select({ projectId: tags.projectId })
+    .from(userTags)
+    .innerJoin(tags, eq(userTags.tagId, tags.id))
+    .where(
+      and(
+        eq(userTags.userId, userId),
+        inArray(
+          tags.projectId,
+          page.map((p) => p.id),
+        ),
+        sql`lower(btrim(${tags.name})) = ${ADMIN_TAG}`,
+      ),
+    );
+  const owned = await db
+    .select({ organizationId: organizationMemberships.organizationId })
+    .from(organizationMemberships)
+    .where(
+      and(
+        eq(organizationMemberships.userId, userId),
+        eq(organizationMemberships.role, "owner"),
+        inArray(
+          organizationMemberships.organizationId,
+          page.map((p) => p.organizationId),
+        ),
+      ),
+    );
+  const admins = new Set(explicit.map((r) => r.projectId));
+  const owners = new Set(owned.map((r) => r.organizationId));
+
+  for (const project of page) {
+    const explicitAdmin = admins.has(project.id);
+    const owner = owners.has(project.organizationId);
+    standings.set(project.id, {
+      isMember: true,
+      isAdmin: explicitAdmin || owner,
+      viaOrganizationOwner: owner && !explicitAdmin,
+    });
+  }
+  return standings;
 }
 
 /**

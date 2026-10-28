@@ -23,7 +23,11 @@ import { CommandPalette } from "../ui/CommandPalette";
 import { ShortcutSheet } from "../ui/ShortcutSheet";
 import { apiFetch } from "../utils/client";
 import { Sidebar } from "./shell/Sidebar";
-import type { ShellActions, ShellData } from "./shell/shellData";
+import {
+  NOT_SIGNED_IN,
+  type ShellActions,
+  type ShellData,
+} from "./shell/shellData";
 
 /** localStorage key for the collapsed sidebar. */
 export const SIDEBAR_STORAGE_KEY = "hypotenuse.sidebar";
@@ -136,6 +140,8 @@ export function AppShell() {
         void signOut().then(() => navigate("/sign-in"));
       },
       newProjectDenied: reason("project:create"),
+      // Anyone signed in may start an organization.
+      newOrganizationDenied: auth.user ? undefined : NOT_SIGNED_IN,
       pendingInvites,
     }),
     [
@@ -145,6 +151,7 @@ export function AppShell() {
       navigate,
       reason,
       pendingInvites,
+      auth.user,
     ],
   );
   const [collapsed, setCollapsed] = useState(readCollapsed);

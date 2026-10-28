@@ -45,7 +45,9 @@ Two things are refused, so an organization is never left without someone in char
 ## Creating and deleting
 
 Owners create projects from **Organization → Projects**, and become the new project's first admin. Anyone signed in
-can create a new organization, which starts empty with them as its owner.
+can start a new organization — **New organization** in the organization switcher, or in the command palette (⌘K). It
+starts with no projects and with you as its owner, and it becomes the active organization so you can create its first
+project.
 
 An organization can be deleted only once it has no projects. Delete each project first; that is a decision made, and
 recorded, one project at a time.

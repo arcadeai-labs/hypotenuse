@@ -329,7 +329,7 @@ bun run ngrok            # the reserved public tunnels to the local backend and 
 cd backend && bun run migrations     # generate a migration from schema/ changes, then `bun run format`
 cd cli && bun run build              # compile dist/hypotenuse
 cd frontend && bun run theme:build   # regenerate every design/tokens.ts output after changing an input
-cd frontend && bun run docs:illustrations  # light + dark screenshots, with `bun dev` running
+cd frontend && bun run docs:illustrations  # light + dark screenshots, with `bun dev` (backend and frontend) running
 ```
 
 The docs tests run in the backend suite: every relative link and anchor in `AGENTS.md`, `README.md`, and `docs/`
