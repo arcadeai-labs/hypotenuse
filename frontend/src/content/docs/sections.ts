@@ -1,4 +1,9 @@
+import accounts from "./accounts.md?raw";
 import gettingStarted from "./getting-started.md?raw";
+import members from "./members.md?raw";
+import organizations from "./organizations.md?raw";
+import projects from "./projects.md?raw";
+import tags from "./tags.md?raw";
 
 /** One page of the public docs. */
 export interface DocsSection {
@@ -15,6 +20,11 @@ export const DOCS_SECTIONS: DocsSection[] = [
     title: "Getting started",
     markdown: gettingStarted,
   },
+  { slug: "accounts", title: "Accounts", markdown: accounts },
+  { slug: "organizations", title: "Organizations", markdown: organizations },
+  { slug: "projects", title: "Projects", markdown: projects },
+  { slug: "members", title: "Members", markdown: members },
+  { slug: "tags", title: "Tags", markdown: tags },
 ];
 
 /**

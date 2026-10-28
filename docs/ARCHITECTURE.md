@@ -90,8 +90,11 @@ Two authorities, never mixed:
 - **The platform's permissions decide who may talk to a bot.** Anyone who can post where a bot is bound may address
   it about that place. Senders are recorded as `participants`; Hypotenuse links no identities and adds no gate.
 - **Project RBAC decides who may run a bot.** ToolExec's model, unchanged: membership (`ProjectMemberMiddleware()`),
-  the reserved `admin` tag (`AdminMiddleware()`), tags as roles, and per-bot `accessRead` / `accessWrite` tag lists
-  (`canReadBot` / `canWriteBot`). Every decision a person makes is an `AuditedAction` row in `audit_logs`.
+  the reserved `admin` tag (`AdminMiddleware()`), tags as roles, and per-object `accessRead` / `accessWrite` tag
+  lists, all checked by `ops/AccessOps.ts` (`canReadBot` / `canWriteBot` wrap it). Above projects sit two
+  organization levels — `org-member` and `org-owner` — and an owner has admin standing in every project of the
+  organization, computed in one place (`resolveProjectAccess`) and flagged as `viaOrganizationOwner`. Organization
+  membership alone shows no project. Every decision a person makes is an `AuditedAction` row in `audit_logs`.
 
 A bot acts with **its own** authority — its installations, its allowlisted tools, its repository grants — not the
 authority of whoever is talking to it. A sandbox it starts carries a run token scoped to that job.

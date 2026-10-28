@@ -47,7 +47,7 @@ env group, and ignores it on a service during Blueprint updates.
 | `SECRETS_ENCRYPTION_KEY` | group | group | `generateValue: true` **once, in the group**: one key on per-service `generateValue` would be two keys, and the worker could not decrypt what the api wrote. 32 bytes, base64 |
 | `FRONTEND_URL` | group | group | `https://www.hypotenuse.cloud` — every dashboard link; `/api/status` `dashboardUrl` |
 | `NODE_ENV`, `LOG_LEVEL`, `LOG_FORMAT` | group | group | `production`, `info`, `json` |
-| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM` | group, dashboard | group, dashboard | optional; read once accounts exist |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM` | group, dashboard | group, dashboard | optional; without `SMTP_HOST` the worker logs each email instead of sending it |
 | `APPLICATION_URL` | `https://api.hypotenuse.cloud` | same | the base of every webhook URL; the worker writes links too |
 | `WEB_SERVER_ALLOWED_ORIGINS` | `https://www.hypotenuse.cloud` | — | CORS |
 | `SESSION_COOKIE_SECURE` / `SESSION_COOKIE_SAME_SITE` | `true` / `None` | — | cross-origin frontend |

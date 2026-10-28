@@ -94,6 +94,10 @@ pgvector from migration 0000, the docs tests in the backend suite, and CI behind
 **[Phase 03](./phase-03-design-system.md) is built**: the generated tokens with `--status-idle`, the shared state table
 in `design/states.ts`, the UI kit, conversation-state glyphs and the bot badge in web and CLI, the app shell with
 organization and project switchers, the public site, `/docs`, `/style-guide`, and the browser suite as **E2E Test**.
+**[Phase 04](./phase-04-organizations-users-and-rbac.md) is built**: sign-up into an owned organization and a Default
+project; organizations, projects, memberships, invites, tags, and notifications; five RBAC levels with owners' admin
+standing in every project; `AccessOps`; `AuditedAction` on every write; the settings and organization pages; and a
+browser suite that boots the backend too.
 No other phase is built; every later plan's **Learnings from the
 build** section reads "Not built yet." until its phase lands.
 
@@ -112,3 +116,5 @@ build** section reads "Not built yet." until its phase lands.
 | Sandboxes | ToolExec's provider interface; Docker first (development, CI), Vercel next (production) |
 | Code mode | QuickJS compiled to WebAssembly inside the worker; no network, filesystem, or timers; host API of memory and MCP |
 | Agent loop | Durable Keryx tasks; every message, intent, and result in Postgres; one tick at a time per conversation |
+| Organization owners | Admin standing in every project of the organization without joining it, flagged `viaOrganizationOwner` and in audit metadata; only owners create projects |
+| Last-admin guard | Counts the project's explicit `admin` tag holders, not owners: a project always keeps someone who administers it by being in it |
