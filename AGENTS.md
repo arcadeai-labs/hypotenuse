@@ -6,9 +6,11 @@ tools, and its own memory. Many bots run in many conversations at once, across m
 a bot hands it to an **ephemeral sandbox** that clones the repository, does the work, opens a pull request, and
 reports back into the conversation it came from.
 
-> **Status:** planned. No phase is built yet; the repository holds the plans, this file, the design tokens, and a
-> docs check. The build order and every plan are in [`docs/plans/README.md`](./docs/plans/README.md); the system on
-> one page is [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md). Hypotenuse **v1** — local coding agents answering
+> **Status:** the foundation is built — three Bun workspaces (`backend/`, `frontend/`, `cli/`), Postgres with
+> pgvector, and CI behind **CI Complete** — and it halts for review before anything else lands. Nothing a person
+> would call a feature exists yet. The build order and every plan are in
+> [`docs/plans/README.md`](./docs/plans/README.md); the system on one page is
+> [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md). Hypotenuse **v1** — local coding agents answering
 > Linear agent sessions through a runner daemon — is archived on the
 > [`v1` branch](https://github.com/arcadeai-labs/hypotenuse/tree/v1). Its plans, learnings, and code remain the
 > reference for everything 2.0 ports from it.
@@ -92,8 +94,8 @@ These bind from the first line of code. A rule that names a thing not built yet 
     commit. A docs test asserts every row's test file exists and mentions the row's id.
 11. **Never name a plan phase outside `docs/plans/`.** No comment, JSDoc block, test name, config note, or user doc
     says "Phase 9" or "this phase". Say what a column, hook, or placeholder is *for* — "read by the schedule clock,
-    which does not exist yet" — because that stays true after the schedule is forgotten. `tests/docs.test.ts`
-    enforces it over every source tree (builder docs — this file and `docs/` — may name phases).
+    which does not exist yet" — because that stays true after the schedule is forgotten.
+    `backend/__tests__/docs/no-phase-names.test.ts` enforces it over every source tree (builder docs — this file and `docs/` — may name phases).
 12. **User-facing docs ship with the feature.** Any change an operator or visitor can see or do — a settings
     section, a bot capability, a platform behavior, an RBAC rule, a CLI command — updates the markdown under
     `frontend/src/content/docs/` in the **same commit**.
@@ -108,8 +110,8 @@ These bind from the first line of code. A rule that names a thing not built yet 
     this file, the [plans index](./docs/plans/README.md), [`ARCHITECTURE.md`](./docs/ARCHITECTURE.md), and
     [`DESIGN.md`](./docs/DESIGN.md). A change that makes any of those wrong fixes them **in the same commit**. When a
     later change invalidates a whole learnings section rather than a sentence, add a note and a translation table at
-    its top instead of rewriting it in place. `tests/docs.test.ts` resolves every relative link and anchor and
-    asserts every plan doc carries the `## Learnings from the build` heading.
+    its top instead of rewriting it in place. `backend/__tests__/docs/links.test.ts` resolves every relative link and
+    anchor and asserts every plan doc carries the `## Learnings from the build` heading.
 15. **A pull request is not the artifact.** A PR, issue, or comment is for a human who already has the diff. Keep it
     as short as it can be while still conveying the meaning. Load-bearing argument belongs in a code comment or a
     learnings section, not in the PR body. The same goes for what a bot writes into Slack, Linear, or Pylon: status
@@ -207,14 +209,24 @@ exist locks nothing — `INSERT … ON CONFLICT DO NOTHING`, then lock.
 Docker is used only to build deployment images and as the development **sandbox provider**.
 
 ```bash
-brew services start postgresql@17 redis          # once per machine; brew install pgvector
+brew install postgresql@18 pgvector redis        # once per machine
+brew services start postgresql@18 redis
 createdb hypotenuse && createdb hypotenuse_test  # once per checkout
 bun install
-bun run lint && bun run test                     # today: biome + the docs test
+cp backend/.env.example backend/.env && cp frontend/.env.example frontend/.env
+bun run workspace:setup                          # only in a second checkout; see below
+bun run lint && bun run test
+bun dev                                          # backend :8080, frontend :3000
 ```
 
-The backend, frontend, and CLI workspaces arrive with [Phase 01](./docs/plans/phase-01-foundation.md), which
-extends these commands.
+- **`bun run test` at the root, never `bun test`.** Bun's own runner shadows the script, skips each workspace's
+  `bunfig.toml` (the backend's preloads the test harness), and runs every suite in one process.
+- **The backend's tests boot a real server** against `hypotenuse_test` and Redis database 1, each file on a random
+  free port. Migration 0000 creates the `vector` extension, and `GET /api/status` is unhealthy without it.
+- **Several checkouts at once** (agent worktrees, Conductor, Orca) would truncate each other's test database.
+  `bun run workspace:setup` gives a linked worktree its own test database, Redis index, and e2e ports, writes
+  them into `.env`, and pins them as `HYPOTENUSE_WORKSPACE_ID`; `--dry-run` prints the plan, `--shared` opts out.
+  A single clone skips it.
 
 ## Planned stack
 
@@ -294,9 +306,18 @@ From v1 and ToolExec, each paid for once already:
 
 ```bash
 bun install
-bun run lint          # biome check
-bun run test          # tests/docs.test.ts: links, anchors, Learnings headings, no phase names
+bun run lint             # tsc + biome in backend, frontend, and cli
+bun run test             # every workspace's suites; the backend's need Postgres (with pgvector) and Redis
+bun dev                  # the backend on :8080 and the frontend on :3000
+bun run workspace:setup  # give this checkout its own test database and Redis index
+bun run ngrok            # the reserved public tunnels to the local backend and frontend
+
+cd backend && bun run migrations     # generate a migration from schema/ changes, then `bun run format`
+cd cli && bun run build              # compile dist/hypotenuse
 ```
+
+The docs tests run in the backend suite: every relative link and anchor in `AGENTS.md`, `README.md`, and `docs/`
+resolves, every plan carries `## Learnings from the build`, and no source tree names a plan phase.
 
 ## Where the detail lives
 

@@ -87,9 +87,10 @@ Each phase ends in a reviewable, deployable state. **Phase 01 halts for review b
 
 ## Status
 
-**No phase is built.** The repository holds this index, the phase plans, [`AGENTS.md`](../../AGENTS.md),
-[`ARCHITECTURE.md`](../ARCHITECTURE.md), [`DESIGN.md`](../DESIGN.md), the design tokens under `design/`, and the docs
-test. Every plan's **Learnings from the build** section reads "Not built yet." until its phase lands.
+**[Phase 01](./phase-01-foundation.md) is built** and halts for review before [Phase 02](./phase-02-deployment.md):
+the `backend/`, `frontend/`, and `cli/` workspaces, Postgres with pgvector from migration 0000, the docs tests in the
+backend suite, and CI behind **CI Complete**. No other phase is built; every later plan's **Learnings from the
+build** section reads "Not built yet." until its phase lands.
 
 ### Decisions so far
 

@@ -16,12 +16,10 @@ import { dirname, join, relative, resolve } from "node:path";
  * uptime, and it says nothing about whether this repository still contains
  * what a doc names. Anchors are checked, in-page ones included, because a
  * heading is renamed far more often than a file is.
- *
- * This file moves into the backend's test suite once the backend exists, and
- * its source-tree scan grows with it.
  */
 
-const REPO_ROOT = join(import.meta.dir, "..");
+/** The repository root, three levels above this file. */
+const REPO_ROOT = join(import.meta.dir, "..", "..", "..");
 
 /** Markdown link targets that point at a path in this repository. */
 const RELATIVE_LINK = /\]\((\.{1,2}\/[^)\s]+)\)/g;
@@ -43,7 +41,8 @@ const FENCE = /^\s*(```|~~~)/;
  *
  * Each **space** becomes a hyphen rather than each run of whitespace, so
  * punctuation dropped from between two words leaves two hyphens behind: the em
- * dash in "Phase 08 — Durable agent loop" renders as `phase-08--durable-agent-loop`.
+ * dash in "Pull requests — what a reviewer sees" renders as
+ * `pull-requests--what-a-reviewer-sees`.
  * @param heading - The heading text, without its leading hashes.
  * @returns The anchor id.
  */
@@ -149,7 +148,8 @@ describe("builder documentation", () => {
 
   test("every plan doc carries the heading that divides its two halves, once", () => {
     const docs = planDocs();
-    expect(docs.length).toBeGreaterThan(15);
+    // Twenty-three phases are planned; a glob that lost most of them must fail.
+    expect(docs.length).toBeGreaterThan(20);
 
     const wrong: string[] = [];
     for (const doc of docs) {
@@ -172,48 +172,5 @@ describe("builder documentation", () => {
       (doc) => !index.includes(`(./${doc.split("/").pop()})`),
     );
     expect(unlisted).toEqual([]);
-  });
-});
-
-/**
- * The build plan's phases are a schedule, not a fact about the system. Code,
- * tests, and user docs say what a thing is *for*, because that stays true after
- * the schedule is forgotten. Only the builder docs may name a phase.
- */
-describe("no phase names outside the plans", () => {
-  /** Source trees a reader meets without the plan beside them. */
-  const SCANNED = [
-    { dir: "design", glob: "**/*.{ts,json,md}" },
-    { dir: "tests", glob: "**/*.ts" },
-    { dir: "backend", glob: "**/*.{ts,tsx,sql,json,md}" },
-    { dir: "frontend/src", glob: "**/*.{ts,tsx,css,scss,md}" },
-    { dir: "cli", glob: "**/*.{ts,tsx,md,json}" },
-  ];
-
-  /** Paths that are not ours to police. */
-  const IGNORED =
-    /(^|\/)(node_modules|\.finear|dist|\.cache|drizzle\/meta)(\/|$)/;
-
-  const PHASE = /\b[Pp]hase \d+\b/;
-
-  test("no source file or user doc names a plan phase", () => {
-    const offenders: string[] = [];
-    let scanned = 0;
-    for (const { dir, glob } of SCANNED) {
-      const cwd = join(REPO_ROOT, dir);
-      if (!existsSync(cwd)) continue;
-      for (const file of new Bun.Glob(glob).scanSync({ cwd })) {
-        if (IGNORED.test(file)) continue;
-        // This file has to spell the pattern it forbids.
-        if (file.endsWith("docs.test.ts")) continue;
-        scanned++;
-        const lines = readFileSync(join(cwd, file), "utf8").split("\n");
-        lines.forEach((line, i) => {
-          if (PHASE.test(line)) offenders.push(`${dir}/${file}:${i + 1}`);
-        });
-      }
-    }
-    expect(scanned).toBeGreaterThan(0);
-    expect(offenders).toEqual([]);
   });
 });
