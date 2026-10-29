@@ -86,27 +86,35 @@ describe("user:create", () => {
       .select()
       .from(organizations)
       .where(eq(organizations.slug, "rosalina"));
-    // The sign-up itself has no signed-in caller; the tenant rows name the
-    // person it created.
-    expect(rows[0].userId).toBeNull();
     const [owner] = await api.db.db
       .select({ userId: organizationMemberships.userId })
       .from(organizationMemberships)
       .where(eq(organizationMemberships.organizationId, org.id));
+    // The sign-up has no signed-in caller, so its actor is the account it
+    // created. The tenant rows are the system's: nobody chose them, sign-up
+    // always makes them. Their metadata names the owner they were made for.
+    expect(rows[0].actorType).toBe("user");
+    expect(rows[0].userId).toBe(owner.userId);
+    expect(rows[0].organizationId).toBeNull();
     const synthetic = await api.db.db
       .select()
       .from(auditLogs)
-      .where(eq(auditLogs.userId, owner.userId));
+      .where(eq(auditLogs.organizationId, org.id));
     expect(synthetic.map((r) => r.action).sort()).toEqual([
       "organization:create",
       "project:create",
     ]);
+    for (const row of synthetic) {
+      expect(row.actorType).toBe("system");
+      expect(row.userId).toBeNull();
+      expect(row.metadata).toMatchObject({
+        bootstrappedBy: "user:create",
+        ownerUserId: owner.userId,
+      });
+    }
     const orgRow = synthetic.find((r) => r.action === "organization:create")!;
     expect(orgRow.projectId).toBeNull();
-    expect(orgRow.metadata).toMatchObject({
-      organizationId: org.id,
-      bootstrappedBy: "user:create",
-    });
+    expect(orgRow.metadata).toMatchObject({ organizationId: org.id });
     const projectRow = synthetic.find((r) => r.action === "project:create")!;
     expect(projectRow.projectId).not.toBeNull();
   });

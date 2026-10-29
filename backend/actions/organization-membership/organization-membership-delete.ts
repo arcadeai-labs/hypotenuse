@@ -88,7 +88,9 @@ export class OrganizationMembershipDelete extends AuditedAction {
     // whichever door they left by.
     for (const projectId of removed.projectIds) {
       await writeAuditLog(tx, {
+        actorType: "user",
         userId: callerId,
+        organizationId: params.organizationId,
         projectId,
         action: "membership:delete",
         targetType: "membership",

@@ -1,4 +1,5 @@
 import { configActions } from "./actions";
+import { configAudit } from "./audit";
 import { configChannels } from "./channels";
 import { configDatabase } from "./database";
 import { configFrontend } from "./frontend";
@@ -32,6 +33,7 @@ export default {
   frontend: configFrontend,
   secrets: configSecrets,
   notifications: configNotifications,
+  audit: configAudit,
 };
 
 /**

@@ -77,6 +77,7 @@ export class InviteReject extends AuditedAction {
       status: INVITE_STATUS.rejected,
     });
 
+    connection.metadata.auditOrganizationId = invite.organizationId;
     if (invite.projectId) connection.metadata.auditProjectId = invite.projectId;
     connection.metadata.auditBefore = serializeInvite(invite);
     connection.metadata.auditAfter = rejected;
