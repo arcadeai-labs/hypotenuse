@@ -22,6 +22,13 @@
       "when": 1793248304182,
       "tag": "0002_wandering_doomsday",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1793254156696,
+      "tag": "0003_hot_gateway",
+      "breakpoints": true
     }
   ]
 }

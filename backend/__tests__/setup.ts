@@ -560,3 +560,65 @@ process.on("unhandledRejection", (reason: unknown) => {
   }
   throw reason;
 });
+
+/** A CLI token issued through the real approve → exchange round trip. */
+export interface CliSignIn {
+  /** The plaintext `hyp_cli_…` token. */
+  token: string;
+  /** The token's id. */
+  cliTokenId: number;
+}
+
+/**
+ * Sign a user's CLI in the way `hypotenuse login` does: approve a PKCE
+ * challenge with their browser session, then redeem the code with the
+ * verifier. No row is inserted directly, so every suite that needs a CLI token
+ * also proves the flow.
+ * @param url - The base server URL.
+ * @param user - The signed-in user approving the CLI.
+ * @param device - The device name the CLI reports.
+ * @returns The token and its id.
+ * @throws {Error} If either step does not return HTTP 200.
+ */
+export async function cliSignIn(
+  url: string,
+  user: TestUser,
+  device = "test-laptop",
+): Promise<CliSignIn> {
+  const codeVerifier = randomString(64);
+  const codeChallenge = await computeS256Challenge(codeVerifier);
+  const approveRes = await fetch(`${url}/api/cli-auth/approve`, {
+    method: "PUT",
+    headers: authHeaders(user.sessionId),
+    body: JSON.stringify({ codeChallenge, device }),
+  });
+  const approved = (await approveRes.json()) as { code?: string };
+  if (approveRes.status !== 200 || !approved.code) {
+    throw new Error(`cli-auth:approve failed: ${JSON.stringify(approved)}`);
+  }
+  const exchangeRes = await fetch(`${url}/api/cli-auth/exchange`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ code: approved.code, codeVerifier }),
+  });
+  const exchanged = (await exchangeRes.json()) as {
+    token?: string;
+    cliToken?: { id: number };
+  };
+  if (exchangeRes.status !== 200 || !exchanged.token || !exchanged.cliToken) {
+    throw new Error(`cli-auth:exchange failed: ${JSON.stringify(exchanged)}`);
+  }
+  return { token: exchanged.token, cliTokenId: exchanged.cliToken.id };
+}
+
+/**
+ * Headers for a request authenticated by a bearer token (a CLI's).
+ * @param token - The bearer token.
+ * @returns A headers object for `fetch()`.
+ */
+export function bearerHeaders(token: string): Record<string, string> {
+  return {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${token}`,
+  };
+}

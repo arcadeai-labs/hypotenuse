@@ -98,6 +98,12 @@ Two authorities, never mixed:
   organization and naming its actor — a Hypotenuse user, a platform participant, or the system — read by project
   admins (`audit:list`) and organization owners (`organization:audit-list`).
 
+A person reaches the same actions three ways, each resolved to one principal per request by the `beforeAct` hook
+in `middleware/session.ts`: a browser session cookie; a Keryx OAuth access token on `/mcp`; or a `hyp_cli_` bearer
+token from the `hypotenuse` CLI, which sets that person's `userId` in memory only. A CLI token is minted only after the
+person approves it on a dashboard page (`/cli/authorize`, `/cli/activate`), and those approvals refuse a CLI token, so
+one sign-in never mints another.
+
 A bot acts with **its own** authority — its installations, its allowlisted tools, its repository grants — not the
 authority of whoever is talking to it. A sandbox it starts carries a run token scoped to that job.
 

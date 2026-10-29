@@ -29,3 +29,10 @@ belong to another account. Changing your password does not sign you out where yo
 **Invites** lists every pending invitation addressed to your email — to an organization, or to a project inside one.
 Accept one to join; reject one to decline it, and the person who sent it sees that you did. An invitation expires
 after five days; ask for a new one if yours has.
+
+## CLI sign-ins
+
+**Account → CLI sign-ins** lists every `hypotenuse` command line signed in as you: the machine's name, the last four
+characters of its sign-in, when it signed in, when it was last used, and when it lapses. **Revoke** signs that
+machine out; its next command is refused and asks it to sign in again. See [Command line](/docs/cli).
+

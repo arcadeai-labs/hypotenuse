@@ -101,6 +101,10 @@ browser suite that boots the backend too.
 **[Phase 05](./phase-05-audit-logging.md) is built**: `audit_logs` with organization scope and an actor type (`user`,
 `participant`, `system`); `audit:list`, `organization:audit-list`, and the daily `audit:sweep`; the Audit log page for
 a project and an organization; and a registry walk that holds every writer to `AuditedAction` or the closed list.
+**[Phase 06](./phase-06-operator-cli.md) is built**: `hypotenuse` 2.0 over HTTP — browser sign-in by loopback + PKCE
+or device code onto `hyp_cli_` tokens (`cli_tokens`, `cli-auth:*`, `cli-token:*`, the principal hook), the
+`org`, `project`, `member`, `invite`, `tag`, and `audit` commands, `upgrade` with a major-version guard, Account → CLI
+sign-ins, the install scripts, `auto-release.yml`, and **CLI Upgrade** in the gate.
 No other phase is built; every later plan's **Learnings from the
 build** section reads "Not built yet." until its phase lands.
 
@@ -122,4 +126,5 @@ build** section reads "Not built yet." until its phase lands.
 | Organization owners | Admin standing in every project of the organization without joining it, flagged `viaOrganizationOwner` and in audit metadata; only owners create projects |
 | Audit actors | `user`, `participant` (a person on a platform, from the channel framework on), or `system` (sign-up's bootstrap rows); sign-up's own row is the new account's |
 | Audit retention | A year (`AUDIT_RETENTION_DAYS`), swept daily; rows are never edited |
+| CLI | `@arcadeai/hypotenuse` 2.0.0, an HTTP client only; sign-in through the dashboard onto `hyp_cli_` tokens (90-day sliding expiry); `upgrade` refuses to cross a major version without `--major` |
 | Last-admin guard | Counts the project's explicit `admin` tag holders, not owners: a project always keeps someone who administers it by being in it |

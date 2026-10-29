@@ -6,7 +6,7 @@
 > current with `hypotenuse upgrade`. Merging a version bump to `main` publishes npm and six compiled binaries in
 > one workflow.
 
-> **Status: planned, not built.** It builds on [phase 04](./phase-04-organizations-users-and-rbac.md) (the actions
+> **Status: built.** It builds on [phase 04](./phase-04-organizations-users-and-rbac.md) (the actions
 > it wraps) and [phase 05](./phase-05-audit-logging.md) (`audit:list`). Every later phase that adds an operator
 > action adds its command in the same commit (rule 13). This phase builds the shell and the release pipeline those
 > commands hang on.
@@ -243,14 +243,14 @@ bun run --cwd cli hypotenuse org list && bun run --cwd cli hypotenuse audit list
 
 ## Definition of done
 
-- [ ] `cli/` is mcpx's skeleton with no daemon code; `imports.test.ts` and `package.test.ts` pass
-- [ ] Sign-in by loopback + PKCE and by device code, onto `hyp_cli_` tokens; Account → CLI sign-ins revokes them
-- [ ] `org`, `project`, `member`, `invite`, `tag`, and `audit` commands, each with `--json` and paging
-- [ ] `upgrade` and `check-update`, with the major-version guard and an honest failure message
-- [ ] `auto-release.yml`, `install.sh`, and `install.ps1`; `test-upgrade.sh` runs in the gate as CLI Upgrade
+- [x] `cli/` is mcpx's skeleton with no daemon code; `imports.test.ts` and `package.test.ts` pass
+- [x] Sign-in by loopback + PKCE and by device code, onto `hyp_cli_` tokens; Account → CLI sign-ins revokes them
+- [x] `org`, `project`, `member`, `invite`, `tag`, and `audit` commands, each with `--json` and paging
+- [x] `upgrade` and `check-update`, with the major-version guard and an honest failure message
+- [x] `auto-release.yml`, `install.sh`, and `install.ps1`; `test-upgrade.sh` runs in the gate as CLI Upgrade
 - [ ] The first `2.0.0` release is published, and `0.x` is deprecated with a pointer to the `v1` branch. A person
       with npm access does this; record who
-- [ ] User docs `/docs/cli` and the agent skill are in step with `--help`
+- [x] User docs `/docs/cli` and the agent skill are in step with `--help`
 
 ## Open questions
 
@@ -267,4 +267,68 @@ bun run --cwd cli hypotenuse org list && bun run --cwd cli hypotenuse audit list
 
 ## Learnings from the build
 
-Not built yet.
+### What is built
+
+| Piece | Where |
+|---|---|
+| `cli_tokens` (sha256 and last four only), migration 0003 | `backend/schema/cli_tokens.ts`, `backend/drizzle/0003_*.sql` |
+| Codes in Redis by hash, minting, sliding expiry, serializer | `backend/ops/CliTokenOps.ts`, `backend/config/cliAuth.ts` |
+| `cli-auth:approve` / `activate` (audited, browser only), `cli-auth:device` / `exchange` (closed list), `cli-token:list` / `revoke` | `backend/actions/cli-auth/`, `backend/actions/cli-token/` |
+| The principal hook and `BrowserSessionMiddleware` | `backend/middleware/session.ts`, `backend/initializers/principal.ts` |
+| `/cli/authorize`, `/cli/activate`, Account → CLI sign-ins | `frontend/src/pages/cli/`, `frontend/src/components/account/CliSignInsCard.tsx` |
+| The CLI: early env, stderr logger, shutdown, client, credentials, sign-in flows, context | `cli/src/{cli,program,context,paths,shutdown}.ts`, `cli/src/output/`, `cli/src/api/` |
+| Commands | `cli/src/commands/{auth,org,project,member,invite,tag,audit,check-update,upgrade}.ts` |
+| upgradr wiring and the major-version guard | `cli/src/update/updater.ts`, `cli/src/commands/upgrade.ts` |
+| Packaging | `cli/package.json` (2.0.0, `files` ships `skills`, `README.md`, `LICENSE`), `cli/LICENSE`, `cli/README.md`, `cli/skills/hypotenuse.md` |
+| Release and install | `.github/workflows/auto-release.yml`, `install.sh`, `install.ps1`, `cli/test/e2e/test-upgrade.sh`, **CLI Upgrade** in `ci.yml` |
+| User docs | `frontend/src/content/docs/cli.md`, the CLI sign-ins section of `accounts.md` |
+| Proof | `backend/__tests__/cli/{login,cli,commands}.test.ts`, `backend/__tests__/deployment/release-workflow.test.ts`, `cli/__tests__/*`, `frontend/e2e/cli.spec.ts`, `frontend/src/__tests__/cli-link.test.ts` |
+
+### Departures from the plan
+
+| Plan | Built | Why |
+|---|---|---|
+| `cli-token:revoke` at `DELETE /cli-token/:tokenId` | `DELETE /cli-token`, `cliTokenId` optional in the body | v1's shape: with no id it revokes the calling token, which is what `logout` sends. A path parameter cannot be optional |
+| `login [--device]` | `--device` chooses the device-code flow; `--name <name>` names the machine | v1 used `--device <name>` for the name and `--no-browser` for the flow; the plan's flag name won, so the name moved |
+| The release's final step runs `npm deprecate` | Not in the workflow | Trusted publishing (OIDC) authorizes `npm publish` and nothing else; `npm deprecate` needs a person's npm credentials. It stays a DoD item for that person |
+| The major-version guard "is an upgradr option if it has one" | Our own check before `upgrade()` | upgradr 0.4.1 has no such option. `performUpgrade` calls `checkForUpdate`, compares majors (`crossesMajor`), and only then calls `upgrade`, which re-checks on its own. Nothing is forked. Asking upgradr for the option upstream is still open, for someone with access to its repository |
+| `-v` for verbose (v1) | `-v` is `--version`; verbose is `--verbose` only | The workspace's version test already pinned `-v, --version` |
+
+Commands beyond the plan's table, because each wraps a routed action and costs a few lines: `org edit`, `org delete`,
+`invite pending` (`invite:list-pending`), and `invite list --org` (`organization:invite-list`). An explicit `--org`
+widens `project list`, `invite list`, and `audit list` to the organization; a saved `org use` does not, so a listing
+never hides what a person can see.
+
+### Rule 13 decisions
+
+| Routed action | Command | Why |
+|---|---|---|
+| `cli-token:list` | none | The Account page's job |
+| `cli-token:revoke` | `logout` (own token only) | Revoking another machine is the Account page's job |
+| `cli-auth:*` | `login` drives them | Browser hops and sign-in ingress |
+| `notification:*` | none | The bell is a dashboard surface |
+| `user:edit`, `project:settings-view` | none | The Account and settings pages |
+| `me:view` | `whoami` | |
+| `user:create`, `session:*`, `status`, `health`, `swagger`, `actions:permissions` | none | Sign-up, browser sessions, and introspection |
+
+### Decisions the plan left open
+
+- **The principal hook writes no refusal of its own beyond the 401.** v1's also enforced the runner wall; 2.0 has no
+  runner, and the sandbox's run token will get its own middleware. A presented `hyp_cli_` token that does not
+  authenticate is refused even on a public action (`status`), so a stale CLI learns it is signed out.
+- **`cli-auth:approve` and `cli-auth:activate` are personal audit rows**: no project and no organization, so neither
+  `audit:list` nor `organization:audit-list` lists a CLI sign-in. `targetType: "cli-token"`, `targetPath` the device name.
+- **`credentials.json` drops v1's `runner` slot on load** (Zod strips unknown keys), so a v1 file keeps its sign-in
+  and project and gains `organization: null`. `logout` clears the sign-in and keeps both selections.
+- **`config.cliAuth.appUrl` is gone**: the dashboard origin is `config.frontend.url`, the same `FRONTEND_URL` every
+  other dashboard link uses.
+- **The version is `2.0.0`** in this change, so merging it releases. If the first release must wait for the npm
+  check below, hold the merge or set a pre-release version first.
+
+### Not verified here
+
+- **npm's trusted publisher for 2.0.** The package and its publisher exist from v1, so the first run should inherit
+  them; this was not checked from this change. The first run of `auto-release.yml` on `main` is the check — record
+  the outcome here.
+- `test-upgrade.sh` ran once in a disposable container before the PR (18 of 18). It installs globally, so elsewhere
+  it runs in CI only, as CLI Upgrade.

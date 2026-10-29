@@ -96,6 +96,21 @@ jobs:
       - run: bun run build
       - run: ./dist/hypotenuse --version
 
+  # Installs this branch three ways (npm, bun, compiled binary) and checks each
+  # reports its version and detects how it was installed. The release workflow
+  # runs the same script before it publishes anything.
+  cli-upgrade:
+    name: CLI Upgrade
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22.14.0"
+      - run: bun install --frozen-lockfile
+      - run: bash cli/test/e2e/test-upgrade.sh
+
   frontend-lint:
     name: Frontend Lint
     runs-on: ubuntu-latest
@@ -200,6 +215,7 @@ jobs:
         backend-test,
         backend-docker,
         cli,
+        cli-upgrade,
         frontend-lint,
         frontend-test,
         e2e,

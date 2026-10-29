@@ -1,6 +1,7 @@
 import type { UserEdit } from "@backend/actions/user-edit";
 import type { ActionResponse } from "keryx";
 import { type FormEvent, useEffect, useRef, useState } from "react";
+import { CliSignInsCard } from "../components/account/CliSignInsCard";
 import { LoadingLabel } from "../components/LoadingLabel";
 import { PageHeader } from "../components/shell/PageHeader";
 import { useAuth } from "../context/AuthContext";
@@ -9,7 +10,8 @@ import { MIN_PASSWORD_LENGTH } from "../utils/authForm";
 import { apiFetch } from "../utils/client";
 
 /**
- * `/account` — edit your own name, email, or password through `user:edit`.
+ * `/account` — edit your own name, email, or password through `user:edit`,
+ * and sign out the `hypotenuse` CLIs signed in as you.
  * Only the fields that changed are sent, so an untouched form never re-hashes
  * a password or trips the email-uniqueness check against yourself.
  *
@@ -154,6 +156,7 @@ export function AccountPage() {
           </Form>
         </Card.Body>
       </Card>
+      <CliSignInsCard />
     </div>
   );
 }
