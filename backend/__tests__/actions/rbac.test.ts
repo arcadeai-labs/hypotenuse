@@ -82,6 +82,14 @@ const EXPECTED_LEVELS: Record<string, RbacLevel> = {
   "notifications:sweep": "none",
   "invites:sweep": "none",
   "audit:sweep": "none",
+  // The CLI's sign-in: a person's own browser hops, its unauthenticated
+  // ingress, and their own sign-ins.
+  "cli-auth:approve": "none",
+  "cli-auth:activate": "none",
+  "cli-auth:device": "none",
+  "cli-auth:exchange": "none",
+  "cli-token:list": "none",
+  "cli-token:revoke": "none",
 };
 
 /**
@@ -108,6 +116,8 @@ const CLOCKS = [
 /** Every action published as an MCP tool for a person's client. */
 const EXPECTED_MCP_TOOLS = [
   "audit:list",
+  "cli-token:list",
+  "cli-token:revoke",
   "email-verification:resend",
   "invite:accept",
   "invite:create",

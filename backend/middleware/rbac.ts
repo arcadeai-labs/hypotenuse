@@ -14,7 +14,7 @@ import { type Organization, organizations } from "../schema/organizations";
 import type { ProjectMembership } from "../schema/project_memberships";
 import type { Project } from "../schema/projects";
 import type { Tag } from "../schema/tags";
-import type { SessionImpl } from "./session";
+import type { PrincipalMeta, SessionImpl } from "./session";
 
 /**
  * Well-known symbol tagging RBAC middleware with a machine-readable requirement
@@ -60,7 +60,7 @@ export type RbacRequirement = { type: RbacLevel };
  * `AuditedAction` uses to hand its audit row everything the row cannot infer
  * from the action's params.
  */
-export interface RbacConnectionMeta {
+export interface RbacConnectionMeta extends PrincipalMeta {
   project?: Project;
   /** The caller's explicit project membership; absent for an owner who never joined. */
   membership?: ProjectMembership;

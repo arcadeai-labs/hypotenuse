@@ -2,6 +2,7 @@ import type { ComponentType } from "react";
 import { StyleGuidePage } from "../../pages/StyleGuidePage";
 import accounts from "./accounts.md?raw";
 import audit from "./audit.md?raw";
+import cli from "./cli.md?raw";
 import gettingStarted from "./getting-started.md?raw";
 import members from "./members.md?raw";
 import organizations from "./organizations.md?raw";
@@ -34,6 +35,7 @@ export const DOCS_SECTIONS: DocsSection[] = [
   { slug: "members", title: "Members", markdown: members },
   { slug: "tags", title: "Tags", markdown: tags },
   { slug: "audit", title: "Audit log", markdown: audit },
+  { slug: "cli", title: "Command line", markdown: cli },
   {
     slug: "style-guide",
     title: "Style guide",

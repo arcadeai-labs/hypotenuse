@@ -1,0 +1,191 @@
+name: Auto Release
+
+# Version-driven, like mcpx: merging a bump of `cli/package.json` `version` to
+# `main` releases it — npm and six compiled binaries from one version, or
+# neither. Merging without a bump releases nothing.
+#
+# The first 2.0 release inherits the trusted publisher v1 configured on
+# npmjs.com for this repository and this file; deprecating `0.x` is a person's
+# `npm deprecate`, because trusted publishing grants `publish` and nothing else.
+#
+# Unlike mcpx, CI runs *before* anything is published, and the GitHub release is
+# a draft until both publish jobs succeed. A failed run leaves a draft that the
+# next run of the same version resumes instead of skipping. This workflow sits
+# outside ci.yml's gate on purpose: a publish is not a check, and a push-only
+# job inside the gate would report `skipped` on every pull request.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Two merges in a row must not race to publish the same version.
+concurrency:
+  group: auto-release
+  cancel-in-progress: false
+
+jobs:
+  check-version:
+    name: Check Version
+    runs-on: ubuntu-latest
+    outputs:
+      should_release: ${{ steps.check.outputs.should_release }}
+      tag: ${{ steps.version.outputs.tag }}
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: Read the version from cli/package.json
+        id: version
+        run: |
+          VERSION=$(jq -r .version cli/package.json)
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+      # Release unless a *published* release with this tag exists. A draft is
+      # an unfinished run of this workflow, and is resumed.
+      - name: Is this version already released?
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          if IS_DRAFT=$(gh release view "$TAG" --json isDraft --jq .isDraft 2>/dev/null) && [ "$IS_DRAFT" = "false" ]; then
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "should_release=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  ci:
+    name: Release CI
+    needs: check-version
+    if: needs.check-version.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22.14.0"
+      - run: bun install --frozen-lockfile
+      - run: bun run lint
+      - run: bun run --cwd cli test
+      - run: bash cli/test/e2e/test-upgrade.sh
+
+  create-release:
+    name: Create Draft Release
+    needs: [check-version, ci]
+    if: needs.check-version.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+      # A resumed draft is pointed at this commit, so its notes, source archive,
+      # and tag describe the code the artifacts are built from. Once npm holds
+      # this version, though, it was built from the draft's commit, and nothing
+      # rebuilt here could match it: that needs a new version, not a resume.
+      - name: Create the draft (or reuse an unfinished one)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.check-version.outputs.tag }}
+          VERSION: ${{ needs.check-version.outputs.version }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            TARGET=$(gh release view "$TAG" --json targetCommitish --jq .targetCommitish)
+            if [ "$TARGET" != "$GITHUB_SHA" ]; then
+              if npm view "@arcadeai/hypotenuse@$VERSION" version >/dev/null 2>&1; then
+                echo "::error::@arcadeai/hypotenuse@$VERSION is already on npm from $TARGET; bump the version to release $GITHUB_SHA"
+                exit 1
+              fi
+              gh release edit "$TAG" --target "$GITHUB_SHA"
+            fi
+            echo "Resuming the draft release $TAG at $GITHUB_SHA"
+          else
+            gh release create "$TAG" --draft --title "$TAG" --generate-notes --target "$GITHUB_SHA"
+          fi
+
+  publish-npm:
+    name: Publish to npm
+    needs: [check-version, create-release]
+    if: needs.check-version.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    # npm trusted publishing (OIDC): no NPM_TOKEN. The trusted publisher is
+    # configured once on npmjs.com for this repository and this workflow file.
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22.14.0"
+      - run: npm install -g npm@^11.5.1
+      - run: bun install --frozen-lockfile
+      # A version already on the registry is a resumed run, not a failure.
+      - name: Publish (prepack bundles dist/hypotenuse.js)
+        working-directory: cli
+        env:
+          VERSION: ${{ needs.check-version.outputs.version }}
+        run: |
+          if npm view "@arcadeai/hypotenuse@$VERSION" version >/dev/null 2>&1; then
+            echo "@arcadeai/hypotenuse@$VERSION is already published"
+          else
+            npm publish --provenance --access public
+          fi
+
+  build-binaries:
+    name: Build ${{ matrix.asset }}
+    needs: [check-version, create-release]
+    if: needs.check-version.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: bun-darwin-arm64
+            asset: hypotenuse-darwin-arm64
+          - target: bun-darwin-x64
+            asset: hypotenuse-darwin-x64
+          - target: bun-linux-arm64
+            asset: hypotenuse-linux-arm64
+          - target: bun-linux-x64
+            asset: hypotenuse-linux-x64
+          - target: bun-windows-x64
+            asset: hypotenuse-windows-x64.exe
+          - target: bun-windows-arm64
+            asset: hypotenuse-windows-arm64.exe
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - name: Compile
+        run: |
+          bun build --compile --minify --sourcemap \
+            --target=${{ matrix.target }} \
+            ./cli/src/cli.ts \
+            --outfile dist/${{ matrix.asset }}
+      - name: Upload to the draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.check-version.outputs.tag }}
+        run: gh release upload "$TAG" "dist/${{ matrix.asset }}" --clobber
+
+  finalize:
+    name: Publish Release
+    needs: [check-version, publish-npm, build-binaries]
+    if: needs.check-version.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+      - name: Un-draft
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.check-version.outputs.tag }}
+        run: gh release edit "$TAG" --draft=false --latest

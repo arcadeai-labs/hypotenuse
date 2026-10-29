@@ -15,6 +15,8 @@ import { NotificationProvider } from "./context/NotificationContext";
 import { StandingProvider } from "./context/StandingContext";
 import { AccountPage } from "./pages/AccountPage";
 import { AuditLogPage } from "./pages/AuditLogPage";
+import { CliActivatePage } from "./pages/cli/CliActivatePage";
+import { CliAuthorizePage } from "./pages/cli/CliAuthorizePage";
 import { DocsLayout } from "./pages/docs/DocsLayout";
 import { DocsPage } from "./pages/docs/DocsPage";
 import { InvitesPage } from "./pages/InvitesPage";
@@ -71,6 +73,12 @@ export function App() {
                 <Route path="/status" element={<StatusPage />} />
               </Route>
               <Route element={<ProtectedRoute />}>
+                {/* Approving a CLI is a focused, one-decision page: the public
+                    frame, not the app shell, but behind sign-in. */}
+                <Route element={<PublicShell />}>
+                  <Route path="/cli/authorize" element={<CliAuthorizePage />} />
+                  <Route path="/cli/activate" element={<CliActivatePage />} />
+                </Route>
                 <Route element={<AppShell />}>
                   <Route path="/account" element={<AccountPage />} />
                   <Route path="/invites" element={<InvitesPage />} />

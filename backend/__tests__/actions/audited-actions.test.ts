@@ -30,6 +30,7 @@ const READS = new Set([
   "notification:list",
   "notification:unread-count",
   "audit:list",
+  "cli-token:list",
 ]);
 
 /**
@@ -42,6 +43,10 @@ const UNAUDITED_WRITERS = new Set([
   // Login churn belongs in logs and metrics.
   "session:create",
   "session:destroy",
+  // The CLI's sign-in ingress: the person's decision was the audited
+  // approve or activate; these redeem it.
+  "cli-auth:device",
+  "cli-auth:exchange",
   // A per-person reading habit, recorded on the notification itself.
   "notification:mark-read",
   // Clocks and sweeps: the clock acting, not a person.
