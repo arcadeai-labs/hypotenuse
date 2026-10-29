@@ -514,11 +514,45 @@ where they failed on the first round:
 
 Still open:
 
-- **Invite acceptance trusts an unverified email.** `user:edit` changes an email with no confirmation, and sign-up
-  takes any address, so whoever first claims an address can accept invites sent to it. This is ToolExec's model, and
-  closing it means verifying addresses (or binding acceptance to a mailed token) — a decision, not a patch.
 - **A socket stays subscribed to `project:<id>:notifications` after its person is removed.** Frames are content-free,
   so this leaks only timing; Keryx re-checks a channel only at subscribe.
+
+### Email verification
+
+The review's one finding that was a decision rather than a patch: invites are addressed by email, and sign-up and
+`user:edit` took any address, so whoever claimed an address first could accept what was sent to it — ToolExec's model.
+The decision was to verify addresses.
+
+- **`users.emailVerifiedAt` and `users.pendingEmail`.** Sign-up starts unconfirmed. A change of address goes to
+  `pendingEmail` and `email` changes only on confirmation, so switching to somebody's address takes nothing from them
+  — and the address is checked for a taker again at confirmation, since the real owner may have signed up meanwhile.
+  Asking for your current address back withdraws the change and spends nothing; the stale link then matches neither
+  column and is refused.
+- **`email_verifications` stores a SHA-256 of a 32-byte token**, never the token, with the address it proves. A link
+  works once and only for that address; confirming spends every outstanding link for the same person and address.
+  Used, expired, unknown, and stale tokens get one refusal, so a token cannot be probed.
+- **The token reaches the mail and nothing else.** `runWithAudit` returns the response, so the token travels to
+  `afterCommit` in `connection.metadata.afterCommitData` (reset per run like the audit snapshots), and
+  `sendVerificationAfterCommit` mails it once the row has committed. The verification mail goes straight to the
+  transport rather than through `notifications`, which is per project and per recipient — an address being proven
+  belongs to no project.
+- **`email-verification:confirm` is never an MCP tool** (a model holding the token would confirm an address nobody
+  read), needs no session (the link is opened anywhere), and the `/verify-email` page confirms on a **button**, not
+  on load, because mail scanners fetch every URL in a message and would spend the link first.
+  `email-verification:resend` is a session action and an MCP tool, with a one-minute cooldown read from the newest
+  unspent link's `createdAt`.
+- **Invites refuse an unconfirmed caller before the invite is read.** `invite:accept` and `invite:reject` answer 403
+  whether or not the id exists, and `invite:list-pending` pages nothing and says `emailVerified: false`, so the
+  Invites page explains instead of claiming nothing was sent.
+- **Changing the email or the password needs `currentPassword`**, which joins `SENSITIVE_KEYS`.
+- **Existing accounts start unconfirmed.** The migration backfills nothing — an address claimed before this shipped is
+  exactly the claim it exists to doubt — so a person who signed up earlier sends themselves a link from the banner.
+- **Seeding confirms through the real endpoint.** `createUserAndLogin` mints a link in process and posts it to
+  `email-verification:confirm`, since a seeded person's mail is not what most suites test; `email-verification.test.ts`
+  reads every link out of a message the real nodemailer transport delivered to the fake SMTP server, with
+  `verificationTokenIn` undoing the quoted-printable body. The browser suite runs that same fake server beside its
+  backend (SMTP on the backend port + 1000, an HTTP inbox on + 1001), and `signUpApi` confirms from the real mail.
+- **The CLI has nothing to wrap yet**: it has no account or invite commands, and confirming is a browser hop.
 
 ### Traps found while building
 

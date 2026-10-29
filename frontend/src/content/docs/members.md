@@ -12,8 +12,9 @@ Who you can add depends on whether they are already in the project's organizatio
 | is a member of the organization | an admin adds them by email, at once |
 | is not in the organization, or has no account yet | an admin **invites** them by email, optionally with tags; accepting joins them to the organization and the project |
 
-An invitation appears under **Invites** for the person it is addressed to, the next time they sign in — or the moment
-they sign up, if they had no account. It expires after five days. Pending invitations are listed under the members.
+An invitation appears under **Invites** for the person it is addressed to, the next time they sign in — or as soon as
+they sign up and confirm their email, if they had no account. Nobody can see or accept one until they have confirmed
+the address it was sent to, so an invitation cannot be taken by someone who signed up with that address first. It expires after five days. Pending invitations are listed under the members.
 
 ## Tags
 

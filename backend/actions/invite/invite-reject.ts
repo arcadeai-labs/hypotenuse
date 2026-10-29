@@ -13,6 +13,7 @@ import {
   type TxHandle,
 } from "../../classes/AuditedAction";
 import { SessionMiddleware } from "../../middleware/session";
+import { assertEmailVerified } from "../../ops/EmailVerificationOps";
 import { idInput } from "../../ops/InputOps";
 import { INVITE_STATUS, isExpired, serializeInvite } from "../../ops/InviteOps";
 import { getUserById } from "../../ops/UserOps";
@@ -40,7 +41,8 @@ export class InviteReject extends AuditedAction {
    * @param params - The validated inputs.
    * @param connection - The invitee's connection.
    * @returns The rejected invite.
-   * @throws {TypedError} 404 for an invite that is not the caller's; 406 when it
+   * @throws {TypedError} 403 while the caller's address is unconfirmed; 404
+   *   for an invite that is not the caller's; 406 when it
    *   is no longer pending or has expired.
    */
   async runWithAudit(
@@ -49,6 +51,9 @@ export class InviteReject extends AuditedAction {
     connection: AuditedConnection,
   ) {
     const user = await getUserById(connection.session!.data.userId!, tx);
+    // Before the invite is even looked at, so an unconfirmed address learns
+    // nothing about which invites exist.
+    if (user) assertEmailVerified(user);
     const [invite] = await tx
       .select()
       .from(projectInvites)

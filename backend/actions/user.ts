@@ -14,6 +14,11 @@ import {
   type TxHandle,
 } from "../classes/AuditedAction";
 import { writeAuditLog } from "../ops/AuditOps";
+import {
+  issueVerification,
+  sendVerificationAfterCommit,
+  type VerificationMail,
+} from "../ops/EmailVerificationOps";
 import { emailInput, nameInput } from "../ops/InputOps";
 import { serializeMembership } from "../ops/MembershipOps";
 import {
@@ -25,7 +30,7 @@ import {
   DEFAULT_PROJECT_NAME,
   serializeProject,
 } from "../ops/ProjectOps";
-import { hashPassword, serializeUser } from "../ops/UserOps";
+import { hashPassword, serializeSelf } from "../ops/UserOps";
 import { users } from "../schema/users";
 
 /**
@@ -37,6 +42,10 @@ import { users } from "../schema/users";
  * organization named after them with them as its owner, its first project
  * ("Default"), the project's reserved `admin` tag, and their admin grant. A
  * partial bootstrap would leave a tenant nobody can administer.
+ *
+ * The address starts unconfirmed: a link is mailed to it once the account
+ * commits, and until it is followed the person cannot see or accept the
+ * invitations addressed to it.
  */
 export class UserCreate extends AuditedAction {
   name = "user:create";
@@ -99,7 +108,16 @@ export class UserCreate extends AuditedAction {
       DEFAULT_PROJECT_NAME,
     );
 
-    const serializedUser = serializeUser(user);
+    connection.metadata.afterCommitData = {
+      verificationMail: {
+        to: user.email,
+        name: user.name,
+        token: await issueVerification(tx, user.id, user.email),
+        kind: "sign-up",
+      } satisfies VerificationMail,
+    };
+
+    const serializedUser = serializeSelf(user);
     const serializedOrganization = serializeOrganization(organization);
     const serializedProject = serializeProject(project);
 
@@ -150,5 +168,19 @@ export class UserCreate extends AuditedAction {
       project: serializedProject,
       membership: serializeMembership(membership),
     };
+  }
+
+  /**
+   * Mail the confirmation link, once the account and its token are committed.
+   * @param _result - The response.
+   * @param _params - The sign-up inputs.
+   * @param connection - Carries the link in `afterCommitData`.
+   */
+  async afterCommit(
+    _result: unknown,
+    _params: ActionParams<UserCreate>,
+    connection: AuditedConnection,
+  ) {
+    await sendVerificationAfterCommit(connection.metadata.afterCommitData);
   }
 }

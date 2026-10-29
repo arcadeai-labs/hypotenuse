@@ -30,6 +30,7 @@ import type { DbHandle } from "./DbOps";
  */
 export const SENSITIVE_KEYS = [
   "password",
+  "currentPassword",
   "passwordHash",
   "password_hash",
   "secret",

@@ -32,6 +32,16 @@ export const FRONTEND_URL = `http://localhost:${FRONTEND_PORT}`;
 export const BACKEND_URL = `http://localhost:${BACKEND_PORT}`;
 
 /**
+ * The suite's mail catcher, which `scripts/e2e-backend.ts` runs beside the
+ * backend: an SMTP server the backend sends through, and an HTTP inbox a spec
+ * reads verification links from. Offset from the backend's port, so a second
+ * checkout with its own e2e ports gets its own mailbox too.
+ */
+export const MAIL_SMTP_PORT = BACKEND_PORT + 1000;
+export const MAIL_INBOX_PORT = BACKEND_PORT + 1001;
+export const MAIL_INBOX_URL = `http://127.0.0.1:${MAIL_INBOX_PORT}`;
+
+/**
  * Point a Postgres URL at another database on the same server, keeping its
  * credentials and host.
  * @param url - A `postgres://` URL.
@@ -72,6 +82,10 @@ export const BACKEND_ENV: Record<string, string> = {
   WEB_SERVER_ALLOWED_ORIGINS: FRONTEND_URL,
   APPLICATION_URL: BACKEND_URL,
   FRONTEND_URL,
+  // Mail goes to the catcher, so a spec can follow a verification link.
+  SMTP_HOST: "127.0.0.1",
+  SMTP_PORT: String(MAIL_SMTP_PORT),
+  E2E_MAIL_INBOX_PORT: String(MAIL_INBOX_PORT),
   // Every spec signs up through one IP; the limiter is not what is under test.
   RATE_LIMIT_ENABLED: "false",
   // No clocks or queue workers: nothing a spec checks waits on a task.

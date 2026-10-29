@@ -35,9 +35,11 @@ interface SessionState {
  * `RSET`, `NOOP`, `QUIT`. No TLS and no auth are advertised, so a client never
  * upgrades. The mail server is not ours, so it is faked in process over its real
  * wire protocol — the real nodemailer transport runs against it.
+ * @param port - The loopback port to bind; a free one by default. The browser
+ *   suite's backend is another process, so it is pointed at a fixed one.
  * @returns The server, with what it received.
  */
-export function startFakeSmtpServer(): FakeSmtpServer {
+export function startFakeSmtpServer(port = 0): FakeSmtpServer {
   const server: FakeSmtpServer = {
     port: 0,
     received: [],
@@ -113,7 +115,7 @@ export function startFakeSmtpServer(): FakeSmtpServer {
 
   const listener: TCPSocketListener<SessionState> = Bun.listen<SessionState>({
     hostname: "127.0.0.1",
-    port: 0,
+    port,
     socket: {
       open(socket) {
         socket.data = { buffer: "", inData: false, from: "", to: [], data: [] };
@@ -133,4 +135,19 @@ export function startFakeSmtpServer(): FakeSmtpServer {
   });
   server.port = listener.port;
   return server;
+}
+
+/**
+ * The token in an email-verification message. The body is quoted-printable, so
+ * soft line breaks and `=XX` escapes are undone before the link is read.
+ * @param mail - A received message.
+ * @returns The token from its `/verify-email?token=` link, if it has one.
+ */
+export function verificationTokenIn(mail: ReceivedMail): string | undefined {
+  const decoded = mail.data
+    .replace(/=\r?\n/g, "")
+    .replace(/=([0-9A-F]{2})/g, (_, hex: string) =>
+      String.fromCharCode(Number.parseInt(hex, 16)),
+    );
+  return /\/verify-email\?token=([A-Za-z0-9_-]+)/.exec(decoded)?.[1];
 }

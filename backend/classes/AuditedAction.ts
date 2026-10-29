@@ -129,6 +129,7 @@ export abstract class AuditedAction implements Action {
     connection.metadata.auditTargetType = undefined;
     connection.metadata.auditTargetPath = undefined;
     connection.metadata.refuseAfterCommit = undefined;
+    connection.metadata.afterCommitData = undefined;
 
     try {
       const result = await api.db.db.transaction(async (tx) => {
