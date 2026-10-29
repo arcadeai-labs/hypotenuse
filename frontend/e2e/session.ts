@@ -1,5 +1,5 @@
 import { type APIRequestContext, expect, type Page } from "@playwright/test";
-import { BACKEND_URL } from "./env.ts";
+import { BACKEND_URL, MAIL_INBOX_URL } from "./env.ts";
 
 /**
  * Helpers every signed-in spec shares. The specs share one backend and never
@@ -61,24 +61,58 @@ export async function api<T = Record<string, unknown>>(
 }
 
 /**
+ * The token from the newest verification mail the backend sent an address,
+ * read from the suite's mail catcher.
+ * @param email - The recipient.
+ * @returns The token.
+ * @throws {Error} If no verification mail reached that address.
+ */
+export async function verificationToken(email: string): Promise<string> {
+  const res = await fetch(
+    `${MAIL_INBOX_URL}/verification-token?to=${encodeURIComponent(email)}`,
+  );
+  const { token } = (await res.json()) as { token: string | null };
+  if (!token) throw new Error(`No verification mail reached ${email}`);
+  return token;
+}
+
+/**
+ * Confirm an address by following the link mailed to it, through the API.
+ * @param request - Any request context; the token is the proof.
+ * @param email - The address (a sign-up address or a pending new one).
+ */
+export async function verifyEmail(
+  request: APIRequestContext,
+  email: string,
+): Promise<void> {
+  await api(request, "POST", "/email-verification/confirm", {
+    token: await verificationToken(email),
+  });
+}
+
+/**
  * Create an account and sign it in on a request context — the page's, so the
  * browser is signed in too. Faster than the form, for specs about something
- * else; `auth.spec.ts` drives the form itself.
+ * else; `auth.spec.ts` drives the form itself. The address is confirmed from
+ * its real mail unless `verified: false` asks otherwise.
  * @param request - `page.request`, or another context's.
  * @param name - The display name.
  * @param email - The address; a fresh one by default.
+ * @param options - `verified: false` leaves the address unconfirmed.
  * @returns What sign-up created.
  */
 export async function signUpApi(
   request: APIRequestContext,
   name: string,
   email: string = uniqueEmail("user"),
+  options: { verified?: boolean } = {},
 ): Promise<SignedUp> {
   const created = await api<Omit<SignedUp, "email">>(request, "PUT", "/user", {
     name,
     email,
     password: PASSWORD,
   });
+  if (options.verified !== false) await verifyEmail(request, email);
   await api(request, "PUT", "/session", { email, password: PASSWORD });
   return { email, ...created };
 }

@@ -85,8 +85,9 @@ These bind from the first line of code. A rule that names a thing not built yet 
 8. **Human MCP ≈ HTTP.** Almost every action with a `web.route` is published as an MCP tool for human OAuth
    clients. `applyMcpToolPolicy` / `shouldPublishAsMcpTool` in `backend/ops/McpToolPolicyOps.ts` is the source of
    truth, and `rbac.test.ts` asserts every action's live flag equals it. **Never MCP:** login/signup, browser hops
-   (OAuth callbacks, app installs), `webhooks:*`, `sandbox:*` machine actions and `sandbox:git-credential`,
-   proxies, unauthenticated introspection, clocks (`task.frequency > 0`), and anything with no `web.route`.
+   (OAuth callbacks, app installs, the email-confirmation link), `webhooks:*`, `sandbox:*` machine actions and
+   `sandbox:git-credential`, proxies, unauthenticated introspection, clocks (`task.frequency > 0`), and anything with
+   no `web.route`.
 9. **The platform's permissions decide who may talk to a bot; the project's RBAC decides who may run it.** Anyone
    who can post in a Slack channel, comment on a Linear issue, or write on a Pylon ticket where a bot is bound may
    address that bot about that place — Hypotenuse adds no second gate and links no identities. Configuring a bot,
