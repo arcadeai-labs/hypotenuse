@@ -80,6 +80,7 @@ const blueprintSchema = z.strictObject({
       z.strictObject({
         type: z.literal("web"),
         healthCheckPath: z.string(),
+        preDeployCommand: z.string().optional(),
         domains: z.array(z.string()).min(1),
         ...dockerService,
       }),
@@ -176,12 +177,30 @@ describe("render.yaml", () => {
     }
   });
 
-  test("exactly one service migrates, and it is the worker", () => {
-    const migrators = BACKENDS.filter(
-      (n) => valueOf(n, "DATABASE_AUTO_MIGRATE") === "true",
+  test("migrations run once per deploy, in the API's pre-deploy, and nowhere else", () => {
+    // The pre-deploy runs before the new instance is health-checked, so the
+    // column /api/health probes is in place without waiting on the worker.
+    const api = service("hypotenuse-api");
+    expect("preDeployCommand" in api && api.preDeployCommand).toBe(
+      "bun scripts/migrate.ts",
     );
-    expect(migrators).toEqual(["hypotenuse-worker"]);
-    expect(valueOf("hypotenuse-api", "DATABASE_AUTO_MIGRATE")).toBe("false");
+    for (const s of blueprint.services) {
+      if (s.name !== "hypotenuse-api") {
+        expect("preDeployCommand" in s && s.preDeployCommand).toBeFalsy();
+      }
+    }
+    // Neither long-running process migrates at boot, so nothing races it.
+    for (const name of BACKENDS) {
+      expect(valueOf(name, "DATABASE_AUTO_MIGRATE")).toBe("false");
+    }
+  });
+
+  test("the pre-deploy command names a script the image carries", () => {
+    // The image's WORKDIR is /app/backend, and it copies all of backend/.
+    expect(readRepoFile("backend/Dockerfile")).toContain(
+      "WORKDIR /app/backend",
+    );
+    expect(() => readRepoFile("backend/scripts/migrate.ts")).not.toThrow();
   });
 
   test("only the worker runs tasks", () => {
