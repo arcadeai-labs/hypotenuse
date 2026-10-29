@@ -88,6 +88,10 @@ export const BACKEND_ENV: Record<string, string> = {
   E2E_MAIL_INBOX_PORT: String(MAIL_INBOX_PORT),
   // Every spec signs up through one IP; the limiter is not what is under test.
   RATE_LIMIT_ENABLED: "false",
+  // A model connection's base URL may be loopback, so `models.spec.ts` can
+  // point one at a closed local port and see the test fail fast and offline.
+  // Never set in a deployment: it lifts the SSRF guard.
+  NETWORK_ALLOW_PRIVATE_HOSTS: "true",
   // No clocks or queue workers: nothing a spec checks waits on a task.
   TASK_PROCESSORS: "0",
   PROCESS_NAME: "hypotenuse-e2e",

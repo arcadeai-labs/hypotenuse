@@ -197,6 +197,142 @@
   gap: var(--space-2);
 }
 
+// The bots list and the bot page, as the dashboard draws them from real rows.
+
+.bots-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+
+  > .ui-alert {
+    margin: 0 var(--space-5);
+  }
+}
+
+.bot-row-title {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.bot-row-description {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-secondary);
+}
+
+.bot-page-title {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-1);
+}
+
+.bot-page-sections {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+
+  > .ui-alert,
+  > .ui-card {
+    margin: 0 !important;
+  }
+}
+
+// A second line under a property's value: what a model name points at.
+.bot-property-detail {
+  display: block;
+}
+
+.bot-avatar-field {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  margin-bottom: var(--space-4);
+}
+
+.bot-avatar-controls {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.bot-identity-fields,
+.bot-model-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3) var(--space-4);
+
+  @media (max-width: 767.98px) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.bot-access-fields {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.persona-editor {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.persona-editor-tabs {
+  display: flex;
+  gap: var(--space-1);
+}
+
+.persona-input {
+  min-height: 200px;
+  line-height: var(--leading);
+  resize: vertical;
+}
+
+.persona-preview {
+  min-height: 200px;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  background: var(--bg-sunken);
+}
+
+// What the page does not configure yet: disabled, never absent.
+.bot-unavailable-sections {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: var(--space-3);
+}
+
+.bot-unavailable {
+  padding: var(--space-3) var(--space-4);
+  border: 1px dashed var(--border-default);
+  border-radius: var(--radius-lg);
+  color: var(--text-disabled);
+  cursor: not-allowed;
+}
+
+.bot-unavailable-title {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+}
+
+.bot-unavailable-status {
+  margin: 0;
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+  font-weight: 500;
+}
+
+.bot-unavailable-purpose {
+  margin: var(--space-2) 0 0;
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+}
+
 // ---------------------------------------------------------------------------
 // Memory explorer: scope, then document, then versions
 // ---------------------------------------------------------------------------

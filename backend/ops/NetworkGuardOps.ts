@@ -282,7 +282,9 @@ export async function guardedFetch(
         const noBody = status === 204 || status === 304 || method === "HEAD";
         resolvePromise(
           new Response(
-            noBody ? null : (Readable.toWeb(res) as ReadableStream<Uint8Array>),
+            noBody
+              ? null
+              : (Readable.toWeb(res) as unknown as ReadableStream<Uint8Array>),
             {
               status,
               statusText: res.statusMessage,

@@ -17,6 +17,7 @@ export interface SettingsSection {
  */
 export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
   { slug: "general", label: "General", group: "Project" },
+  { slug: "models", label: "Models", group: "Project" },
   { slug: "members", label: "Members", group: "People" },
   { slug: "tags", label: "Tags", group: "People" },
   { slug: "danger", label: "Danger zone", group: "Irreversible" },

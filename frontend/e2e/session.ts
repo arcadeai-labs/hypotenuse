@@ -144,3 +144,60 @@ export async function openSettings(page: Page, slug: string): Promise<void> {
   await expect(page.getByTestId("settings-section-nav")).toBeVisible(LANDED);
   await expect(page.getByTestId("settings-loading")).toHaveCount(0, LANDED);
 }
+
+/**
+ * Bring a second person into a project, the way an invite does: the admin
+ * invites the address, the person signs up on their own request context and
+ * accepts. They join holding no tags.
+ * @param adminRequest - The admin's request context.
+ * @param admin - What the admin's sign-up made.
+ * @param memberRequest - The new person's request context (a page's, to sign the browser in).
+ * @param name - The new person's display name.
+ * @returns What the new person's sign-up made.
+ */
+export async function addMember(
+  adminRequest: APIRequestContext,
+  admin: SignedUp,
+  memberRequest: APIRequestContext,
+  name: string,
+): Promise<SignedUp> {
+  const email = uniqueEmail("member");
+  await api(
+    adminRequest,
+    "PUT",
+    `/organization/${admin.organization.id}/invite`,
+    {
+      projectId: admin.project.id,
+      inviteeEmail: email,
+    },
+  );
+  const member = await signUpApi(memberRequest, name, email);
+  const invites = await api<{ invites: Array<{ id: number }> }>(
+    memberRequest,
+    "GET",
+    "/invites/pending",
+  );
+  await api(memberRequest, "POST", `/invite/${invites.invites[0]?.id}/accept`);
+  return member;
+}
+
+/**
+ * Make a tenant the page's active organization and project from its next
+ * load on, as choosing it in the switchers would. A person who joined
+ * someone else's project still has their own from sign-up, and which one a
+ * fresh browser opens is not what a spec is about.
+ * @param page - The page.
+ * @param tenant - The organization and project to open.
+ */
+export async function openTenant(
+  page: Page,
+  tenant: Pick<SignedUp, "organization" | "project">,
+): Promise<void> {
+  await page.addInitScript(
+    ([organizationId, projectId]) => {
+      localStorage.setItem("hypotenuse.activeOrganizationId", organizationId);
+      localStorage.setItem("hypotenuse.activeProjectId", projectId);
+    },
+    [String(tenant.organization.id), String(tenant.project.id)],
+  );
+}

@@ -73,6 +73,28 @@ export const COMMANDS: Command[] = [
     run: (c) => c.navigate("/settings/members#invite"),
   },
   {
+    id: "new-bot",
+    title: "New bot",
+    group: "Project",
+    keywords: ["create", "add", "persona", "agent"],
+    requires: ["bot:create"],
+    run: (c) => c.navigate("/bots/new"),
+  },
+  {
+    id: "open-model-settings",
+    title: "Open model settings",
+    group: "Project",
+    keywords: [
+      "models",
+      "provider",
+      "api key",
+      "connection",
+      "default",
+      "fast",
+    ],
+    run: (c) => c.navigate("/settings/models"),
+  },
+  {
     id: "new-project",
     title: "New project",
     group: "Project",
