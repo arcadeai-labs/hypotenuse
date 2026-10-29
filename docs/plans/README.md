@@ -98,6 +98,9 @@ organization and project switchers, the public site, `/docs` with the style guid
 project; organizations, projects, memberships, invites, tags, and notifications; five RBAC levels with owners' admin
 standing in every project; `AccessOps`; `AuditedAction` on every write; the settings and organization pages; and a
 browser suite that boots the backend too.
+**[Phase 05](./phase-05-audit-logging.md) is built**: `audit_logs` with organization scope and an actor type (`user`,
+`participant`, `system`); `audit:list`, `organization:audit-list`, and the daily `audit:sweep`; the Audit log page for
+a project and an organization; and a registry walk that holds every writer to `AuditedAction` or the closed list.
 No other phase is built; every later plan's **Learnings from the
 build** section reads "Not built yet." until its phase lands.
 
@@ -117,4 +120,6 @@ build** section reads "Not built yet." until its phase lands.
 | Code mode | QuickJS compiled to WebAssembly inside the worker; no network, filesystem, or timers; host API of memory and MCP |
 | Agent loop | Durable Keryx tasks; every message, intent, and result in Postgres; one tick at a time per conversation |
 | Organization owners | Admin standing in every project of the organization without joining it, flagged `viaOrganizationOwner` and in audit metadata; only owners create projects |
+| Audit actors | `user`, `participant` (a person on a platform, from the channel framework on), or `system` (sign-up's bootstrap rows); sign-up's own row is the new account's |
+| Audit retention | A year (`AUDIT_RETENTION_DAYS`), swept daily; rows are never edited |
 | Last-admin guard | Counts the project's explicit `admin` tag holders, not owners: a project always keeps someone who administers it by being in it |

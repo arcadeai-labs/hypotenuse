@@ -1,5 +1,6 @@
 import { ChevronsUpDown } from "lucide-react";
 import { Dropdown } from "../../ui";
+import { MenuLinkItem } from "./MenuLinkItem";
 import type { ShellProject } from "./shellData";
 
 /** See {@link ProjectSwitcher}. */
@@ -8,13 +9,17 @@ export interface ProjectSwitcherProps {
   activeProjectId: number | null;
   /** Make a project active. */
   onSelect: (projectId: number) => void;
+  /** Why the project's audit log is refused, or `undefined` when it is offered. */
+  auditLogDenied?: string;
   /** Called after a choice (the mobile sheet closes on it). */
   onNavigate?: () => void;
 }
 
 /**
  * The sidebar's project switcher: every project of the active organization
- * the person can see — the ones they belong to, or all of them for an owner.
+ * the person can see — the ones they belong to, or all of them for an owner —
+ * then the active project's audit log, an admin's, drawn disabled with the
+ * reason for everyone else.
  * @param props - See {@link ProjectSwitcherProps}.
  * @returns The switcher.
  */
@@ -22,6 +27,7 @@ export function ProjectSwitcher({
   projects,
   activeProjectId,
   onSelect,
+  auditLogDenied,
   onNavigate,
 }: ProjectSwitcherProps) {
   const active = projects.find((p) => p.id === activeProjectId);
@@ -58,6 +64,14 @@ export function ProjectSwitcher({
             No projects you can see
           </Dropdown.Item>
         )}
+        <Dropdown.Divider />
+        <MenuLinkItem
+          to="/audit"
+          label="Audit log"
+          testId="project-audit-link"
+          deniedReason={active ? auditLogDenied : "No project selected"}
+          onNavigate={onNavigate}
+        />
       </Dropdown.Menu>
     </Dropdown>
   );

@@ -36,4 +36,5 @@ export const ORGANIZATION_SECTIONS = [
   { slug: "projects", label: "Projects", group: "Organization" },
   { slug: "members", label: "Members", group: "Organization" },
   { slug: "settings", label: "Settings", group: "Organization" },
+  { slug: "audit", label: "Audit log", group: "Organization" },
 ] as const;

@@ -46,6 +46,10 @@ export interface ShellActions {
   newProjectDenied?: string;
   /** Why "New organization" is refused (signed out), or `undefined`. */
   newOrganizationDenied?: string;
+  /** Why the active project's audit log is refused, from `can("audit:list")`. */
+  auditLogDenied?: string;
+  /** Why the organization's audit log is refused, from `can("organization:audit-list")`. */
+  organizationAuditDenied?: string;
   /** How many invitations are waiting for the person, for the account menu. */
   pendingInvites?: number;
 }

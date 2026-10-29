@@ -57,7 +57,7 @@ flowchart TB
 ## The data model
 
 ```
-Organization ─── members (owners, members)
+Organization ─── members (owners, members) · audit_logs (its own rows and every project's)
 └── Project ─── memberships · tags (roles) · invites · audit_logs
     ├── model_connections        encrypted provider credentials, named models (incl. a fast model)
     ├── mcp_servers              shared MCP servers; credentials never leave the server
@@ -94,7 +94,9 @@ Two authorities, never mixed:
   lists, all checked by `ops/AccessOps.ts` (`canReadBot` / `canWriteBot` wrap it). Above projects sit two
   organization levels — `org-member` and `org-owner` — and an owner has admin standing in every project of the
   organization, computed in one place (`resolveProjectAccess`) and flagged as `viaOrganizationOwner`. Organization
-  membership alone shows no project. Every decision a person makes is an `AuditedAction` row in `audit_logs`.
+  membership alone shows no project. Every decision a person makes is an `AuditedAction` row in `audit_logs`, filed under its project and its
+  organization and naming its actor — a Hypotenuse user, a platform participant, or the system — read by project
+  admins (`audit:list`) and organization owners (`organization:audit-list`).
 
 A bot acts with **its own** authority — its installations, its allowlisted tools, its repository grants — not the
 authority of whoever is talking to it. A sandbox it starts carries a run token scoped to that job.

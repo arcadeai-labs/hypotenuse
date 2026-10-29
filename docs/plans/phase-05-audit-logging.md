@@ -11,7 +11,7 @@
 > - sandbox supervisors;
 > - clocks.
 
-> **Status: planned, not built.** It builds on [phase 04](./phase-04-organizations-users-and-rbac.md), which
+> **Status: built.** It builds on [phase 04](./phase-04-organizations-users-and-rbac.md), which
 > already routes every mutation through `AuditedAction` and therefore already writes `audit_logs` rows. This phase
 > makes that history visible, retained, and argued, and adds the two columns 2.0 needs: organization scope and a
 > non-user actor.
@@ -255,13 +255,13 @@ Edit a project name in the browser, then open Audit log: one row, actor you, bef
 
 ## Definition of done
 
-- [ ] Every non-read action outside the closed list extends `AuditedAction`, asserted by walking the registry
-- [ ] `audit_logs` carries `organizationId`, `actorType`, and `participantId`, with no FKs on tenant columns
-- [ ] `SENSITIVE_KEYS` covers every secret 2.0 plans to handle; the scrub is recursive and tested at depth
-- [ ] `audit:list` and `organization:audit-list` are paginated, time-ranged, and correctly scoped
-- [ ] The Audit log page works for a project and for an organization
-- [ ] The closed list lives here and in `AGENTS.md`, and the two agree
-- [ ] User docs explain what is and is not recorded
+- [x] Every non-read action outside the closed list extends `AuditedAction`, asserted by walking the registry
+- [x] `audit_logs` carries `organizationId`, `actorType`, and `participantId`, with no FKs on tenant columns
+- [x] `SENSITIVE_KEYS` covers every secret 2.0 plans to handle; the scrub is recursive and tested at depth
+- [x] `audit:list` and `organization:audit-list` are paginated, time-ranged, and correctly scoped
+- [x] The Audit log page works for a project and for an organization
+- [x] The closed list lives here and in `AGENTS.md`, and the two agree
+- [x] User docs explain what is and is not recorded
 
 ## Open questions
 
@@ -270,4 +270,55 @@ Edit a project name in the browser, then open Audit log: one row, actor you, bef
 
 ## Learnings from the build
 
-Not built yet.
+### What is built
+
+| Piece | Where |
+|---|---|
+| `organization_id`, `actor_type`, `participant_id`, the `(organization_id, created_at)` index, and a backfill of earlier rows | `backend/schema/audit_logs.ts`, `backend/drizzle/0002_*.sql` |
+| `writeAuditLog` with a required `actorType`; organization inference; the shared list query and time inputs | `backend/ops/AuditOps.ts` |
+| `audit:list`, `organization:audit-list`, `audit:sweep` (`AUDIT_RETENTION_DAYS`, default 365) | `backend/actions/audit/`, `backend/config/audit.ts` |
+| The Audit log page, for a project (`/audit`) and an organization (`/organization/audit`) | `frontend/src/components/audit/AuditLogView.tsx`, `pages/AuditLogPage.tsx`, `pages/organization/OrganizationAuditPage.tsx`, `components/JsonBlock.tsx` |
+| Ways in: the project switcher, the organization switcher and section nav, two palette commands | `components/shell/{ProjectSwitcher,OrganizationSwitcher,MenuLinkItem}.tsx`, `commands/registry.ts` |
+| User docs | `frontend/src/content/docs/audit.md`, with the `audit` illustration |
+| Proof | `backend/__tests__/classes/audit.test.ts`, `__tests__/ops/audit-scrub.test.ts`, `__tests__/actions/{audit-list,audited-actions}.test.ts`, `frontend/e2e/audit.spec.ts` |
+
+### Decisions the plan left open
+
+- **The organization a row is filed under** is, in order: `auditOrganizationId`, the `organizationId` param, the
+  organization of the project the RBAC middleware loaded, the organization it loaded. `writeAuditLog` reads a
+  project's organization itself when a caller gives only a `projectId`, so a participant row written by event
+  processing cannot forget it. `organization:create` and the invite answers set `auditOrganizationId`.
+- **Sign-up's own row is the new account's**, `actorType: "user"`, through `auditUserId` (the caller has no session
+  until the account exists). It is the one row an unauthenticated request writes: the decision is that person's, the
+  action is rate-limited, and each row costs a new account. The bootstrap's `organization:create` and
+  `project:create` are `system` rows with a null `userId` and `metadata.ownerUserId`.
+- **A write with no session and no `auditUserId` is the system's.** No such `AuditedAction` exists yet; the class
+  suite proves the default.
+- **Migration 0002 backfills** rows written before these columns: bootstrap rows (`metadata.bootstrappedBy`) become
+  `system` with their user moved to `metadata.ownerUserId`, the sign-up row gains the account whose email is its
+  target, and `organization_id` comes from `metadata.organizationId` or the project's organization. `actor_type`
+  is added with a default for the backfill and the default is dropped, so every new row names its actor.
+- **The serializer names the actor** (`actor: { type, userId, participantId, name, email }`) and the project
+  (`projectName`, `null` once deleted) by left joins, so the page never makes a request per row. A participant is
+  shown as "Platform participant #id" until `participants` exists to give them a name and a platform chip.
+- **`organization:audit-list`'s `projectId` is a filter** over rows already scoped to the organization; a project of
+  another organization matches nothing.
+- **The action filter's vocabulary is `actions:permissions`' keys**, which includes reads that never match a row.
+  A list of audited actions would need a new endpoint for a cosmetic gain.
+- **The project's audit log is its own page, `/audit`**, not a settings section: it is reached from the project
+  switcher, and a member who opens it is told it is an admin's rather than shown a failed request.
+- **Rule 13: no CLI command wraps `audit:list` or `organization:audit-list` yet** — deferred, not out of scope, as
+  with phase 04's actions: [phase 06](./phase-06-operator-cli.md) is the CLI's sign-in.
+
+### Traps found while building
+
+- **Postgres keeps microseconds; serializers emit milliseconds.** A row's own `createdAt` is at or before its stored
+  instant, so `until=<that createdAt>` excluded the row itself. `until` now covers its whole millisecond (`<
+  until + 1ms`); `since` is inclusive as written. `audit-list.test.ts` pivots on a real row to hold both.
+- **The page is derived, not reset.** `AuditLogView` stores the page with the filters it was chosen under and reads
+  page 1 whenever they differ, so the request that follows a filter change already asks for page 1. An effect that
+  reset the page would send one request with the old page first. `audit.spec.ts` watches the requests.
+- **Two elements shared a test id** (`audit-page` was the page and the pagination's current page); Playwright's
+  strict mode caught it. The current page is `audit-current-page`.
+- **`audited-actions.test.ts` reads `AGENTS.md` and this doc**, and fails if an unaudited writer that is not a clock
+  is missing from either, so the closed list cannot drift between them.
