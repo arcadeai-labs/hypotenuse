@@ -19,6 +19,9 @@ export function VerifyEmailBanner() {
   const [error, setError] = useState<string | null>(null);
 
   if (!user || user.emailVerified) return null;
+  // The address `email-verification:resend` mails: a pending change first,
+  // since confirming it confirms the account too.
+  const inbox = user.pendingEmail ?? user.email;
 
   /** Ask for a new link, at most one a minute (the server enforces it). */
   async function resend() {
@@ -43,7 +46,7 @@ export function VerifyEmailBanner() {
         <span className="shell-banner-row">
           <span>
             Confirm your email address. We sent a link to{" "}
-            <strong>{user.email}</strong>; until you follow it you cannot see or
+            <strong>{inbox}</strong>; until you follow it you cannot see or
             accept invitations.
             {sent && (
               <span data-testid="verify-email-sent">

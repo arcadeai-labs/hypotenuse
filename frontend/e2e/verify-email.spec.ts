@@ -101,3 +101,30 @@ test("changing your address waits for the new one to be confirmed", async ({
   );
   await expect(page.getByTestId("pending-email")).toHaveCount(0);
 });
+
+test("an unconfirmed account that changes address is pointed at the new inbox", async ({
+  page,
+}) => {
+  await signUpApi(page.request, "Restless Rae", uniqueEmail("restless"), {
+    verified: false,
+  });
+  const next = uniqueEmail("restless-new");
+  await api(page.request, "POST", "/user", {
+    email: next,
+    currentPassword: PASSWORD,
+  });
+  await page.goto("/account");
+  const banner = page.getByTestId("verify-email-banner");
+  await expect(banner).toContainText(next, LANDED);
+
+  // The banner and the resend agree: the new link goes where the banner says.
+  await api(page.request, "POST", "/email-verification/confirm", {
+    token: await verificationToken(next),
+  });
+  await page.reload();
+  await expect(page.getByTestId("account-email-input")).toHaveValue(
+    next,
+    LANDED,
+  );
+  await expect(page.getByTestId("verify-email-banner")).toHaveCount(0);
+});
