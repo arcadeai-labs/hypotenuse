@@ -126,21 +126,54 @@ jobs:
       # Fonts are self-hosted: nothing in the build may reach for a font CDN.
       - run: "! grep -rEl 'fonts\\.(googleapis|gstatic)\\.com|use\\.typekit\\.net|fonts\\.bunny\\.net' dist"
 
-  # The browser suite: theme switching without a flash, the shell and its
-  # keymap, the public home, the docs frame, and the style guide. It boots only
-  # the Vite dev server; a spec that needs the backend adds it as a second
-  # `webServer` in playwright.config.ts.
+  # The browser suite: sign-up and sign-in, organizations, members and tags,
+  # notifications, the shell and its keymap, the public home, the docs frame,
+  # and the style guide. Playwright boots the real backend (its own database
+  # and Redis index, see frontend/e2e/env.ts) beside the Vite dev server.
   e2e:
     name: E2E Test
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: frontend
+    services:
+      redis:
+        image: redis
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+      # Postgres with pgvector: the first migration creates the extension, and
+      # /api/status is unhealthy without it.
+      postgres:
+        image: pgvector/pgvector:pg18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: hypotenuse_e2e
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    env:
+      # Read by frontend/e2e/env.ts and handed to the backend it starts.
+      E2E_DATABASE_URL: postgres://postgres:postgres@localhost:5432/hypotenuse_e2e
+      E2E_REDIS_URL: redis://localhost:6379/2
     steps:
       - uses: actions/checkout@v5
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
         working-directory: .
+      # The backend reads the rest of its configuration (the secrets key, the
+      # session cookie) from its `.env`; the e2e env overrides the rest.
+      - run: cp .env.example .env
+        working-directory: backend
       - run: bunx playwright install --with-deps chromium
       - run: bun run test:e2e
       - uses: actions/upload-artifact@v4

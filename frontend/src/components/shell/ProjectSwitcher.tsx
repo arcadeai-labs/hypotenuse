@@ -1,24 +1,27 @@
 import { ChevronsUpDown } from "lucide-react";
 import { Dropdown } from "../../ui";
-import type { ShellProject } from "./shellFixtures";
+import type { ShellProject } from "./shellData";
 
 /** See {@link ProjectSwitcher}. */
 export interface ProjectSwitcherProps {
   projects: ShellProject[];
   activeProjectId: number | null;
+  /** Make a project active. */
+  onSelect: (projectId: number) => void;
   /** Called after a choice (the mobile sheet closes on it). */
   onNavigate?: () => void;
 }
 
 /**
  * The sidebar's project switcher: every project of the active organization
- * the person belongs to.
+ * the person can see — the ones they belong to, or all of them for an owner.
  * @param props - See {@link ProjectSwitcherProps}.
  * @returns The switcher.
  */
 export function ProjectSwitcher({
   projects,
   activeProjectId,
+  onSelect,
   onNavigate,
 }: ProjectSwitcherProps) {
   const active = projects.find((p) => p.id === activeProjectId);
@@ -40,12 +43,21 @@ export function ProjectSwitcher({
           <Dropdown.Item
             key={project.id}
             active={project.id === activeProjectId}
-            onClick={onNavigate}
+            aria-current={project.id === activeProjectId ? "true" : undefined}
+            onClick={() => {
+              onSelect(project.id);
+              onNavigate?.();
+            }}
             data-testid={`project-option-${project.id}`}
           >
             {project.name}
           </Dropdown.Item>
         ))}
+        {projects.length === 0 && (
+          <Dropdown.Item disabled data-testid="project-none">
+            No projects you can see
+          </Dropdown.Item>
+        )}
       </Dropdown.Menu>
     </Dropdown>
   );

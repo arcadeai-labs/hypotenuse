@@ -12,7 +12,7 @@
 > Above that sit two new organization levels. The frontend reads every level through `actions:permissions` and
 > `can()`, so it cannot drift from the server. Members receive in-app and email notifications.
 
-> **Status: planned, not built.** It builds on [phase 01](./phase-01-foundation.md) (scaffold) and
+> **Status: built.** See [Learnings from the build](#learnings-from-the-build). It builds on [phase 01](./phase-01-foundation.md) (scaffold) and
 > [phase 03](./phase-03-design-system.md) (the kit and shell the copied pages paint with). Audit lands
 > immediately after in [phase 05](./phase-05-audit-logging.md). Every action this phase writes is an
 > `AuditedAction` from its first commit; phase 05 delivers the log, the page, and the argued list of exceptions.
@@ -365,15 +365,15 @@ curl -s localhost:8080/api/actions/permissions | jq '.permissions | map(.level) 
 
 ## Definition of done
 
-- [ ] Sign-up creates an organization, its owner, a project, and the admin tag in one transaction, with synthetic audit rows
-- [ ] Owners have admin standing in every project of their organization, flagged in `standing` and in audit metadata
-- [ ] Project membership requires organization membership; an invite accept creates both
-- [ ] The last-admin and last-owner guards lock their parent rows; the concurrency tests fail without the lock
-- [ ] `AccessOps` is the only implementation of `satisfiesAccess`; `tag:delete` refuses a referenced tag
-- [ ] `actions:permissions` reports five levels; `can()` gates every UI affordance; disabled, never absent
-- [ ] Notifications deliver over the content-free channel and over SMTP
-- [ ] `rbac.test.ts` holds the whole-set maps; e2e runs in the gate
-- [ ] User docs for accounts, organizations, projects, members, and tags
+- [x] Sign-up creates an organization, its owner, a project, and the admin tag in one transaction, with synthetic audit rows
+- [x] Owners have admin standing in every project of their organization, flagged in `standing` and in audit metadata
+- [x] Project membership requires organization membership; an invite accept creates both
+- [x] The last-admin and last-owner guards lock their parent rows; the concurrency tests fail without the lock
+- [x] `AccessOps` is the only implementation of `satisfiesAccess`; `tag:delete` refuses a referenced tag
+- [x] `actions:permissions` reports five levels; `can()` gates every UI affordance; disabled, never absent
+- [x] Notifications deliver over the content-free channel and over SMTP
+- [x] `rbac.test.ts` holds the whole-set maps; e2e runs in the gate
+- [x] User docs for accounts, organizations, projects, members, and tags
 
 ## Open questions
 
@@ -390,4 +390,127 @@ curl -s localhost:8080/api/actions/permissions | jq '.permissions | map(.level) 
 
 ## Learnings from the build
 
-Not built yet.
+### What is built
+
+| Piece | Where |
+|---|---|
+| Ten tables in one generated migration (`0001`) | `backend/schema/*.ts`, `backend/drizzle/0001_*.sql` |
+| Five RBAC levels, four gates, owners' admin standing | `backend/middleware/rbac.ts`, `resolveProjectAccess` in `backend/ops/MembershipOps.ts` |
+| Organizations, the last-owner guard, the removal cascade | `backend/ops/OrganizationOps.ts`, `backend/actions/organization*/` |
+| Access lists | `backend/ops/AccessOps.ts` |
+| `AuditedAction` on every write, `SENSITIVE_KEYS` | `backend/classes/AuditedAction.ts`, `backend/ops/AuditOps.ts` |
+| Notifications: table, dispatch over SMTP, the content-free channel | `backend/ops/NotificationOps.ts`, `backend/actions/notification/`, `backend/channels/projectNotifications.ts` |
+| Boot refusal without a 32-byte key; the MCP publication policy | `backend/initializers/{secrets,mcpToolPolicy}.ts` |
+| The cast | `buildTestUniverse()` in `backend/__tests__/setup.ts` |
+| The SMTP server the suites send to | `backend/__tests__/fixtures/smtp.ts` |
+
+`RawRequestOps` and `RedisScriptOps` (with the `redisScripts` initializer) are ported with their tests and have no
+caller yet; `lua/` holds no script.
+
+### Decisions the plan left open
+
+- **Routes carry their tenant in the path**: `/project/:projectId/…`, `/organization/:organizationId/…`, and
+  `/invite/:inviteId/accept`. Keryx merges path params first and lets a JSON body key of the same name overwrite one.
+  That is not a bypass, because the RBAC middleware and the action read the same merged value, but a client should
+  never send a tenant id in both places.
+- **`organization:view` answers `standing: { isMember, isOwner, role }`**, not the project's shape: an organization
+  has no admin tag, and `viaOrganizationOwner` would always equal `isOwner`.
+- **`organization:invite-list` is new.** Owners need to see the organization invites they sent, and `invite:list` is
+  one project's. It lists every invite in the organization, both kinds.
+- **Two actions decide part of their gate inside.** `organization-membership:delete` is `org-member` because leaving
+  is open to everyone; removing someone else checks for an owner. `invite:create` is `org-member` because the rule
+  depends on the kind: a project invite needs admin standing in that project (a project of another organization is
+  the same 403), an organization invite needs an owner. `rbac.test.ts` records both levels.
+- **The last-admin guard counts explicit `admin` tag holders, never owners.** Counting owners would make the guard
+  unreachable (an organization always has one) and let a project drift to having no member who administers it. So
+  removing someone from the organization is refused while they are the last admin of one of its projects, and the
+  refusal names the project.
+- **The removal cascade writes one `membership:delete` row per project it touched**, with
+  `metadata.cascadedFrom`. `audit_logs` has no `organizationId` until [phase 05](./phase-05-audit-logging.md), so an
+  organization-level row is filed under no project; without these, a project's log would never show who left it.
+  Every organization-level row carries `organizationId` in its metadata, for phase 05 to read.
+- **The sign-up row has a null `userId`**: the caller is anonymous when `AuditedAction` writes it. The synthetic
+  `organization:create` and `project:create` rows carry the new user's id. Phase 05's `actorType` settles both.
+- **`SENSITIVE_KEYS` is phase 05's whole list already.** Declaring it complete costs nothing, and this phase is
+  where every audit row starts.
+- **`tag:edit` rewrites access lists.** The plan said only that `tag:delete` refuses. A rename that left
+  `["finance"]` naming a tag that no longer exists would revoke access silently, so the rename carries every list
+  with it, in the same transaction, and the audit row names the objects it relabeled.
+- **Access-list tables register themselves** with `registerAccessListTable({ kind, table, id, projectId, label,
+  accessRead, accessWrite })`, which is how `tag:delete` and `tag:edit` find every list without importing features.
+  `readableIds` is ToolExec's: it filters a project's rows in memory and returns ids for an `IN (…)`.
+  `accessListSchema` checks shape (trimmed, lowercased, unique, at most 50); `assertAccessListTags` checks each name
+  is a tag of the project, inside the writing transaction.
+- **Tag names are unique after normalization**, by an expression index on `(project_id, lower(btrim(name)))`. Every
+  comparison in the app was already normalized; the table now agrees.
+- **Slugs.** An organization's slug is unique across the deployment and never follows a rename (it is how the
+  organization is named in a URL someone shared); `organization:edit` sets it explicitly. A project's slug is unique
+  within its organization and follows its name. Both get `-2`, `-3`, … on collision, with the unique index as the
+  real guard.
+- **`organization:create` starts empty**, with its creator as owner. Only sign-up makes a Default project.
+- **`organization:delete` is refused while the organization has projects**, under a lock on the organization row;
+  `projects.organizationId` does not cascade.
+- **Notifications with no named tag reach everyone with admin standing**: the explicit admins and the
+  organization's owners. The template registry is empty until a feature raises the first kind; the suites queue an
+  unregistered template and assert its generic rendering.
+- **No CLI command wraps these actions yet.** Rule 13's decision for every routed action here is "deferred, not out
+  of scope": [phase 06](./phase-06-operator-cli.md) is the CLI's sign-in, and a command without it cannot authenticate.
+- **`/api/status` probes the newest migration's column** (`NEWEST_MIGRATION_PROBE` in `ops/HealthOps.ts`), alongside
+  the `vector` extension. Every migration that adds a column moves it.
+
+### The frontend
+
+| Piece | Where |
+|---|---|
+| Session, organizations, active project | `frontend/src/context/AuthContext.tsx`; active ids in `localStorage`, healed onto the first available when stale |
+| `can()` and the standings it reads | `frontend/src/utils/permissions.ts`, `context/StandingContext.tsx`, `hooks/{useProjectStanding,useOrganizationStanding,useMay}.ts` |
+| `?next=` | `utils/returnTo.ts` `safeNext()`: same-origin relative paths only (refuses `//`, `/\`, schemes, control characters) |
+| Pages | `pages/{SignInPage,SignUpPage,AccountPage,InvitesPage,NewProjectPage,SettingsPage}.tsx`, `pages/organization/*` |
+| Notifications | `context/{LiveSocketContext,NotificationContext}.tsx`, `components/shell/NotificationBell.tsx` |
+| The browser suite's backend | `frontend/scripts/e2e-backend.ts`, `e2e/{env,global-setup,session}.ts` |
+
+- **`can()` answers three ways** — allowed, denied, unresolved — and a control is drawn disabled only on *denied*,
+  so a standing still loading never flashes a refusal. A refused palette command is listed disabled with its reason
+  (`requires` on a command), and its keys do nothing.
+- **Two actions' reported levels are not the whole rule**, so the UI combines them: a project invite is offered on
+  `invite:create` *and* `invite:list` (admin), an organization invite on `invite:create` *and*
+  `organization:invite-list` (owner); Remove on an organization member reads `organization-membership:edit` (owner),
+  Leave reads `organization-membership:delete`. One level per action cannot describe a rule that depends on the
+  params; the server still decides.
+- **Signed in, with no safe `?next=`, a person lands on Organization → Projects**, since Home is not built.
+- **The browser suite boots the backend** as a second Playwright `webServer`, against `hypotenuse_e2e` (created on
+  first run) and Redis database 2, so a suite run never touches `bun dev`'s or the backend suites' data. CI gives the
+  **E2E Test** job its own pgvector and Redis services. Run the frontend's unit tests with `bun run test`: plain
+  `bun test` in `frontend/` also collects the Playwright specs.
+- **`project:list` carries each project's `standing`**, computed by `projectStandings` in two queries per page by the
+  same rule as `resolveProjectAccess`; `project.test.ts` asserts it equals `project:view`'s for a member, an explicit
+  admin, and an owner who never joined. Organization → Projects names it per row (`utils/projectRole.ts`).
+- **New organization** is `/organizations/new`, offered in the organization switcher and the palette to anyone signed
+  in; the new organization becomes active and lands on its empty Projects page.
+- **Left for later:** an unsaved-changes guard, desktop notifications, lists past 100 rows, and a separate active
+  project per organization.
+- **Signed-in docs illustrations are seeded.** `docs:illustrations` marks a shot `signedIn` and signs in as a fixed
+  person in a fixed tenant (Ada Lovelace, owner of Acme, with Support and Platform), creating them over the API the
+  first time; `shell` is Organization → Projects as that person. It needs the backend running as well as the
+  frontend.
+
+### Traps found while building
+
+- **Keryx 0.48 resets `connection.metadata` at the start of every top-level `act()`**, and builds a fresh connection
+  for every MCP tool call. ToolExec's learning that "MCP sessions reuse a connection, so a previous action's
+  snapshot leaks" no longer holds, so a `beforeAct` hook written to clear the tenant fields was a no-op and was
+  removed. `AuditedAction.run` still clears its snapshots, as ported: a **nested** `act()` keeps its parent's
+  metadata, and that is the one path where a snapshot could still leak.
+  `connection-scope.test.ts` holds Keryx to both behaviors, over MCP and over a WebSocket, with an owner's standing
+  as the thing that must not leak into the next audit row.
+- **Both concurrency guards were proven by removing the lock.** With `FOR UPDATE` on the organization row commented
+  out, two owners demoting each other both got 200 and left no owner; with it, one gets 200 and the other 406 (or 403,
+  when the winner had already demoted it).
+- **A registered table is known by its columns, not by Drizzle's property names**, so `.set({ [column.name]: … })`
+  writes nothing useful. The access-list rename is raw SQL with `sql.identifier` for the `SET` columns.
+- **A synthetic admin row is standing, not a grant.** `project:view` filters it out of `callerTags`, so an owner who
+  never joined is not shown as holding the `admin` tag.
+- **The mail server is faked over SMTP.** v1 stubbed nodemailer's transport, which is a mock of the one call that
+  can fail. `fixtures/smtp.ts` is a loopback SMTP server that speaks enough of RFC 5321 for nodemailer; the suites
+  point `config.notifications` at it and call `resetNotificationTransport()`.
+- **Locally, pgvector on Debian/Ubuntu is `postgresql-16-pgvector`.**

@@ -1,6 +1,14 @@
 import { sql } from "drizzle-orm";
 import { api } from "keryx";
 
+/**
+ * A query that fails until the newest migration has run: it reads a column that
+ * migration added. Every migration that adds a table or column moves it.
+ */
+export const NEWEST_MIGRATION_PROBE = sql.raw(
+  "SELECT organization_name FROM project_invites LIMIT 0",
+);
+
 /** What the probes found: each dependency, and whether this process can serve. */
 export interface DependencyHealth {
   /** Whether everything this process needs answered. */
@@ -25,11 +33,12 @@ export async function checkDependencies(): Promise<DependencyHealth> {
     databaseHealthy = false;
     database = { extensions: { vector: false } };
     try {
-      // Read the extension the first migration creates, not just
-      // `SELECT NOW()`. The web server binds before `DATABASE_AUTO_MIGRATE`
-      // finishes (and in a deployment another process migrates), so a bare
-      // clock query would report healthy against an unmigrated database. Once
-      // tables exist, probe a column from the newest migration instead.
+      // Not just `SELECT NOW()`: the web server binds before
+      // `DATABASE_AUTO_MIGRATE` finishes (and in a deployment another process
+      // migrates), so a bare clock query would report healthy against an
+      // unmigrated database. Probe a column the newest migration added — bump
+      // it with every migration — and the extension the first one created.
+      await api.db.db.execute(NEWEST_MIGRATION_PROBE);
       const rows = await api.db.db.execute(
         sql`SELECT 1 FROM pg_extension WHERE extname = 'vector'`,
       );

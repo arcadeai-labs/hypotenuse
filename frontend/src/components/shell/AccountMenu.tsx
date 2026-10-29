@@ -1,9 +1,9 @@
 import { ChevronUp, Monitor, Moon, Sun } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import { type ThemePreference, useTheme } from "../../context/ThemeContext";
 import { initials } from "../../ui";
-import { NOT_AVAILABLE } from "./destinations";
-import type { ShellUser } from "./shellFixtures";
+import { NOT_SIGNED_IN, type ShellUser } from "./shellData";
 
 const THEME_OPTIONS: Array<{
   value: ThemePreference;
@@ -15,24 +15,44 @@ const THEME_OPTIONS: Array<{
   { value: "dark", label: "Dark", Icon: Moon },
 ];
 
+/** See {@link AccountMenu}. */
+export interface AccountMenuProps {
+  /** Draw only the trigger's avatar. */
+  collapsed?: boolean;
+  /** Who is signed in, or `null`. */
+  user: ShellUser | null;
+  /** End the session. */
+  onSignOut?: () => void;
+  /** Invitations waiting for the person, drawn beside Invites. */
+  pendingInvites?: number;
+  /** Called after a choice (the mobile sheet closes on it). */
+  onNavigate?: () => void;
+}
+
 /**
  * The account menu at the foot of the sidebar: who is signed in, the account
- * page, the theme control, and sign-out. The account page and sign-out are
- * disabled, not absent, while there is no session, so one selector resolves
- * in both states.
- * @param props - `collapsed` draws only the trigger's avatar; `user` is who is signed in.
+ * and invites pages, the theme control, and sign-out. The person-scoped items
+ * are disabled, not absent, while there is no session, so one selector
+ * resolves in both states; signed out, the menu also offers Sign in.
+ * @param props - See {@link AccountMenuProps}.
  * @returns The menu.
  */
 export function AccountMenu({
   collapsed = false,
   user,
-}: {
-  collapsed?: boolean;
-  user: ShellUser | null;
-}) {
+  onSignOut,
+  pendingInvites = 0,
+  onNavigate,
+}: AccountMenuProps) {
   const { preference, setPreference } = useTheme();
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
+
+  /** Close the menu, and tell the sheet a choice was made. */
+  const close = () => {
+    setOpen(false);
+    onNavigate?.();
+  };
 
   useEffect(() => {
     if (!open) return;
@@ -112,21 +132,73 @@ export function AccountMenu({
               ))}
             </div>
           </div>
-          <button
-            type="button"
-            className="shell-account-item"
-            data-testid="account-link"
-            disabled
-            title={NOT_AVAILABLE}
-          >
-            Account
-          </button>
+          {user ? (
+            <>
+              <Link
+                to="/account"
+                className="shell-account-item"
+                data-testid="account-link"
+                onClick={close}
+              >
+                Account
+              </Link>
+              <Link
+                to="/invites"
+                className="shell-account-item"
+                data-testid="invites-link"
+                onClick={close}
+              >
+                Invites
+                {pendingInvites > 0 && (
+                  <span
+                    className="shell-nav-count shell-unread tabular"
+                    data-testid="pending-invites-count"
+                  >
+                    {pendingInvites}
+                  </span>
+                )}
+              </Link>
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                className="shell-account-item"
+                data-testid="account-link"
+                disabled
+                title={NOT_SIGNED_IN}
+              >
+                Account
+              </button>
+              <button
+                type="button"
+                className="shell-account-item"
+                data-testid="invites-link"
+                disabled
+                title={NOT_SIGNED_IN}
+              >
+                Invites
+              </button>
+              <Link
+                to="/sign-in"
+                className="shell-account-item"
+                data-testid="account-sign-in"
+                onClick={close}
+              >
+                Sign in
+              </Link>
+            </>
+          )}
           <button
             type="button"
             className="shell-account-item"
             data-testid="sign-out"
-            disabled
-            title={user ? NOT_AVAILABLE : "Not signed in"}
+            disabled={!user}
+            title={user ? undefined : NOT_SIGNED_IN}
+            onClick={() => {
+              close();
+              onSignOut?.();
+            }}
           >
             Sign out
           </button>

@@ -9,8 +9,10 @@ reports back into the conversation it came from.
 > **Status:** the foundation, the deployment, and the design system are built — three Bun workspaces (`backend/`,
 > `frontend/`, `cli/`), Postgres with pgvector, CI behind **CI Complete**, a Render blueprint with staging live at
 > `api.hypotenuse.cloud` ([`docs/DEPLOY.md`](./docs/DEPLOY.md)), and the look: tokens, the UI kit, the app shell, the
-> public site and `/docs`, and the style guide at `/docs/style-guide` ([`docs/DESIGN.md`](./docs/DESIGN.md)). Nothing a person would call a
-> feature exists yet. The build order and every plan are in
+> public site and `/docs`, and the style guide at `/docs/style-guide` ([`docs/DESIGN.md`](./docs/DESIGN.md)). People
+> can sign up, and organizations, projects, members, invites, tags, and notifications work under ToolExec's RBAC with
+> organization owners above it; every write is an `AuditedAction`. There are no bots yet. The build order and every
+> plan are in
 > [`docs/plans/README.md`](./docs/plans/README.md); the system on one page is
 > [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md). Hypotenuse **v1** — local coding agents answering
 > Linear agent sessions through a runner daemon — is archived on the
@@ -236,6 +238,8 @@ bun dev                                          # backend :8080, frontend :3000
   `bun run workspace:setup` gives a linked worktree its own test database, Redis index, and e2e ports, writes
   them into `.env`, and pins them as `HYPOTENUSE_WORKSPACE_ID`; `--dry-run` prints the plan, `--shared` opts out.
   A single clone skips it.
+- **The browser suite boots its own backend** against `hypotenuse_e2e` (created on first run) and Redis database 2.
+  Two checkouts running it at once share that database unless one sets `E2E_DATABASE_URL`.
 
 ## Planned stack
 
@@ -317,7 +321,7 @@ From v1 and ToolExec, each paid for once already:
 bun install
 bun run lint             # tsc + biome in backend, frontend, and cli
 bun run test             # every workspace's suites; the backend's need Postgres (with pgvector) and Redis
-bun run test:e2e         # the browser suite (Playwright; boots the Vite dev server)
+bun run test:e2e         # the browser suite (Playwright; boots the backend on hypotenuse_e2e and the Vite dev server)
 bun dev                  # the backend on :8080 and the frontend on :3000
 bun run workspace:setup  # give this checkout its own test database and Redis index
 bun run ngrok            # the reserved public tunnels to the local backend and frontend
@@ -325,7 +329,7 @@ bun run ngrok            # the reserved public tunnels to the local backend and 
 cd backend && bun run migrations     # generate a migration from schema/ changes, then `bun run format`
 cd cli && bun run build              # compile dist/hypotenuse
 cd frontend && bun run theme:build   # regenerate every design/tokens.ts output after changing an input
-cd frontend && bun run docs:illustrations  # light + dark screenshots, with `bun dev` running
+cd frontend && bun run docs:illustrations  # light + dark screenshots, with `bun dev` (backend and frontend) running
 ```
 
 The docs tests run in the backend suite: every relative link and anchor in `AGENTS.md`, `README.md`, and `docs/`

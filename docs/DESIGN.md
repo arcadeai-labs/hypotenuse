@@ -186,6 +186,10 @@ for screen readers with what it waits on. `hibernating` is the normal rest state
   plan or phase. Its `g` shortcut and palette command do nothing until the page ships, so the sidebar's shape never
   changes under a reader. `frontend/src/components/shell/destinations.ts` is the one list the sidebar, the palette,
   and the keymap read.
+- **What a person may not do is disabled, never absent**, with the reason as its title: a control, a menu item, a
+  palette command. `can()` (`frontend/src/utils/permissions.ts`) decides from `actions:permissions` and the server's
+  standing in the active project and organization, and while that standing is still loading it never renders a
+  denial.
 - **The sidebar is mounted in exactly one place**, chosen by a width check: the sticky column when wide, a sheet
   when narrow. A CSS-hidden second copy would duplicate every `nav-*` test id.
 - **List views**, grouped by state with "Waiting for a person" first and Ended collapsed. A *Display* menu chooses

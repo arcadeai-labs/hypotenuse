@@ -49,7 +49,7 @@ createdb hypotenuse && createdb hypotenuse_test
 bun install
 cp backend/.env.example backend/.env && cp frontend/.env.example frontend/.env
 bun run test        # every workspace's tests
-bun run test:e2e    # the browser suite
+bun run test:e2e    # the browser suite; boots its own backend on hypotenuse_e2e
 bun dev             # the API on http://localhost:8080, the app on http://localhost:3000
 curl -s localhost:8080/api/status | jq '.healthy, .database'
 ```

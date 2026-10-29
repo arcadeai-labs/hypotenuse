@@ -3,9 +3,10 @@ import { NavLink } from "react-router-dom";
 import { Mark } from "../../ui";
 import { AccountMenu } from "./AccountMenu";
 import { DESTINATIONS, type Destination, NOT_AVAILABLE } from "./destinations";
+import { NotificationBell } from "./NotificationBell";
 import { OrganizationSwitcher } from "./OrganizationSwitcher";
 import { ProjectSwitcher } from "./ProjectSwitcher";
-import type { ShellData } from "./shellFixtures";
+import type { ShellActions, ShellData } from "./shellData";
 
 /** See {@link Sidebar}. */
 export interface SidebarProps {
@@ -13,6 +14,8 @@ export interface SidebarProps {
   onToggle: () => void;
   /** The organizations, projects, and person the switchers and account menu show. */
   data: ShellData;
+  /** What the switchers and account menu do, and what they may not. */
+  actions: ShellActions;
   /** Live counts by destination id; a missing or zero count is not drawn. */
   counts?: Partial<Record<Destination["id"], number>>;
   /** Called after a destination is chosen — the mobile sheet closes on it. */
@@ -23,7 +26,7 @@ export interface SidebarProps {
 
 /**
  * The sidebar: mark, the organization then project switchers, the
- * destinations with counts, docs, and the account menu. A destination whose
+ * destinations with counts, the notification bell, docs, and the account menu. A destination whose
  * page does not exist yet is drawn disabled, never left out. Collapsed, it
  * draws icons only and keeps every control mounted.
  * @param props - See {@link SidebarProps}.
@@ -33,6 +36,7 @@ export function Sidebar({
   collapsed,
   onToggle,
   data,
+  actions,
   counts = {},
   onNavigate,
   inSheet = false,
@@ -113,15 +117,20 @@ export function Sidebar({
       <OrganizationSwitcher
         organizations={data.organizations}
         activeOrganizationId={data.activeOrganizationId}
+        onSelect={actions.selectOrganization}
+        newProjectDenied={actions.newProjectDenied}
+        newOrganizationDenied={actions.newOrganizationDenied}
         onNavigate={onNavigate}
       />
       <ProjectSwitcher
         projects={data.projects}
         activeProjectId={data.activeProjectId}
+        onSelect={actions.selectProject}
         onNavigate={onNavigate}
       />
       <div className="shell-nav">{main.map(link)}</div>
       <div className="shell-nav shell-nav-foot">
+        <NotificationBell collapsed={collapsed} signedIn={data.user !== null} />
         {settings && link(settings)}
         <NavLink
           to="/docs"
@@ -134,7 +143,13 @@ export function Sidebar({
           <span className="shell-nav-label">Docs</span>
         </NavLink>
       </div>
-      <AccountMenu collapsed={collapsed} user={data.user} />
+      <AccountMenu
+        collapsed={collapsed}
+        user={data.user}
+        onSignOut={actions.signOut}
+        pendingInvites={actions.pendingInvites}
+        onNavigate={onNavigate}
+      />
     </nav>
   );
 }

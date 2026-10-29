@@ -35,20 +35,15 @@ describe("swagger", () => {
     ).json()) as OpenApiDocument;
     expect(doc.paths["/status"]?.get?.operationId).toBe("status");
     expect(doc.paths["/swagger"]?.get?.operationId).toBe("swagger");
+    // A route with a path parameter, documented under OpenAPI's own spelling.
+    const project = Object.entries(doc.paths).find(([path]) =>
+      /^\/project\/[{:]projectId}?$/.test(path),
+    );
+    expect(project?.[1].get?.operationId).toBe("project:view");
   });
 });
 
 describe("the web server", () => {
-  test("the only actions are health, status, and swagger", () => {
-    // Every later action arrives with the feature that needs it; anything
-    // else here was left over from a scaffold.
-    expect(api.actions.actions.map((a) => a.name).sort()).toEqual([
-      "health",
-      "status",
-      "swagger",
-    ]);
-  });
-
   test("an unknown route answers 404, not 500", async () => {
     const res = await fetch(`${url}/api/no-such-action`);
     expect(res.status).toBe(404);

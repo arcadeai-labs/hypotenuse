@@ -528,6 +528,18 @@ $narrow: 767.98px;
   .ui-kbd-group {
     margin-left: auto;
   }
+
+  // A command the person may not run: listed, legible, inert, and saying why.
+  &[data-disabled="true"] {
+    color: var(--text-tertiary);
+    cursor: default;
+  }
+}
+
+.ui-palette-reason {
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+  white-space: nowrap;
 }
 
 .ui-palette-title {

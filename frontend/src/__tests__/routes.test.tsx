@@ -55,14 +55,7 @@ describe("routes", () => {
 
   test("every destination is in the sidebar; one not built yet is disabled and says so without a phase", () => {
     const html = renderAt("/status");
-    for (const id of [
-      "home",
-      "conversations",
-      "bots",
-      "memory",
-      "sandboxes",
-      "settings",
-    ]) {
+    for (const id of ["home", "conversations", "bots", "memory", "sandboxes"]) {
       const item = html.match(
         new RegExp(`<[a-z]+[^>]*data-testid="nav-${id}"[^>]*>`),
       )?.[0];
@@ -71,6 +64,51 @@ describe("routes", () => {
       expect(item).toContain('title="Not available yet"');
     }
     expect(html).not.toMatch(/phase/i);
+  });
+
+  test("settings is a live destination", () => {
+    const item = renderAt("/status").match(
+      /<[a-z]+[^>]*data-testid="nav-settings"[^>]*>/,
+    )?.[0];
+    expect(item).toStartWith("<a");
+    expect(item).toContain('href="/settings"');
+    expect(item).not.toContain("aria-disabled");
+  });
+
+  test("a signed-in page waits for the session before deciding where to go", () => {
+    // Redirecting before `/me` answers would bounce a signed-in person to
+    // sign-in on every hard refresh.
+    for (const path of [
+      "/settings/members",
+      "/organization/members",
+      "/invites",
+      "/account",
+    ]) {
+      const html = renderAt(path);
+      expect(html, path).toContain('data-testid="auth-loading"');
+      expect(html, path).not.toContain('data-testid="sign-in-card"');
+    }
+  });
+
+  test("sign-in and sign-up render their forms in the public frame", () => {
+    const signIn = renderAt("/sign-in?next=%2Fsettings%2Ftags");
+    expect(signIn).toContain('data-testid="public-shell"');
+    expect(signIn).toContain('data-testid="sign-in-form"');
+    // A safe `next` is carried across to sign-up.
+    expect(signIn).toContain('href="/sign-up?next=%2Fsettings%2Ftags"');
+    const unsafe = renderAt("/sign-in?next=%2F%2Fevil.example");
+    expect(unsafe).toContain('href="/sign-up"');
+    expect(renderAt("/sign-up")).toContain('data-testid="sign-up-name"');
+  });
+
+  test("signed out, the shell's person-scoped controls are drawn disabled, not left out", () => {
+    const html = renderAt("/status");
+    const bell = html.match(
+      /<[a-z]+[^>]*data-testid="notification-bell-toggle"[^>]*>/,
+    )?.[0];
+    expect(bell).toContain('aria-disabled="true"');
+    expect(html).toContain('data-testid="account-menu"');
+    expect(html).toContain("Not signed in");
   });
 
   test("the organization switcher sits above the project switcher", () => {

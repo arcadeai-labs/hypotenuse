@@ -10,6 +10,11 @@ export interface CommandPaletteProps {
   commands: Command[];
   /** Run one; the palette closes first, so a command may open another overlay. */
   onRun: (command: Command) => void;
+  /**
+   * Why a command is refused, or `undefined` when it may run. A refused
+   * command is listed disabled with its reason — never left out.
+   */
+  deniedReason?: (command: Command) => string | undefined;
 }
 
 /**
@@ -23,6 +28,7 @@ export function CommandPalette({
   onOpenChange,
   commands,
   onRun,
+  deniedReason,
 }: CommandPaletteProps) {
   const groups = [...new Set(commands.map((c) => c.group))];
   return (
@@ -48,22 +54,30 @@ export function CommandPalette({
           <Cmdk.Group key={group} heading={group} className="ui-palette-group">
             {commands
               .filter((c) => c.group === group)
-              .map((command) => (
-                <Cmdk.Item
-                  key={command.id}
-                  value={command.title}
-                  keywords={command.keywords}
-                  className="ui-palette-item"
-                  data-testid={`command-${command.id}`}
-                  onSelect={() => {
-                    onOpenChange(false);
-                    onRun(command);
-                  }}
-                >
-                  <span className="ui-palette-title">{command.title}</span>
-                  {command.shortcut && <Kbd keys={command.shortcut} />}
-                </Cmdk.Item>
-              ))}
+              .map((command) => {
+                const denied = deniedReason?.(command);
+                return (
+                  <Cmdk.Item
+                    key={command.id}
+                    value={command.title}
+                    keywords={command.keywords}
+                    className="ui-palette-item"
+                    disabled={denied !== undefined}
+                    title={denied}
+                    data-testid={`command-${command.id}`}
+                    onSelect={() => {
+                      onOpenChange(false);
+                      onRun(command);
+                    }}
+                  >
+                    <span className="ui-palette-title">{command.title}</span>
+                    {denied && (
+                      <span className="ui-palette-reason">{denied}</span>
+                    )}
+                    {command.shortcut && <Kbd keys={command.shortcut} />}
+                  </Cmdk.Item>
+                );
+              })}
           </Cmdk.Group>
         ))}
       </Cmdk.List>

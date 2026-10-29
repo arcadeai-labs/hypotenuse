@@ -235,7 +235,8 @@ envVarGroups:
       # service during Blueprint updates. Keys a sync does not mention are
       # preserved, and both backend services pull this group.
       #
-      # Optional, read once accounts exist — without them no mail is sent:
+      # Optional. `notifications:dispatch` (on the worker) sends email through
+      # them; without SMTP_HOST it logs each email instead of sending it:
       #
       #   SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD, SMTP_FROM
 
