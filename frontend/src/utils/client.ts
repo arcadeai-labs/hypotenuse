@@ -33,7 +33,39 @@ export async function apiFetch<T>(
 
   const payload = await response.json();
   if (payload?.error) {
-    throw new Error(payload.error.message || String(payload.error));
+    throw new ApiError(
+      payload.error.message || String(payload.error),
+      response.status,
+    );
   }
   return payload as T;
+}
+
+/**
+ * A refusal from the API, carrying the HTTP status it came with, so a caller
+ * can tell "you are signed out" (401) from "the server could not answer".
+ */
+export class ApiError extends Error {
+  /** The HTTP status of the response that carried the error envelope. */
+  readonly status: number;
+
+  /**
+   * @param message - The envelope's message.
+   * @param status - The response's HTTP status.
+   */
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
+
+/**
+ * Whether a failure means the session is gone — a 401 from the API. Anything
+ * else (a 5xx, a dropped connection) says nothing about who is signed in.
+ * @param error - What a call threw.
+ * @returns `true` only for a 401.
+ */
+export function isSignedOut(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 401;
 }

@@ -10,6 +10,7 @@ import { OrganizationOwnerMiddleware } from "../../middleware/rbac";
 import { idInput } from "../../ops/InputOps";
 import {
   assertNotLastOwner,
+  assertStillOwner,
   lockOrganizationOwners,
   serializeOrganizationMembership,
 } from "../../ops/OrganizationOps";
@@ -56,6 +57,13 @@ export class OrganizationMembershipEdit extends AuditedAction {
     connection: AuditedConnection,
   ) {
     await lockOrganizationOwners(tx, params.organizationId);
+    // The middleware read the caller's role before this lock; an owner demoted
+    // in the meantime must not finish acting as one.
+    await assertStillOwner(
+      tx,
+      params.organizationId,
+      connection.session!.data.userId!,
+    );
     const [existing] = await tx
       .select()
       .from(organizationMemberships)

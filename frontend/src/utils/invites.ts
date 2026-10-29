@@ -1,5 +1,10 @@
 /** Where an invite stands, as a reader of it cares. */
-export type InviteState = "pending" | "accepted" | "rejected" | "expired";
+export type InviteState =
+  | "pending"
+  | "accepted"
+  | "rejected"
+  | "revoked"
+  | "expired";
 
 /** The fields {@link inviteState} reads. */
 export interface InviteLike {
@@ -8,8 +13,9 @@ export interface InviteLike {
 }
 
 /**
- * Where an invite stands. The server stores `pending` until somebody answers;
- * a pending invite past its expiry can no longer be accepted, and says so.
+ * Where an invite stands. The server stores `pending` until somebody answers,
+ * or `revoked` when the invitee was removed from what it names; a pending
+ * invite past its expiry can no longer be accepted, and says so.
  * @param invite - The invite, as an invite list serializes it.
  * @param now - The time to compare against (a test passes its own).
  * @returns Its state.
@@ -17,6 +23,7 @@ export interface InviteLike {
 export function inviteState(invite: InviteLike, now = Date.now()): InviteState {
   if (invite.status === "accepted") return "accepted";
   if (invite.status === "rejected") return "rejected";
+  if (invite.status === "revoked") return "revoked";
   return invite.expiresAt <= now ? "expired" : "pending";
 }
 
@@ -25,5 +32,6 @@ export const INVITE_STATE_TONE: Record<InviteState, string> = {
   pending: "info",
   accepted: "success",
   rejected: "secondary",
+  revoked: "secondary",
   expired: "secondary",
 };

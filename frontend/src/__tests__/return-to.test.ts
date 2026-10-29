@@ -58,3 +58,17 @@ describe("signInFor", () => {
     expect(safeNext(next)).toBe(path);
   });
 });
+
+describe("safeNext and dot segments", () => {
+  test("refuses a path that resolves to another host", () => {
+    for (const raw of [
+      "/.//evil.com",
+      "/%2e%2e//evil.com/x",
+      "/a/..//evil.com",
+    ]) {
+      expect(safeNext(raw), raw).toBeNull();
+    }
+    // A dot segment that stays on this site is still fine.
+    expect(safeNext("/settings/../invites")).toBe("/invites");
+  });
+});

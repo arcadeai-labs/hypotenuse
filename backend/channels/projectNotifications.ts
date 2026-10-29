@@ -6,6 +6,7 @@ import {
   TypedError,
 } from "keryx";
 import type { SessionImpl } from "../middleware/session";
+import { MAX_ID } from "../ops/InputOps";
 import { resolveProjectAccess } from "../ops/MembershipOps";
 import { PROJECT_NOTIFICATIONS_CHANNEL_PATTERN } from "../ops/NotificationOps";
 
@@ -37,7 +38,11 @@ export const ProjectNotificationsChannelMiddleware: ChannelMiddleware = {
     // on `Number(undefined)` if that ever changes.
     const match = PROJECT_NOTIFICATIONS_CHANNEL_PATTERN.exec(channelName);
     const projectId = match ? Number(match[1]) : Number.NaN;
-    if (!Number.isSafeInteger(projectId) || projectId <= 0) {
+    if (
+      !Number.isSafeInteger(projectId) ||
+      projectId <= 0 ||
+      projectId > MAX_ID
+    ) {
       throw new TypedError({
         message: `Not a notifications channel: ${channelName}`,
         type: ErrorType.CONNECTION_CHANNEL_AUTHORIZATION,

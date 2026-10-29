@@ -387,3 +387,103 @@ describe("lists and the sweep", () => {
     expect(gone).toEqual([]);
   });
 });
+
+describe("accepting while the organization changes", () => {
+  test("racing a removal from the organization answers, never a 500", async () => {
+    // The removal locks the organization row; accepting locks it (KEY SHARE)
+    // before the invite, so one waits for the other and both answer.
+    for (let round = 0; round < 8; round++) {
+      const owner = await createUserAndLogin(
+        u.url,
+        "Cranky",
+        `cranky${round}@kong.example`,
+      );
+      const guest = await createUserAndLogin(
+        u.url,
+        "Funky",
+        `funky${round}@kong.example`,
+      );
+      const orgId = owner.organizationId;
+      const first = await call<{ invite: { id: number } }>(
+        u.url,
+        owner,
+        "PUT",
+        `/organization/${orgId}/invite`,
+        { inviteeEmail: guest.email },
+      );
+      await call(
+        u.url,
+        guest,
+        "POST",
+        `/invite/${first.body.invite.id}/accept`,
+      );
+      const second = await call<{ invite: { id: number } }>(
+        u.url,
+        owner,
+        "PUT",
+        `/organization/${orgId}/invite`,
+        { projectId: owner.projectId, inviteeEmail: guest.email },
+      );
+
+      const [accept, remove] = await Promise.all([
+        call(u.url, guest, "POST", `/invite/${second.body.invite.id}/accept`),
+        call(
+          u.url,
+          owner,
+          "DELETE",
+          `/organization/${orgId}/member/${guest.userId}`,
+        ),
+      ]);
+      expect([accept.status, remove.status], `round ${round}`).not.toContain(
+        500,
+      );
+      expect(remove.status, `round ${round}`).toBe(200);
+      // Whichever went first, the guest is out: the removal either took the new
+      // membership with it or withdrew the invite before it was accepted.
+      const view = await call(
+        u.url,
+        guest,
+        "GET",
+        `/project/${owner.projectId}`,
+      );
+      expect(view.status, `round ${round}`).toBe(403);
+    }
+  }, 60_000);
+
+  test("racing the organization's deletion answers, never a 500 or a deadlock", async () => {
+    for (let round = 0; round < 8; round++) {
+      const owner = await createUserAndLogin(
+        u.url,
+        "Dixie",
+        `dixie${round}@kong.example`,
+      );
+      const guest = await createUserAndLogin(
+        u.url,
+        "Kiddy",
+        `kiddy${round}@kong.example`,
+      );
+      const created = await call<{ organization: { id: number } }>(
+        u.url,
+        owner,
+        "PUT",
+        "/organization",
+        { name: `Empty ${round}` },
+      );
+      const orgId = created.body.organization.id;
+      const sent = await call<{ invite: { id: number } }>(
+        u.url,
+        owner,
+        "PUT",
+        `/organization/${orgId}/invite`,
+        { inviteeEmail: guest.email },
+      );
+      const [accept, remove] = await Promise.all([
+        call(u.url, guest, "POST", `/invite/${sent.body.invite.id}/accept`),
+        call(u.url, owner, "DELETE", `/organization/${orgId}`),
+      ]);
+      expect([accept.status, remove.status], `round ${round}`).not.toContain(
+        500,
+      );
+    }
+  }, 60_000);
+});

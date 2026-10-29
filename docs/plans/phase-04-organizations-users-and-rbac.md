@@ -494,6 +494,31 @@ caller yet; `lua/` holds no script.
   first time; `shell` is Organization → Projects as that person. It needs the backend running as well as the
   frontend.
 
+### Fixed after the merge
+
+A review of the merged change, run because the automated reviewer had not, found no cross-tenant read but these
+holes. Each is closed with a test; the grant race and the deletion deadlock were also run against the old code,
+where they failed on the first round:
+
+| Finding | Fix |
+|---|---|
+| A tag grant racing a removal left `admin` on a non-member, which the last-admin guard then counted | `user-tag:assign` takes the project lock before reading the membership; `getAdminUserIds` counts only grants held by members |
+| A removed person could accept a still-pending invite and walk back in | removing someone from a project, or from the organization, sets their pending invites there to `revoked` in the same transaction |
+| `invite:accept` deadlocked with `organization:delete` (and could 500 against a removal) | accept takes `KEY SHARE` on the organization row, then the project row, before locking the invite: the one order is organization → project → invite |
+| An owner demoted mid-request could finish removing or promoting someone | both actions re-read the caller's role after taking the organization lock (`assertStillOwner`) |
+| An id past a `serial`'s range was a 500 carrying the SQL | `idInput` caps at `MAX_ID`, so it is a 406 like any other bad id |
+| A tag could be named `*`, and renaming one to it would turn its lists into "everyone" | refused on create and rename |
+| `safeNext("/.//evil.com")` returned `//evil.com` | the resolved path is checked too |
+| Any failed session read (a 5xx, a dropped connection) signed the person out | only a 401 does (`ApiError.status`, `isSignedOut`) |
+
+Still open:
+
+- **Invite acceptance trusts an unverified email.** `user:edit` changes an email with no confirmation, and sign-up
+  takes any address, so whoever first claims an address can accept invites sent to it. This is ToolExec's model, and
+  closing it means verifying addresses (or binding acceptance to a mailed token) — a decision, not a patch.
+- **A socket stays subscribed to `project:<id>:notifications` after its person is removed.** Frames are content-free,
+  so this leaks only timing; Keryx re-checks a channel only at subscribe.
+
 ### Traps found while building
 
 - **Keryx 0.48 resets `connection.metadata` at the start of every top-level `act()`**, and builds a fresh connection

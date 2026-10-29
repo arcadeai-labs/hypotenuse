@@ -8,6 +8,7 @@ import {
 } from "../../classes/AuditedAction";
 import { AdminMiddleware } from "../../middleware/rbac";
 import { idInput } from "../../ops/InputOps";
+import { revokePendingInvites } from "../../ops/InviteOps";
 import {
   getAdminUserIds,
   lockProjectAdmins,
@@ -119,6 +120,17 @@ export class MembershipDelete extends AuditedAction {
     await tx
       .delete(projectMemberships)
       .where(eq(projectMemberships.id, existing.id));
+
+    // A pending invite into this project would let them straight back in.
+    const removed = await getUserById(params.userId, tx);
+    if (removed) {
+      await revokePendingInvites(
+        tx,
+        connection.metadata.project!.organizationId,
+        removed.email,
+        params.projectId,
+      );
+    }
     return { success: true };
   }
 }

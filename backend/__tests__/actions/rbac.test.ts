@@ -390,6 +390,14 @@ describe("RBAC enforcement", () => {
     expect(member.body.callerTags).toEqual([]);
   });
 
+  test("an id past what a serial column holds is a validation error, not a 500", async () => {
+    for (const path of ["/project/3000000000", "/organization/3000000000"]) {
+      const res = await call(u.url, u.bowser, "GET", path);
+      expect(res.status, path).toBe(406);
+      expect(res.body.error?.message, path).not.toContain("select");
+    }
+  });
+
   test("a non-numeric projectId is a validation error, not a 500", async () => {
     const res = await call(u.url, u.peach, "GET", "/project/castle/tags");
     expect(res.status).toBe(406);

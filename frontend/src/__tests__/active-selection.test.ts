@@ -62,3 +62,11 @@ describe("inviteState", () => {
     );
   });
 });
+
+describe("inviteState: revoked", () => {
+  test("a withdrawn invite reads as revoked, not pending or expired", () => {
+    expect(
+      inviteState({ status: "revoked", expiresAt: Date.now() + 60_000 }),
+    ).toBe("revoked");
+  });
+});

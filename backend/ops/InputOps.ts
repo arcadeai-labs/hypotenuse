@@ -1,13 +1,25 @@
 import { z } from "zod";
 
 /**
+ * The largest id a `serial` column holds. An id past it is not one that could
+ * exist, and handing it to Postgres would fail the query (a 500 carrying the
+ * SQL) instead of answering like any other unknown id.
+ */
+export const MAX_ID = 2_147_483_647;
+
+/**
  * A positive integer id, coerced from the path or query string where every value
  * arrives as text.
  * @param description - What the id names, for the MCP tool description.
  * @returns The Zod schema.
  */
 export function idInput(description: string) {
-  return z.coerce.number().int().positive().describe(description);
+  return z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(MAX_ID, "No such id")
+    .describe(description);
 }
 
 /**

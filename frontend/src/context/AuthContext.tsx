@@ -20,7 +20,7 @@ import {
   readStoredId,
   writeStoredId,
 } from "../utils/activeSelection";
-import { apiFetch } from "../utils/client";
+import { apiFetch, isSignedOut } from "../utils/client";
 import type { Permissions } from "../utils/permissions";
 
 /** The signed-in user, as `me:view` returns them. */
@@ -144,9 +144,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           projects.map((p) => p.id),
         ),
       });
-    } catch {
+    } catch (error) {
       if (mine !== ticket.current) return;
-      setSnapshot(SIGNED_OUT);
+      // Only a 401 means the session is gone. A failed read for any other
+      // reason (a deploy, a dropped connection) keeps what we knew, rather
+      // than bouncing a signed-in person to the sign-in page.
+      if (isSignedOut(error)) setSnapshot(SIGNED_OUT);
     }
   }, [apply]);
 
