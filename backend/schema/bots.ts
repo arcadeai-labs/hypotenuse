@@ -1,0 +1,86 @@
+import {
+  boolean,
+  customType,
+  integer,
+  jsonb,
+  numeric,
+  pgTable,
+  serial,
+  text,
+  timestamp,
+  uniqueIndex,
+  varchar,
+} from "drizzle-orm/pg-core";
+import { projects } from "./projects";
+import { users } from "./users";
+
+/** A Postgres `bytea`, read and written as a `Buffer`. */
+const bytea = customType<{ data: Buffer; driverData: Buffer }>({
+  dataType: () => "bytea",
+});
+
+/**
+ * A `bot` is one agent of a project: who it is (name, display name, avatar,
+ * persona), which of the project's model aliases it thinks with, who may read
+ * and change it, whom it asks for help, and what it may spend.
+ *
+ * - `slug` is unique per project. It becomes **immutable once the bot has any
+ *   platform installation**, because the Slack and Linear app manifests
+ *   generated for it embed it; that rule is enforced by the platform
+ *   installation code, which does not exist yet.
+ * - `avatar` is stored, not linked: a platform app's icon is uploaded by a
+ *   person from the generated manifest's instructions, and the dashboard must
+ *   not depend on a third-party URL staying up. Never serialized; served by
+ *   `bot:avatar`.
+ * - `modelAlias` / `fastModelAlias` name `model_aliases` rows by name, not by
+ *   id, so an alias can be repointed without touching any bot.
+ * - `accessRead` / `accessWrite` are tag-name lists, read only through
+ *   `AccessOps` (`canReadBot` / `canWriteBot`).
+ * - `helpNotifyTag` null means the project's admins.
+ * - `monthlyBudgetUsd` is stored and shown; nothing enforces it yet.
+ * - `enabled` false means the bot accepts no new conversations.
+ */
+export const bots = pgTable(
+  "bots",
+  {
+    id: serial("id").primaryKey(),
+    projectId: integer("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    name: varchar("name", { length: 80 }).notNull(),
+    slug: varchar("slug", { length: 64 }).notNull(),
+    description: varchar("description", { length: 280 }).notNull().default(""),
+    displayName: varchar("display_name", { length: 80 }).notNull(),
+    avatar: bytea("avatar"),
+    avatarMimeType: text("avatar_mime_type"),
+    persona: text("persona").notNull(),
+    modelAlias: varchar("model_alias", { length: 64 })
+      .notNull()
+      .default("default"),
+    fastModelAlias: varchar("fast_model_alias", { length: 64 })
+      .notNull()
+      .default("fast"),
+    accessRead: jsonb("access_read").$type<string[]>().notNull().default([]),
+    accessWrite: jsonb("access_write").$type<string[]>().notNull().default([]),
+    helpNotifyTag: varchar("help_notify_tag", { length: 256 }),
+    monthlyBudgetUsd: numeric("monthly_budget_usd", {
+      precision: 10,
+      scale: 2,
+    }),
+    enabled: boolean("enabled").notNull().default(true),
+    createdByUserId: integer("created_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdateFn(() => new Date()),
+  },
+  (t) => [uniqueIndex("bots_project_slug_idx").on(t.projectId, t.slug)],
+);
+
+export type Bot = typeof bots.$inferSelect;
+export type NewBot = typeof bots.$inferInsert;

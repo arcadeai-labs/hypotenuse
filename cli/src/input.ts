@@ -1,0 +1,200 @@
+/**
+ * Turning what a person typed or pointed at into the values an action takes:
+ * comma-separated tag lists, numbers, files, images, and secrets that must
+ * never be typed as a flag (a flag lands in shell history and in `ps`).
+ */
+import { readFileSync } from "node:fs";
+import { ExitError } from "./shutdown";
+
+/** The most bytes an avatar may have; the server refuses anything larger. */
+export const AVATAR_MAX_BYTES = 512 * 1024;
+
+/**
+ * Split a comma-separated list of tag names. Blank entries are dropped, so
+ * `--read ""` is the empty list, which means every member.
+ * @param raw - What the person typed, e.g. `operators, viewers`.
+ * @returns The trimmed, non-empty names, in order.
+ */
+export function parseList(raw: string): string[] {
+  return raw
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+}
+
+/**
+ * Parse a number a person typed for a flag.
+ * @param raw - What they typed.
+ * @param flag - The flag's name, for the refusal.
+ * @returns The number.
+ * @throws {Error} When it is not a finite number.
+ */
+export function parseNumber(raw: string, flag: string): number {
+  const value = Number(raw.trim());
+  if (raw.trim() === "" || !Number.isFinite(value)) {
+    throw new Error(`${flag} takes a number; got "${raw}".`);
+  }
+  return value;
+}
+
+/**
+ * The image type of a file, from its first bytes rather than its name.
+ * @param bytes - The file's contents.
+ * @returns `image/png`, `image/jpeg`, or null for anything else.
+ */
+export function imageMimeType(
+  bytes: Uint8Array,
+): "image/png" | "image/jpeg" | null {
+  const png = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+  if (png.every((b, i) => bytes[i] === b)) return "image/png";
+  if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
+    return "image/jpeg";
+  }
+  return null;
+}
+
+/**
+ * Encode an avatar file for `bot:create` / `bot:edit`: a PNG or JPEG of at
+ * most 512 KB, base64. The server checks that it is square.
+ * @param bytes - The file's contents.
+ * @param path - The file's path, for the refusal.
+ * @returns The base64 encoding.
+ * @throws {Error} When it is not a PNG or JPEG, or is too large.
+ */
+export function encodeAvatar(bytes: Uint8Array, path: string): string {
+  if (!imageMimeType(bytes)) {
+    throw new Error(`${path} is not a PNG or JPEG image.`);
+  }
+  if (bytes.byteLength > AVATAR_MAX_BYTES) {
+    throw new Error(
+      `${path} is ${Math.ceil(bytes.byteLength / 1024)} KB; an avatar is at most 512 KB.`,
+    );
+  }
+  return Buffer.from(bytes).toString("base64");
+}
+
+/**
+ * Read a file a flag points at.
+ * @param path - The path.
+ * @param flag - The flag's name, for the refusal.
+ * @returns The contents.
+ * @throws {Error} When the file cannot be read.
+ */
+export function readFileFor(path: string, flag: string): Buffer {
+  try {
+    return readFileSync(path);
+  } catch (error) {
+    throw new Error(
+      `${flag}: cannot read ${path} (${error instanceof Error ? error.message : String(error)}).`,
+    );
+  }
+}
+
+/** Where a secret may come from, and how to read each source. */
+export interface SecretSources {
+  /** What the secret is, for prompts and refusals ("API key"). */
+  label: string;
+  /** Read the secret from standard input. */
+  fromStdin?: boolean;
+  /** Read the secret from this environment variable. */
+  fromEnv?: string;
+  /** Environment variables. */
+  env: Record<string, string | undefined>;
+  /** Whether standard input is a terminal a person can type into. */
+  isTTY: boolean;
+  /** Read all of standard input. */
+  readStdin: () => Promise<string>;
+  /** Ask a person for it without echoing. */
+  prompt: (question: string) => Promise<string>;
+}
+
+/**
+ * Read a secret from standard input, a named environment variable, or a
+ * prompt that does not echo — never from a flag's value, which would land in
+ * shell history and the process list. One trailing newline is stripped, so
+ * `echo "$KEY" | …` and a file with a final newline both work.
+ * @param sources - Where to look, and how.
+ * @returns The secret.
+ * @throws {Error} When it is empty, both sources were given, or there is no
+ *   source and no terminal to prompt on.
+ */
+export async function readSecret(sources: SecretSources): Promise<string> {
+  const { label } = sources;
+  if (sources.fromStdin && sources.fromEnv) {
+    throw new Error(`Pass one of --api-key-stdin and --api-key-env, not both.`);
+  }
+  let value: string;
+  if (sources.fromStdin) {
+    value = (await sources.readStdin()).replace(/\r?\n$/, "");
+  } else if (sources.fromEnv) {
+    const fromEnv = sources.env[sources.fromEnv];
+    if (fromEnv === undefined) {
+      throw new Error(
+        `The environment variable ${sources.fromEnv} is not set.`,
+      );
+    }
+    value = fromEnv;
+  } else if (sources.isTTY) {
+    value = await sources.prompt(`${label}: `);
+  } else {
+    throw new Error(
+      `No ${label} given. Pipe it in with --api-key-stdin, or name an environment variable with --api-key-env <NAME>.`,
+    );
+  }
+  if (value.trim() === "") throw new Error(`The ${label} is empty.`);
+  return value.trim();
+}
+
+/**
+ * Ask for a line on the terminal without echoing it. Ctrl-C exits 130.
+ * @param question - The prompt, written to stderr.
+ * @returns What was typed.
+ */
+export function promptHidden(question: string): Promise<string> {
+  const stdin = process.stdin;
+  process.stderr.write(question);
+  return new Promise((resolve, reject) => {
+    let typed = "";
+    /** Restore the terminal. */
+    const done = () => {
+      stdin.off("data", onData);
+      stdin.setRawMode?.(false);
+      stdin.pause();
+      process.stderr.write("\n");
+    };
+    /**
+     * Take one chunk of keystrokes.
+     * @param chunk - The bytes the terminal sent.
+     */
+    function onData(chunk: Buffer) {
+      for (const char of chunk.toString("utf8")) {
+        if (char === "\r" || char === "\n" || char === "\u0004") {
+          done();
+          resolve(typed);
+          return;
+        }
+        if (char === "\u0003") {
+          done();
+          reject(new ExitError(130));
+          return;
+        }
+        if (char === "\u007f" || char === "\b") {
+          typed = typed.slice(0, -1);
+        } else {
+          typed += char;
+        }
+      }
+    }
+    stdin.setRawMode?.(true);
+    stdin.resume();
+    stdin.on("data", onData);
+  });
+}
+
+/**
+ * Read all of standard input as text.
+ * @returns The text.
+ */
+export async function readAllStdin(): Promise<string> {
+  return await new Response(Bun.stdin.stream()).text();
+}

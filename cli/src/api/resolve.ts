@@ -49,7 +49,7 @@ export interface OrganizationSummary {
  * @param match - Whether a row is the one wanted.
  * @returns The row, or null when no page has it.
  */
-async function findInPages<T>(
+export async function findInPages<T>(
   client: ApiClient,
   path: string,
   key: string,
@@ -133,4 +133,52 @@ export async function onlyOne<T>(
     only: body.pagination.total === 1 ? (rows[0] ?? null) : null,
     total: body.pagination.total,
   };
+}
+
+/**
+ * Resolve a bot id or slug in a project to a bot the caller can read.
+ * @param client - A signed-in client.
+ * @param projectId - The project.
+ * @param selector - An id (all digits) or a slug.
+ * @returns The bot's id.
+ * @throws {Error} When no bot the caller can read has that slug.
+ */
+export async function resolveBotId(
+  client: ApiClient,
+  projectId: number,
+  selector: string,
+): Promise<number> {
+  if (/^\d+$/.test(selector)) return Number(selector);
+  const match = await findInPages<{ id: number; slug: string }>(
+    client,
+    `/project/${projectId}/bots`,
+    "bots",
+    (b) => b.slug === selector,
+  );
+  if (!match) throw new Error(`No bot with the slug "${selector}"`);
+  return match.id;
+}
+
+/**
+ * Resolve a model connection id or name in a project.
+ * @param client - A signed-in client.
+ * @param projectId - The project.
+ * @param selector - An id (all digits) or the connection's name.
+ * @returns The connection's id.
+ * @throws {Error} When no connection has that name.
+ */
+export async function resolveConnectionId(
+  client: ApiClient,
+  projectId: number,
+  selector: string,
+): Promise<number> {
+  if (/^\d+$/.test(selector)) return Number(selector);
+  const match = await findInPages<{ id: number; name: string }>(
+    client,
+    `/project/${projectId}/model-connections`,
+    "modelConnections",
+    (c) => c.name === selector,
+  );
+  if (!match) throw new Error(`No model connection named "${selector}"`);
+  return match.id;
 }

@@ -24,6 +24,7 @@ Who satisfies a list:
 
 So a bot readable by `["support", "eng"]` is visible to anyone holding either tag, and to every admin. Admins always
 pass, so a list can never lock everyone out of the thing it protects.
+[Bots](/docs/bots#who-may-read-and-change-it) shows the lists on a bot's page.
 
 ## Renaming and deleting a tag
 

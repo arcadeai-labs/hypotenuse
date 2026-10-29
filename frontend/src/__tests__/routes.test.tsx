@@ -55,7 +55,7 @@ describe("routes", () => {
 
   test("every destination is in the sidebar; one not built yet is disabled and says so without a phase", () => {
     const html = renderAt("/status");
-    for (const id of ["home", "conversations", "bots", "memory", "sandboxes"]) {
+    for (const id of ["home", "conversations", "memory", "sandboxes"]) {
       const item = html.match(
         new RegExp(`<[a-z]+[^>]*data-testid="nav-${id}"[^>]*>`),
       )?.[0];
@@ -66,13 +66,19 @@ describe("routes", () => {
     expect(html).not.toMatch(/phase/i);
   });
 
-  test("settings is a live destination", () => {
-    const item = renderAt("/status").match(
-      /<[a-z]+[^>]*data-testid="nav-settings"[^>]*>/,
-    )?.[0];
-    expect(item).toStartWith("<a");
-    expect(item).toContain('href="/settings"');
-    expect(item).not.toContain("aria-disabled");
+  test("settings and bots are live destinations", () => {
+    const html = renderAt("/status");
+    for (const [id, href] of [
+      ["settings", "/settings"],
+      ["bots", "/bots"],
+    ]) {
+      const item = html.match(
+        new RegExp(`<[a-z]+[^>]*data-testid="nav-${id}"[^>]*>`),
+      )?.[0];
+      expect(item, id).toStartWith("<a");
+      expect(item).toContain(`href="${href}"`);
+      expect(item).not.toContain("aria-disabled");
+    }
   });
 
   test("a signed-in page waits for the session before deciding where to go", () => {
@@ -80,6 +86,10 @@ describe("routes", () => {
     // sign-in on every hard refresh.
     for (const path of [
       "/settings/members",
+      "/settings/models",
+      "/bots",
+      "/bots/new",
+      "/bots/1",
       "/organization/members",
       "/invites",
       "/account",

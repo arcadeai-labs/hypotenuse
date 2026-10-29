@@ -6,6 +6,7 @@ import { DEFAULT_SETTINGS_SECTION } from "./components/settings/sections";
 import { DangerZoneSection } from "./components/settings/sections/DangerZoneSection";
 import { GeneralSection } from "./components/settings/sections/GeneralSection";
 import { MembersSection } from "./components/settings/sections/MembersSection";
+import { ModelsSection } from "./components/settings/sections/ModelsSection";
 import { TagsSection } from "./components/settings/sections/TagsSection";
 import { PublicShell } from "./components/shell/PublicShell";
 import { DOCS_SECTIONS } from "./content/docs/sections";
@@ -15,6 +16,9 @@ import { NotificationProvider } from "./context/NotificationContext";
 import { StandingProvider } from "./context/StandingContext";
 import { AccountPage } from "./pages/AccountPage";
 import { AuditLogPage } from "./pages/AuditLogPage";
+import { BotPage } from "./pages/bots/BotPage";
+import { BotsPage } from "./pages/bots/BotsPage";
+import { NewBotPage } from "./pages/bots/NewBotPage";
 import { CliActivatePage } from "./pages/cli/CliActivatePage";
 import { CliAuthorizePage } from "./pages/cli/CliAuthorizePage";
 import { DocsLayout } from "./pages/docs/DocsLayout";
@@ -83,6 +87,9 @@ export function App() {
                   <Route path="/account" element={<AccountPage />} />
                   <Route path="/invites" element={<InvitesPage />} />
                   <Route path="/audit" element={<AuditLogPage />} />
+                  <Route path="/bots" element={<BotsPage />} />
+                  <Route path="/bots/new" element={<NewBotPage />} />
+                  <Route path="/bots/:botId" element={<BotPage />} />
                   <Route path="/projects/new" element={<NewProjectPage />} />
                   <Route
                     path="/organizations/new"
@@ -96,6 +103,7 @@ export function App() {
                       }
                     />
                     <Route path="general" element={<GeneralSection />} />
+                    <Route path="models" element={<ModelsSection />} />
                     <Route path="members" element={<MembersSection />} />
                     <Route path="tags" element={<TagsSection />} />
                     <Route path="danger" element={<DangerZoneSection />} />

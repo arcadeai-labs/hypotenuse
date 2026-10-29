@@ -27,6 +27,17 @@ const EXPECTED_LEVELS: Record<string, RbacLevel> = {
   "project:settings-view": "member",
   "membership:list": "member",
   "tag:list": "member",
+  "model-connection:view": "member",
+  "model-connection:list": "member",
+  "model-alias:list": "member",
+  // Bots are member-level; each one's access lists decide the rest inside
+  // the action (`canReadBot` / `canWriteBot`).
+  "bot:create": "member",
+  "bot:view": "member",
+  "bot:list": "member",
+  "bot:edit": "member",
+  "bot:delete": "member",
+  "bot:avatar": "member",
 
   // A project's admin level: managing people, tags, invites, the project.
   "project:edit": "admin",
@@ -40,6 +51,15 @@ const EXPECTED_LEVELS: Record<string, RbacLevel> = {
   "user-tag:remove": "admin",
   "invite:list": "admin",
   "audit:list": "admin",
+  // Which models the project pays for.
+  "model-connection:create": "admin",
+  "model-connection:edit": "admin",
+  "model-connection:delete": "admin",
+  "model-connection:test": "admin",
+  "model-connection:models": "admin",
+  "model-alias:create": "admin",
+  "model-alias:edit": "admin",
+  "model-alias:delete": "admin",
 
   // Organization members. Two of these decide more inside the action:
   // removing someone else needs an owner (leaving does not), and an invite
@@ -116,6 +136,11 @@ const CLOCKS = [
 /** Every action published as an MCP tool for a person's client. */
 const EXPECTED_MCP_TOOLS = [
   "audit:list",
+  "bot:create",
+  "bot:delete",
+  "bot:edit",
+  "bot:list",
+  "bot:view",
   "cli-token:list",
   "cli-token:revoke",
   "email-verification:resend",
@@ -128,6 +153,17 @@ const EXPECTED_MCP_TOOLS = [
   "membership:create",
   "membership:delete",
   "membership:list",
+  "model-alias:create",
+  "model-alias:delete",
+  "model-alias:edit",
+  "model-alias:list",
+  "model-connection:create",
+  "model-connection:delete",
+  "model-connection:edit",
+  "model-connection:list",
+  "model-connection:models",
+  "model-connection:test",
+  "model-connection:view",
   "notification:list",
   "notification:mark-read",
   "notification:unread-count",
@@ -267,6 +303,7 @@ describe("MCP publish policy", () => {
     expect([...NEVER_MCP_ACTION_NAMES].sort()).toEqual(
       [
         "actions:permissions",
+        "bot:avatar",
         "cli-auth:activate",
         "cli-auth:approve",
         "cli-auth:device",

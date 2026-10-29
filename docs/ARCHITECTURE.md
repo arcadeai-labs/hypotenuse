@@ -59,13 +59,14 @@ flowchart TB
 ```
 Organization ─── members (owners, members) · audit_logs (its own rows and every project's)
 └── Project ─── memberships · tags (roles) · invites · audit_logs
-    ├── model_connections        encrypted provider credentials, named models (incl. a fast model)
+    ├── model_connections        encrypted provider keys (Anthropic, OpenAI, Vercel AI Gateway, OpenAI-compatible)
+    ├── model_aliases            named models: `default` and `fast` required, any others optional
     ├── mcp_servers              shared MCP servers; credentials never leave the server
     ├── skills                   shared skills, attached per bot
     ├── memory (project scope)   shared by every bot and channel, slow decay
     ├── github_installations · repository_grants
     └── Bot ─── identity (display name, avatar, its own Slack app + Linear app) · prompt_sections · goals ·
-        │       model · accessRead / accessWrite tags · helpNotifyTag · budget
+        │       persona · model and fast-model alias names · accessRead / accessWrite tags · helpNotifyTag · budget
         ├── bot_installations    one per platform the bot is installed on
         ├── bot_skills · bot_mcp_servers (with tool allowlists)
         ├── schedules
@@ -106,6 +107,15 @@ one sign-in never mints another.
 
 A bot acts with **its own** authority — its installations, its allowlisted tools, its repository grants — not the
 authority of whoever is talking to it. A sandbox it starts carries a run token scoped to that job.
+
+## Models
+
+A bot never holds a key or a raw model id: it names two of its project's **model aliases** (`default` and `fast`
+unless told otherwise), and an admin decides what each alias means — a model connection and one of its model ids.
+`ModelOps.languageModel(projectId, alias)` is the only way code obtains a model: alias → connection → an AI SDK
+provider from the one table of kinds in `backend/models/registry.ts`, with the key decrypted in the process making the
+call. Every provider is built with the SSRF guard's `guardedFetch` (`ops/NetworkGuardOps.ts`), so a base URL a person
+typed can never reach a private address, even by DNS rebinding.
 
 ## The agent loop
 

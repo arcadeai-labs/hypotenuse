@@ -1,7 +1,8 @@
 # Command line
 
 `hypotenuse` is the command line for Hypotenuse. It signs in through your browser and then does what the
-dashboard does — organizations, projects, members, invites, tags, and the audit log — over the same API, as you.
+dashboard does — organizations, projects, members, invites, tags, model connections and aliases, bots, and the
+audit log — over the same API, as you.
 Everything it can do, your role must already allow; it never adds permissions of its own.
 
 ## Installing
@@ -72,6 +73,12 @@ invites), and `audit list`.
 | `hypotenuse member list`, `member add --email`, `member remove <userId>` | The project's members. Adding takes someone already in the organization; anyone else gets an invite |
 | `hypotenuse invite list`, `invite pending`, `invite create --email [--tag <id>]`, `invite accept <id>`, `invite reject <id>` | Invitations. `create` invites into the project; `--organization-only` invites into the organization instead. `pending` lists invitations addressed to you |
 | `hypotenuse tag list`, `tag create <name>`, `tag edit <id> --name`, `tag delete <id>`, `tag assign <id> --user <userId>`, `tag remove <id> --user <userId>` | The project's [tags](/docs/tags) and who holds them. The `admin` tag is reserved |
+| `hypotenuse model connection list`, `model connection view <connection>` | The project's model providers: each one's provider, base URL, the last four characters of its key, and whether its last test passed |
+| `hypotenuse model connection add --name --provider [--base-url]`, `model connection rotate <connection>` | Connect a provider (`anthropic`, `openai`, `gateway`, or `openai-compatible`, which needs `--base-url`), or replace a connection's key. Admins only; see **API keys** below |
+| `hypotenuse model connection edit <connection> --name --base-url`, `model connection test <connection>`, `model connection models <connection>`, `model connection remove <connection>` | Rename one or change its base URL (`--default-base-url` goes back to the provider's); check its key works; list the models it offers; delete it. Admins only |
+| `hypotenuse model alias list`, `model alias set <name> --connection --model`, `model alias remove <name>` | The model names bots use. `default` and `fast` must both exist before any bot can run, and `list` says which are missing. `set` creates an alias or changes the one of that name; `--max-output-tokens` and `--temperature` tune it. Admins only to change |
+| `hypotenuse bot list`, `bot view <bot>` | The bots you can read, and one bot's settings and persona |
+| `hypotenuse bot create --name --persona-file`, `bot edit <bot>`, `bot delete <bot> --yes` | Make a bot, change it, or delete it. See **Bots from the command line** below |
 | `hypotenuse audit list` | The project's [audit log](/docs/audit), newest first, or with `--org` the organization's |
 | `hypotenuse check-update`, `hypotenuse upgrade` | See whether a newer release exists, and install it |
 
@@ -79,7 +86,55 @@ invites), and `audit list`.
 milliseconds, or a span back from now (`7d`, `12h`, `30m`); `--action tag:edit`, `--actor-type user`, and
 `--target-type tag` narrow it further.
 
-Deleting an organization or a project cannot be undone, so those commands refuse to run without `--yes`.
+Deleting an organization, a project, or a bot cannot be undone, so those commands refuse to run without `--yes`.
+
+A model connection is named by its id or its name, a bot by its id or its slug, and an alias by its name.
+
+### API keys
+
+The CLI never takes an API key as a flag's value, because a flag lands in your shell history and in the list of
+running processes. Give it one of these instead:
+
+```bash
+pbpaste | hypotenuse model connection add --name anthropic --provider anthropic --api-key-stdin
+hypotenuse model connection add --name openai --provider openai --api-key-env OPENAI_API_KEY
+hypotenuse model connection rotate anthropic     # on a terminal: asks for the key without showing it
+```
+
+`--api-key-stdin` reads the key from standard input; `--api-key-env <NAME>` reads it from that environment variable;
+with neither, a terminal asks for it and does not echo what you type. The key goes straight to the server, which
+stores it encrypted and never shows it again — only its last four characters. A new or rotated key reads as
+`unverified` until `model connection test` checks it; `test` exits non-zero when the check fails, so a script can
+stop there.
+
+```bash
+hypotenuse model connection test anthropic
+hypotenuse model connection models anthropic
+hypotenuse model alias set default --connection anthropic --model claude-sonnet-4-5
+hypotenuse model alias set fast --connection anthropic --model claude-haiku-4-5 --max-output-tokens 2000
+hypotenuse model alias list
+```
+
+### Bots from the command line
+
+A bot's persona is markdown, so `bot create` and `bot edit` read it from a file:
+
+```bash
+hypotenuse bot create --name Ada --persona-file ada.md --description "Answers questions about billing"
+hypotenuse bot edit ada --read operators,viewers --write operators --help-tag operators
+hypotenuse bot edit ada --avatar-file ada.png
+hypotenuse bot edit ada --disable
+```
+
+- `--read` and `--write` take comma-separated tag names; `--read ""` or `--read "*"` lets every member in. Admins can
+  always read and change every bot, and the server refuses a change that would lock you out of a bot.
+- `--avatar-file` takes a square PNG or JPEG of at most 512 KB; `bot edit --no-avatar` removes it.
+- `--model` and `--fast-model` name model aliases (`default` and `fast` unless you say otherwise).
+- `--help-tag <tag>` names who the bot asks for help; `--no-help-tag` goes back to the project's admins.
+- `--budget <usd>` records a monthly budget, which is shown but not enforced yet; `--no-budget` clears it.
+- `--enable` and `--disable` decide whether the bot accepts new conversations.
+
+`bot edit` changes only what its flags name.
 
 ## Scripting
 

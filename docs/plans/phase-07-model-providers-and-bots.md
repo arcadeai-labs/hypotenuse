@@ -14,7 +14,7 @@
 >
 > Bots are CRUD only. **Nothing runs yet.**
 
-> **Status: planned, not built.** It builds on [phase 04](./phase-04-organizations-users-and-rbac.md):
+> **Status: built.** It builds on [phase 04](./phase-04-organizations-users-and-rbac.md):
 > `AccessOps`, the `admin` gate, and `CryptoOps`. It also builds on [phase 05](./phase-05-audit-logging.md): every
 > write is audited, and `apiKey` is already in `SENSITIVE_KEYS`. The durable loop that makes a bot answer is
 > [phase 08](./phase-08-durable-agent-loop.md).
@@ -284,15 +284,15 @@ bun run --cwd cli hypotenuse model alias list --json | jq '.modelAliases[].name'
 
 ## Definition of done
 
-- [ ] Model connections for four AI SDK provider kinds, encrypted at rest, probed through the SSRF guard, never returned
-- [ ] `default` and `fast` aliases are required and refuse deletion while used
-- [ ] Bots CRUD with `canReadBot` / `canWriteBot` on `AccessOps`; unreadable bots are absent and 404
-- [ ] The writer-lockout guard; member-level `bot:create`
-- [ ] Avatar upload and serving; the bot badge on every avatar
-- [ ] The scripted model server exists and real AI SDK providers talk to it
-- [ ] Settings → Models, Bots list, and the bot page; future sections disabled without naming a phase
-- [ ] CLI `model` and `bot` commands; user docs for models and bots
-- [ ] `rbac.test.ts` and `audited-actions.test.ts` include every new action
+- [x] Model connections for four AI SDK provider kinds, encrypted at rest, probed through the SSRF guard, never returned
+- [x] `default` and `fast` aliases are required and refuse deletion while used
+- [x] Bots CRUD with `canReadBot` / `canWriteBot` on `AccessOps`; unreadable bots are absent and 404
+- [x] The writer-lockout guard; member-level `bot:create`
+- [x] Avatar upload and serving; the bot badge on every avatar
+- [x] The scripted model server exists and real AI SDK providers talk to it
+- [x] Settings → Models, Bots list, and the bot page; future sections disabled without naming a phase
+- [x] CLI `model` and `bot` commands; user docs for models and bots
+- [x] `rbac.test.ts` and `audited-actions.test.ts` include every new action
 
 ## Open questions
 
@@ -303,4 +303,111 @@ bun run --cwd cli hypotenuse model alias list --json | jq '.modelAliases[].name'
 
 ## Learnings from the build
 
-Not built yet.
+### What is built
+
+| Piece | Where |
+|---|---|
+| `model_connections`, `model_aliases`, `bots` in one migration (`0005`); the health probe reads `bots.avatar_mime_type` | `backend/schema/{model_connections,model_aliases,bots}.ts`, `backend/drizzle/0005_*.sql`, `ops/HealthOps.ts` |
+| The one table of provider kinds, the AI SDK packages pinned exactly | `backend/models/registry.ts` |
+| `languageModel`, `embeddingModel` (refuses), probe, live model list, serializers | `backend/ops/ModelOps.ts` |
+| The SSRF guard and `guardedFetch`; `config.network` | `backend/ops/NetworkGuardOps.ts`, `backend/config/network.ts` |
+| `canReadBot` / `canWriteBot`, the lockout guard, avatar decoding, the bot serializer | `backend/ops/BotOps.ts` |
+| Actions | `backend/actions/{model-connection,model-alias,bot}/` |
+| The scripted model server | `backend/__tests__/fixtures/model-server.ts` |
+| Settings → Models, the Bots list, the bot page, New bot | `frontend/src/components/{models,bots}/`, `components/settings/sections/ModelsSection.tsx`, `pages/bots/` |
+| CLI | `cli/src/commands/{model,bot}.ts`, `cli/src/input.ts`; 2.1.0 |
+| User docs and illustrations | `frontend/src/content/docs/{models,bots}.md`, the `models`, `bots`, and `bot` illustrations |
+| Proof | `backend/__tests__/actions/{model-connections,model-aliases,bots}.test.ts`, `__tests__/ops/network-guard.test.ts`, `__tests__/cli/model-bot-commands.test.ts`, `frontend/e2e/{bots,models}.spec.ts` |
+
+### Decisions the plan left open
+
+- **The AI SDK is v7, so providers are `ProviderV4`**, not the plan's `ProviderV2`. Base URLs are what the SDK's
+  `baseURL` takes — for Anthropic and OpenAI that includes `/v1` — so a probe is `GET {base}/models` for every kind
+  but the gateway.
+- **The gateway's key is proven by `getCredits()`**, not the model catalog: the catalog (`{base}/config`) answers
+  without a key, so listing it proves nothing. `model-connection:models` still lists the catalog.
+- **Creating or rotating a key does not probe.** A connection starts (or returns to) `unverified`; `model-connection:test`
+  probes and records the verdict. That keeps the network out of every write but the one whose point is the network.
+  The test holds `FOR UPDATE` on the row across the probe, so a rotation cannot have the old key's verdict written over it.
+- **A failed probe is a status, not a failed request**: `model-connection:test` answers 200 with `status: "error"` and
+  `lastError`. The provider's error body is quoted into `lastError`, which every member reads, so the key is redacted
+  from it (`[redacted]`) in case a provider echoes the request.
+- **`guardedFetch` is the SSRF guard's transport.** It resolves a host once inside node's `http.request` `lookup`,
+  refuses it if any answer is not public, and connects to exactly what it checked (Bun honors `lookup`); TLS still
+  verifies the name. Every provider is built with it, so later phases inherit the guard on every model call. Redirects
+  are not followed. The guard lives under `config.network.allowPrivateHosts` (`NETWORK_ALLOW_PRIVATE_HOSTS`), true by
+  default only when `NODE_ENV=test`; the browser suite's backend sets it too.
+- **`default` and `fast` are always accepted on a bot**, even before an admin defines them, so a member can make a bot
+  before the models are chosen; `model-alias:list` answers `missingRequired`, and the Bots list and bot page show the
+  banner from it. Any other alias a bot names must exist.
+- **Renaming an alias a bot names is refused**, like deleting it, since bots name aliases by name. `default` and `fast`
+  can be repointed but never renamed. Deleting `default` or `fast` is refused only while a bot names it — which every
+  bot does unless told otherwise.
+- **The connection foreign key is `NO ACTION`, not `RESTRICT`**: `RESTRICT` is checked immediately, so deleting a
+  project would fail depending on cascade order; `NO ACTION` is checked at the end of the statement.
+  `model-connection:delete` refuses first, naming the aliases.
+- **The lockout guard covers `accessRead` too.** A bot its writer cannot read is one they cannot open to fix, since
+  every bot action loads the bot through the read list first. Admins are exempt from both.
+- **A readable but unwritable bot is a 403** naming its write tags; an unreadable one is the 404 a missing one is.
+- **`helpNotifyTag` is a tag reference like a list entry.** `AccessListTable` gained `tagColumns`: a tag a bot's help
+  tag names follows a rename and blocks deletion, and `tag:delete`'s refusal says "in an access list or as a help tag". A help tag
+  is one tag, so `*` — every member in an access list — is refused there.
+- **Avatars** are decoded server-side: the type comes from the bytes (PNG `IHDR`, JPEG start-of-frame), never the
+  client; squareness and 512 KB are checked there; a `data:` URL is accepted. `bot:create` takes one too. The audit row
+  replaces the base64 with `{ bytes, mimeType, width, height, sha256 }`. `bot:avatar` answers a raw `Response`, is never
+  an MCP tool (rule 8 now names binary answers), and `avatarUrl` carries `?v=<updatedAt>` so it can be cached privately.
+- **Slugs** are generated from the name with `-2`, `-3`, … like projects', and refused when chosen explicitly and taken.
+  The unique index is the real guard; a race between two creates is the generic 500.
+- **`bot:list` and `bot:view` answer `standing.canWrite` per bot**, so no client re-implements an access list.
+
+### The frontend
+
+- **Models is a settings section** with two cards, Connections and Model names — the dashboard and docs say "model
+  names"; the API keeps "alias". Connection status reuses existing glyph shapes: unverified is the dotted ring, ok a
+  disc with a check, error a disc with a cross with `lastError` under the row. `DESIGN.md`'s status table does not
+  list this mapping yet.
+- **The model picker is always free text**, with `model-connection:models` as `<datalist>` suggestions and its refusal as
+  the hint, asked only when the reader may call it.
+- **The bot page is one scrolling page** (`DetailLayout` plus a properties panel); Identity, Model, Access, and Budget
+  each save on their own; Channels, Tools, Skills, Prompts, and Goals are disabled cards reading "Not available yet"
+  with what each will be for. The avatar uploads on its own `bot:edit` as soon as a file is picked.
+- **New bot asks for name, description, and persona**, then lands on the bot page.
+- **Gating** combines the action's `can()` refusal with `standing.canWrite`; a read-only bot page says why in a banner.
+- **Lists read 100 rows**, as in the organizations work; paging past it is left for later.
+- **Illustrations are seeded** with tags, an untested Anthropic connection, `default` and `fast`, and three bots in
+  Acme/Support; the verify-email banner is hidden on every shot, since the seeded address is never confirmed.
+
+### The CLI
+
+Rule 13 decisions:
+
+| Routed action | Command |
+|---|---|
+| `model-connection:list` / `view` / `create` / `test` / `models` / `delete` | `model connection list` / `view` / `add` / `test` / `models` / `remove` |
+| `model-connection:edit` | split: `model connection rotate` (the key) and `model connection edit` (name, base URL, `--default-base-url`) |
+| `model-alias:list` / `delete` | `model alias list` / `remove` |
+| `model-alias:create` + `model-alias:edit` | `model alias set <name>`, which creates or edits by name and merges options on edit (the action replaces them whole) |
+| `bot:list` / `view` / `create` / `edit` / `delete` | `bot list` / `view` / `create` / `edit` / `delete --yes` |
+| `bot:avatar` | none: raw image bytes for the dashboard; `bot view` says whether one is set |
+
+- **A key never arrives as a flag value**, so it lands in neither shell history nor `ps`: `--api-key-stdin`,
+  `--api-key-env <NAME>`, or a hidden prompt on a terminal; without one the command refuses before sending anything.
+  The prompt path is unit-tested with an injected prompt only.
+- `model connection test` exits 1 when the status is not `ok`, since the server answers a failed probe with 200.
+- Bots are named by id or slug and connections by id or name.
+- `skill-sync.test.ts` now walks nested command groups (`model alias set`).
+
+### Traps found while building
+
+- **An MCP test helper parsed any body containing `data:` as an SSE stream**, and the avatar input's description says
+  "a data: URL is accepted", so `tools/list` read as empty. `connection-scope.test.ts` now decides by the first line.
+- **The frontend's `tsc -b` type-checks backend files it reaches through type imports**, under the DOM lib:
+  `Readable.toWeb(res) as ReadableStream<Uint8Array>` compiled in the backend and failed there. It casts through `unknown`.
+- **An export from a file under `actions/` is instantiated by Keryx**, so shared Zod inputs (`modelIdInput`) live in `ops/`.
+- **Locally, the installed Playwright may expect a newer Chromium than the machine has**; point
+  `PLAYWRIGHT_CHROMIUM_PATH` at the one under `/opt/pw-browsers`.
+
+### Not verified here
+
+- No probe has reached a real provider: every kind was proven against the scripted model server, which the real
+  `@ai-sdk/*` packages talk to unchanged. The gateway's language model call is not scripted; its probe and catalog are.

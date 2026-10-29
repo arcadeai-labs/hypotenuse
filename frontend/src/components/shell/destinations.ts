@@ -51,7 +51,7 @@ export const DESTINATIONS: readonly Destination[] = [
     label: "Bots",
     Icon: Bot,
     shortcut: "g b",
-    available: false,
+    available: true,
   },
   {
     id: "memory",

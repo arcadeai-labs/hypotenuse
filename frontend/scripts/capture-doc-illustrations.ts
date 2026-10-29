@@ -16,10 +16,18 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { type APIRequestContext, chromium } from "@playwright/test";
 
+/** What {@link seed} made, for a route that names a row by its id. */
+interface Seeded {
+  organizationId: number;
+  projectId: number;
+  botId: number;
+}
+
 /** One illustration: a route, and optionally the element to crop to (`{theme}` is replaced). */
 interface Illustration {
   name: string;
-  path: string;
+  /** The route, or a function of the seeded tenant for one that names a row. */
+  path: string | ((seeded: Seeded) => string);
   selector?: string;
   width?: number;
   height?: number;
@@ -42,6 +50,27 @@ const ILLUSTRATIONS: Illustration[] = [
     path: "/organization/audit",
     width: 1280,
     height: 800,
+    signedIn: true,
+  },
+  {
+    name: "models",
+    path: "/settings/models",
+    width: 1280,
+    height: 900,
+    signedIn: true,
+  },
+  {
+    name: "bots",
+    path: "/bots",
+    width: 1280,
+    height: 560,
+    signedIn: true,
+  },
+  {
+    name: "bot",
+    path: ({ botId }) => `/bots/${botId}`,
+    width: 1280,
+    height: 2000,
     signedIn: true,
   },
   {
@@ -81,14 +110,122 @@ async function call<T>(
   return (await res.json()) as T & { error?: { message: string } };
 }
 
+/** The Support project's bots, as the bot illustrations show them. */
+const BOTS = [
+  {
+    name: "Ada",
+    description: "Answers billing and account questions in #support",
+    persona:
+      "You are **Ada**, the support team's teammate.\n\n- Answer from what this channel already knows before asking.\n- Never promise a refund; say a person on the billing team will confirm it.\n- Keep replies short; link rather than paste.",
+    accessWrite: ["support"],
+    monthlyBudgetUsd: 200,
+  },
+  {
+    name: "Kit",
+    description: "Triages incoming Linear issues for the platform team",
+    persona: "You are **Kit**. You triage issues and ask before you assign.",
+    accessWrite: [],
+    monthlyBudgetUsd: null,
+  },
+  {
+    name: "Ledger",
+    description: "Reconciles invoices with the finance channel",
+    persona: "You are **Ledger**. You check numbers twice.",
+    accessWrite: [],
+    monthlyBudgetUsd: null,
+    enabled: false,
+  },
+];
+
+/**
+ * Give the Support project what the models and bots illustrations show: two
+ * tags, a connection (its key is a placeholder, so it stays untested), the
+ * `default` and `fast` names, and three bots. Each is made only when missing.
+ * @param request - The browser context's request client.
+ * @param projectId - The Support project.
+ * @returns The id of the bot the bot page illustration opens.
+ */
+async function seedBots(
+  request: APIRequestContext,
+  projectId: number,
+): Promise<number> {
+  const { tags } = await call<{ tags: { name: string }[] }>(
+    request,
+    "GET",
+    `/project/${projectId}/tags?limit=100`,
+  );
+  for (const name of ["support", "billing"]) {
+    if (!tags.some((t) => t.name === name)) {
+      await call(request, "PUT", `/project/${projectId}/tag`, { name });
+    }
+  }
+
+  const { modelConnections } = await call<{
+    modelConnections: { id: number; name: string }[];
+  }>(request, "GET", `/project/${projectId}/model-connections?limit=100`);
+  let connection = modelConnections.find((c) => c.name === "Anthropic");
+  if (!connection) {
+    const created = await call<{
+      modelConnection: { id: number; name: string };
+    }>(request, "PUT", `/project/${projectId}/model-connection`, {
+      name: "Anthropic",
+      provider: "anthropic",
+      apiKey: "sk-ant-illustration-placeholder-a1f3",
+    });
+    if (created.error) throw new Error(`connection: ${created.error.message}`);
+    connection = created.modelConnection;
+  }
+
+  const { modelAliases } = await call<{ modelAliases: { name: string }[] }>(
+    request,
+    "GET",
+    `/project/${projectId}/model-aliases?limit=100`,
+  );
+  for (const [name, modelId] of [
+    ["default", "claude-sonnet-4-5"],
+    ["fast", "claude-haiku-4-5"],
+  ]) {
+    if (!modelAliases.some((a) => a.name === name)) {
+      await call(request, "PUT", `/project/${projectId}/model-alias`, {
+        name,
+        connectionId: connection.id,
+        modelId,
+      });
+    }
+  }
+
+  const { bots } = await call<{ bots: { id: number; name: string }[] }>(
+    request,
+    "GET",
+    `/project/${projectId}/bots?limit=100`,
+  );
+  for (const bot of BOTS) {
+    if (!bots.some((b) => b.name === bot.name)) {
+      const created = await call<{ bot: { id: number; name: string } }>(
+        request,
+        "PUT",
+        `/project/${projectId}/bot`,
+        bot,
+      );
+      if (created.error) throw new Error(`bot: ${created.error.message}`);
+      bots.push(created.bot);
+    }
+  }
+  const ada = bots.find((b) => b.name === "Ada");
+  if (!ada) throw new Error("the Ada bot is missing");
+  return ada.id;
+}
+
 /**
  * Sign the seeded person in on a context, creating them and their tenant the
  * first time: sign-up's organization renamed Acme, its Default project renamed
- * Support, and a second project, Platform.
+ * Support (with the models and bots {@link seedBots} gives it), and a second
+ * project, Platform.
  * @param request - The browser context's request client.
+ * @returns The organization, the Support project, and the bot to open.
  * @throws {Error} When the API refuses a step.
  */
-async function seed(request: APIRequestContext): Promise<void> {
+async function seed(request: APIRequestContext): Promise<Seeded> {
   await call(request, "PUT", "/user", PERSON);
   const session = await call(request, "PUT", "/session", {
     email: PERSON.email,
@@ -120,6 +257,13 @@ async function seed(request: APIRequestContext): Promise<void> {
       name: "Platform",
     });
   }
+  const support = first ?? projects.find((p) => p.name === "Support");
+  if (!support) throw new Error("the Support project is missing");
+  return {
+    organizationId: organization.id,
+    projectId: support.id,
+    botId: await seedBots(request, support.id),
+  };
 }
 const OUT = join(
   import.meta.dirname,
@@ -152,17 +296,41 @@ async function main(): Promise<void> {
         theme,
       );
       const page = await context.newPage();
-      let signedIn = false;
+      let seeded: Seeded | null = null;
       for (const shot of ILLUSTRATIONS) {
-        if (shot.signedIn && !signedIn) {
-          await seed(context.request);
-          signedIn = true;
+        if (shot.signedIn && !seeded) {
+          seeded = await seed(context.request);
+          // Support is the project every signed-in shot shows.
+          await context.addInitScript(
+            ([organizationId, projectId]) => {
+              localStorage.setItem(
+                "hypotenuse.activeOrganizationId",
+                organizationId,
+              );
+              localStorage.setItem("hypotenuse.activeProjectId", projectId);
+            },
+            [String(seeded.organizationId), String(seeded.projectId)],
+          );
         }
+        const path =
+          typeof shot.path === "string"
+            ? shot.path
+            : seeded
+              ? shot.path(seeded)
+              : null;
+        if (path === null) throw new Error(`${shot.name} needs signedIn`);
         await page.setViewportSize({
           width: shot.width ?? 1280,
           height: shot.height ?? 800,
         });
-        await page.goto(`${BASE}${shot.path}`, { waitUntil: "networkidle" });
+        await page.goto(`${BASE}${path}`, { waitUntil: "networkidle" });
+        // The seeded person's address is never confirmed (the development
+        // backend's mail goes to its log), and the banner saying so is about
+        // them, not about the page an illustration shows.
+        await page.addStyleTag({
+          content:
+            ".shell-banner:has([data-testid=verify-email-banner]) { display: none; }",
+        });
         await page.evaluate(() => document.fonts.ready);
         const file = join(OUT, `${shot.name}-${theme}.png`);
         if (shot.selector)

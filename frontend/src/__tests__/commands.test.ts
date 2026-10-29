@@ -76,3 +76,34 @@ describe("gated palette commands", () => {
     expect(commandDeniedReason(command("go-docs"), ctx)).toBeUndefined();
   });
 });
+
+describe("bot and model commands", () => {
+  test("New bot is listed when refused, with the reason, and opens the create page", () => {
+    const refused = contextRefusing({
+      "bot:create": "Only members of this project can do this.",
+    });
+    expect(availableCommands(COMMANDS, refused).map((c) => c.id)).toContain(
+      "new-bot",
+    );
+    expect(commandDeniedReason(command("new-bot"), refused)).toBe(
+      "Only members of this project can do this.",
+    );
+    const visited: string[] = [];
+    const ctx = {
+      ...contextRefusing({}),
+      navigate: (to: string) => visited.push(to),
+    };
+    command("new-bot").run(ctx);
+    command("open-model-settings").run(ctx);
+    command("go-bots").run(ctx);
+    expect(visited).toEqual(["/bots/new", "/settings/models", "/bots"]);
+  });
+
+  test("Go to Bots is offered now that its page exists", () => {
+    const ids = availableCommands(COMMANDS, contextRefusing({})).map(
+      (c) => c.id,
+    );
+    expect(ids).toContain("go-bots");
+    expect(ids).not.toContain("go-conversations");
+  });
+});

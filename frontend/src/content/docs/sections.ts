@@ -2,9 +2,11 @@ import type { ComponentType } from "react";
 import { StyleGuidePage } from "../../pages/StyleGuidePage";
 import accounts from "./accounts.md?raw";
 import audit from "./audit.md?raw";
+import bots from "./bots.md?raw";
 import cli from "./cli.md?raw";
 import gettingStarted from "./getting-started.md?raw";
 import members from "./members.md?raw";
+import models from "./models.md?raw";
 import organizations from "./organizations.md?raw";
 import projects from "./projects.md?raw";
 import styleGuide from "./style-guide.md?raw";
@@ -34,6 +36,8 @@ export const DOCS_SECTIONS: DocsSection[] = [
   { slug: "projects", title: "Projects", markdown: projects },
   { slug: "members", title: "Members", markdown: members },
   { slug: "tags", title: "Tags", markdown: tags },
+  { slug: "models", title: "Models", markdown: models },
+  { slug: "bots", title: "Bots", markdown: bots },
   { slug: "audit", title: "Audit log", markdown: audit },
   { slug: "cli", title: "Command line", markdown: cli },
   {
