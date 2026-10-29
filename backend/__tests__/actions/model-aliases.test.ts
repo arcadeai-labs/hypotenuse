@@ -274,3 +274,63 @@ describe("an alias a bot names", () => {
     expect(res.status).toBe(200);
   });
 });
+
+describe("deleting a project", () => {
+  test("takes its connections, aliases, and bots with it in one statement", async () => {
+    const project = await call<{ project: { id: number } }>(
+      u.url,
+      u.peach,
+      "PUT",
+      "/project",
+      { organizationId: u.organizationId, name: "Short-lived" },
+    );
+    expect(project.status).toBe(200);
+    const projectId = project.body.project.id;
+    const connection = await call<ActionResponse<ModelConnectionCreate>>(
+      u.url,
+      u.peach,
+      "PUT",
+      `/project/${projectId}/model-connection`,
+      {
+        name: "doomed",
+        provider: "openai",
+        baseUrl: "http://127.0.0.1:9/v1",
+        apiKey: "sk-doomed-key-00000000",
+      },
+    );
+    for (const name of ["default", "fast"]) {
+      const alias = await call(
+        u.url,
+        u.peach,
+        "PUT",
+        `/project/${projectId}/model-alias`,
+        {
+          name,
+          connectionId: connection.body.modelConnection.id,
+          modelId: "m",
+        },
+      );
+      expect(alias.status).toBe(200);
+    }
+    const bot = await call(u.url, u.peach, "PUT", `/project/${projectId}/bot`, {
+      name: "Doomed",
+      persona: "Brief.",
+    });
+    expect(bot.status).toBe(200);
+
+    const deleted = await call(
+      u.url,
+      u.peach,
+      "DELETE",
+      `/project/${projectId}`,
+    );
+    expect(deleted.status, JSON.stringify(deleted.body)).toBe(200);
+    const after = await call(
+      u.url,
+      u.peach,
+      "GET",
+      `/project/${projectId}/model-aliases`,
+    );
+    expect(after.status).toBe(403);
+  });
+});

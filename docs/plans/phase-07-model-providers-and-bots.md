@@ -350,7 +350,8 @@ bun run --cwd cli hypotenuse model alias list --json | jq '.modelAliases[].name'
   every bot action loads the bot through the read list first. Admins are exempt from both.
 - **A readable but unwritable bot is a 403** naming its write tags; an unreadable one is the 404 a missing one is.
 - **`helpNotifyTag` is a tag reference like a list entry.** `AccessListTable` gained `tagColumns`: a tag a bot's help
-  tag names follows a rename and blocks deletion, and `tag:delete`'s refusal says "in an access list or as a help tag".
+  tag names follows a rename and blocks deletion, and `tag:delete`'s refusal says "in an access list or as a help tag". A help tag
+  is one tag, so `*` — every member in an access list — is refused there.
 - **Avatars** are decoded server-side: the type comes from the bytes (PNG `IHDR`, JPEG start-of-frame), never the
   client; squareness and 512 KB are checked there; a `data:` URL is accepted. `bot:create` takes one too. The audit row
   replaces the base64 with `{ bytes, mimeType, width, height, sha256 }`. `bot:avatar` answers a raw `Response`, is never

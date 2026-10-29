@@ -274,6 +274,7 @@ describe("bot:create", () => {
       [{ name: "Ok", persona: "" }, "persona"],
       [{ name: "Ok", accessRead: ["no-such-tag"] }, "accessRead"],
       [{ name: "Ok", helpNotifyTag: "no-such-tag" }, "helpNotifyTag"],
+      [{ name: "Ok", helpNotifyTag: "*" }, "helpNotifyTag"],
       [{ name: "Ok", modelAlias: "reasoning" }, "modelAlias"],
       [{ name: "Ok", monthlyBudgetUsd: -1 }, "monthlyBudgetUsd"],
     ];

@@ -5,6 +5,7 @@ import { z } from "zod";
 import { type Bot, bots } from "../schema/bots";
 import type { Tag } from "../schema/tags";
 import {
+  ACCESS_EVERYONE,
   type AccessListTable,
   assertAccessListTags,
   canRead,
@@ -237,6 +238,15 @@ export async function assertHelpTag(
   tag: string | null | undefined,
 ): Promise<void> {
   if (!tag) return;
+  // An access list reads `*` as every member, but a help tag names one tag
+  // whose holders are asked; "everyone" is not a tag anyone holds.
+  if (tag.trim() === ACCESS_EVERYONE) {
+    throw new TypedError({
+      message: `A help tag names one tag, not "${ACCESS_EVERYONE}". Choose a tag, or null for the project's admins.`,
+      type: ErrorType.CONNECTION_ACTION_PARAM_VALIDATION,
+      key: "helpNotifyTag",
+    });
+  }
   await assertAccessListTags(db, projectId, [tag], "helpNotifyTag");
 }
 
