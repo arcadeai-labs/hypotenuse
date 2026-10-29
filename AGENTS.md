@@ -249,7 +249,7 @@ bun dev                                          # backend :8080, frontend :3000
 |---|---|
 | Runtime / language | Bun + TypeScript (strict). No `npm`/`npx` in development — use `bun`/`bunx` |
 | Hosted framework | Keryx ≥ 0.48.2 (actions, tasks, channels, MCP server, OAuth 2.1) |
-| Database | Postgres via Drizzle, with `pgvector`; migrations via `drizzle-kit`, applied by the worker |
+| Database | Postgres via Drizzle, with `pgvector`; migrations via `drizzle-kit`, applied by the api's Render pre-deploy (`scripts/migrate.ts`) |
 | Cache / queue | Redis — sessions, rate limits, `node-resque` task queues, WebSocket pub/sub, leases |
 | Models | Vercel AI SDK (`ai`) — the provider and model are chosen per bot; `embed()` for memory |
 | MCP | Keryx serves our MCP; `@modelcontextprotocol/sdk`'s client consumes the shared MCP servers |

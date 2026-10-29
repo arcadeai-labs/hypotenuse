@@ -169,8 +169,8 @@ repository-scoped installation token minted per command; the pull request goes b
 
 | Process | Runs |
 |---|---|
-| api | HTTP and WebSocket actions, MCP for people (OAuth 2.1), platform webhooks |
-| worker | migrations at boot; task queues — ingress processing, `agent:tick`, outbox delivery, sandbox provisioning, and the clocks |
+| api | HTTP and WebSocket actions, MCP for people (OAuth 2.1), platform webhooks; migrations, once per deploy, in its pre-deploy (`scripts/migrate.ts`) |
+| worker | task queues — ingress processing, `agent:tick`, outbox delivery, sandbox provisioning, and the clocks |
 
 Postgres is the source of truth. Redis holds sessions, rate limits, leases, the task queues, and pub/sub;
 WebSocket frames carry no content, and a dashboard re-reads over HTTP.

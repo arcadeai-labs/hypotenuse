@@ -14,8 +14,9 @@ The `hypotenuse` CLI is not deployed here; it ships through npm and GitHub Relea
 │ hypotenuse-api           │  │ hypotenuse-worker        │  │ hypotenuse-frontend  │
 │ api.hypotenuse.cloud     │  │ type: worker, 1c-2g      │  │ www.hypotenuse.cloud │
 │ type: web, 1c-2g         │  │ TASKS on (4 processors)  │  │ type: web, starter   │
-│ TASKS off, MIGRATE off   │  │ MIGRATE on ◀── owns the  │  │ nginx :10000         │
-│ health /api/health       │  │   schema; no HTTP        │  │ health /             │
+│ TASKS off, MIGRATE off   │  │ MIGRATE off; no HTTP     │  │ nginx :10000         │
+│ pre-deploy: migrate.ts   │  │                          │  │ health /             │
+│ health /api/health       │  │                          │  │                      │
 └────────────┬─────────────┘  └────────────┬─────────────┘  └──────────────────────┘
              └──────────────┬──────────────┘
           ┌─────────────────▼───┐   ┌────────────────────────────┐
@@ -26,7 +27,12 @@ The `hypotenuse` CLI is not deployed here; it ships through npm and GitHub Relea
 
 - **Web and worker are the same image**, differing only by `WEB_SERVER_ENABLED`, `TASKS_ENABLED`, and
   `DATABASE_AUTO_MIGRATE`. Nothing branches on "am I a worker".
-- **The worker owns migrations.** Only `hypotenuse-worker` sets `DATABASE_AUTO_MIGRATE=true`.
+- **The api's pre-deploy migrates.** `preDeployCommand: bun scripts/migrate.ts` runs once per api deploy, in the new
+  image, before the new instance is health-checked; a non-zero exit aborts the deploy and the old instance keeps
+  serving. Neither long-running process sets `DATABASE_AUTO_MIGRATE=true`, so nothing races it. This replaced the
+  worker migrating at boot: `/api/health` probes the newest migration's column, so an api deploy had to wait for
+  the worker, and a worker that had not migrated held every api deploy at its health check while the old api went
+  on serving — with a frontend that already called actions it did not have.
 - **The api runs no tasks.** Slack gives a webhook 3 seconds and Linear 5; an agent tick on the web process would
   compete with ingress for its event loop.
 - **Queues** drain left to right: `ingress`, `outbox`, `agents`, `orchestrator`, `default`
@@ -52,7 +58,7 @@ env group, and ignores it on a service during Blueprint updates.
 | `WEB_SERVER_ALLOWED_ORIGINS` | `https://www.hypotenuse.cloud` | — | CORS |
 | `SESSION_COOKIE_SECURE` / `SESSION_COOKIE_SAME_SITE` | `true` / `None` | — | cross-origin frontend |
 | `MCP_SERVER_ENABLED`, `MCP_OAUTH_TRUST_PROXY` | `true` | — | otherwise the OAuth issuer is Render's internal origin |
-| `DATABASE_AUTO_MIGRATE` | `false` | `true` | |
+| `DATABASE_AUTO_MIGRATE` | `false` | `false` | migrations run in the api's `preDeployCommand` |
 | `TASKS_ENABLED` / `TASK_PROCESSORS` | `false` / `0` | `true` / `4` | |
 | `VITE_API_URL` | — | — | the frontend's build arg, `https://api.hypotenuse.cloud` |
 
@@ -73,9 +79,9 @@ signing secrets and tokens are stored encrypted with that bot's installation. Th
 3. **Point DNS at Render.** `api.hypotenuse.cloud` is the backend, `www.hypotenuse.cloud` the frontend, and the apex
    is attached only to redirect to `www`. `render.yaml` already declares all three; add the DNS records the
    dashboard names for each and wait for their certificates.
-4. **Watch the worker's first boot.** Its log shows `database migrated successfully` — migration 0000 creates the
-   `vector` extension — before the api reports healthy. Until then `/api/health` answers 500 and Render holds
-   the deploy.
+4. **Watch the api's first deploy.** Its pre-deploy log shows `database migrated successfully` — migration 0000
+   creates the `vector` extension — before the new instance is health-checked. A failed pre-deploy fails the deploy
+   with the migrator's error in that log.
 5. **Record who deployed and when** in the learnings of
    [`plans/phase-02-deployment.md`](./plans/phase-02-deployment.md#learnings-from-the-build).
 
@@ -98,7 +104,7 @@ curl -s -o /dev/null -w '%{http_code}\n' https://api.hypotenuse.cloud/api/health
 ## Verifying pgvector
 
 Render's managed Postgres ships the `vector` extension; migration 0000 runs `CREATE EXTENSION IF NOT EXISTS vector`.
-If the worker's first migration fails, connect with the dashboard's `psql` command and check:
+If the api's first pre-deploy fails, connect with the dashboard's `psql` command and check:
 
 ```sql
 SELECT name, default_version, installed_version FROM pg_available_extensions WHERE name = 'vector';
@@ -153,13 +159,15 @@ CID=$(eval docker run -d -p 18081:10000 $(cat /tmp/env.txt) \
   -e REDIS_URL="redis://host.docker.internal:6379/0" $IMG)
 curl -s http://localhost:18081/api/status | jq -c '{healthy, database, webhooks}'
 docker logs $CID 2>&1 | grep -iE "migrat|resque|server"
+docker run --rm $(cat /tmp/env.txt) -e DATABASE_URL=… -e REDIS_URL=… $IMG bun scripts/migrate.ts  # the api's pre-deploy
 docker rm -f $CID
 ```
 
 | Role | Expected |
 |---|---|
 | `hypotenuse-api` | `/api/status` healthy once the database is migrated; **no** migration lines; **no** `resque:worker` lines |
-| `hypotenuse-worker` | `database migrated successfully`; resque workers started; nothing listening on HTTP |
+| `hypotenuse-api` pre-deploy (`bun scripts/migrate.ts`) | `database migrated successfully`, then exits 0 |
+| `hypotenuse-worker` | **no** migration lines; resque workers started; nothing listening on HTTP |
 
 **The nginx rehearsal.** Render forwards to a port the outside cannot reach, so `frontend/nginx.conf` sets
 `absolute_redirect off` and drops `$uri/` from `try_files`: nginx's own trailing-slash 301 once sent a reload to
