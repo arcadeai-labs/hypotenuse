@@ -10,7 +10,7 @@ import {
 } from "keryx";
 import { z } from "zod";
 import { type SessionImpl, SessionMiddleware } from "../middleware/session";
-import { serializeUser } from "../ops/UserOps";
+import { serializeSelf } from "../ops/UserOps";
 import { users } from "../schema/users";
 
 /**
@@ -48,6 +48,6 @@ export class MeView implements Action {
       });
     }
 
-    return { user: serializeUser(user) };
+    return { user: serializeSelf(user) };
   }
 }

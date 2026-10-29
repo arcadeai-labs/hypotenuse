@@ -73,6 +73,8 @@ const EXPECTED_LEVELS: Record<string, RbacLevel> = {
   "invite:list-pending": "none",
   "invite:accept": "none",
   "invite:reject": "none",
+  "email-verification:confirm": "none",
+  "email-verification:resend": "none",
   "notification:list": "none",
   "notification:unread-count": "none",
   "notification:mark-read": "none",
@@ -106,6 +108,7 @@ const CLOCKS = [
 /** Every action published as an MCP tool for a person's client. */
 const EXPECTED_MCP_TOOLS = [
   "audit:list",
+  "email-verification:resend",
   "invite:accept",
   "invite:create",
   "invite:list",
@@ -258,6 +261,7 @@ describe("MCP publish policy", () => {
         "cli-auth:approve",
         "cli-auth:device",
         "cli-auth:exchange",
+        "email-verification:confirm",
         "health",
         "sandbox:git-credential",
         "session:create",

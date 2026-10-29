@@ -1,3 +1,4 @@
+import type { EmailVerificationResend } from "@backend/actions/email-verification/email-verification-resend";
 import type { UserEdit } from "@backend/actions/user-edit";
 import type { ActionResponse } from "keryx";
 import { type FormEvent, useEffect, useRef, useState } from "react";
@@ -15,6 +16,10 @@ import { apiFetch } from "../utils/client";
  *
  * The fields are seeded from the session once, and again only after a save:
  * a re-hydration that lands between two keystrokes must not revert them.
+ *
+ * Changing the email or password asks for the current password. A new email
+ * does not take effect on save: it is shown as pending until the person
+ * follows the link mailed to it, and can be re-sent or withdrawn from here.
  * @returns The page.
  */
 export function AccountPage() {
@@ -22,6 +27,8 @@ export function AccountPage() {
   const [name, setName] = useState(user?.name ?? "");
   const [email, setEmail] = useState(user?.email ?? "");
   const [password, setPassword] = useState("");
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -43,11 +50,22 @@ export function AccountPage() {
     if (!user) return;
     setError(null);
     setSaved(false);
+    setNotice(null);
 
-    const body: { name?: string; email?: string; password?: string } = {};
+    const body: {
+      name?: string;
+      email?: string;
+      password?: string;
+      currentPassword?: string;
+    } = {};
     if (name.trim() !== user.name) body.name = name.trim();
     if (email.trim().toLowerCase() !== user.email) body.email = email.trim();
     if (password) body.password = password;
+    if ((body.email || body.password) && !currentPassword) {
+      setError("Enter your current password to change your email or password.");
+      return;
+    }
+    if (body.email || body.password) body.currentPassword = currentPassword;
 
     if (Object.keys(body).length === 0) {
       setError("Nothing to update: change a field first.");
@@ -61,6 +79,15 @@ export function AccountPage() {
       return;
     }
 
+    await save(body);
+  }
+
+  /**
+   * Post an edit, then re-seed the fields from the answer and re-hydrate so
+   * the sidebar and the banner agree.
+   * @param body - The fields to send.
+   */
+  async function save(body: Record<string, string>) {
     setBusy(true);
     try {
       const res = await apiFetch<ActionResponse<UserEdit>>("/user", {
@@ -68,6 +95,7 @@ export function AccountPage() {
         body: JSON.stringify(body),
       });
       setPassword("");
+      setCurrentPassword("");
       setName(res.user.name);
       setEmail(res.user.email);
       setSaved(true);
@@ -76,6 +104,25 @@ export function AccountPage() {
       setError(
         err instanceof Error ? err.message : "Could not update your account.",
       );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /** Mail the pending address a new link. */
+  async function resend() {
+    setError(null);
+    setSaved(false);
+    setNotice(null);
+    setBusy(true);
+    try {
+      const res = await apiFetch<ActionResponse<EmailVerificationResend>>(
+        "/email-verification",
+        { method: "PUT" },
+      );
+      setNotice(`A new link is on its way to ${res.sentTo}.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not send a link.");
     } finally {
       setBusy(false);
     }
@@ -106,6 +153,40 @@ export function AccountPage() {
               Your account has been updated.
             </Alert>
           )}
+          {notice && (
+            <Alert variant="success" data-testid="form-notice">
+              {notice}
+            </Alert>
+          )}
+          {user.pendingEmail && (
+            <Alert variant="info" data-testid="pending-email">
+              <p className="mb-2">
+                We sent a link to <strong>{user.pendingEmail}</strong>. Your
+                address changes to it when you follow the link; until then it
+                stays {user.email}.
+              </p>
+              <span className="d-flex gap-2">
+                <Button
+                  size="sm"
+                  variant="outline-secondary"
+                  disabled={busy}
+                  onClick={resend}
+                  data-testid="pending-email-resend"
+                >
+                  Send a new link
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline-secondary"
+                  disabled={busy}
+                  onClick={() => save({ email: user.email })}
+                  data-testid="pending-email-cancel"
+                >
+                  Keep {user.email}
+                </Button>
+              </span>
+            </Alert>
+          )}
           <Form onSubmit={onSubmit} noValidate>
             <Form.Group className="mb-3" controlId="account-name">
               <Form.Label>Name</Form.Label>
@@ -123,10 +204,17 @@ export function AccountPage() {
                 autoComplete="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                data-testid="account-email"
+                data-testid="account-email-input"
               />
               <Form.Text className="text-muted">
-                Invitations are addressed to this email.
+                Invitations are addressed to this email.{" "}
+                {user.emailVerified ? (
+                  <span data-testid="email-confirmed">Confirmed.</span>
+                ) : (
+                  <span data-testid="email-unconfirmed">
+                    Not confirmed yet.
+                  </span>
+                )}
               </Form.Text>
             </Form.Group>
             <Form.Group className="mb-3" controlId="account-password">
@@ -137,11 +225,22 @@ export function AccountPage() {
                 placeholder="Leave blank to keep your current password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                data-testid="account-password"
+                data-testid="account-password-input"
               />
               <Form.Text className="text-muted">
                 At least {MIN_PASSWORD_LENGTH} characters.
               </Form.Text>
+            </Form.Group>
+            <Form.Group className="mb-3" controlId="account-current-password">
+              <Form.Label>Current password</Form.Label>
+              <Form.Control
+                type="password"
+                autoComplete="current-password"
+                placeholder="Needed to change your email or password"
+                value={currentPassword}
+                onChange={(e) => setCurrentPassword(e.target.value)}
+                data-testid="account-current-password"
+              />
             </Form.Group>
             <Button
               type="submit"

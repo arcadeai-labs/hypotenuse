@@ -32,11 +32,15 @@ export function inviteTarget(invite: {
  * an organization (as a member, with no project), or into one of its projects
  * (which brings you into the organization too). Accepting one makes what it
  * opened the active organization and project.
+ *
+ * Until the person confirms their address the server lists nothing, and says
+ * so; the page then explains why rather than claiming nothing was sent.
  * @returns The page.
  */
 export function InvitesPage() {
   const { refresh, setActiveOrganization, setActiveProject } = useAuth();
   const [pending, setPending] = useState<PendingInvite[]>([]);
+  const [emailVerified, setEmailVerified] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState<number | null>(null);
@@ -49,6 +53,7 @@ export function InvitesPage() {
         "/invites/pending?limit=100",
       );
       setPending(res.invites);
+      setEmailVerified(res.emailVerified);
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Could not load your invites.",
@@ -167,7 +172,17 @@ export function InvitesPage() {
                 </ListGroup.Item>
               );
             })}
-          {!loading && pending.length === 0 && (
+          {!loading && !emailVerified && (
+            <ListGroup.Item
+              className="text-muted"
+              data-testid="invites-unverified"
+            >
+              Invitations sent to your email appear here once you confirm it.
+              Follow the link we mailed you, or send a new one from the banner
+              above.
+            </ListGroup.Item>
+          )}
+          {!loading && emailVerified && pending.length === 0 && (
             <ListGroup.Item
               className="text-muted"
               data-testid="no-pending-invites"

@@ -13,6 +13,7 @@ import {
   type TxHandle,
 } from "../../classes/AuditedAction";
 import { SessionMiddleware } from "../../middleware/session";
+import { assertEmailVerified } from "../../ops/EmailVerificationOps";
 import { idInput } from "../../ops/InputOps";
 import { INVITE_STATUS, isExpired, serializeInvite } from "../../ops/InviteOps";
 import { serializeMembership } from "../../ops/MembershipOps";
@@ -57,7 +58,8 @@ export class InviteAccept extends AuditedAction {
    * @param connection - The invitee's connection.
    * @returns The organization membership, the project membership (if any), and
    *   the accepted invite.
-   * @throws {TypedError} 404 for an invite that is not the caller's; 406 when it
+   * @throws {TypedError} 403 while the caller's address is unconfirmed; 404
+   *   for an invite that is not the caller's; 406 when it
    *   is expired or already answered.
    */
   async runWithAudit(
@@ -66,6 +68,9 @@ export class InviteAccept extends AuditedAction {
     connection: AuditedConnection,
   ) {
     const user = await getUserById(connection.session!.data.userId!, tx);
+    // Before the invite is even looked at, so an unconfirmed address learns
+    // nothing about which invites exist.
+    if (user) assertEmailVerified(user);
 
     // Lock order is organization, then project, then invite — the order
     // removing someone (from the organization or the project) and deleting

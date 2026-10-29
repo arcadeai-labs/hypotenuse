@@ -28,6 +28,7 @@ import {
   type ShellActions,
   type ShellData,
 } from "./shell/shellData";
+import { VerifyEmailBanner } from "./VerifyEmailBanner";
 
 /** localStorage key for the collapsed sidebar. */
 export const SIDEBAR_STORAGE_KEY = "hypotenuse.sidebar";
@@ -282,6 +283,7 @@ export function AppShell() {
         </div>
       )}
       <main className="shell-main">
+        <VerifyEmailBanner />
         <Outlet />
       </main>
       <CommandPalette

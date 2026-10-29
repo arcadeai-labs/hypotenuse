@@ -30,6 +30,7 @@ import { SettingsPage } from "./pages/SettingsPage";
 import { SignInPage } from "./pages/SignInPage";
 import { SignUpPage } from "./pages/SignUpPage";
 import { StatusPage } from "./pages/StatusPage";
+import { VerifyEmailPage } from "./pages/VerifyEmailPage";
 import { Alert } from "./ui";
 
 /**
@@ -64,6 +65,7 @@ export function App() {
                 </Route>
                 <Route path="/sign-in" element={<SignInPage />} />
                 <Route path="/sign-up" element={<SignUpPage />} />
+                <Route path="/verify-email" element={<VerifyEmailPage />} />
               </Route>
               <Route element={<AppShell />}>
                 <Route path="/status" element={<StatusPage />} />

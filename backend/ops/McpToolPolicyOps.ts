@@ -17,6 +17,9 @@
  *   would sign itself in; `cli-auth:device` and `cli-auth:exchange` are the
  *   CLI's half, and the exchange returns a token a model must never hold;
  * - **the sandbox's credential hop** — `sandbox:git-credential`;
+ * - **the email-verification hop** — `email-verification:confirm` is a link a
+ *   person follows from their inbox; a model holding the token could confirm
+ *   an address nobody read;
  * - **machine families, by prefix** — `webhooks:*` (signed platform ingress),
  *   `sandbox:*` (run-token actions), and `proxy:*` (the model and MCP gateway
  *   proxies). Asserting a prefix is safe only because no human action shares it;
@@ -62,6 +65,7 @@ export const NEVER_MCP_ACTION_NAMES: ReadonlySet<string> = new Set([
   "cli-auth:device",
   "cli-auth:exchange",
   "sandbox:git-credential",
+  "email-verification:confirm",
 ]);
 
 /**
