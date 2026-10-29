@@ -296,7 +296,9 @@ Edit a project name in the browser, then open Audit log: one row, actor you, bef
   suite proves the default.
 - **Migration 0002 backfills** rows written before these columns: bootstrap rows (`metadata.bootstrappedBy`) become
   `system` with their user moved to `metadata.ownerUserId`, the sign-up row gains the account whose email is its
-  target, and `organization_id` comes from `metadata.organizationId` or the project's organization. `actor_type`
+  target, and `organization_id` comes from `metadata.organizationId`, the project's organization, or — for a project
+  already deleted — the `organizationId` in its own `project:*` rows' snapshots. A row of a deleted project with no
+  such snapshot stays without an organization and is only readable in the database. `actor_type`
   is added with a default for the backfill and the default is dropped, so every new row names its actor.
 - **The serializer names the actor** (`actor: { type, userId, participantId, name, email }`) and the project
   (`projectName`, `null` once deleted) by left joins, so the page never makes a request per row. A participant is

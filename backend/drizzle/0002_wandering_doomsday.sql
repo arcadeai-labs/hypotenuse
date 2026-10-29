@@ -10,5 +10,8 @@ UPDATE "audit_logs" SET "actor_type" = 'system', "metadata" = "metadata" || json
 UPDATE "audit_logs" SET "user_id" = "users"."id" FROM "users" WHERE "audit_logs"."action" = 'user:create' AND "audit_logs"."user_id" IS NULL AND "users"."email" = "audit_logs"."target_path";--> statement-breakpoint
 UPDATE "audit_logs" SET "organization_id" = ("metadata"->>'organizationId')::integer WHERE "metadata" ? 'organizationId' AND jsonb_typeof("metadata"->'organizationId') = 'number';--> statement-breakpoint
 UPDATE "audit_logs" SET "organization_id" = "projects"."organization_id" FROM "projects" WHERE "audit_logs"."organization_id" IS NULL AND "projects"."id" = "audit_logs"."project_id";--> statement-breakpoint
+-- A project deleted before this migration has no row to join, but its own
+-- `project:*` rows snapshot it, organization and all, in `before` / `after`.
+UPDATE "audit_logs" SET "organization_id" = "snapshots"."organization_id" FROM (SELECT DISTINCT ON ("project_id") "project_id", COALESCE("after"->>'organizationId', "before"->>'organizationId')::integer AS "organization_id" FROM "audit_logs" WHERE "action" LIKE 'project:%' AND "project_id" IS NOT NULL AND COALESCE("after"->>'organizationId', "before"->>'organizationId') ~ '^[0-9]+$' ORDER BY "project_id", "id") AS "snapshots" WHERE "audit_logs"."organization_id" IS NULL AND "audit_logs"."project_id" = "snapshots"."project_id";--> statement-breakpoint
 ALTER TABLE "audit_logs" ALTER COLUMN "actor_type" DROP DEFAULT;--> statement-breakpoint
 CREATE INDEX "audit_logs_organization_created_at_idx" ON "audit_logs" USING btree ("organization_id","created_at");
