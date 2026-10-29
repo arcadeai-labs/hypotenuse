@@ -1,8 +1,8 @@
 # @arcadeai/hypotenuse
 
 The `hypotenuse` command line: sign in to a [Hypotenuse](https://github.com/arcadeai-labs/hypotenuse)
-server through your browser, manage organizations, projects, members, invites, tags, and the audit
-log over the same HTTP API the dashboard uses, and keep itself up to date.
+server through your browser, manage organizations, projects, members, invites, tags, model
+connections, bots, and the audit log over the same HTTP API the dashboard uses, and keep itself up to date.
 
 ## Install
 
@@ -23,6 +23,8 @@ hypotenuse login                 # approve in the browser; --device for SSH
 hypotenuse org use mushroom-kingdom
 hypotenuse project use castle
 hypotenuse member list
+hypotenuse model connection add --name anthropic --provider anthropic --api-key-env ANTHROPIC_API_KEY
+hypotenuse bot create --name Ada --persona-file ada.md
 hypotenuse audit list --since 7d --json
 hypotenuse upgrade
 ```
