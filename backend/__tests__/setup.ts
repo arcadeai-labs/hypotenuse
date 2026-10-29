@@ -17,6 +17,7 @@ import type { ProjectCreate } from "../actions/project/project-create";
 import type { SessionCreate } from "../actions/session";
 import type { TagCreate } from "../actions/tag/tag-create";
 import type { UserCreate } from "../actions/user";
+import { issueVerification } from "../ops/EmailVerificationOps";
 
 // Each test file boots its own server; the shared event bus can exceed the
 // default 10-listener warning threshold when many suites run.
@@ -207,6 +208,7 @@ export async function call<T = Record<string, unknown>>(
  * @param name - Display name (at least 3 characters).
  * @param email - Email address.
  * @param password - Password (at least 8 characters).
+ * @param options - `verified: false` leaves the address unconfirmed.
  * @returns The user, their session, and the organization and project sign-up made.
  * @throws {Error} If sign-up or sign-in does not return HTTP 200.
  */
@@ -215,6 +217,7 @@ export async function createUserAndLogin(
   name: string,
   email: string,
   password = TEST_PASSWORD,
+  options: { verified?: boolean } = {},
 ): Promise<TestUser> {
   const createRes = await fetch(`${url}/api/user`, {
     method: "PUT",
@@ -234,6 +237,8 @@ export async function createUserAndLogin(
   if (loginRes.status !== 200) {
     throw new Error(`Failed to sign in ${email}: ${JSON.stringify(login)}`);
   }
+  if (options.verified !== false)
+    await confirmEmail(url, created.user.id, email);
   return {
     userId: created.user.id,
     sessionId: login.session.id,
@@ -242,6 +247,30 @@ export async function createUserAndLogin(
     organizationId: created.organization.id,
     projectId: created.project.id,
   };
+}
+
+/**
+ * Confirm an address the way a person does: through `email-verification:confirm`
+ * over HTTP. The link's token is minted in process rather than fished out of a
+ * mailbox, because a seeded person's mail is not what a suite is about;
+ * `email-verification.test.ts` follows the real one from the real mail.
+ * @param url - The base server URL.
+ * @param userId - Whose address.
+ * @param email - The address (their current one, or the pending one).
+ * @throws {Error} If the confirmation does not return HTTP 200.
+ */
+export async function confirmEmail(
+  url: string,
+  userId: number,
+  email: string,
+): Promise<void> {
+  const token = await issueVerification(api.db.db, userId, email);
+  const res = await call(url, null, "POST", "/email-verification/confirm", {
+    token,
+  });
+  if (res.status !== 200) {
+    throw new Error(`Failed to confirm ${email}: ${JSON.stringify(res.body)}`);
+  }
 }
 
 /**

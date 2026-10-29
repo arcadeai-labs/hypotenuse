@@ -1,5 +1,5 @@
 {
-  "id": "2826092b-be0e-494a-a00c-fe2f8de4c26e",
+  "id": "477aba43-d63d-40f3-ad20-ef5e2a99479f",
   "prevId": "e40d62d6-e733-48a1-9698-d53541c027c6",
   "version": "7",
   "dialect": "postgresql",
@@ -165,8 +165,8 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.cli_tokens": {
-      "name": "cli_tokens",
+    "public.email_verifications": {
+      "name": "email_verifications",
       "schema": "",
       "columns": {
         "id": {
@@ -181,9 +181,9 @@
           "primaryKey": false,
           "notNull": true
         },
-        "device": {
-          "name": "device",
-          "type": "varchar(256)",
+        "email": {
+          "name": "email",
+          "type": "text",
           "primaryKey": false,
           "notNull": true
         },
@@ -193,11 +193,17 @@
           "primaryKey": false,
           "notNull": true
         },
-        "last_four": {
-          "name": "last_four",
-          "type": "varchar(4)",
+        "expires_at": {
+          "name": "expires_at",
+          "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": true
+        },
+        "consumed_at": {
+          "name": "consumed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
         },
         "created_at": {
           "name": "created_at",
@@ -205,44 +211,11 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
-        },
-        "last_used_at": {
-          "name": "last_used_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "expires_at": {
-          "name": "expires_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "revoked_at": {
-          "name": "revoked_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
         }
       },
       "indexes": {
-        "cli_tokens_token_hash_idx": {
-          "name": "cli_tokens_token_hash_idx",
-          "columns": [
-            {
-              "expression": "token_hash",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "cli_tokens_user_idx": {
-          "name": "cli_tokens_user_idx",
+        "email_verification_user_idx": {
+          "name": "email_verification_user_idx",
           "columns": [
             {
               "expression": "user_id",
@@ -258,9 +231,9 @@
         }
       },
       "foreignKeys": {
-        "cli_tokens_user_id_users_id_fk": {
-          "name": "cli_tokens_user_id_users_id_fk",
-          "tableFrom": "cli_tokens",
+        "email_verifications_user_id_users_id_fk": {
+          "name": "email_verifications_user_id_users_id_fk",
+          "tableFrom": "email_verifications",
           "tableTo": "users",
           "columnsFrom": ["user_id"],
           "columnsTo": ["id"],
@@ -269,7 +242,13 @@
         }
       },
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
+      "uniqueConstraints": {
+        "email_verifications_token_hash_unique": {
+          "name": "email_verifications_token_hash_unique",
+          "nullsNotDistinct": false,
+          "columns": ["token_hash"]
+        }
+      },
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
@@ -1210,6 +1189,18 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true
+        },
+        "email_verified_at": {
+          "name": "email_verified_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "pending_email": {
+          "name": "pending_email",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         },
         "created_at": {
           "name": "created_at",

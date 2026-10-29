@@ -13,6 +13,7 @@ import {
   call,
   createUserAndLogin,
   HOOK_TIMEOUT,
+  TEST_PASSWORD,
   type TestUniverse,
 } from "../setup";
 
@@ -167,8 +168,20 @@ describe("me:view and user:edit", () => {
     );
     const taken = await call(u.url, person, "POST", "/user", {
       email: u.peach.email,
+      currentPassword: TEST_PASSWORD,
     });
     expect(taken.status).toBe(406);
+    expect(taken.body.error?.key).toBe("email");
+
+    // A borrowed session cannot change the password without knowing it.
+    for (const currentPassword of [undefined, "not-my-password"]) {
+      const refused = await call(u.url, person, "POST", "/user", {
+        password: "new-donk-city",
+        ...(currentPassword ? { currentPassword } : {}),
+      });
+      expect(refused.status).toBe(406);
+      expect(refused.body.error?.key).toBe("currentPassword");
+    }
 
     const edited = await call<{ user: { name: string } }>(
       u.url,
@@ -178,6 +191,7 @@ describe("me:view and user:edit", () => {
       {
         name: "Mayor Pauline",
         password: "new-donk-city",
+        currentPassword: TEST_PASSWORD,
       },
     );
     expect(edited.body.user.name).toBe("Mayor Pauline");
@@ -201,6 +215,7 @@ describe("me:view and user:edit", () => {
         and(eq(auditLogs.action, "user:edit"), isNull(auditLogs.projectId)),
       );
     expect(JSON.stringify(row.metadata)).not.toContain("new-donk-city");
+    expect(JSON.stringify(row.metadata)).not.toContain(TEST_PASSWORD);
   });
 });
 

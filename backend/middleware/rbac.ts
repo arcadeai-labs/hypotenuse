@@ -100,6 +100,12 @@ export interface RbacConnectionMeta extends PrincipalMeta {
    * refusal that must be recorded as well as reported.
    */
   refuseAfterCommit?: TypedError;
+  /**
+   * What `runWithAudit` hands its `afterCommit` that must never reach the
+   * response — the plaintext token an email carries, say. `runWithAudit`'s
+   * return value is the response, so it cannot travel there.
+   */
+  afterCommitData?: Record<string, unknown>;
 }
 
 /** The connection every RBAC-gated action receives. */

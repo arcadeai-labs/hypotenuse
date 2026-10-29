@@ -14,7 +14,7 @@ import {
 import { z } from "zod";
 import { type SessionImpl, SessionMiddleware } from "../middleware/session";
 import { emailInput } from "../ops/InputOps";
-import { checkPassword, serializeUser } from "../ops/UserOps";
+import { checkPassword, serializeSelf } from "../ops/UserOps";
 import { users } from "../schema/users";
 
 /**
@@ -52,7 +52,7 @@ export class SessionCreate implements Action {
     params: ActionParams<SessionCreate>,
     connection: Connection<SessionImpl>,
   ): Promise<{
-    user: ReturnType<typeof serializeUser>;
+    user: ReturnType<typeof serializeSelf>;
     session: SessionData<SessionImpl>;
   }> => {
     const [user] = await api.db.db
@@ -75,7 +75,7 @@ export class SessionCreate implements Action {
     await connection.updateSession({ userId: user.id });
     await connection.regenerateSession();
 
-    return { user: serializeUser(user), session: connection.session! };
+    return { user: serializeSelf(user), session: connection.session! };
   };
 }
 

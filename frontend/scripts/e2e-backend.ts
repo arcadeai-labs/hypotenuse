@@ -6,6 +6,11 @@
  * `DATABASE_URL` already names the e2e database. Creating it here removes the
  * one manual step a fresh checkout would otherwise trip over; the backend's own
  * `DATABASE_AUTO_MIGRATE` builds the schema once it connects.
+ *
+ * It also runs the suite's mail catcher, `backend/__tests__/fixtures/mail-catcher.ts`,
+ * as a second process: started by path because the frontend may not import
+ * backend code. The backend sends through it, and a spec reads verification
+ * links from its inbox.
  */
 import { join } from "node:path";
 import { SQL } from "bun";
@@ -39,13 +44,26 @@ const url = process.env.DATABASE_URL;
 if (!url) throw new Error("DATABASE_URL is not set; run this from Playwright");
 await ensureDatabase(url);
 
+const backendDir = join(import.meta.dirname, "../../backend");
+const mail = Bun.spawn(["bun", "__tests__/fixtures/mail-catcher.ts"], {
+  cwd: backendDir,
+  env: process.env,
+  stdout: "inherit",
+  stderr: "inherit",
+});
+
 const server = Bun.spawn(["bun", "keryx.ts", "start"], {
-  cwd: join(import.meta.dirname, "../../backend"),
+  cwd: backendDir,
   env: process.env,
   stdout: "inherit",
   stderr: "inherit",
 });
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
-  process.on(signal, () => server.kill(signal));
+  process.on(signal, () => {
+    mail.kill(signal);
+    server.kill(signal);
+  });
 }
-process.exit(await server.exited);
+const code = await server.exited;
+mail.kill();
+process.exit(code);

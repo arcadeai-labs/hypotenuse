@@ -262,8 +262,8 @@ day:
 | `GET www.hypotenuse.cloud` `/`, `/docs`, `/status`, `/status/`, an unknown path | 200 `text/html`, never a redirect |
 | `POST api.hypotenuse.cloud/api/webhooks/slack` | 404 — nothing is mounted until the platform phases |
 
-`vector: true` is also the worker's proof of life: only it migrates, and migration 0000 creates the extension.
-Nothing outside Render can see the worker's queues; they are first exercised when ticks exist.
+`vector: true` was also the worker's proof of life while only it migrated (see *Migrations moved to the api's
+pre-deploy* below). Nothing outside Render can see the worker's queues; they are first exercised when ticks exist.
 
 **Rehearsed in Docker against the blueprint's own env.** Both images built; the backend image ran once as each
 role, with every literal `value:` from `render.yaml` and its group, against a fresh local database:
@@ -314,3 +314,19 @@ Blueprint is applied. Treat the first apply as part of the review.
 
 **The open question stays at its default:** one worker with ordered queues; a separate `agents` worker waits for
 load data.
+
+**Migrations moved to the api's pre-deploy.** The worker migrating at boot held up only while nothing depended on
+the order of two independent deploys. `/api/health` probes the newest migration's column, so each api build was
+promoted only after the worker had migrated — and after the users and organizations change merged, staging's worker
+had not, so every api deploy since was held at its health check (`unhealthy: database`) while the old api, which
+predated `session:create`, went on serving. The frontend has no such gate and shipped first, so sign-up and sign-in
+answered "Action not found". Why that worker never migrated is visible only in Render's logs.
+
+Now `hypotenuse-api` has `preDeployCommand: bun scripts/migrate.ts`: Render runs it once per deploy, in the new
+image with the api's environment, after the build and before the new instance is health-checked, and aborts the
+deploy on a non-zero exit. Keryx has no migrate-only command, so the script boots the framework with everything
+but the database off and lets its own `autoMigrate` run Drizzle's migrator. Both long-running processes set
+`DATABASE_AUTO_MIGRATE=false`, so nothing races the pre-deploy. A worker deploying ahead of the api can briefly see
+the old schema; its tasks retry. `render-blueprint.test.ts` asserts the command is on the api and nowhere else and
+that neither process migrates at boot; `scripts/migrate.test.ts` runs the script against a throwaway database
+(migrates from nothing, is a no-op the second time, exits non-zero when it cannot connect).

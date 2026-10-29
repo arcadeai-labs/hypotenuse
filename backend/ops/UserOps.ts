@@ -59,6 +59,23 @@ export function serializeUser(user: User) {
 }
 
 /**
+ * Shape the caller's **own** user row: {@link serializeUser} plus where their
+ * address stands. Only ever returned to that person — an address they have not
+ * confirmed is not their teammates' business. `emailVerified` is the server's
+ * answer to "may this person see invitations yet", so a client never compares
+ * a timestamp itself.
+ * @param user - The caller's user row.
+ * @returns The serialized user with `emailVerified` and `pendingEmail`.
+ */
+export function serializeSelf(user: User) {
+  return {
+    ...serializeUser(user),
+    emailVerified: user.emailVerifiedAt !== null,
+    pendingEmail: user.pendingEmail,
+  };
+}
+
+/**
  * Shape a user row for surfaces where the viewer is not a project peer: the same
  * as {@link serializeUser} but with the email dropped too. Used wherever a user
  * is named as an actor (who connected a platform, who edited a bot) rather than

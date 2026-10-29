@@ -575,3 +575,27 @@ $narrow: 767.98px;
     margin: 0;
   }
 }
+
+// The unconfirmed-address strip above the routed page, inset like a page's own
+// content so it lines up with the header below it.
+.shell-banner {
+  padding: var(--space-3) var(--space-5) 0;
+
+  .ui-alert {
+    margin: 0;
+  }
+}
+
+.shell-banner-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: center;
+  justify-content: space-between;
+}
+
+@media (max-width: $narrow) {
+  .shell-banner {
+    padding-inline: var(--space-3);
+  }
+}

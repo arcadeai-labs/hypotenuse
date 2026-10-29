@@ -271,7 +271,7 @@ bun run --cwd cli hypotenuse org list && bun run --cwd cli hypotenuse audit list
 
 | Piece | Where |
 |---|---|
-| `cli_tokens` (sha256 and last four only), migration 0003 | `backend/schema/cli_tokens.ts`, `backend/drizzle/0003_*.sql` |
+| `cli_tokens` (sha256 and last four only), migration 0004 | `backend/schema/cli_tokens.ts`, `backend/drizzle/0004_*.sql` |
 | Codes in Redis by hash, minting, sliding expiry, serializer | `backend/ops/CliTokenOps.ts`, `backend/config/cliAuth.ts` |
 | `cli-auth:approve` / `activate` (audited, browser only), `cli-auth:device` / `exchange` (closed list), `cli-token:list` / `revoke` | `backend/actions/cli-auth/`, `backend/actions/cli-token/` |
 | The principal hook and `BrowserSessionMiddleware` | `backend/middleware/session.ts`, `backend/initializers/principal.ts` |
@@ -308,6 +308,7 @@ never hides what a person can see.
 | `cli-auth:*` | `login` drives them | Browser hops and sign-in ingress |
 | `notification:*` | none | The bell is a dashboard surface |
 | `user:edit`, `project:settings-view` | none | The Account and settings pages |
+| `email-verification:resend` | none | Verifying an address is the dashboard's sign-up and Account flow, finished in the browser from the email |
 | `me:view` | `whoami` | |
 | `user:create`, `session:*`, `status`, `health`, `swagger`, `actions:permissions` | none | Sign-up, browser sessions, and introspection |
 

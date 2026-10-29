@@ -2,16 +2,18 @@
 #
 #   hypotenuse-api        type: web       backend/Dockerfile    HTTP, MCP, platform webhooks, dashboard sockets.
 #                         health /api/health (non-2xx when unhealthy)
-#                         api.hypotenuse.cloud                    No tasks, no migrations.
-#   hypotenuse-worker     type: worker    backend/Dockerfile    Tasks + migrations. No HTTP.
+#                         api.hypotenuse.cloud                    Migrates in its preDeployCommand. No tasks.
+#   hypotenuse-worker     type: worker    backend/Dockerfile    Tasks. No HTTP, no migrations.
 #   hypotenuse-frontend   type: web       frontend/Dockerfile   nginx serving the Vite build.
 #                         www.hypotenuse.cloud, and the apex redirecting to it
 #   hypotenuse-redis      type: keyvalue                        Sessions, queues, pub/sub, leases, rate-limit buckets.
 #   hypotenuse-db         postgres 18 + the `vector` extension  Everything else.
 #
-# Web and worker run the SAME image and differ only by environment. The worker
-# owns migrations (`DATABASE_AUTO_MIGRATE=true`) so the web service can never race
-# a schema change.
+# Web and worker run the SAME image and differ only by environment. Migrations
+# run in the API's `preDeployCommand` (`bun scripts/migrate.ts`), once per deploy
+# and before the new instance is health-checked — so /api/health, which probes
+# the newest migration's column, never waits on another service to have
+# migrated. Neither long-running process migrates at boot, so nothing races it.
 #
 # Platforms deliver webhooks to hypotenuse-api, at routes fixed in
 # backend/ops/WebhookUrlOps.ts and reported by GET /api/status under `webhooks`:
@@ -48,6 +50,11 @@ services:
     # is unreachable), so such a deploy is held rather than promoted.
     # /api/status always answers 200 and is the report, not the probe.
     healthCheckPath: /api/health
+    # Runs in the new image, with this service's environment, after the build
+    # and before the new instance takes traffic; a non-zero exit aborts the
+    # deploy and leaves the old instance serving. It is what puts the schema
+    # /api/health probes for in place.
+    preDeployCommand: bun scripts/migrate.ts
     domains:
       - api.hypotenuse.cloud
     buildFilter:
@@ -100,9 +107,10 @@ services:
       # internal origin.
       - key: MCP_OAUTH_TRUST_PROXY
         value: "true"
-      # The worker migrates and runs tasks. The web service must do neither: a
-      # web process running agent ticks competes with webhook ingress for its
-      # event loop, and Slack gives a webhook 3 seconds, Linear 5.
+      # The web process neither migrates at boot (the preDeployCommand does,
+      # once) nor runs tasks: a web process running agent ticks competes with
+      # webhook ingress for its event loop, and Slack gives a webhook 3 seconds,
+      # Linear 5.
       - key: DATABASE_AUTO_MIGRATE
         value: "false"
       - key: TASKS_ENABLED
@@ -111,7 +119,7 @@ services:
         value: "0"
 
   # ---------------------------------------------------------------------------
-  # Backend — tasks + migrations (same image as hypotenuse-api)
+  # Backend — tasks (same image as hypotenuse-api)
   # ---------------------------------------------------------------------------
   - type: worker
     name: hypotenuse-worker
@@ -146,9 +154,11 @@ services:
       # default is localhost.
       - key: APPLICATION_URL
         value: "https://api.hypotenuse.cloud"
-      # This service, and only this service, owns the schema.
+      # The API's preDeployCommand migrates. A worker that also migrated at boot
+      # would race it, and when the worker owned migrations, a worker that had
+      # not migrated held every API deploy at its health check.
       - key: DATABASE_AUTO_MIGRATE
-        value: "true"
+        value: "false"
       - key: TASKS_ENABLED
         value: "true"
       # Agent ticks spend most of their time waiting on a model, so one process
@@ -245,7 +255,7 @@ databases:
     plan: basic-256mb
     region: oregon
     # Requires the `vector` extension, which Render's managed Postgres ships and
-    # migration 0000 creates. Without it the worker's first migration fails and
+    # migration 0000 creates. Without it the first migration fails and
     # /api/status reports `healthy: false`.
     postgresMajorVersion: "18"
     ipAllowList: []
