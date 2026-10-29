@@ -6,7 +6,7 @@ import { api } from "keryx";
  * migration added. Every migration that adds a table or column moves it.
  */
 export const NEWEST_MIGRATION_PROBE = sql.raw(
-  "SELECT pending_email FROM users LIMIT 0",
+  "SELECT avatar_mime_type FROM bots LIMIT 0",
 );
 
 /** What the probes found: each dependency, and whether this process can serve. */

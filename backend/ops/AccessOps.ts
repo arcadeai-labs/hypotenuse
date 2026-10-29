@@ -104,6 +104,11 @@ export interface AccessListTable {
   label: PgColumn;
   accessRead: PgColumn;
   accessWrite: PgColumn;
+  /**
+   * Text columns that each name one tag (a bot's `helpNotifyTag`): renamed with
+   * the tag, and a tag they name cannot be deleted, exactly like a list entry.
+   */
+  tagColumns?: PgColumn[];
 }
 
 /** Every registered table, keyed by `kind`. */
@@ -241,7 +246,8 @@ export async function findAccessListReferences(
     for (const row of await loadLists(db, definition, projectId)) {
       if (
         row.accessRead.some((e) => normalizeTagName(e) === target) ||
-        row.accessWrite.some((e) => normalizeTagName(e) === target)
+        row.accessWrite.some((e) => normalizeTagName(e) === target) ||
+        row.tagNames.some((e) => normalizeTagName(e) === target)
       ) {
         found.push({ kind: definition.kind, id: row.id, label: row.label });
       }
@@ -274,12 +280,20 @@ export async function renameTagInAccessLists(
   const changed: AccessListReference[] = [];
   for (const definition of accessListTables.values()) {
     for (const row of await loadLists(tx, definition, projectId)) {
-      const names = [...row.accessRead, ...row.accessWrite];
+      const names = [...row.accessRead, ...row.accessWrite, ...row.tagNames];
       if (!names.some((e) => normalizeTagName(e) === source)) continue;
       // Raw SQL because a registered table is known by its columns, not by the
       // property names Drizzle's `set` is keyed on. `SET` takes bare identifiers.
+      const assignments = [
+        sql`${sql.identifier(definition.accessRead.name)} = ${JSON.stringify(rename(row.accessRead))}::jsonb`,
+        sql`${sql.identifier(definition.accessWrite.name)} = ${JSON.stringify(rename(row.accessWrite))}::jsonb`,
+        ...(definition.tagColumns ?? []).map(
+          (column) =>
+            sql`${sql.identifier(column.name)} = CASE WHEN lower(btrim(${sql.identifier(column.name)})) = ${source} THEN ${target} ELSE ${sql.identifier(column.name)} END`,
+        ),
+      ];
       await tx.execute(
-        sql`UPDATE ${definition.table} SET ${sql.identifier(definition.accessRead.name)} = ${JSON.stringify(rename(row.accessRead))}::jsonb, ${sql.identifier(definition.accessWrite.name)} = ${JSON.stringify(rename(row.accessWrite))}::jsonb WHERE ${sql.identifier(definition.id.name)} = ${row.id}`,
+        sql`UPDATE ${definition.table} SET ${sql.join(assignments, sql`, `)} WHERE ${sql.identifier(definition.id.name)} = ${row.id}`,
       );
       changed.push({ kind: definition.kind, id: row.id, label: row.label });
     }
@@ -292,25 +306,36 @@ export async function renameTagInAccessLists(
  * @param db - A database handle.
  * @param definition - The table.
  * @param projectId - The project.
- * @returns Each row's id, label, and lists.
+ * @returns Each row's id, label, lists, and the tags its tag columns name.
  */
 async function loadLists(
   db: DbHandle,
   definition: AccessListTable,
   projectId: number,
 ) {
-  return (await db
+  const tagColumns = definition.tagColumns ?? [];
+  const rows = (await db
     .select({
       id: definition.id,
       label: definition.label,
       accessRead: definition.accessRead,
       accessWrite: definition.accessWrite,
+      ...Object.fromEntries(tagColumns.map((c, i) => [`tag${i}`, c])),
     })
     .from(definition.table)
-    .where(eq(definition.projectId, projectId))) as {
+    .where(eq(definition.projectId, projectId))) as ({
     id: number;
     label: string;
     accessRead: string[];
     accessWrite: string[];
-  }[];
+  } & Record<string, unknown>)[];
+  return rows.map((row) => ({
+    id: row.id,
+    label: row.label,
+    accessRead: row.accessRead,
+    accessWrite: row.accessWrite,
+    tagNames: tagColumns
+      .map((_, i) => row[`tag${i}`])
+      .filter((v): v is string => typeof v === "string" && v !== ""),
+  }));
 }

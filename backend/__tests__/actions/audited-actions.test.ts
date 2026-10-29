@@ -31,6 +31,13 @@ const READS = new Set([
   "notification:unread-count",
   "audit:list",
   "cli-token:list",
+  "model-connection:view",
+  "model-connection:list",
+  "model-connection:models",
+  "model-alias:list",
+  "bot:view",
+  "bot:list",
+  "bot:avatar",
 ]);
 
 /**

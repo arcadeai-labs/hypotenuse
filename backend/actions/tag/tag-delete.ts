@@ -21,7 +21,7 @@ import { userTags } from "../../schema/user_tags";
 export class TagDelete extends AuditedAction {
   name = "tag:delete";
   description =
-    "Delete a permission tag from a project, revoking it from everyone who holds it. Requires admin standing in the project. The reserved 'admin' tag cannot be deleted, and a tag named in any access list is refused until it is removed from those lists.";
+    "Delete a permission tag from a project, revoking it from everyone who holds it. Requires admin standing in the project. The reserved 'admin' tag cannot be deleted, and a tag named in any access list or as a bot's help tag is refused until it is removed there.";
   middleware = [AdminMiddleware()];
   web = { route: "/project/:projectId/tag/:tagId", method: HTTP_METHOD.DELETE };
   inputs = z.object({
@@ -69,7 +69,7 @@ export class TagDelete extends AuditedAction {
     );
     if (references.length > 0) {
       throw new TypedError({
-        message: `The "${tag.name}" tag is still named in the access lists of ${references.map((r) => `${r.kind} "${r.label}"`).join(", ")}. Remove it from those lists first.`,
+        message: `The "${tag.name}" tag is still named by ${references.map((r) => `${r.kind} "${r.label}"`).join(", ")}, in an access list or as a help tag. Remove it there first.`,
         type: ErrorType.CONNECTION_ACTION_PARAM_VALIDATION,
         key: "tagId",
       });

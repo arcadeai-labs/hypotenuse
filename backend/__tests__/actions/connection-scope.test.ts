@@ -48,7 +48,9 @@ async function mcp(method: string, params: Record<string, unknown> = {}) {
   });
   sessionId ??= res.headers.get("mcp-session-id");
   const text = await res.text();
-  const payload = text.includes("data:")
+  // An SSE stream starts with its field names; a JSON body may contain
+  // "data:" anywhere (a tool description that mentions a data: URL does).
+  const payload = /^(event|data|id):/m.test(text.trimStart().split("\n")[0])
     ? (text
         .split("\n")
         .find((line) => line.startsWith("data:"))

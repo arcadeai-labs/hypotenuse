@@ -105,6 +105,11 @@ a project and an organization; and a registry walk that holds every writer to `A
 or device code onto `hyp_cli_` tokens (`cli_tokens`, `cli-auth:*`, `cli-token:*`, the principal hook), the
 `org`, `project`, `member`, `invite`, `tag`, and `audit` commands, `upgrade` with a major-version guard, Account → CLI
 sign-ins, the install scripts, `auto-release.yml`, and **CLI Upgrade** in the gate.
+**[Phase 07](./phase-07-model-providers-and-bots.md) is built**: `model_connections` (keys sealed, probed, never
+returned) for Anthropic, OpenAI, Vercel AI Gateway, and OpenAI-compatible endpoints through the AI SDK; the SSRF guard
+and its pinned-DNS `guardedFetch`; `model_aliases` with `default` and `fast` required; `bots` with `canReadBot` /
+`canWriteBot`, the lockout guard, and stored avatars; the scripted model server; Settings → Models, the Bots list, and
+the bot page; and the `model` and `bot` commands.
 No other phase is built; every later plan's **Learnings from the
 build** section reads "Not built yet." until its phase lands.
 
@@ -128,3 +133,5 @@ build** section reads "Not built yet." until its phase lands.
 | Audit retention | A year (`AUDIT_RETENTION_DAYS`), swept daily; rows are never edited |
 | CLI | `@arcadeai/hypotenuse` 2.0.0, an HTTP client only; sign-in through the dashboard onto `hyp_cli_` tokens (90-day sliding expiry); `upgrade` refuses to cross a major version without `--major` |
 | Last-admin guard | Counts the project's explicit `admin` tag holders, not owners: a project always keeps someone who administers it by being in it |
+| Models | A bot names aliases, never keys or model ids; `default` and `fast` are required; `ModelOps.languageModel` is the only way to a model, and every provider fetches through the SSRF guard |
+| Bot access | Member-level CRUD gated per bot by `accessRead` / `accessWrite`; an unreadable bot is the same 404 as a missing one; a non-admin cannot save a list that locks them out |

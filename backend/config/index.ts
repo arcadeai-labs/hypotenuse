@@ -5,6 +5,7 @@ import { configCliAuth } from "./cliAuth";
 import { configDatabase } from "./database";
 import { configFrontend } from "./frontend";
 import { configLogger } from "./logger";
+import { configNetwork } from "./network";
 import { configNotifications } from "./notifications";
 import { configObservability } from "./observability";
 import { configPlugins } from "./plugins";
@@ -36,6 +37,7 @@ export default {
   notifications: configNotifications,
   audit: configAudit,
   cliAuth: configCliAuth,
+  network: configNetwork,
 };
 
 /**

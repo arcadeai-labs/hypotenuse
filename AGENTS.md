@@ -12,7 +12,10 @@ reports back into the conversation it came from.
 > public site and `/docs`, and the style guide at `/docs/style-guide` ([`docs/DESIGN.md`](./docs/DESIGN.md)). People
 > can sign up, and organizations, projects, members, invites, tags, and notifications work under ToolExec's RBAC with
 > organization owners above it; every write is an `AuditedAction`, read on the Audit log page of a project or an
-> organization. The `hypotenuse` CLI signs in through the browser and drives all of it over HTTP. There are no bots yet. The build order and every
+> organization. The `hypotenuse` CLI signs in through the browser and drives all of it over HTTP. Project admins connect
+> model providers — keys encrypted and never returned — and name the models the project uses (`default` and `fast`
+> required); members create **bots** with an identity, a persona, model aliases, and access lists. Bots are
+> configuration only: nothing runs yet. The build order and every
 > plan are in
 > [`docs/plans/README.md`](./docs/plans/README.md); the system on one page is
 > [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md). Hypotenuse **v1** — local coding agents answering
@@ -86,8 +89,8 @@ These bind from the first line of code. A rule that names a thing not built yet 
    clients. `applyMcpToolPolicy` / `shouldPublishAsMcpTool` in `backend/ops/McpToolPolicyOps.ts` is the source of
    truth, and `rbac.test.ts` asserts every action's live flag equals it. **Never MCP:** login/signup, browser hops
    (OAuth callbacks, app installs, the email-confirmation link), `webhooks:*`, `sandbox:*` machine actions and
-   `sandbox:git-credential`, proxies, unauthenticated introspection, clocks (`task.frequency > 0`), and anything with
-   no `web.route`.
+   `sandbox:git-credential`, proxies, unauthenticated introspection, binary answers (`bot:avatar`), clocks
+   (`task.frequency > 0`), and anything with no `web.route`.
 9. **The platform's permissions decide who may talk to a bot; the project's RBAC decides who may run it.** Anyone
    who can post in a Slack channel, comment on a Linear issue, or write on a Pylon ticket where a bot is bound may
    address that bot about that place — Hypotenuse adds no second gate and links no identities. Configuring a bot,
