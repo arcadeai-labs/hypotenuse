@@ -44,6 +44,7 @@ export class OrganizationCreate extends AuditedAction {
       params.name,
     );
     const serialized = serializeOrganization(organization);
+    connection.metadata.auditOrganizationId = organization.id;
     connection.metadata.auditAfter = serialized;
     connection.metadata.auditTargetType = "organization";
     connection.metadata.auditTargetPath = organization.slug;

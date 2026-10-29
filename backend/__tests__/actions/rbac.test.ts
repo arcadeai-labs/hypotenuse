@@ -39,6 +39,7 @@ const EXPECTED_LEVELS: Record<string, RbacLevel> = {
   "user-tag:assign": "admin",
   "user-tag:remove": "admin",
   "invite:list": "admin",
+  "audit:list": "admin",
 
   // Organization members. Two of these decide more inside the action:
   // removing someone else needs an owner (leaving does not), and an invite
@@ -52,6 +53,7 @@ const EXPECTED_LEVELS: Record<string, RbacLevel> = {
   "organization:edit": "org-owner",
   "organization:delete": "org-owner",
   "organization:invite-list": "org-owner",
+  "organization:audit-list": "org-owner",
   "organization-membership:edit": "org-owner",
   "project:create": "org-owner",
 
@@ -77,6 +79,7 @@ const EXPECTED_LEVELS: Record<string, RbacLevel> = {
   "notifications:dispatch": "none",
   "notifications:sweep": "none",
   "invites:sweep": "none",
+  "audit:sweep": "none",
 };
 
 /**
@@ -97,10 +100,12 @@ const CLOCKS = [
   "notifications:dispatch",
   "notifications:sweep",
   "invites:sweep",
+  "audit:sweep",
 ];
 
 /** Every action published as an MCP tool for a person's client. */
 const EXPECTED_MCP_TOOLS = [
+  "audit:list",
   "invite:accept",
   "invite:create",
   "invite:list",
@@ -116,6 +121,7 @@ const EXPECTED_MCP_TOOLS = [
   "organization-membership:delete",
   "organization-membership:edit",
   "organization-membership:list",
+  "organization:audit-list",
   "organization:create",
   "organization:delete",
   "organization:edit",

@@ -426,11 +426,12 @@ caller yet; `lua/` holds no script.
   removing someone from the organization is refused while they are the last admin of one of its projects, and the
   refusal names the project.
 - **The removal cascade writes one `membership:delete` row per project it touched**, with
-  `metadata.cascadedFrom`. `audit_logs` has no `organizationId` until [phase 05](./phase-05-audit-logging.md), so an
-  organization-level row is filed under no project; without these, a project's log would never show who left it.
-  Every organization-level row carries `organizationId` in its metadata, for phase 05 to read.
-- **The sign-up row has a null `userId`**: the caller is anonymous when `AuditedAction` writes it. The synthetic
-  `organization:create` and `project:create` rows carry the new user's id. Phase 05's `actorType` settles both.
+  `metadata.cascadedFrom`. An organization-level row is filed under no project; without these, a project's log
+  would never show who left it. Since [phase 05](./phase-05-audit-logging.md) every row also carries the
+  `organizationId` column, which its migration backfilled from the metadata these rows carried.
+- **The sign-up row's actor is the account it creates**, and the synthetic `organization:create` and
+  `project:create` rows are `system` rows naming that account in `metadata.ownerUserId` — settled by
+  [phase 05](./phase-05-audit-logging.md)'s `actorType`, whose migration rewrote the rows written before it.
 - **`SENSITIVE_KEYS` is phase 05's whole list already.** Declaring it complete costs nothing, and this phase is
   where every audit row starts.
 - **`tag:edit` rewrites access lists.** The plan said only that `tag:delete` refuses. A rename that left

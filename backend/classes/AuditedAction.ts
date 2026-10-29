@@ -124,6 +124,8 @@ export abstract class AuditedAction implements Action {
     connection.metadata.auditAfter = undefined;
     connection.metadata.auditMetadata = undefined;
     connection.metadata.auditProjectId = undefined;
+    connection.metadata.auditOrganizationId = undefined;
+    connection.metadata.auditUserId = undefined;
     connection.metadata.auditTargetType = undefined;
     connection.metadata.auditTargetPath = undefined;
     connection.metadata.refuseAfterCommit = undefined;

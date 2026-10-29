@@ -142,6 +142,8 @@ export function AppShell() {
       newProjectDenied: reason("project:create"),
       // Anyone signed in may start an organization.
       newOrganizationDenied: auth.user ? undefined : NOT_SIGNED_IN,
+      auditLogDenied: reason("audit:list"),
+      organizationAuditDenied: reason("organization:audit-list"),
       pendingInvites,
     }),
     [

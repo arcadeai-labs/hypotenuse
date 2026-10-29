@@ -38,6 +38,13 @@ const ILLUSTRATIONS: Illustration[] = [
     signedIn: true,
   },
   {
+    name: "audit",
+    path: "/organization/audit",
+    width: 1280,
+    height: 800,
+    signedIn: true,
+  },
+  {
     name: "style-guide",
     path: "/docs/style-guide",
     selector: "[data-testid=style-guide-{theme}]",

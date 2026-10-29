@@ -1,7 +1,16 @@
-import type { Connection } from "keryx";
+import { and, count, desc, eq, gte, lt, type SQL } from "drizzle-orm";
+import { api, type Connection, paginate } from "keryx";
+import { z } from "zod";
 import type { RbacConnectionMeta } from "../middleware/rbac";
 import type { SessionImpl } from "../middleware/session";
-import { type AuditLog, auditLogs } from "../schema/audit_logs";
+import {
+  AUDIT_ACTOR_TYPES,
+  type AuditActorType,
+  type AuditLog,
+  auditLogs,
+} from "../schema/audit_logs";
+import { projects } from "../schema/projects";
+import { users } from "../schema/users";
 import type { DbHandle } from "./DbOps";
 
 /**
@@ -92,9 +101,16 @@ function scrubValue(value: unknown): unknown {
   return value;
 }
 
-/** An explicit audit-log entry, for writers that do not go through an action's `run`. */
+/**
+ * An explicit audit-log entry, for writers that do not go through an action's
+ * `run`. `actorType` is required, so every such writer says whose decision it
+ * records.
+ */
 export interface AuditLogEntry {
+  actorType: AuditActorType;
   userId?: number | null;
+  participantId?: number | null;
+  organizationId?: number | null;
   projectId?: number | null;
   action: string;
   targetType?: string | null;
@@ -107,12 +123,17 @@ export interface AuditLogEntry {
 /**
  * Write one audit-log row from explicit fields.
  *
- * This exists for changes made inside a **shared ops helper**, which are invisible
- * to the calling action's own auditing: the sign-up bootstrap runs
- * `createOrganizationForOwner` and `createProjectForOwner`, so `user:create` logs
- * synthetic `organization:create` and `project:create` rows. Pass the caller's
- * transaction handle as `db` so the row commits atomically with the change it
- * describes.
+ * This exists for changes made inside a **shared ops helper**, which are
+ * invisible to the calling action's own auditing — the sign-up bootstrap runs
+ * `createOrganizationForOwner` and `createProjectForOwner`, so `user:create`
+ * logs synthetic `system` rows for them — and for decisions made outside any
+ * action, such as an approval a platform participant clicks, which event
+ * processing records as a `participant` row. Pass the caller's transaction
+ * handle as `db` so the row commits atomically with the change it describes.
+ *
+ * A project row with no `organizationId` is filed under the project's
+ * organization, read on the same handle, so an organization's log is always a
+ * superset of its projects' logs.
  * @param db - A Drizzle transaction handle, or the shared `api.db.db`.
  * @param entry - The audit-log fields to persist.
  */
@@ -120,8 +141,21 @@ export async function writeAuditLog(
   db: DbHandle,
   entry: AuditLogEntry,
 ): Promise<void> {
+  let organizationId = entry.organizationId ?? null;
+  if (organizationId === null && entry.projectId != null) {
+    const [project] = await db
+      .select({ organizationId: projects.organizationId })
+      .from(projects)
+      .where(eq(projects.id, entry.projectId))
+      .limit(1);
+    organizationId = project?.organizationId ?? null;
+  }
+
   await db.insert(auditLogs).values({
+    actorType: entry.actorType,
     userId: entry.userId ?? null,
+    participantId: entry.participantId ?? null,
+    organizationId,
     projectId: entry.projectId ?? null,
     action: entry.action,
     targetType: entry.targetType ?? null,
@@ -133,17 +167,34 @@ export async function writeAuditLog(
 }
 
 /**
+ * A numeric id param, or `undefined` — params are untyped at this layer.
+ * @param value - The param value.
+ * @returns The id, if it is one.
+ */
+function idParam(value: unknown): number | undefined {
+  return typeof value === "number" ? value : undefined;
+}
+
+/**
  * Insert the audit row describing a mutating action. Called by
  * `AuditedAction.run` on the same transaction as the mutation.
  *
  * Everything the row cannot infer from the action itself comes off
  * `connection.metadata`, which the acting subclass sets: the `before` / `after`
- * snapshots, the target, and — for the few actions whose params do not name a
- * project — the `projectId` to scope the row to. `metadata` defaults to the
- * secret-scrubbed params. A write made under an organization owner's admin
- * standing (not the project's own `admin` tag) records
- * `standing: "organization-owner"`, so the log never leaves it ambiguous who
- * could act and why.
+ * snapshots, the target, and — for the few actions whose params do not name
+ * their tenant — the `projectId` and `organizationId` to scope the row to.
+ *
+ * The organization is, in order: the explicit `auditOrganizationId`, the
+ * `organizationId` param, the organization of the project the RBAC middleware
+ * loaded, and the organization it loaded — so every project row is also an
+ * organization row. The actor is the session's user, or `auditUserId` for
+ * sign-up, whose caller has no session until the account exists; a write with
+ * neither is the `system`'s.
+ *
+ * `metadata` defaults to the secret-scrubbed params. A write made under an
+ * organization owner's admin standing (not the project's own `admin` tag)
+ * records `standing: "organization-owner"`, so the log never leaves it
+ * ambiguous who could act and why.
  * @param db - A Drizzle transaction handle, or the shared `api.db.db`.
  * @param actionName - The action's `name`, e.g. `"tag:edit"`.
  * @param connection - The caller's connection (session + audit metadata).
@@ -156,10 +207,18 @@ export async function insertAuditLog(
   params: Record<string, unknown>,
 ): Promise<void> {
   const meta = connection.metadata;
+  const userId = connection.session?.data.userId ?? meta.auditUserId ?? null;
 
   await writeAuditLog(db, {
-    userId: connection.session?.data.userId ?? null,
-    projectId: meta.auditProjectId ?? (params.projectId as number) ?? null,
+    actorType: userId ? "user" : "system",
+    userId,
+    organizationId:
+      meta.auditOrganizationId ??
+      idParam(params.organizationId) ??
+      meta.project?.organizationId ??
+      meta.organization?.id ??
+      null,
+    projectId: meta.auditProjectId ?? idParam(params.projectId) ?? null,
     action: actionName,
     targetType: meta.auditTargetType ?? null,
     targetPath: meta.auditTargetPath ?? null,
@@ -172,19 +231,45 @@ export async function insertAuditLog(
   });
 }
 
+/** Who an audit row's actor is, as far as the server can name them. */
+export interface AuditActor {
+  type: AuditActorType;
+  userId: number | null;
+  participantId: number | null;
+  /** The user's current name; `null` for a deleted user, a participant, or the system. */
+  name: string | null;
+  email: string | null;
+}
+
 /**
- * Shape an audit-log row into the API-safe object returned by `audit:list`.
- * `createdAt` is emitted as epoch milliseconds, per the serializer convention;
- * `metadata` / `before` / `after` pass through as stored, which is safe because
- * both layers of redaction already ran at write time.
+ * Shape an audit-log row into the API-safe object `audit:list` and
+ * `organization:audit-list` return. `createdAt` is emitted as epoch
+ * milliseconds, per the serializer convention; `metadata` / `before` / `after`
+ * pass through as stored, which is safe because both layers of redaction
+ * already ran at write time.
  * @param row - The audit-log row from the database.
+ * @param user - The acting user's current name and email, when there is one.
+ * @param projectName - The row's project's current name; `null` once deleted.
  * @returns The serialized audit-log entry.
  */
-export function serializeAuditLog(row: AuditLog) {
+export function serializeAuditLog(
+  row: AuditLog,
+  user: { name: string; email: string } | null = null,
+  projectName: string | null = null,
+) {
+  const actor: AuditActor = {
+    type: row.actorType,
+    userId: row.userId,
+    participantId: row.participantId,
+    name: user?.name ?? null,
+    email: user?.email ?? null,
+  };
   return {
     id: row.id,
-    userId: row.userId,
+    actor,
+    organizationId: row.organizationId,
     projectId: row.projectId,
+    projectName,
     action: row.action,
     targetType: row.targetType,
     targetPath: row.targetPath,
@@ -192,5 +277,125 @@ export function serializeAuditLog(row: AuditLog) {
     before: row.before,
     after: row.after,
     createdAt: row.createdAt.getTime(),
+  };
+}
+
+/**
+ * A point in time, given as an ISO 8601 string or as epoch milliseconds (a
+ * number, or digits in a query string). Both, because a person types the first
+ * and every serializer in the app emits the second, so a client can page
+ * backwards from a row's own `createdAt`.
+ * @param description - What the bound limits, for the MCP tool description.
+ * @returns The optional Zod schema, parsed to a `Date`.
+ */
+export function auditTimeInput(description: string) {
+  return z
+    .preprocess((value) => {
+      if (value === undefined || value === null || value === "") {
+        return undefined;
+      }
+      if (typeof value === "number") return new Date(value);
+      if (typeof value === "string") {
+        return /^\d+$/.test(value.trim())
+          ? new Date(Number(value))
+          : new Date(value);
+      }
+      return value;
+    }, z
+      .date({ error: "Must be an ISO 8601 date or epoch milliseconds" })
+      .optional())
+    .describe(description);
+}
+
+/** The filters both audit lists accept, on top of pagination and their tenant. */
+export const auditFilterInputs = z.object({
+  since: auditTimeInput(
+    "Only rows at or after this time: an ISO 8601 date or epoch milliseconds",
+  ),
+  until: auditTimeInput(
+    "Only rows at or before this time: an ISO 8601 date or epoch milliseconds",
+  ),
+  action: z
+    .string()
+    .trim()
+    .min(1)
+    .optional()
+    .describe('Only rows for this action name, e.g. "tag:edit"'),
+  actorType: z
+    .enum(AUDIT_ACTOR_TYPES)
+    .optional()
+    .describe(
+      'Only rows made by this kind of actor: "user" (a Hypotenuse user), "participant" (a person on a platform), or "system"',
+    ),
+  targetType: z
+    .string()
+    .trim()
+    .min(1)
+    .optional()
+    .describe('Only rows about this kind of thing, e.g. "tag" or "project"'),
+});
+
+/** The parsed filters, plus the tenant condition each list adds itself. */
+export type AuditFilters = z.infer<typeof auditFilterInputs>;
+
+/**
+ * One page of audit rows matching a tenant condition and the caller's filters,
+ * newest first, each with its actor's current name and its project's current
+ * name. Shared by `audit:list` (one project) and `organization:audit-list`
+ * (every project in an organization, and the organization's own rows).
+ * @param tenant - The condition naming whose rows these are.
+ * @param filters - The caller's filters.
+ * @param page - Pagination inputs.
+ * @returns The serialized rows and the pagination envelope.
+ */
+export async function listAuditLogs(
+  tenant: SQL,
+  filters: AuditFilters,
+  page: { page: number; limit: number },
+) {
+  // Postgres keeps microseconds and every serializer emits milliseconds, so a
+  // row's own `createdAt` is at or before the stored instant. `since` is
+  // inclusive as written; `until` covers its whole millisecond, or a client
+  // paging back from a row's `createdAt` would skip that row.
+  const where = and(
+    tenant,
+    filters.since ? gte(auditLogs.createdAt, filters.since) : undefined,
+    filters.until
+      ? lt(auditLogs.createdAt, new Date(filters.until.getTime() + 1))
+      : undefined,
+    filters.action ? eq(auditLogs.action, filters.action) : undefined,
+    filters.actorType ? eq(auditLogs.actorType, filters.actorType) : undefined,
+    filters.targetType
+      ? eq(auditLogs.targetType, filters.targetType)
+      : undefined,
+  );
+  const result = await paginate(
+    api.db.db
+      .select({
+        row: auditLogs,
+        userName: users.name,
+        userEmail: users.email,
+        projectName: projects.name,
+      })
+      .from(auditLogs)
+      .leftJoin(users, eq(users.id, auditLogs.userId))
+      .leftJoin(projects, eq(projects.id, auditLogs.projectId))
+      .where(where)
+      .orderBy(desc(auditLogs.createdAt), desc(auditLogs.id))
+      .$dynamic(),
+    api.db.db.select({ count: count() }).from(auditLogs).where(where),
+    page,
+  );
+  return {
+    auditLogs: result.data.map(({ row, userName, userEmail, projectName }) =>
+      serializeAuditLog(
+        row,
+        userName !== null && userEmail !== null
+          ? { name: userName, email: userEmail }
+          : null,
+        projectName,
+      ),
+    ),
+    pagination: result.pagination,
   };
 }

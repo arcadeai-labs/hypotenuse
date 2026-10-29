@@ -81,6 +81,16 @@ export interface RbacConnectionMeta {
    * answers (the project is on the invite row).
    */
   auditProjectId?: number;
+  /**
+   * The organization to scope the audit row to, when neither the params nor
+   * the loaded project name it: `organization:create` and the invite answers.
+   */
+  auditOrganizationId?: number;
+  /**
+   * The acting user when the connection has no session: sign-up, whose actor
+   * is the account it creates.
+   */
+  auditUserId?: number;
   /** The kind of entity the action acted on, e.g. `"tag"`. */
   auditTargetType?: string;
   /** How to identify that entity to a person, e.g. a tag's name or an email. */

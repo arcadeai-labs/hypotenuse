@@ -103,17 +103,20 @@ export class UserCreate extends AuditedAction {
     const serializedOrganization = serializeOrganization(organization);
     const serializedProject = serializeProject(project);
 
+    connection.metadata.auditUserId = user.id;
     connection.metadata.auditAfter = serializedUser;
     connection.metadata.auditTargetType = "user";
     connection.metadata.auditTargetPath = user.email;
 
     // The sign-up row is deliberately tenant-less: an account belongs to no
-    // project. The organization and project are created inside shared ops
-    // helpers, which bypass their own actions' auditing, so they are logged here
-    // on this same transaction — or a tenant's log would open with no record of
-    // its creation.
+    // project. Its actor is the account it creates. The organization and
+    // project are created inside shared ops helpers, which bypass their own
+    // actions' auditing, so they are logged here on this same transaction — or
+    // a tenant's log would open with no record of its creation. Those two are
+    // the system's rows: nobody chose to create them, sign-up always does.
     await writeAuditLog(tx, {
-      userId: user.id,
+      actorType: "system",
+      organizationId: organization.id,
       action: "organization:create",
       targetType: "organization",
       targetPath: organization.slug,
@@ -122,10 +125,12 @@ export class UserCreate extends AuditedAction {
         organizationId: organization.id,
         name: organization.name,
         bootstrappedBy: "user:create",
+        ownerUserId: user.id,
       },
     });
     await writeAuditLog(tx, {
-      userId: user.id,
+      actorType: "system",
+      organizationId: organization.id,
       projectId: project.id,
       action: "project:create",
       targetType: "project",
@@ -135,6 +140,7 @@ export class UserCreate extends AuditedAction {
         organizationId: organization.id,
         name: project.name,
         bootstrappedBy: "user:create",
+        ownerUserId: user.id,
       },
     });
 

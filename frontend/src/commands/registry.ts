@@ -89,6 +89,22 @@ export const COMMANDS: Command[] = [
     run: (c) => c.navigate("/organizations/new"),
   },
   {
+    id: "open-audit-log",
+    title: "Open audit log",
+    group: "Project",
+    keywords: ["history", "changes", "who"],
+    requires: ["audit:list"],
+    run: (c) => c.navigate("/audit"),
+  },
+  {
+    id: "open-organization-audit-log",
+    title: "Open organization audit log",
+    group: "Project",
+    keywords: ["history", "changes", "who"],
+    requires: ["organization:audit-list"],
+    run: (c) => c.navigate("/organization/audit"),
+  },
+  {
     id: "go-docs",
     title: "Open docs",
     group: "Navigation",

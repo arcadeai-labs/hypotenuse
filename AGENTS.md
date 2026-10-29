@@ -11,7 +11,8 @@ reports back into the conversation it came from.
 > `api.hypotenuse.cloud` ([`docs/DEPLOY.md`](./docs/DEPLOY.md)), and the look: tokens, the UI kit, the app shell, the
 > public site and `/docs`, and the style guide at `/docs/style-guide` ([`docs/DESIGN.md`](./docs/DESIGN.md)). People
 > can sign up, and organizations, projects, members, invites, tags, and notifications work under ToolExec's RBAC with
-> organization owners above it; every write is an `AuditedAction`. There are no bots yet. The build order and every
+> organization owners above it; every write is an `AuditedAction`, read on the Audit log page of a project or an
+> organization. There are no bots yet. The build order and every
 > plan are in
 > [`docs/plans/README.md`](./docs/plans/README.md); the system on one page is
 > [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md). Hypotenuse **v1** — local coding agents answering

@@ -14,12 +14,14 @@ import { LiveSocketProvider } from "./context/LiveSocketContext";
 import { NotificationProvider } from "./context/NotificationContext";
 import { StandingProvider } from "./context/StandingContext";
 import { AccountPage } from "./pages/AccountPage";
+import { AuditLogPage } from "./pages/AuditLogPage";
 import { DocsLayout } from "./pages/docs/DocsLayout";
 import { DocsPage } from "./pages/docs/DocsPage";
 import { InvitesPage } from "./pages/InvitesPage";
 import { HomePage } from "./pages/marketing/HomePage";
 import { NewOrganizationPage } from "./pages/NewOrganizationPage";
 import { NewProjectPage } from "./pages/NewProjectPage";
+import { OrganizationAuditPage } from "./pages/organization/OrganizationAuditPage";
 import { OrganizationMembersPage } from "./pages/organization/OrganizationMembersPage";
 import { OrganizationPage } from "./pages/organization/OrganizationPage";
 import { OrganizationProjectsPage } from "./pages/organization/OrganizationProjectsPage";
@@ -70,6 +72,7 @@ export function App() {
                 <Route element={<AppShell />}>
                   <Route path="/account" element={<AccountPage />} />
                   <Route path="/invites" element={<InvitesPage />} />
+                  <Route path="/audit" element={<AuditLogPage />} />
                   <Route path="/projects/new" element={<NewProjectPage />} />
                   <Route
                     path="/organizations/new"
@@ -109,6 +112,7 @@ export function App() {
                       path="settings"
                       element={<OrganizationSettingsPage />}
                     />
+                    <Route path="audit" element={<OrganizationAuditPage />} />
                   </Route>
                 </Route>
               </Route>

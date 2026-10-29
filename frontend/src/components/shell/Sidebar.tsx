@@ -120,12 +120,14 @@ export function Sidebar({
         onSelect={actions.selectOrganization}
         newProjectDenied={actions.newProjectDenied}
         newOrganizationDenied={actions.newOrganizationDenied}
+        organizationAuditDenied={actions.organizationAuditDenied}
         onNavigate={onNavigate}
       />
       <ProjectSwitcher
         projects={data.projects}
         activeProjectId={data.activeProjectId}
         onSelect={actions.selectProject}
+        auditLogDenied={actions.auditLogDenied}
         onNavigate={onNavigate}
       />
       <div className="shell-nav">{main.map(link)}</div>
