@@ -550,8 +550,9 @@ The decision was to verify addresses.
 - **Seeding confirms through the real endpoint.** `createUserAndLogin` mints a link in process and posts it to
   `email-verification:confirm`, since a seeded person's mail is not what most suites test; `email-verification.test.ts`
   reads every link out of a message the real nodemailer transport delivered to the fake SMTP server, with
-  `verificationTokenIn` undoing the quoted-printable body. The browser suite runs that same fake server beside its
-  backend (SMTP on the backend port + 1000, an HTTP inbox on + 1001), and `signUpApi` confirms from the real mail.
+  `verificationTokenIn` undoing the quoted-printable body. The browser suite runs that same fake server as its own
+  process beside its backend (`fixtures/mail-catcher.ts`: SMTP on the backend port + 1000, an HTTP inbox on + 1001; the
+  frontend may not import backend code, so it starts it by path), and `signUpApi` confirms from the real mail.
 - **The CLI has nothing to wrap yet**: it has no account or invite commands, and confirming is a browser hop.
 
 ### Traps found while building

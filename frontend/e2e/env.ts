@@ -32,7 +32,7 @@ export const FRONTEND_URL = `http://localhost:${FRONTEND_PORT}`;
 export const BACKEND_URL = `http://localhost:${BACKEND_PORT}`;
 
 /**
- * The suite's mail catcher, which `scripts/e2e-backend.ts` runs beside the
+ * The suite's mail catcher, which `scripts/e2e-backend.ts` starts beside the
  * backend: an SMTP server the backend sends through, and an HTTP inbox a spec
  * reads verification links from. Offset from the backend's port, so a second
  * checkout with its own e2e ports gets its own mailbox too.
