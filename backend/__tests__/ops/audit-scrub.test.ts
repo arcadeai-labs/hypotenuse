@@ -8,6 +8,7 @@ import { SENSITIVE_KEYS, scrubParams } from "../../ops/AuditOps";
  */
 const EXPECTED_SENSITIVE_KEYS = [
   "password",
+  "currentPassword",
   "passwordHash",
   "password_hash",
   "secret",

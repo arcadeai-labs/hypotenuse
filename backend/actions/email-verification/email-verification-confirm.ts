@@ -124,6 +124,8 @@ export class EmailVerificationConfirm extends AuditedAction {
         ),
       );
 
+    // A link is usually followed signed out; the person it proves is the actor.
+    connection.metadata.auditUserId = user.id;
     connection.metadata.auditBefore = serializeSelf(user);
     connection.metadata.auditAfter = serializeSelf(updated);
     connection.metadata.auditTargetType = "user";

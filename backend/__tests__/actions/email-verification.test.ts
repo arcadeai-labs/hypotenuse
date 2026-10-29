@@ -280,6 +280,8 @@ describe("email-verification:confirm", () => {
       .orderBy(desc(auditLogs.id))
       .limit(1);
     expect(row.targetPath).toBe(person.email);
+    expect(row.actorType).toBe("user");
+    expect(row.userId).toBe(person.userId);
     expect(JSON.stringify(row)).not.toContain(token);
     expect(row.before).toMatchObject({ emailVerified: false });
     expect(row.after).toMatchObject({ emailVerified: true });

@@ -27,7 +27,7 @@ export function VerifyEmailPage() {
       : "This link is missing its token. Open the link from the email again.",
   );
 
-  /** Spend the token, then re-read the session if there is one. */
+  /** Spend the token, then re-read the session. */
   async function confirm() {
     setBusy(true);
     setError(null);
@@ -36,8 +36,11 @@ export function VerifyEmailPage() {
         "/email-verification/confirm",
         { method: "POST", body: JSON.stringify({ token }) },
       );
+      // Unconditionally: the click can beat the first session read, which
+      // would then hold the address as unconfirmed. A newer read wins, and
+      // signed out it simply finds no session.
+      await refresh();
       setConfirmed(res.user.email);
-      if (user) await refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "That did not work.");
     } finally {
