@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
-import { apiFetch } from "../utils/client";
+import { ApiError, apiFetch, isSignedOut } from "../utils/client";
 
 const originalFetch = globalThis.fetch;
 
@@ -51,5 +51,22 @@ describe("apiFetch", () => {
   test("throws on an error envelope even when the status is 200", async () => {
     stubFetch({ error: { message: "kaboom" } }, 200);
     await expect(apiFetch("/broken")).rejects.toThrow("kaboom");
+  });
+});
+
+describe("ApiError and isSignedOut", () => {
+  test("an error envelope carries its HTTP status", async () => {
+    stubFetch({ error: { message: "Session not found" } }, 401);
+    const error = await apiFetch("/me").catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(ApiError);
+    expect((error as ApiError).status).toBe(401);
+    expect(isSignedOut(error)).toBe(true);
+  });
+
+  test("only a 401 means signed out", async () => {
+    stubFetch({ error: { message: "unhealthy" } }, 500);
+    const error = await apiFetch("/organizations").catch((e: unknown) => e);
+    expect(isSignedOut(error)).toBe(false);
+    expect(isSignedOut(new TypeError("Failed to fetch"))).toBe(false);
   });
 });

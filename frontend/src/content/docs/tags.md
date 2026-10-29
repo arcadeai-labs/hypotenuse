@@ -8,7 +8,7 @@ Every project has one reserved tag, `admin`, which makes its holder an admin of 
 deleted, and no other tag can be named `admin`.
 
 Tag names are compared without regard to case or surrounding spaces, so `Finance` and `finance` are the same tag, and a
-project cannot have both.
+project cannot have both. No tag can be named `*`, which an access list reads as "every member".
 
 ## Access lists
 

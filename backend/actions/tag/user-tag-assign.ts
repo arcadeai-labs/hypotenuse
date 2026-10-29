@@ -8,6 +8,7 @@ import {
 } from "../../classes/AuditedAction";
 import { AdminMiddleware } from "../../middleware/rbac";
 import { idInput } from "../../ops/InputOps";
+import { lockProjectAdmins } from "../../ops/MembershipOps";
 import { serializeTag } from "../../ops/TagOps";
 import { projectMemberships } from "../../schema/project_memberships";
 import { tags } from "../../schema/tags";
@@ -61,6 +62,10 @@ export class UserTagAssign extends AuditedAction {
       });
     }
 
+    // The same lock `membership:delete` and the organization cascade take
+    // before they remove a member, so a grant cannot land on someone in the
+    // instant after their membership is gone.
+    await lockProjectAdmins(tx, params.projectId);
     const [membership] = await tx
       .select({ id: projectMemberships.id })
       .from(projectMemberships)

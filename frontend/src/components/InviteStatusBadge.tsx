@@ -6,7 +6,7 @@ import {
 } from "../utils/invites";
 
 /**
- * An invite's state as a badge: pending, accepted, rejected, or expired.
+ * An invite's state as a badge: pending, accepted, rejected, revoked, or expired.
  * @param props - `invite`, as an invite list serializes it.
  * @returns The badge.
  */

@@ -10,6 +10,7 @@ import { writeAuditLog } from "../../ops/AuditOps";
 import { idInput } from "../../ops/InputOps";
 import {
   assertNotLastOwner,
+  assertStillOwner,
   getOrganizationMembership,
   lockOrganizationOwners,
   removeOrganizationMember,
@@ -66,6 +67,11 @@ export class OrganizationMembershipDelete extends AuditedAction {
     }
 
     await lockOrganizationOwners(tx, params.organizationId);
+    // The check above read the caller's role before this lock; an owner
+    // demoted in the meantime must not finish removing someone else.
+    if (params.userId !== callerId) {
+      await assertStillOwner(tx, params.organizationId, callerId);
+    }
     const target = await getOrganizationMembership(
       tx,
       params.organizationId,

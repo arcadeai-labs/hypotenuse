@@ -10,7 +10,9 @@ import { projectMemberships } from "../schema/project_memberships";
 import { projects } from "../schema/projects";
 import { tags } from "../schema/tags";
 import { userTags } from "../schema/user_tags";
+import { users } from "../schema/users";
 import type { DbHandle, TxHandle } from "./DbOps";
+import { revokePendingInvites } from "./InviteOps";
 import { getAdminUserIds, lockProjectAdmins } from "./MembershipOps";
 import { firstFreeSlug, generateSlug } from "./SlugOps";
 
@@ -157,6 +159,33 @@ export async function assertNotLastOwner(
   }
 }
 
+/**
+ * Re-check, under {@link lockOrganizationOwners}, that the caller is still an
+ * owner. The RBAC middleware read their role before the lock, and a concurrent
+ * demotion may have committed since.
+ * @param tx - The open transaction, already holding the organization lock.
+ * @param organizationId - The organization.
+ * @param userId - The caller.
+ * @throws {TypedError} `CONNECTION_CHANNEL_AUTHORIZATION` (403) when they are not.
+ */
+export async function assertStillOwner(
+  tx: TxHandle,
+  organizationId: number,
+  userId: number,
+): Promise<void> {
+  const membership = await getOrganizationMembership(
+    tx,
+    organizationId,
+    userId,
+  );
+  if (membership?.role !== "owner") {
+    throw new TypedError({
+      message: "This action requires being an owner of this organization",
+      type: ErrorType.CONNECTION_CHANNEL_AUTHORIZATION,
+    });
+  }
+}
+
 /** What {@link removeOrganizationMember} took away, for the audit row. */
 export interface RemovedOrganizationMember {
   membership: OrganizationMembership;
@@ -164,12 +193,16 @@ export interface RemovedOrganizationMember {
   projectIds: number[];
   /** The tag ids revoked across those projects. */
   tagIds: number[];
+  /** The pending invites into the organization that were withdrawn. */
+  revokedInviteIds: number[];
 }
 
 /**
  * Remove a user from an organization, and with it every project membership and
  * tag they held there — one transaction, because a project membership without an
  * organization membership is the state the containment rule exists to forbid.
+ * Their pending invites into the organization are withdrawn too, or one would
+ * be a way straight back in.
  *
  * The caller holds {@link lockOrganizationOwners} and has run the last-owner
  * guard. This takes the rest of the locks, in the one order: the membership row
@@ -262,7 +295,16 @@ export async function removeOrganizationMember(
     .delete(organizationMemberships)
     .where(eq(organizationMemberships.id, membership.id));
 
-  return { membership, projectIds, tagIds };
+  // A pending invite into this organization would let them straight back in.
+  const [person] = await tx
+    .select({ email: users.email })
+    .from(users)
+    .where(eq(users.id, userId));
+  const revokedInviteIds = person
+    ? await revokePendingInvites(tx, organizationId, person.email, null)
+    : [];
+
+  return { membership, projectIds, tagIds, revokedInviteIds };
 }
 
 /**

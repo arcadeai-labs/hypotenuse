@@ -269,10 +269,12 @@ export async function lockProjectAdmins(
 }
 
 /**
- * The ids of every user holding the reserved `admin` tag in a project — the
- * **explicit** admins. The last-admin guard counts these, not organization
+ * The ids of every **member** of a project holding its reserved `admin` tag —
+ * the explicit admins. The last-admin guard counts these, not organization
  * owners: a project keeps at least one person who administers it by being in
- * it, whoever owns the organization today.
+ * it, whoever owns the organization today. The join to `project_memberships` is
+ * deliberate: a grant left on someone who is no longer a member is not an admin
+ * the project can rely on.
  * @param db - A database handle.
  * @param projectId - The project whose admins to list.
  * @returns The user ids holding the `admin` tag.
@@ -285,6 +287,13 @@ export async function getAdminUserIds(
     .select({ userId: userTags.userId })
     .from(userTags)
     .innerJoin(tags, eq(userTags.tagId, tags.id))
+    .innerJoin(
+      projectMemberships,
+      and(
+        eq(projectMemberships.userId, userTags.userId),
+        eq(projectMemberships.projectId, tags.projectId),
+      ),
+    )
     .where(
       and(
         eq(tags.projectId, projectId),

@@ -32,6 +32,14 @@ export function safeNext(raw: string | null | undefined): string | null {
     const base = "https://hypotenuse.invalid";
     const resolved = new URL(raw, base);
     if (resolved.origin !== base) return null;
+    // Dot segments can resolve to a protocol-relative path (`/.//evil.com` →
+    // `//evil.com`), which a browser would treat as another host. Check what
+    // will actually be returned, not only what came in.
+    if (
+      resolved.pathname.startsWith("//") ||
+      resolved.pathname.startsWith("/\\")
+    )
+      return null;
     return `${resolved.pathname}${resolved.search}${resolved.hash}`;
   } catch {
     return null;

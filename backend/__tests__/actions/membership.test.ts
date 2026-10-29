@@ -230,3 +230,128 @@ describe("membership:delete", () => {
     }
   });
 });
+
+describe("granting a tag while the member is being removed", () => {
+  test("never leaves a grant on someone who is no longer a member", async () => {
+    // A grant of `admin` and a removal of the same person, sent at once. The
+    // grant locks the project row before it reads the membership, so it either
+    // lands before the removal (which then takes it away) or finds the
+    // membership gone. A grant left behind would count as an admin the
+    // last-admin guard trusts, on someone who is not in the project.
+    for (let round = 0; round < 5; round++) {
+      const owner = await createUserAndLogin(
+        u.url,
+        "Kong",
+        `kong${round}@jungle.example`,
+      );
+      const newbie = await createUserAndLogin(
+        u.url,
+        "Diddy",
+        `diddy${round}@jungle.example`,
+      );
+      const projectId = owner.projectId;
+      const sent = await call<{ invite: { id: number } }>(
+        u.url,
+        owner,
+        "PUT",
+        `/organization/${owner.organizationId}/invite`,
+        { projectId, inviteeEmail: newbie.email },
+      );
+      await call(
+        u.url,
+        newbie,
+        "POST",
+        `/invite/${sent.body.invite.id}/accept`,
+      );
+      const [admin] = await api.db.db
+        .select({ id: tags.id })
+        .from(tags)
+        .where(and(eq(tags.projectId, projectId), eq(tags.name, "admin")));
+
+      await Promise.all([
+        call(
+          u.url,
+          owner,
+          "PUT",
+          `/project/${projectId}/member/${newbie.userId}/tag/${admin.id}`,
+        ),
+        call(
+          u.url,
+          owner,
+          "DELETE",
+          `/project/${projectId}/member/${newbie.userId}`,
+        ),
+      ]);
+
+      const member = await api.db.db
+        .select()
+        .from(projectMemberships)
+        .where(
+          and(
+            eq(projectMemberships.projectId, projectId),
+            eq(projectMemberships.userId, newbie.userId),
+          ),
+        );
+      const grants = await api.db.db
+        .select()
+        .from(userTags)
+        .where(
+          and(eq(userTags.userId, newbie.userId), eq(userTags.tagId, admin.id)),
+        );
+      expect(member.length === 0 && grants.length > 0, `round ${round}`).toBe(
+        false,
+      );
+
+      // And the owner is still the project's one admin, so cannot leave it.
+      const leave = await call(
+        u.url,
+        owner,
+        "DELETE",
+        `/project/${projectId}/member/${owner.userId}`,
+      );
+      if (member.length === 0) expect(leave.status, `round ${round}`).toBe(406);
+    }
+  }, 60_000);
+});
+
+describe("removing a member from a project", () => {
+  test("withdraws their pending invites into it, so one is not a way back", async () => {
+    // Luigi is in Castle; an invite back into it sits pending when he is removed.
+    const sent = await call<{ invite: { id: number } }>(
+      u.url,
+      u.peach,
+      "PUT",
+      `/organization/${u.organizationId}/invite`,
+      { projectId: u.projectId, inviteeEmail: u.luigi.email },
+    );
+    const removed = await call(
+      u.url,
+      u.peach,
+      "DELETE",
+      `/project/${u.projectId}/member/${u.luigi.userId}`,
+    );
+    expect(removed.status).toBe(200);
+
+    const accept = await call(
+      u.url,
+      u.luigi,
+      "POST",
+      `/invite/${sent.body.invite.id}/accept`,
+    );
+    expect(accept.status).toBe(406);
+    expect(accept.body.error?.message).toContain("withdrawn");
+    expect(
+      (await call(u.url, u.luigi, "GET", `/project/${u.projectId}`)).status,
+    ).toBe(403);
+
+    const list = await call<{ invites: { id: number; status: string }[] }>(
+      u.url,
+      u.peach,
+      "GET",
+      `/project/${u.projectId}/invites`,
+    );
+    expect(
+      list.body.invites.find((i) => i.id === sent.body.invite.id)?.status,
+    ).toBe("revoked");
+  });
+});

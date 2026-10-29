@@ -23,7 +23,8 @@ bot; see [Tags](/docs/tags).
 ## Removing someone
 
 An admin can remove a member from the project, which also revokes every tag they held in it. They stay in the
-organization.
+organization. Any invitation back into the project still waiting for them is **withdrawn** at the same moment, so an
+old invite is not a way back in; it shows as *revoked* in the project's invitations.
 
 The project's **last admin** cannot be removed, and the `admin` tag cannot be revoked from them — give another member
 the admin tag first. That rule counts the people who hold the tag; an organization owner keeps admin standing

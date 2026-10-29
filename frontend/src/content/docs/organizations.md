@@ -34,7 +34,8 @@ organization as a member too, so they see that one project and nothing else.
 ## Removing people and leaving
 
 An owner can remove a member from **Organization → Members**, and anyone can leave. Leaving or being removed takes
-you out of **every project** in the organization at once, along with your tags in them.
+you out of **every project** in the organization at once, along with your tags in them, and withdraws every
+invitation into the organization still waiting for you.
 
 Two things are refused, so an organization is never left without someone in charge:
 

@@ -539,3 +539,114 @@ describe("removing someone from an organization", () => {
     expect(org.status).toBe(403);
   });
 });
+
+describe("pending invites when someone is removed from the organization", () => {
+  test("are withdrawn, so a stale invite is not a way back in", async () => {
+    const wario = await createUserAndLogin(
+      u.url,
+      "Wario",
+      "wario@mushroom.kingdom",
+    );
+    await inviteAndAccept(u.url, u.peach, u.organizationId, null, wario);
+    const pending = await call<{ invite: { id: number } }>(
+      u.url,
+      u.peach,
+      "PUT",
+      `/organization/${u.organizationId}/invite`,
+      { projectId: u.projectId, inviteeEmail: wario.email },
+    );
+
+    const removed = await call(
+      u.url,
+      u.peach,
+      "DELETE",
+      `/organization/${u.organizationId}/member/${wario.userId}`,
+    );
+    expect(removed.status).toBe(200);
+
+    const accept = await call(
+      u.url,
+      wario,
+      "POST",
+      `/invite/${pending.body.invite.id}/accept`,
+    );
+    expect(accept.status).toBe(406);
+    expect(
+      (await call(u.url, wario, "GET", `/organization/${u.organizationId}`))
+        .status,
+    ).toBe(403);
+    expect(
+      (await call(u.url, wario, "GET", `/project/${u.projectId}`)).status,
+    ).toBe(403);
+  });
+});
+
+describe("an owner demoted while acting", () => {
+  test("cannot finish removing someone once the demotion has committed", async () => {
+    // Two owners: one demotes the other while the other removes a member. Both
+    // take the organization lock, and the remover re-reads their role under it,
+    // so a removal that runs after the demotion is refused.
+    for (let round = 0; round < 6; round++) {
+      const a = await createUserAndLogin(
+        u.url,
+        "King K",
+        `kingk${round}@kremling.example`,
+      );
+      const b = await createUserAndLogin(
+        u.url,
+        "Klump",
+        `klump${round}@kremling.example`,
+      );
+      const c = await createUserAndLogin(
+        u.url,
+        "Krusha",
+        `krusha${round}@kremling.example`,
+      );
+      const orgId = a.organizationId;
+      await inviteAndAccept(u.url, a, orgId, null, b);
+      await inviteAndAccept(u.url, a, orgId, null, c);
+      await call(
+        u.url,
+        a,
+        "POST",
+        `/organization/${orgId}/member/${b.userId}`,
+        {
+          role: "owner",
+        },
+      );
+
+      const [demote, remove] = await Promise.all([
+        call(u.url, a, "POST", `/organization/${orgId}/member/${b.userId}`, {
+          role: "member",
+        }),
+        call(u.url, b, "DELETE", `/organization/${orgId}/member/${c.userId}`),
+      ]);
+      expect(demote.status, `round ${round}`).toBe(200);
+      if (remove.status === 200) {
+        // Allowed only if the removal committed first: its audit row is older.
+        const rows = await api.db.db
+          .select()
+          .from(auditLogs)
+          .where(eq(auditLogs.userId, b.userId))
+          .orderBy(desc(auditLogs.id));
+        const removal = rows.find(
+          (r) => r.action === "organization-membership:delete",
+        );
+        const [demotion] = await api.db.db
+          .select()
+          .from(auditLogs)
+          .where(
+            and(
+              eq(auditLogs.userId, a.userId),
+              eq(auditLogs.action, "organization-membership:edit"),
+            ),
+          )
+          .orderBy(desc(auditLogs.id))
+          .limit(1);
+        expect(removal!.id, `round ${round}`).toBeLessThan(demotion.id);
+      } else {
+        expect(remove.status, `round ${round}`).toBe(403);
+      }
+    }
+  }, 60_000);
+});

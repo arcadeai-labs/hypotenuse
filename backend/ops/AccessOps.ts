@@ -45,6 +45,23 @@ export function satisfiesAccess(list: string[], callerTags: Tag[]): boolean {
   return list.some((entry) => held.has(normalizeTagName(entry)));
 }
 
+/**
+ * Refuse a tag named `*`. Access lists match `*` as "every member" before they
+ * match any name, so a tag called that would grant nothing, and renaming a tag
+ * to it would turn every list naming the tag into "everyone".
+ * @param name - The tag name being created or renamed to.
+ * @throws {TypedError} `CONNECTION_ACTION_PARAM_VALIDATION`.
+ */
+export function assertNotAccessEveryone(name: string): void {
+  if (name.trim() === ACCESS_EVERYONE) {
+    throw new TypedError({
+      message: `"${ACCESS_EVERYONE}" means every member in an access list, so it cannot be a tag's name`,
+      type: ErrorType.CONNECTION_ACTION_PARAM_VALIDATION,
+      key: "name",
+    });
+  }
+}
+
 /** Any row that carries access lists. */
 export interface AccessControlled {
   accessRead: string[];

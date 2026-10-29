@@ -7,7 +7,10 @@ import {
   type TxHandle,
 } from "../../classes/AuditedAction";
 import { AdminMiddleware } from "../../middleware/rbac";
-import { renameTagInAccessLists } from "../../ops/AccessOps";
+import {
+  assertNotAccessEveryone,
+  renameTagInAccessLists,
+} from "../../ops/AccessOps";
 import { idInput } from "../../ops/InputOps";
 import {
   assertNotReservedTag,
@@ -53,6 +56,7 @@ export class TagEdit extends AuditedAction {
     connection: AuditedConnection,
   ) {
     assertNotReservedTag(params.name);
+    assertNotAccessEveryone(params.name);
 
     const [tag] = await tx
       .select()

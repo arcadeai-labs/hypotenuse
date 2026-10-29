@@ -19,8 +19,10 @@ import { serializeMembership } from "../../ops/MembershipOps";
 import { serializeOrganizationMembership } from "../../ops/OrganizationOps";
 import { getUserById } from "../../ops/UserOps";
 import { organizationMemberships } from "../../schema/organization_memberships";
+import { organizations } from "../../schema/organizations";
 import { projectInvites } from "../../schema/project_invites";
 import { projectMemberships } from "../../schema/project_memberships";
+import { projects } from "../../schema/projects";
 import { tags } from "../../schema/tags";
 import { userTags } from "../../schema/user_tags";
 
@@ -64,6 +66,34 @@ export class InviteAccept extends AuditedAction {
     connection: AuditedConnection,
   ) {
     const user = await getUserById(connection.session!.data.userId!, tx);
+
+    // Lock order is organization, then project, then invite — the order
+    // removing someone (from the organization or the project) and deleting
+    // either take. Reading the invite first only to learn its tenants, then
+    // taking `KEY SHARE` on their rows, means a concurrent removal or deletion
+    // either finishes before this goes on (and the re-read below sees the
+    // invite revoked or gone) or waits for this to commit.
+    const [peek] = await tx
+      .select({
+        organizationId: projectInvites.organizationId,
+        projectId: projectInvites.projectId,
+      })
+      .from(projectInvites)
+      .where(eq(projectInvites.id, params.inviteId));
+    if (peek) {
+      await tx
+        .select({ id: organizations.id })
+        .from(organizations)
+        .where(eq(organizations.id, peek.organizationId))
+        .for("key share");
+      if (peek.projectId) {
+        await tx
+          .select({ id: projects.id })
+          .from(projects)
+          .where(eq(projects.id, peek.projectId))
+          .for("key share");
+      }
+    }
     const [invite] = await tx
       .select()
       .from(projectInvites)
@@ -81,7 +111,7 @@ export class InviteAccept extends AuditedAction {
     if (invite.status !== INVITE_STATUS.pending || isExpired(invite)) {
       throw new TypedError({
         message:
-          "This invite is no longer valid. Ask whoever sent it for a new one.",
+          "This invite is no longer valid — it was answered, withdrawn, or has expired. Ask whoever sent it for a new one.",
         type: ErrorType.CONNECTION_ACTION_PARAM_VALIDATION,
         key: "inviteId",
       });
@@ -102,6 +132,15 @@ export class InviteAccept extends AuditedAction {
         ),
       )
       .for("update");
+    if (!organizationMembership) {
+      // Unreachable while every removal locks the organization row first; a
+      // typed answer rather than a 500 if that ever stops being true.
+      throw new TypedError({
+        message: "The organization changed while accepting. Try again.",
+        type: ErrorType.CONNECTION_ACTION_PARAM_VALIDATION,
+        key: "inviteId",
+      });
+    }
 
     let membership: typeof projectMemberships.$inferSelect | undefined;
     let membershipAlreadyExisted = false;

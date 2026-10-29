@@ -220,3 +220,27 @@ describe("user-tag:assign / user-tag:remove", () => {
     });
   });
 });
+
+describe('a tag named "*"', () => {
+  test("is refused, because * means every member in an access list", async () => {
+    const create = await call(
+      u.url,
+      u.peach,
+      "PUT",
+      `/project/${u.projectId}/tag`,
+      {
+        name: " * ",
+      },
+    );
+    expect(create.status).toBe(406);
+    const rename = await call(
+      u.url,
+      u.peach,
+      "POST",
+      `/project/${u.projectId}/tag/${u.tagIds.viewers}`,
+      { name: "*" },
+    );
+    expect(rename.status).toBe(406);
+    expect(rename.body.error?.key).toBe("name");
+  });
+});
