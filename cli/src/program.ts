@@ -8,12 +8,15 @@
  */
 import { Command } from "commander";
 import pkg from "../package.json";
+import { registerApprovalCommands } from "./commands/approval";
 import { registerAuditCommands } from "./commands/audit";
 import { registerAuthCommands } from "./commands/auth";
 import { registerBotCommands } from "./commands/bot";
 import { registerCheckUpdateCommand } from "./commands/check-update";
 import { registerConversationCommands } from "./commands/conversation";
 import { registerInviteCommands } from "./commands/invite";
+import { registerLargeResultCommands } from "./commands/large-result";
+import { registerMcpServerCommands } from "./commands/mcp-server";
 import { registerMemberCommands } from "./commands/member";
 import { registerMemoryCommands } from "./commands/memory";
 import { registerModelCommands } from "./commands/model";
@@ -68,7 +71,10 @@ export function buildProgram(): Command {
   registerTagCommands(program);
   registerModelCommands(program);
   registerBotCommands(program);
+  registerMcpServerCommands(program);
   registerConversationCommands(program);
+  registerApprovalCommands(program);
+  registerLargeResultCommands(program);
   registerMemoryCommands(program);
   registerAuditCommands(program);
   registerCheckUpdateCommand(program);
