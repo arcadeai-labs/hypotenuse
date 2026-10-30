@@ -10,8 +10,8 @@ import { ProjectMemberMiddleware } from "../../middleware/rbac";
 import { assertCanWriteBot, loadReadableBot } from "../../ops/BotOps";
 import { idInput } from "../../ops/InputOps";
 import {
+  loadBotSkillView,
   loadReadableSkill,
-  serializeBotSkill,
   skillVersion,
 } from "../../ops/SkillOps";
 import { botSkills } from "../../schema/bot_skills";
@@ -91,9 +91,13 @@ export class BotSkillAttach extends AuditedAction {
             pinnedVersion: params.pinnedVersion,
           })
           .returning();
-    const serialized = serializeBotSkill(row, skill);
+    const serialized = await loadBotSkillView(tx, row, skill);
     if (existing)
-      connection.metadata.auditBefore = serializeBotSkill(existing, skill);
+      connection.metadata.auditBefore = await loadBotSkillView(
+        tx,
+        existing,
+        skill,
+      );
     connection.metadata.auditAfter = serialized;
     connection.metadata.auditTargetType = "bot-skill";
     connection.metadata.auditTargetPath = `${bot.slug}/${skill.name}`;

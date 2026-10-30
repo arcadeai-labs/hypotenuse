@@ -390,24 +390,52 @@ export function serializeSkillVersion(v: SkillVersion) {
 }
 
 /**
- * Shape an attachment for any answer.
+ * Shape an attachment for any answer. `description` and `arguments` are those
+ * of the version the bot uses — the pinned one when it is pinned — so the
+ * answer agrees with the prompt's skills index and with `use_skill`.
  * @param binding - The attachment.
  * @param skill - Its skill.
+ * @param pinned - The pinned version's row, when the attachment is pinned to
+ *   other than the current version.
  * @returns The serialized attachment.
  */
-export function serializeBotSkill(binding: BotSkill, skill: Skill) {
+export function serializeBotSkill(
+  binding: BotSkill,
+  skill: Skill,
+  pinned?: SkillVersion,
+) {
   return {
     id: binding.id,
     botId: binding.botId,
     skillId: skill.id,
     name: skill.name,
-    description: skill.description,
-    arguments: skill.arguments,
+    description: pinned?.description ?? skill.description,
+    arguments: pinned?.arguments ?? skill.arguments,
     currentVersion: skill.currentVersion,
     pinnedVersion: binding.pinnedVersion,
     version: binding.pinnedVersion ?? skill.currentVersion,
     createdAt: binding.createdAt.getTime(),
   };
+}
+
+/**
+ * Shape an attachment, reading its pinned version when it has one.
+ * @param db - A database handle.
+ * @param binding - The attachment.
+ * @param skill - Its skill.
+ * @returns The serialized attachment.
+ */
+export async function loadBotSkillView(
+  db: DbHandle,
+  binding: BotSkill,
+  skill: Skill,
+) {
+  const pin = binding.pinnedVersion;
+  const pinned =
+    pin !== null && pin !== skill.currentVersion
+      ? await skillVersion(db, skill.id, pin)
+      : undefined;
+  return serializeBotSkill(binding, skill, pinned);
 }
 
 /** What a message that invokes a skill looks like once expanded. */

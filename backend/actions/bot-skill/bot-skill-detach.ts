@@ -9,7 +9,7 @@ import {
 import { ProjectMemberMiddleware } from "../../middleware/rbac";
 import { assertCanWriteBot, loadReadableBot } from "../../ops/BotOps";
 import { idInput } from "../../ops/InputOps";
-import { serializeBotSkill, skillNotFound } from "../../ops/SkillOps";
+import { loadBotSkillView, skillNotFound } from "../../ops/SkillOps";
 import { botSkills } from "../../schema/bot_skills";
 import { skills } from "../../schema/skills";
 
@@ -66,7 +66,7 @@ export class BotSkillDetach extends AuditedAction {
         type: ErrorType.CONNECTION_ACTION_NOT_FOUND,
       });
     }
-    const serialized = serializeBotSkill(row, skill);
+    const serialized = await loadBotSkillView(tx, row, skill);
     connection.metadata.auditBefore = serialized;
     connection.metadata.auditTargetType = "bot-skill";
     connection.metadata.auditTargetPath = `${bot.slug}/${skill.name}`;

@@ -175,18 +175,35 @@ describe("use_skill", () => {
       stage.u.peach,
       "POST",
       `${base()}/skill/${skillId}`,
-      { body: "NEW: notes since $since for $audience.", changeNote: "Shorter" },
+      {
+        body: "NEW: notes since $since for $audience.",
+        description: "Short release notes",
+        changeNote: "Shorter",
+      },
     );
     expect(edited.body.skill.currentVersion).toBe(2);
-    await call(
+    const pin = await call<{
+      botSkill: { description: string; version: number };
+    }>(
       stage.u.url,
       stage.u.peach,
       "PUT",
       `${base()}/bot/${stage.botId}/skill`,
-      {
-        skillId,
-        pinnedVersion: 1,
-      },
+      { skillId, pinnedVersion: 1 },
+    );
+    // The attachment reports the version the bot uses, not the newest.
+    expect(pin.body.botSkill).toMatchObject({
+      version: 1,
+      description: "Write release notes from merged pull requests",
+    });
+    const listed = await call<{ botSkills: { description: string }[] }>(
+      stage.u.url,
+      stage.u.peach,
+      "GET",
+      `${base()}/bot/${stage.botId}/skills`,
+    );
+    expect(listed.body.botSkills[0].description).toBe(
+      "Write release notes from merged pull requests",
     );
     const pinned = await botCalls(stage, [
       [

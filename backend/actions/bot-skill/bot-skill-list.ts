@@ -11,7 +11,7 @@ import type { AuditedConnection } from "../../classes/AuditedAction";
 import { ProjectMemberMiddleware } from "../../middleware/rbac";
 import { loadReadableBot } from "../../ops/BotOps";
 import { idInput } from "../../ops/InputOps";
-import { serializeBotSkill } from "../../ops/SkillOps";
+import { loadBotSkillView } from "../../ops/SkillOps";
 import { botSkills } from "../../schema/bot_skills";
 import { skills } from "../../schema/skills";
 
@@ -58,7 +58,9 @@ export class BotSkillList implements Action {
       params,
     );
     return {
-      botSkills: result.data.map((r) => serializeBotSkill(r.binding, r.skill)),
+      botSkills: await Promise.all(
+        result.data.map((r) => loadBotSkillView(api.db.db, r.binding, r.skill)),
+      ),
       pagination: result.pagination,
     };
   }
