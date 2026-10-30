@@ -80,11 +80,13 @@ export function avatarPath(bot: Bot): string | null {
 
 /**
  * Shape a bot for any answer. The avatar's bytes are never in it; `avatarUrl`
- * is the path that serves them.
+ * is the path that serves them. `persona` is the current text of the bot's
+ * *Identity* prompt section, which the caller reads (`botPersona`).
  * @param bot - The bot row.
+ * @param persona - Its *Identity* section's text.
  * @returns The serialized bot.
  */
-export function serializeBot(bot: Bot) {
+export function serializeBot(bot: Bot, persona: string) {
   return {
     id: bot.id,
     projectId: bot.projectId,
@@ -94,7 +96,7 @@ export function serializeBot(bot: Bot) {
     displayName: bot.displayName,
     avatarUrl: avatarPath(bot),
     avatarMimeType: bot.avatarMimeType,
-    persona: bot.persona,
+    persona,
     modelAlias: bot.modelAlias,
     fastModelAlias: bot.fastModelAlias,
     accessRead: bot.accessRead,
@@ -109,6 +111,8 @@ export function serializeBot(bot: Bot) {
     hasCallbackSecret: bot.apiCallbackSecret !== null,
     approverTag: bot.approverTag,
     approvalTtlSeconds: bot.approvalTtlSeconds,
+    promptBudgetTokens: bot.promptBudgetTokens,
+    maxAgentSections: bot.maxAgentSections,
     capabilities: bot.capabilities,
     createdByUserId: bot.createdByUserId,
     createdAt: bot.createdAt.getTime(),
@@ -460,7 +464,7 @@ export const botDescriptionInput = z
   .max(280, "A description is at most 280 characters")
   .describe("What the bot is for, shown in lists");
 
-/** The Zod input for a bot's persona. */
+/** The Zod input for a bot's persona: the text of its *Identity* section. */
 export const botPersonaInput = z
   .string()
   .trim()
@@ -569,3 +573,21 @@ export function halfLifeInput(scope: "channel" | "project") {
         : "Days an unused project memory takes to lose half of its search weight for this bot (default 180); project memory is never forgotten by decay",
     );
 }
+
+/** The Zod input for a bot's prompt budget. */
+export const promptBudgetInput = z
+  .number()
+  .int()
+  .min(1_000, "A prompt budget is at least 1,000 tokens")
+  .max(200_000)
+  .describe(
+    "The system prompt's budget in tokens (estimated at four characters each); contextual sections are dropped to fit it",
+  );
+
+/** The Zod input for how many sections a bot may create itself. */
+export const maxAgentSectionsInput = z
+  .number()
+  .int()
+  .min(0)
+  .max(50)
+  .describe("How many prompt sections the bot may create itself (0 stops it)");

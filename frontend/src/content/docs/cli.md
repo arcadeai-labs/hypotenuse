@@ -77,12 +77,17 @@ invites), and `audit list`.
 | `hypotenuse model connection add --name --provider [--base-url]`, `model connection rotate <connection>` | Connect a provider (`anthropic`, `openai`, `gateway`, or `openai-compatible`, which needs `--base-url`), or replace a connection's key. Admins only; see **API keys** below |
 | `hypotenuse model connection edit <connection> --name --base-url`, `model connection test <connection>`, `model connection models <connection>`, `model connection remove <connection>` | Rename one or change its base URL (`--default-base-url` goes back to the provider's); check its key works; list the models it offers; delete it. Admins only |
 | `hypotenuse model alias list`, `model alias set <name> --connection --model`, `model alias remove <name>` | The model names bots use. `default` and `fast` must both exist before any bot can run, and `list` says which are missing. `set` creates an alias or changes the one of that name; `--max-output-tokens` and `--temperature` tune it, and `--kind embedding` (only for the alias named `embedding`) makes it the model memory embeds with. Admins only to change |
-| `hypotenuse bot list`, `bot view <bot>` | The bots you can read, and one bot's settings and persona |
+| `hypotenuse bot list`, `bot view <bot>` | The bots you can read, and one bot's settings and persona (its prompt's Identity section) |
 | `hypotenuse bot create --name --persona-file`, `bot edit <bot>`, `bot delete <bot> --yes` | Make a bot, change it, or delete it. See **Bots from the command line** below |
 | `hypotenuse bot callback-secret <bot>` | Create the secret a bot signs its API callbacks with, and print it once. See **Talking to a bot** below |
 | `hypotenuse mcp-server list`, `mcp-server view <server>`, `mcp-server match <server> --pattern` | The project's shared [MCP servers](/docs/mcp-servers): each one's endpoint, how it signs in (never the credential), its status, and the tools it offers; and which tools an allowlist pattern would let through |
 | `hypotenuse mcp-server add <name> --endpoint`, `mcp-server edit <server>`, `mcp-server test <server>`, `mcp-server refresh <server>`, `mcp-server sign-in <server>`, `mcp-server remove <server> --yes` | Connect a server, change it, check it answers, re-list its tools, sign the project in to an OAuth server, or disconnect it. Admins only; see **MCP servers from the command line** below |
 | `hypotenuse bot tools list <bot>`, `bot tools add <bot> <server>`, `bot tools remove <bot> <server>` | Which MCP servers a bot may use, the calls it makes without asking (`--allow`), and whether read-only tools ask (`--auto-allow-read-only`). Changing them needs write access to the bot |
+| `hypotenuse prompt list [--bot]`, `prompt view <section>`, `prompt versions <section>`, `prompt preview --bot` | A bot's [prompt sections](/docs/prompts), or with no `--bot` the project's; one section's text; its history (a person, the bot itself, a revert); and the exact system prompt the bot would be sent, with which sections were in and out. See **Prompts, goals, and skills from the command line** below |
+| `hypotenuse prompt add --title`, `prompt edit <section>`, `prompt revert <section> --to`, `prompt remove <section> --yes` | Add a section, change its text or settings, put an earlier version back, or delete it. A bot's sections need write access to the bot; the project's need an admin |
+| `hypotenuse goal list --bot`, `goal view <goal>`, `goal add --bot --title`, `goal edit <goal>`, `goal remove <goal> --yes` | A bot's [goals](/docs/goals): what it works toward, at what priority, and how often it reviews them |
+| `hypotenuse skill list [--bot]`, `skill view <skill>`, `skill versions <skill>`, `skill add <name>`, `skill edit <skill>`, `skill remove <skill> --yes` | The project's [skills](/docs/skills), or with `--bot` the ones a bot has |
+| `hypotenuse skill attach <skill> --bot [--pin]`, `skill detach <skill> --bot` | Let a bot use a skill — at its latest version, or pinned to one — or take it away |
 | `hypotenuse approval list`, `approval view <id>`, `approval approve <id>`, `approval deny <id>` | Tool calls bots are waiting on ([approvals](/docs/approvals)): list them (`--status pending`, `--bot`, `--conversation` narrow it), read one, and decide it. See **Approvals from the command line** below |
 | `hypotenuse large-result view <lr_id>` | A tool result too long to show in a transcript, which the transcript names `lr_<id>`: a page at a time (`--offset`, `--limit`) or `--all` |
 | `hypotenuse conversation create --bot --text`, `conversation message <id> --text` | Start a conversation with a bot, or send one a message. See **Talking to a bot** below |
@@ -96,8 +101,8 @@ invites), and `audit list`.
 milliseconds, or a span back from now (`7d`, `12h`, `30m`); `--action tag:edit`, `--actor-type user`, and
 `--target-type tag` narrow it further.
 
-Deleting an organization, a project, a bot, or an MCP server cannot be undone, so those commands refuse to run
-without `--yes`.
+Deleting an organization, a project, a bot, an MCP server, a prompt section, a goal, or a skill asks for `--yes`
+before it runs.
 
 A model connection or an MCP server is named by its id or its name, a bot by its id or its slug, an alias by its
 name, a channel and an approval by their ids.
@@ -206,6 +211,32 @@ hypotenuse approval deny 14 --note "Draft it in the thread instead of sending it
 - `deny` tells the bot not to retry; `--note` is what the bot reads about what to do instead.
 - Deciding needs write access to the bot or its approver tag; `list` and `view` say whether you can. The decision
   is recorded as made from the CLI, in the project's audit log.
+
+### Prompts, goals, and skills from the command line
+
+A bot's system prompt is built from sections. See which ones a message would bring in, and the exact text the bot
+would be sent, before you change anything:
+
+```bash
+hypotenuse prompt list --bot ada
+hypotenuse prompt preview --bot ada --message "how do we deploy?" --sections
+hypotenuse prompt add --bot ada --title "Deploys" --contextual --keyword deploy --body-file deploys.md
+hypotenuse prompt versions things-i-have-learned --bot ada
+hypotenuse prompt revert things-i-have-learned --bot ada --to 1
+```
+
+A section is named by its id, or by its key with `--bot`; without `--bot` a key names one of the project's sections,
+which every bot includes and only an admin changes. `versions` shows the edits a bot made to itself, with the
+conversation each came from, and `revert` puts an earlier text back as a new version.
+
+```bash
+hypotenuse goal add --bot ada --title "Answer every billing question the same day" --priority high --review-every 7d
+hypotenuse skill add release-notes --description "Write release notes" --arg 'since!' --arg audience=customers --body-file release-notes.md
+hypotenuse skill attach release-notes --bot ada
+```
+
+In a skill's template, `$since` is the named argument, `$1` the first, and `$ARGUMENTS` everything typed after the
+skill's name. Someone in a conversation runs it with `/release-notes v2.1`.
 
 ### Talking to a bot
 

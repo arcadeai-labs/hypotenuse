@@ -64,6 +64,20 @@
       "when": 1793342406541,
       "tag": "0008_safe_bastion",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1793378785071,
+      "tag": "0009_furry_tombstone",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1793378786462,
+      "tag": "0010_unknown_spencer_smythe",
+      "breakpoints": true
     }
   ]
 }

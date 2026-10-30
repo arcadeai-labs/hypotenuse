@@ -564,7 +564,7 @@ mid-turn (a Render restart) does not lose the turn.
 | The wake operation, inbound messages, cancel, and the state table | `backend/ops/ConversationOps.ts` |
 | The tick: claim, recover, deliver, step, persist, run, decide, yield | `backend/ops/TickOps.ts` |
 | Append, hydrate, serialize | `backend/ops/TranscriptOps.ts` |
-| The prompt assembler, compaction, the outbox and callback signing, cost rows, the two clocks | `backend/ops/{PromptOps,CompactionOps,OutboxOps,CostOps,AgentClockOps}.ts`, `backend/config/agents.ts` |
+| The prompt assembler (since replaced by the sections assembler of [phase 11](./phase-11-skills-prompts-and-goals.md)), compaction, the outbox and callback signing, cost rows, the two clocks | `backend/ops/{PromptOps,CompactionOps,OutboxOps,CostOps,AgentClockOps}.ts`, `backend/config/agents.ts` |
 | Actions | `backend/actions/{conversation,agent,outbox}/`, `backend/actions/bot/bot-rotate-callback-secret.ts` |
 | The live transcript channel | `backend/channels/projectConversation.ts` |
 | The scripted model server, streaming, with scenarios | `backend/__tests__/fixtures/model-server.ts`, `fixtures/model-scenarios/` |

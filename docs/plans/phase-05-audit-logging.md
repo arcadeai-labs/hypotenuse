@@ -332,6 +332,13 @@ Edit a project name in the browser, then open Audit log: one row, actor you, bef
   change under the same row — are audited. `mcp-server:test` and `mcp-server:refresh-tools` are audited too, as
   `model-connection:test` is, because they write the status a person reads. The two OAuth hops are the only
   audited actions answering GET: a browser is sent through them.
+- **Prompts, goals, and skills added no unaudited action.** A bot's own `prompt_edit` / `prompt_create` and
+  `goal_update` are tools a bot runs, covered by the `agent:tick` row: a self-edit is a `prompt_section_versions` row
+  with `source = 'agent'`, its `conversation_id` and intent `entry_id`, and the `context_update` the next step writes;
+  a goal update is the tool's result in the transcript. Every decision a person makes about them — creating,
+  editing, reverting, and deleting a section; a bot's persona (its Identity section, through `bot:edit`); creating,
+  editing, and deleting a goal or a skill; attaching and detaching a skill — is audited. Reads are `prompt:preview`
+  and the `list` / `view` / `versions` actions.
 - **Rule 13: no CLI command wraps `audit:list` or `organization:audit-list` yet** — deferred, not out of scope, as
   with phase 04's actions: [phase 06](./phase-06-operator-cli.md) is the CLI's sign-in.
 

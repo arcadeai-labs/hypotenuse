@@ -269,3 +269,59 @@ export function promptHidden(question: string): Promise<string> {
 export async function readAllStdin(): Promise<string> {
   return await new Response(Bun.stdin.stream()).text();
 }
+
+/** One argument of a skill, as the server takes it. */
+export interface SkillArgumentSpec {
+  name: string;
+  required: boolean;
+  default?: string;
+}
+
+/**
+ * Parse a skill argument a person typed: `name`, `name!` (required), or
+ * `name=default`.
+ * @param raw - What they typed.
+ * @returns The argument.
+ * @throws {Error} When it is not one of those forms.
+ */
+export function parseArgSpec(raw: string): SkillArgumentSpec {
+  const match = /^([A-Za-z_][A-Za-z0-9_]*)(!)?(?:=([\s\S]*))?$/.exec(
+    raw.trim(),
+  );
+  if (!match) {
+    throw new Error(
+      `--arg takes name, name! (required), or name=default; got "${raw}".`,
+    );
+  }
+  if (match[2] && match[3] !== undefined) {
+    throw new Error(
+      `--arg "${raw}": a required argument has no default; drop the ! or the =.`,
+    );
+  }
+  return {
+    name: match[1],
+    required: Boolean(match[2]),
+    ...(match[3] !== undefined ? { default: match[3] } : {}),
+  };
+}
+
+/**
+ * The text a command was given for a markdown body: `--body <text>`
+ * (`-` reads standard input) or `--body-file <path>`; at most one.
+ * @param flags - The two flags.
+ * @returns The text, or undefined when neither was given.
+ * @throws {Error} When both were given.
+ */
+export async function bodyText(flags: {
+  body?: string;
+  bodyFile?: string;
+}): Promise<string | undefined> {
+  if (flags.body !== undefined && flags.bodyFile !== undefined) {
+    throw new Error("Pass --body or --body-file, not both.");
+  }
+  if (flags.bodyFile !== undefined) {
+    return readFileFor(flags.bodyFile, "--body-file").toString("utf8");
+  }
+  if (flags.body === "-") return readAllStdin();
+  return flags.body;
+}

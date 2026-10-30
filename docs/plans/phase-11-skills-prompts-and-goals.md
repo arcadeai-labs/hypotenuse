@@ -5,7 +5,7 @@
 > a library of skills (reusable, parameterized procedures) among its bots. Each bot has goals it works toward
 > and reviews. Every change to what the model was told is visible in the transcript of the step it applied to.
 
-> **Status: planned, not built.** Builds on [model providers and bots](./phase-07-model-providers-and-bots.md)
+> **Status: built.** Builds on [model providers and bots](./phase-07-model-providers-and-bots.md)
 > (the bot row, its identity and first instructions), the [durable agent loop](./phase-08-durable-agent-loop.md)
 > (the prompt assembler stub, `promptHash`, `context_update` entries), and
 > [shared MCP servers](./phase-10-shared-mcp-servers.md) (the generated capabilities text).
@@ -300,14 +300,14 @@ bun run --cwd cli hypotenuse prompt preview --bot 1 --message "how do we deploy?
 
 ## Definition of done
 
-- [ ] Sections, versions, goals, skills, and attachments are migrated, with existing bots' text moved into seed
+- [x] Sections, versions, goals, skills, and attachments are migrated, with existing bots' text moved into seed
       sections.
-- [ ] The assembler implements the order, contextual matching, and budget, and records `promptHash` and
+- [x] The assembler implements the order, contextual matching, and budget, and records `promptHash` and
       `context_update`.
-- [ ] Self-edit tools are limited to editable bot sections, with provenance and person revert.
-- [ ] Skills render with botholomew's substitution rules, from `use_skill` and from a `/name` message.
-- [ ] `prompt:preview` matches what the tick sends, byte for byte, in a test.
-- [ ] The editor tabs, transcript rendering, CLI, and docs ship; both themes are checked.
+- [x] Self-edit tools are limited to editable bot sections, with provenance and person revert.
+- [x] Skills render with botholomew's substitution rules, from `use_skill` and from a `/name` message.
+- [x] `prompt:preview` matches what the tick sends, byte for byte, in a test.
+- [x] The editor tabs, transcript rendering, CLI, and docs ship; both themes are checked.
 
 ## Open questions
 
@@ -317,4 +317,106 @@ bun run --cwd cli hypotenuse prompt preview --bot 1 --message "how do we deploy?
 
 ## Learnings from the build
 
-Not built yet.
+### What is built
+
+| Piece | Where |
+|---|---|
+| `prompt_sections`, `prompt_section_versions`, `goals`, `skills`, `skill_versions`, `bot_skills`; `bots.prompt_budget_tokens`, `max_agent_sections` (migration `0009`); every bot's persona moved into seed sections and `bots.persona` dropped (`0010`, hand-written data statements before the drop) | `backend/schema/`, `backend/drizzle/0009_*.sql`, `0010_*.sql` |
+| The assembler: order, context terms, matching, budget, hash, section diff, replay | `backend/ops/PromptOps.ts` |
+| Seeds, versions, access, the budget guard | `backend/ops/PromptSectionOps.ts` |
+| Goals; skills, substitution, `/name` expansion | `backend/ops/{GoalOps,SkillOps}.ts` |
+| The tick: assembling, the `context_update` diff, expansion at delivery | `backend/ops/TickOps.ts` (`step`, `contextUpdateContent`, `deliverInbox`); `TranscriptOps.userMessageText` |
+| The eight tools | `backend/tools/{prompt-list,prompt-read,prompt-edit,prompt-create,goal-list,goal-update,skill-list,use-skill,prompt-shared}.ts` |
+| Actions | `backend/actions/{prompt-section,prompt,goal,skill,bot-skill}/` |
+| Proof | `backend/__tests__/prompt/{assemble,transcript,self-edit,migration}.test.ts`, `__tests__/{goals,skills}.test.ts`, `__tests__/actions/prompt-section.test.ts`, `__tests__/cli/prompt-commands.test.ts` |
+
+### Decisions the plan left open
+
+- **`persona` stays the API's name for the *Identity* section.** `bot:create` seeds it; `bot:edit` with `persona`
+  writes a new Identity version (source `person`, audited under the `bot:edit` row); `bot:view` and `bot:list` read it
+  back (`botPersona` / `botPersonas`), so the dashboard, the CLI, and every client kept working. The column is gone:
+  the section is the only copy.
+- **The seed sections are `always`.** *Identity* is never bot-editable, never contextual, never deleted, and has no
+  heading in the prompt (it follows the "You are …" line). *How I work* and *Things I have learned* start empty, and
+  an empty section is left out of the prompt — so filling one appears in the next `context_update` as `added`.
+- **Order inside a group** is `position`, then id. Contextual sections that match go after every `always` section,
+  project ones first. Goals are ordered high → medium → low, then position.
+- **Matching** is deterministic: context terms are the lowercase words longer than three characters, minus stop
+  words, of the conversation title, the latest message a person sent, and the channel name. A keyword matches a term
+  it equals or — when it is four characters or more — that it begins (`deploy` matches `deploying`, not
+  `redeploy`). A section without keywords matches on its title's words.
+- **"Dropped lowest-position first"** became: the matched contextual section included last is dropped first, until
+  the prompt fits. Tokens are estimated at four characters each; the estimate, the budget, and what was dropped are
+  in every `context_update` and in `prompt:preview`. An over-budget prompt is still sent (`overBudget: true`) when
+  only `always` parts remain — the save-time refusal is what keeps it from happening.
+- **The save-time refusal** (`assertPromptFits`) runs on a section created, edited into `always`, or reverted; on a
+  bot's persona or budget edit; and on a bot's own `prompt_edit` / `prompt_create` of an `always` section. A project
+  section is checked against every bot of the project. It judges the bot in a stand-in API channel with its goals,
+  skills, and capabilities; goals and skills are not checked when they change (they are small, and the prompt drops
+  nothing for them).
+- **`context_update` content** is `{prompt, previousPromptHash, parts, sections, added, removed, changed, dropped,
+  estimatedTokens, budgetTokens}`. `parts` is the whole prompt as a list: each section part by `{section, version,
+  heading}`, every generated part as `{text}`. `replayPrompt(parts)` rebuilds the text from
+  `prompt_section_versions`, which is why a deleted section is archived (its key renamed `<key>--deleted-<id>` so the
+  key is free again) rather than erased.
+- **`prompt:preview`** takes `message` and `conversationId`. With a conversation it uses that conversation's channel,
+  title, and newest message — the same inputs its next step reads — and `transcript.test.ts` compares its text with
+  the system prompt the scripted model server recorded, byte for byte.
+- **The bot's edits are tools, not actions**, so they are on the closed list through the `agent:tick` row: a
+  version carries `source = 'agent'`, `conversation_id`, and the intent's `entry_id`. A retried `prompt_edit` or
+  `prompt_create` finds the version its intent already wrote. `prompt_create` takes the bot's row lock so two
+  creations cannot both pass the cap.
+- **`goal_update`** replaces notes whole, may set status (including back to `active`), and stamps
+  `last_reviewed_at`, which is what clears a due review. The review interval is `review_every_seconds` (at least an
+  hour), not a Postgres interval.
+- **Skills follow `AccessOps`** like bots: any member creates one and must satisfy the lists they set; an empty list
+  is every member; admins pass every list. Attaching needs the bot's write access and the skill's read access.
+  `bot-skill:attach` is an upsert, so attaching again changes (or clears, with `null`) the pin.
+- **Substitution**: `$N` is the Nth *declared* argument after names and defaults are applied (with none declared,
+  the Nth word); `name:value` sets a declared argument by name; quotes group words; an unknown `$word` is left alone
+  so shell snippets survive. An object argument naming an undeclared argument is an error.
+- **`/name args…`** is detected at delivery for `user` and `participant` inbox rows only, after an optional leading
+  mention. The message entry keeps the text and gains `content.skill`; the model reads the expansion in its place
+  (`userMessageText`); a `context_update` without a `promptHash` carries the same `skill` for the transcript. Missing
+  arguments reach the model as a note to pass on, and an unknown name is plain text.
+- **Routes** are under the project, as everywhere: `/project/:projectId/prompt-section(s)…`,
+  `/project/:projectId/bot/:botId/{goal,goals,skill,skills,prompt-preview}`, `/project/:projectId/goal/:goalId`,
+  `/project/:projectId/skill(s)…`. `bot-skill:list` was added so the attachment CRUD has its paginated list.
+- **The prompt's fixed text** gained a primer for the bot's own instructions and a style section; capabilities moved
+  under their own heading, after the skills index, as the plan's table orders them.
+
+### Traps found while building
+
+- **drizzle-kit asks whether a dropped column was renamed** when the same diff adds one, and it cannot ask without a
+  TTY. Generating the additions and the drop as two migrations avoids the prompt — and gave the data move a natural
+  home before the drop.
+- **`Promise.all` on a transaction's handle** runs queries concurrently on one client, which `pg` now warns about;
+  `loadPromptInputs` reads one query at a time because the budget guard calls it inside a transaction.
+- **Tests that pinned the exact tool list or the request size** broke on eight new tools; the large-result test now
+  counts the result's rows in the request instead of its length.
+- **commander names `--review-every`'s value `reviewEvery`**, and `--no-review-every` sets the same key to `false`.
+
+### The CLI
+
+`hypotenuse` 2.6.0. Rule 13 decisions:
+
+| Routed action | Command |
+|---|---|
+| `prompt-section:list` / `view` / `versions` | `prompt list [--bot] [--deleted]` / `view <section>` / `versions <section>` |
+| `prompt-section:create` / `edit` / `revert` / `delete` | `prompt add --title` / `edit <section>` / `revert <section> --to <v>` / `remove <section> --yes` |
+| `prompt:preview` | `prompt preview --bot [--message] [--conversation] [--sections]` |
+| `goal:*` | `goal list --bot` / `view` / `add --bot --title` / `edit` / `remove --yes` |
+| `skill:*` | `skill list` / `view` / `versions` / `add <name>` / `edit` / `remove --yes` |
+| `bot-skill:attach` / `detach` / `list` | `skill attach <skill> --bot [--pin]` / `skill detach <skill> --bot` / `skill list --bot` |
+| `bot:create` / `bot:edit` new fields | `--prompt-budget <tokens>`, `--max-agent-sections <n>` |
+
+- A section is named by id, or by key with `--bot`; without `--bot` a key names a project section.
+- `revert` takes `--to`, not `--version`: the program's `-v, --version` is global.
+- A skill argument is typed `name`, `name!` (required), or `name=default`.
+
+### Not verified here
+
+- No real model was asked to edit its own prompt: every self-edit is the scripted model server calling the tools.
+  Whether a real model writes good *Things I have learned* entries, and whether keyword matching misses what people
+  expect, needs staging use.
+- Token counts are estimates, not a tokenizer's.

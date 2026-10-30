@@ -46,6 +46,14 @@ const BUILT_IN = [
   "reply_and_wait",
   "search_history",
   "wait_for",
+  "prompt_list",
+  "prompt_read",
+  "prompt_edit",
+  "prompt_create",
+  "goal_list",
+  "goal_update",
+  "skill_list",
+  "use_skill",
 ];
 const MCP_TOOLS = [
   "mcp_exec",

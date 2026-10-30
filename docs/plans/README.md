@@ -129,6 +129,14 @@ same intent without replay, marking an approved call executing before it is sent
 prompt; the clocks `mcp-servers:refresh`, `approvals:expire`, and `large-results:sweep`; Settings → MCP servers, the
 bot's Tools, and the approvals inbox; `hypotenuse mcp-server` and `hypotenuse approval`; and a fixture MCP server with
 its own OAuth authorization server.
+**[Phase 11](./phase-11-skills-prompts-and-goals.md) is built**: `prompt_sections` and their versions (bot and
+project scope, always or contextual on keywords, editable by the bot or not), with every bot's persona moved into its
+*Identity* section; the assembler's fixed order, deterministic matching, and token budget, with each step's section
+versions and diff in its `context_update` and `replayPrompt` and `prompt:preview` reproducing the exact text;
+`prompt_list` / `prompt_read` / `prompt_edit` / `prompt_create` limited to editable bot sections with provenance and
+person revert; `goals` with `goal_list` / `goal_update` and reviews; a project skills library with versions, pins,
+`skill_list` / `use_skill`, and `/name` expansion at delivery; the Prompt, Goals, and Skills surfaces; and the
+`prompt`, `goal`, and `skill` commands.
 No other phase is built; every later plan's **Learnings from the
 build** section reads "Not built yet." until its phase lands.
 
@@ -159,3 +167,4 @@ build** section reads "Not built yet." until its phase lands.
 | API callbacks | Signed with a per-bot secret shown once (`t=…,v1=` HMAC-SHA256), retried for a day with the outbox row id as the delivery id |
 | Memory scopes | Channel memory is per bot per channel; project memory is shared. A bot never changes project memory: a person promotes into it (`canWriteBot` + admin), audited |
 | Memory embeddings | The project's own `embedding` alias (1536 dimensions, probed when saved); without one, search is keyword-only. Vectors never block a turn |
+| Prompts | Assembled from versioned sections in a fixed order, without a model; contextual sections by deterministic keyword match within a token budget; a bot edits only sections a person marked editable, and its persona is its *Identity* section |

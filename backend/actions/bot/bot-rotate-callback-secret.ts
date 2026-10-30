@@ -16,6 +16,7 @@ import {
 import { encryptSecret } from "../../ops/CryptoOps";
 import { idInput } from "../../ops/InputOps";
 import { generateCallbackSecret } from "../../ops/OutboxOps";
+import { botPersona } from "../../ops/PromptSectionOps";
 import { bots } from "../../schema/bots";
 
 /**
@@ -60,14 +61,15 @@ export class BotRotateCallbackSecret extends AuditedAction {
       { lock: true },
     );
     assertCanWriteBot(bot, callerTags);
-    connection.metadata.auditBefore = serializeBot(bot);
+    const persona = await botPersona(tx, bot.id);
+    connection.metadata.auditBefore = serializeBot(bot, persona);
     const callbackSecret = generateCallbackSecret();
     const [updated] = await tx
       .update(bots)
       .set({ apiCallbackSecret: encryptSecret(callbackSecret) })
       .where(eq(bots.id, bot.id))
       .returning();
-    const serialized = serializeBot(updated);
+    const serialized = serializeBot(updated, persona);
     connection.metadata.auditAfter = serialized;
     connection.metadata.auditTargetType = "bot";
     connection.metadata.auditTargetPath = updated.slug;

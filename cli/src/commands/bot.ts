@@ -45,6 +45,8 @@ interface Bot {
   maxStepsPerTurn?: number;
   memoryChannelHalfLifeDays?: number;
   memoryProjectHalfLifeDays?: number;
+  promptBudgetTokens?: number;
+  maxAgentSections?: number;
   enabled: boolean;
   hasCallbackSecret?: boolean;
   createdAt: number;
@@ -80,6 +82,10 @@ export interface BotFlags {
   channelHalfLife?: string;
   /** Days for project memory to fade to half its weight. */
   projectHalfLife?: string;
+  /** The system prompt's budget, in tokens. */
+  promptBudget?: string;
+  /** How many prompt sections the bot may create itself. */
+  maxAgentSections?: string;
   enable?: boolean;
   disable?: boolean;
 }
@@ -99,7 +105,7 @@ function withBotFlags(command: Command): Command {
     )
     .option(
       "--persona-file <path>",
-      "a markdown file: who the bot is, how it speaks, what it will not do",
+      "a markdown file: who the bot is, how it speaks, what it will not do (its prompt's Identity section)",
     )
     .option("--avatar-file <path>", "a square PNG or JPEG of at most 512 KB")
     .option(
@@ -151,6 +157,14 @@ function withBotFlags(command: Command): Command {
     .option(
       "--project-half-life <days>",
       "days until project memory fades to half its weight for it (1-3650, default 180)",
+    )
+    .option(
+      "--prompt-budget <tokens>",
+      "the system prompt's budget in tokens (1000-200000, default 8000); contextual sections are dropped to fit",
+    )
+    .option(
+      "--max-agent-sections <n>",
+      "how many prompt sections the bot may create itself (0-50, default 10)",
     )
     .option("--enable", "accept new conversations")
     .option("--disable", "accept no new conversations");
@@ -221,6 +235,18 @@ export function botBody(flags: BotFlags): Record<string, unknown> {
       "--project-half-life",
     );
   }
+  if (flags.promptBudget !== undefined) {
+    body.promptBudgetTokens = parseNumber(
+      flags.promptBudget,
+      "--prompt-budget",
+    );
+  }
+  if (flags.maxAgentSections !== undefined) {
+    body.maxAgentSections = parseNumber(
+      flags.maxAgentSections,
+      "--max-agent-sections",
+    );
+  }
   if (flags.enable) body.enabled = true;
   if (flags.disable) body.enabled = false;
   return body;
@@ -267,6 +293,7 @@ function botDetail(bot: Bot, canWrite: boolean): string {
     `approvals     decided by ${bot.approverTag ? `writers or the ${bot.approverTag} tag` : "those who may change it"}; wait ${ttlText(bot.approvalTtlSeconds ?? 86_400)}`,
     `budget        ${bot.monthlyBudgetUsd == null ? "-" : `$${bot.monthlyBudgetUsd}/month`}`,
     `steps/turn    ${bot.maxStepsPerTurn ?? 50}`,
+    `prompt        about ${bot.promptBudgetTokens ?? 8_000} tokens; it may add ${bot.maxAgentSections ?? 10} sections itself (\`hypotenuse prompt list --bot ${bot.slug}\`)`,
     `half-life     ${bot.memoryChannelHalfLifeDays ?? 30} days channel memory, ${bot.memoryProjectHalfLifeDays ?? 180} days project memory`,
     `callbacks     ${bot.hasCallbackSecret ? "signed (secret set)" : "no secret yet"}`,
     `avatar        ${bot.avatarUrl ? "yes" : "-"}`,

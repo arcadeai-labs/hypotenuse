@@ -1,4 +1,4 @@
-import { type ActionParams, HTTP_METHOD } from "keryx";
+import { type ActionParams, ErrorType, HTTP_METHOD, TypedError } from "keryx";
 import { z } from "zod";
 import {
   AuditedAction,
@@ -29,12 +29,19 @@ import {
   decodeAvatar,
   halfLifeInput,
   helpNotifyTagInput,
+  maxAgentSectionsInput,
   maxStepsPerTurnInput,
   monthlyBudgetInput,
+  promptBudgetInput,
   serializeBot,
   summarizeAvatar,
 } from "../../ops/BotOps";
 import { idInput } from "../../ops/InputOps";
+import {
+  alwaysTokensAfter,
+  overBudgetMessage,
+  seedBotSections,
+} from "../../ops/PromptSectionOps";
 import { firstFreeSlug, generateSlug } from "../../ops/SlugOps";
 import { bots } from "../../schema/bots";
 
@@ -42,12 +49,13 @@ import { bots } from "../../schema/bots";
  * `bot:create` — make a bot in a project. Member-level: a bot spends the
  * project's model budget only through the aliases an admin chose. The creator
  * must satisfy the access lists they set, so nobody makes a bot they cannot
- * open. Nothing runs yet; a bot is configuration.
+ * open. Its prompt starts as three sections: *Identity* (its persona), and
+ * *How I work* and *Things I have learned*, empty and editable by the bot.
  */
 export class BotCreate extends AuditedAction {
   name = "bot:create";
   description =
-    "Create a bot in a project: its name, persona (the identity part of its system prompt, in markdown), display name, description, model aliases (default: default and fast), who may read and edit it (tag lists), who it asks for help, who may approve its tool calls and how long an approval waits, a monthly budget, and optionally a square PNG or JPEG avatar (base64, at most 512 KB). Requires membership in the project; you must satisfy the access lists you set.";
+    "Create a bot in a project: its name, persona (the Identity section of its system prompt, in markdown; it also gets empty How I work and Things I have learned sections it may edit itself), display name, description, model aliases (default: default and fast), who may read and edit it (tag lists), who it asks for help, who may approve its tool calls and how long an approval waits, a monthly budget, its prompt budget in tokens, and optionally a square PNG or JPEG avatar (base64, at most 512 KB). Requires membership in the project; you must satisfy the access lists you set.";
   middleware = [ProjectMemberMiddleware()];
   web = { route: "/project/:projectId/bot", method: HTTP_METHOD.PUT };
   inputs = z.object({
@@ -70,6 +78,8 @@ export class BotCreate extends AuditedAction {
     approvalTtlSeconds: approvalTtlInput.default(86_400),
     monthlyBudgetUsd: monthlyBudgetInput.default(null),
     maxStepsPerTurn: maxStepsPerTurnInput.default(50),
+    promptBudgetTokens: promptBudgetInput.default(8_000),
+    maxAgentSections: maxAgentSectionsInput.default(10),
     memoryChannelHalfLifeDays: halfLifeInput("channel").default(30),
     memoryProjectHalfLifeDays: halfLifeInput("project").default(180),
     enabled: z
@@ -138,7 +148,6 @@ export class BotCreate extends AuditedAction {
         slug,
         description: params.description,
         displayName: params.displayName ?? params.name,
-        persona: params.persona,
         modelAlias: params.modelAlias,
         fastModelAlias: params.fastModelAlias,
         accessRead: params.accessRead,
@@ -149,6 +158,8 @@ export class BotCreate extends AuditedAction {
         monthlyBudgetUsd: budgetColumn(params.monthlyBudgetUsd),
         enabled: params.enabled,
         maxStepsPerTurn: params.maxStepsPerTurn,
+        promptBudgetTokens: params.promptBudgetTokens,
+        maxAgentSections: params.maxAgentSections,
         memoryChannelHalfLifeDays: params.memoryChannelHalfLifeDays,
         memoryProjectHalfLifeDays: params.memoryProjectHalfLifeDays,
         avatar: avatar?.bytes ?? null,
@@ -157,7 +168,21 @@ export class BotCreate extends AuditedAction {
       })
       .returning();
 
-    const serialized = serializeBot(bot);
+    await seedBotSections(
+      tx,
+      bot,
+      params.persona,
+      connection.session?.data.userId ?? null,
+    );
+    const { tokens, budget } = await alwaysTokensAfter(tx, bot);
+    if (tokens > budget) {
+      throw new TypedError({
+        message: overBudgetMessage(bot.name, tokens, budget),
+        type: ErrorType.CONNECTION_ACTION_PARAM_VALIDATION,
+      });
+    }
+
+    const serialized = serializeBot(bot, params.persona);
     connection.metadata.auditAfter = serialized;
     connection.metadata.auditTargetType = "bot";
     connection.metadata.auditTargetPath = bot.slug;

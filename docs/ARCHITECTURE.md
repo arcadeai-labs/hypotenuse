@@ -65,8 +65,9 @@ Organization ─── members (owners, members) · audit_logs (its own rows and
     ├── skills                   shared skills, attached per bot
     ├── memory (project scope)   shared by every bot and channel, slow decay
     ├── github_installations · repository_grants
-    └── Bot ─── identity (display name, avatar, its own Slack app + Linear app) · prompt_sections · goals ·
-        │       persona · model and fast-model alias names · accessRead / accessWrite tags · helpNotifyTag · budget
+    ├── prompt_sections (project scope)  included in every bot's prompt; only admins change them
+    └── Bot ─── identity (display name, avatar, its own Slack app + Linear app) · prompt_sections (Identity, …) ·
+        │       goals · model and fast-model alias names · accessRead / accessWrite tags · helpNotifyTag · budgets
         ├── bot_installations    one per platform the bot is installed on
         ├── bot_skills · bot_mcp_servers (with tool allowlists)
         ├── schedules
@@ -136,9 +137,10 @@ Every move into `working` goes through one operation, `ConversationOps.wake` (bo
 2. **Recover**: an intent with no result from an earlier lease re-runs if its tool is `replay: "safe"`, and is
    otherwise settled as an `interrupted` error the model reads.
 3. **Deliver the inbox**: at a turn boundary every pending row, between steps only `steer` rows.
-4. **Assemble** the system prompt from the bot (`PromptOps`), recording a `context_update` when its hash changes, and
+4. **Assemble** the system prompt from the bot's sections, goals, skills, and capabilities (`PromptOps`), recording a
+   `context_update` — the section versions it was built from, and what changed — when its hash changes, and
    **hydrate** every message, reasoning part, tool call, and result from `conversation_entries` (a `compaction` stands
-   in for what it summarized).
+   in for what it summarized; a person's `/<skill>` message is read as its expansion).
 5. **Step** the model once with `streamText`, tools offered without `execute`; text deltas ping the transcript page.
    A 429, 5xx, or cut stream is retried; nothing is stored for a lost attempt.
 6. **Persist** the step's entries, one `tool_call_intent` per call, and its `cost_records` row in one transaction —
@@ -186,6 +188,31 @@ Built ([phase 09](./plans/phase-09-memory.md)). Every memory is a markdown docum
 - **Tools:** `memory_search`, `memory_list`, `memory_read` (replay safe); `memory_write`, `memory_edit`,
   `memory_forget` (unsafe, deduped by tool call id). A bot cannot change project memory: until a channel binding
   allows it, project memory changes only by a person.
+
+## Prompts, goals, and skills
+
+Built ([phase 11](./plans/phase-11-skills-prompts-and-goals.md)). A bot's system prompt is data, assembled in a fixed
+order by `ops/PromptOps.ts` — identity, project sections, the bot's `always` sections, the `contextual` sections whose
+keywords match the turn (title, latest message, channel name), active goals and any review due, the skills index,
+MCP capabilities, the channel, fixed tool primers, and style rules — without calling a model.
+
+- **Sections** (`prompt_sections`, `prompt_section_versions`) are versioned: every change, a person's or the bot's,
+  is a new version; a revert writes the old text again. A new bot gets *Identity* (its persona, never bot-editable),
+  *How I work*, and *Things I have learned*. Project sections are in every bot's prompt and only admins change them.
+- **Budget.** Text is estimated at four characters a token against `bots.prompt_budget_tokens`; contextual sections
+  are dropped from the last included to fit, and a save that would push the always-included parts over is refused.
+- **Reproducible.** Each step's `promptHash` is the sha256 of the text sent. A `context_update` records the parts —
+  each section by id and version, generated text verbatim — so `replayPrompt` rebuilds the exact text, and
+  `prompt:preview` shows the same text a tick would send.
+- **The bot edits itself, within limits.** `prompt_list` / `prompt_read` (safe), `prompt_edit` (line patches against
+  a base version, only `agentEditable` bot sections) and `prompt_create` (contextual, capped by
+  `bots.max_agent_sections`) write versions carrying the conversation and intent entry — unaudited machine writes,
+  visible in the transcript and the version history.
+- **Goals** (`goals`): people create and retitle them; the bot reads active goals in its prompt and changes only
+  status and notes (`goal_list`, `goal_update`).
+- **Skills** (`skills`, `skill_versions`, `bot_skills`): a project library of templates with arguments (`$1`,
+  `$ARGUMENTS`, `$<name>`), access-listed like bots, attached per bot at the latest or a pinned version. The bot calls
+  `skill_list` / `use_skill`; a person's message starting `/<name> args…` is expanded at delivery.
 
 ## Tools and code mode
 

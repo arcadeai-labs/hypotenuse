@@ -16,6 +16,7 @@ import type { SessionImpl } from "../../middleware/session";
 import { readableIds } from "../../ops/AccessOps";
 import { BOT_ACCESS_LIST, botStanding, serializeBot } from "../../ops/BotOps";
 import { idInput } from "../../ops/InputOps";
+import { botPersonas } from "../../ops/PromptSectionOps";
 import { bots } from "../../schema/bots";
 
 /**
@@ -64,9 +65,13 @@ export class BotList implements Action {
       api.db.db.select({ count: count() }).from(bots).where(where),
       params,
     );
+    const personas = await botPersonas(
+      api.db.db,
+      result.data.map((b) => b.id),
+    );
     return {
       bots: result.data.map((bot) => ({
-        ...serializeBot(bot),
+        ...serializeBot(bot, personas.get(bot.id) ?? ""),
         standing: botStanding(bot, callerTags),
       })),
       pagination: result.pagination,
