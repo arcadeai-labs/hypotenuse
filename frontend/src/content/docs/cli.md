@@ -76,12 +76,14 @@ invites), and `audit list`.
 | `hypotenuse model connection list`, `model connection view <connection>` | The project's model providers: each one's provider, base URL, the last four characters of its key, and whether its last test passed |
 | `hypotenuse model connection add --name --provider [--base-url]`, `model connection rotate <connection>` | Connect a provider (`anthropic`, `openai`, `gateway`, or `openai-compatible`, which needs `--base-url`), or replace a connection's key. Admins only; see **API keys** below |
 | `hypotenuse model connection edit <connection> --name --base-url`, `model connection test <connection>`, `model connection models <connection>`, `model connection remove <connection>` | Rename one or change its base URL (`--default-base-url` goes back to the provider's); check its key works; list the models it offers; delete it. Admins only |
-| `hypotenuse model alias list`, `model alias set <name> --connection --model`, `model alias remove <name>` | The model names bots use. `default` and `fast` must both exist before any bot can run, and `list` says which are missing. `set` creates an alias or changes the one of that name; `--max-output-tokens` and `--temperature` tune it. Admins only to change |
+| `hypotenuse model alias list`, `model alias set <name> --connection --model`, `model alias remove <name>` | The model names bots use. `default` and `fast` must both exist before any bot can run, and `list` says which are missing. `set` creates an alias or changes the one of that name; `--max-output-tokens` and `--temperature` tune it, and `--kind embedding` (only for the alias named `embedding`) makes it the model memory embeds with. Admins only to change |
 | `hypotenuse bot list`, `bot view <bot>` | The bots you can read, and one bot's settings and persona |
 | `hypotenuse bot create --name --persona-file`, `bot edit <bot>`, `bot delete <bot> --yes` | Make a bot, change it, or delete it. See **Bots from the command line** below |
 | `hypotenuse bot callback-secret <bot>` | Create the secret a bot signs its API callbacks with, and print it once. See **Talking to a bot** below |
 | `hypotenuse conversation create --bot --text`, `conversation message <id> --text` | Start a conversation with a bot, or send one a message. See **Talking to a bot** below |
 | `hypotenuse conversation list`, `conversation view <id>`, `conversation follow <id>`, `conversation cancel <id>` | The conversations with bots you can read (`--bot`, `--state` narrow the list); one conversation's state; its transcript as the bot works; stopping it |
+| `hypotenuse memory search <query>`, `memory list`, `memory view <path>`, `memory versions <path>`, `memory channels --bot` | Search what bots remember the way a bot does, list documents with how much each has faded, read one (`--version-id` for an earlier version) and its history, and list the channels a bot remembers. See **Memory from the command line** below |
+| `hypotenuse memory write <path> --text`, `memory forget <path>`, `memory pin <path>`, `memory promote <path> --bot --channel`, `memory reindex` | Correct or add a memory, forget one, pin one so it never fades (`--unpin` to undo), copy a bot's channel memory into project memory, and re-embed after the embedding model changes |
 | `hypotenuse audit list` | The project's [audit log](/docs/audit), newest first, or with `--org` the organization's |
 | `hypotenuse check-update`, `hypotenuse upgrade` | See whether a newer release exists, and install it |
 
@@ -91,7 +93,8 @@ milliseconds, or a span back from now (`7d`, `12h`, `30m`); `--action tag:edit`,
 
 Deleting an organization, a project, or a bot cannot be undone, so those commands refuse to run without `--yes`.
 
-A model connection is named by its id or its name, a bot by its id or its slug, and an alias by its name.
+A model connection is named by its id or its name, a bot by its id or its slug, an alias by its name, and a channel
+by its id.
 
 ### API keys
 
@@ -136,6 +139,9 @@ hypotenuse bot edit ada --disable
 - `--help-tag <tag>` names who the bot asks for help; `--no-help-tag` goes back to the project's admins.
 - `--budget <usd>` records a monthly budget, which stops the bot once the cost its provider reports reaches it; `--no-budget` clears it.
 - `--max-steps <n>` caps the model steps one turn may take (1–500, default 50).
+- `--channel-half-life <days>` and `--project-half-life <days>` set how fast the bot's memory fades:
+  the days until a memory it has not used weighs half as much (1–3650; 30 for channel memory and 180 for project
+  memory unless you say otherwise).
 - `--enable` and `--disable` decide whether the bot accepts new conversations.
 
 `bot edit` changes only what its flags name.
@@ -169,6 +175,39 @@ git diff | hypotenuse conversation create --bot ada --text - --title "Review thi
   the old one stop at once.
 
 Anyone who can read a bot can talk to it, and see and cancel its conversations.
+
+### Memory from the command line
+
+Every `memory` command acts on one of two scopes. With neither `--bot` nor `--channel` it acts on **project
+memory**, which every bot of the project shares; with both it acts on **channel memory** — one bot's memory of one
+channel. `memory channels --bot <bot>` lists a bot's channels and their ids.
+
+```bash
+hypotenuse memory channels --bot ada
+hypotenuse memory search "deploy process" --bot ada --channel 3 --scope both
+hypotenuse memory list --bot ada --channel 3
+hypotenuse memory view facts/deploys.md --bot ada --channel 3
+hypotenuse memory versions facts/deploys.md --bot ada --channel 3
+cat deploys.md | hypotenuse memory write facts/deploys.md --text - --note "From the runbook"
+hypotenuse memory promote facts/deploys.md --bot ada --channel 3 --to runbooks/deploys.md
+```
+
+- `search` and `list` look in channel memory when given `--bot` and `--channel`, and in project memory otherwise;
+  `--scope both` looks in the two at once. `--path <prefix>` keeps only documents under a path. `search` shows each
+  hit's score, its decay (1 is fresh; `pinned` never fades), and a snippet, and says when it ranked by keyword alone.
+- `list` ends with which model embeds memory and how many pieces are not embedded yet; `--forgotten` includes
+  forgotten documents.
+- `write` saves a new version and keeps the old ones. `--text -` reads the document from standard input;
+  `--description` and `--note` say what it is and why it changed; `--base <versionId>` refuses the write if someone
+  changed the document since the version you read, so two people editing at once do not overwrite each other.
+- `forget` hides a document from search and lists and keeps its history; `--reason` says why.
+- `promote` copies a channel document into project memory, at the same path or at `--to <path>`. The copy cites
+  where it came from, and the channel document stays.
+- `reindex` re-embeds what the current embedding model has not embedded, in the background. Run it after changing
+  the `embedding` alias; until it finishes, search ranks those memories by keyword.
+
+Anyone who can read a bot can read its channel memory, and anyone who can change the bot can change it. Every
+member reads project memory; only an admin changes it, promotes into it, or reindexes.
 
 ## Scripting
 

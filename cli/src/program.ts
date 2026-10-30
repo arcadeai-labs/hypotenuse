@@ -15,6 +15,7 @@ import { registerCheckUpdateCommand } from "./commands/check-update";
 import { registerConversationCommands } from "./commands/conversation";
 import { registerInviteCommands } from "./commands/invite";
 import { registerMemberCommands } from "./commands/member";
+import { registerMemoryCommands } from "./commands/memory";
 import { registerModelCommands } from "./commands/model";
 import { registerOrgCommands } from "./commands/org";
 import { registerProjectCommands } from "./commands/project";
@@ -68,6 +69,7 @@ export function buildProgram(): Command {
   registerModelCommands(program);
   registerBotCommands(program);
   registerConversationCommands(program);
+  registerMemoryCommands(program);
   registerAuditCommands(program);
   registerCheckUpdateCommand(program);
   registerUpgradeCommand(program);
