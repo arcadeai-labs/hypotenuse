@@ -23,6 +23,7 @@ import { emailInput, nameInput } from "../ops/InputOps";
 import { serializeMembership } from "../ops/MembershipOps";
 import {
   createOrganizationForOwner,
+  personalOrganizationName,
   serializeOrganization,
 } from "../ops/OrganizationOps";
 import {
@@ -99,7 +100,7 @@ export class UserCreate extends AuditedAction {
     const { organization } = await createOrganizationForOwner(
       tx,
       user.id,
-      user.name,
+      personalOrganizationName(user.name),
     );
     const { project, membership } = await createProjectForOwner(
       tx,
