@@ -6,6 +6,7 @@ import { configCliAuth } from "./cliAuth";
 import { configDatabase } from "./database";
 import { configFrontend } from "./frontend";
 import { configLogger } from "./logger";
+import { configMcp } from "./mcp";
 import { configMemory } from "./memory";
 import { configNetwork } from "./network";
 import { configNotifications } from "./notifications";
@@ -42,6 +43,7 @@ export default {
   network: configNetwork,
   agents: configAgents,
   memory: configMemory,
+  mcp: configMcp,
 };
 
 /**

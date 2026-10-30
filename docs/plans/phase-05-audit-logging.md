@@ -322,6 +322,16 @@ Edit a project name in the browser, then open Audit log: one row, actor you, bef
   `agent:tick` row: their provenance is on `memory_documents`. The decisions a person makes about memory —
   `memory:write`, `memory:forget`, `memory:pin`, `memory:promote`, `memory:reindex` — are audited, with a document's
   text and description recorded only as their length and sha256.
+- **Shared MCP servers added two unaudited writers** that are not clocks: `mcp-server:refresh-catalog` (a server's
+  tool catalog and connection status, recorded on `mcp_servers` with `tools_refreshed_at`) and `bot:capabilities`
+  (a bot's generated capabilities summary, recorded on `bots.capabilities` with the digest of the catalog it came
+  from). `mcp-servers:refresh`, `approvals:expire`, and `large-results:sweep` are clocks; the approvals a gated
+  `mcp_exec` writes, and the large results it stores, are covered by the `agent:tick` row. The decisions a person
+  makes — connecting, editing, testing, signing in to, and deleting a server; giving one to a bot with its
+  allowlist and `autoAllowReadOnly`; and approving or denying a call, with `alwaysAllow` recorded as the allowlist
+  change under the same row — are audited. `mcp-server:test` and `mcp-server:refresh-tools` are audited too, as
+  `model-connection:test` is, because they write the status a person reads. The two OAuth hops are the only
+  audited actions answering GET: a browser is sent through them.
 - **Rule 13: no CLI command wraps `audit:list` or `organization:audit-list` yet** — deferred, not out of scope, as
   with phase 04's actions: [phase 06](./phase-06-operator-cli.md) is the CLI's sign-in.
 

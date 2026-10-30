@@ -1,4 +1,5 @@
 import type { z } from "zod";
+import type { GateOutcome } from "../ops/ApprovalOps";
 import type { DbHandle } from "../ops/DbOps";
 import type { Bot } from "../schema/bots";
 import type { Conversation, WaitingOn } from "../schema/conversations";
@@ -87,7 +88,18 @@ export interface ToolDefinition<I = unknown, O = unknown> {
    * Whether the bot may see this tool here (bot configuration, channel capabilities).
    * @param ctx - The bot and conversation.
    */
-  available(ctx: Pick<ToolContext, "bot" | "conversation">): boolean;
+  available(
+    ctx: Pick<ToolContext, "bot" | "conversation">,
+  ): boolean | Promise<boolean>;
+  /**
+   * Present on tools whose calls may need a person's approval (`mcp_exec`):
+   * decides, before `run`, whether the call runs, is refused, or waits. The
+   * tick applies the outcome (`ApprovalOps` has the table); `run` is called
+   * only for an outcome that runs.
+   * @param input - The validated input.
+   * @param ctx - Where it runs.
+   */
+  gate?: (input: I, ctx: ToolContext) => Promise<GateOutcome>;
   /**
    * Do the work. Throw a {@link ToolError} for a failure the model should read;
    * anything else thrown is reported as `tool_failed`.

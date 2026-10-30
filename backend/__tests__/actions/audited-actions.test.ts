@@ -46,6 +46,13 @@ const READS = new Set([
   "memory:view",
   "memory:versions",
   "memory:channels",
+  "mcp-server:list",
+  "mcp-server:view",
+  "mcp-server:match-tools",
+  "bot-mcp-server:list",
+  "approval:list",
+  "approval:view",
+  "large-result:view",
 ]);
 
 /**
@@ -74,6 +81,10 @@ const UNAUDITED_WRITERS = new Set([
   "memory:embed",
   "memory:consolidate",
   "memory:decay-project",
+  // The MCP catalog's machine work: the server row's catalog and status,
+  // and the bot's generated capabilities, are the record.
+  "mcp-server:refresh-catalog",
+  "bot:capabilities",
   // Clocks and sweeps: the clock acting, not a person.
   "notifications:dispatch",
   "notifications:sweep",
@@ -84,6 +95,18 @@ const UNAUDITED_WRITERS = new Set([
   "outbox:deliver-due",
   "memory:decay",
   "memory:consolidate-due",
+  "mcp-servers:refresh",
+  "approvals:expire",
+  "large-results:sweep",
+]);
+
+/**
+ * Audited browser hops: a person's browser is sent through a third party's
+ * page and back, which arrives as a GET.
+ */
+const AUDITED_BROWSER_HOPS = new Set([
+  "mcp-server:oauth-start",
+  "mcp-server:oauth-callback",
 ]);
 
 beforeAll(async () => {
@@ -121,7 +144,10 @@ describe("every writer is audited, or on the closed list", () => {
       if (READS.has(action.name)) {
         expect(method, action.name).toBe(HTTP_METHOD.GET);
       }
-      if (action instanceof AuditedAction) {
+      if (
+        action instanceof AuditedAction &&
+        !AUDITED_BROWSER_HOPS.has(action.name)
+      ) {
         expect(method, action.name).not.toBe(HTTP_METHOD.GET);
       }
     }

@@ -78,7 +78,8 @@ These bind from the first line of code. A rule that names a thing not built yet 
    (`triggers:process-event`, `triggers:process-pending`, recorded in `trigger_events` and `conversation_inbox`);
    `agent:tick`, `conversation:compact`, and every tool a bot runs (recorded in `conversation_entries`); memory's
    machine work (`memory:embed`, `memory:consolidate`, `memory:decay-project`, recorded in `memory_documents` and
-   `memory_chunks`); outbox delivery (`outbox:deliver`, recorded in `outbox_messages`); the sandbox's machine half (`sandbox:events` / `heartbeat` / `complete` and the in-sandbox tools, recorded in
+   `memory_chunks`); the MCP catalog's machine work (`mcp-server:refresh-catalog`, `bot:capabilities`, recorded on
+   `mcp_servers` and `bots`); outbox delivery (`outbox:deliver`, recorded in `outbox_messages`); the sandbox's machine half (`sandbox:events` / `heartbeat` / `complete` and the in-sandbox tools, recorded in
    `sandbox_jobs` and `sandbox_job_events`); and `cost_records`. The audited thing is always **the decision a
    person made** — editing a bot, binding it to a channel, approving a tool call, answering a help request,
    granting a repository. A decision a platform participant makes in a channel (an approval clicked in Slack) is

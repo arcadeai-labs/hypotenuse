@@ -4,8 +4,8 @@ import type { Channel } from "../schema/channels";
 
 /**
  * The prompt assembler: the system prompt a bot thinks with, built from what
- * the bot stores. Prompt sections, skills, goals, and a generated
- * capabilities section extend it later; what it returns must stay a pure
+ * the bot stores. Its MCP section carries the bot's generated capabilities;
+ * prompt sections, skills, and goals extend it later; what it returns must stay a pure
  * function of stored rows, so its hash changes only when they do.
  */
 
@@ -41,12 +41,33 @@ const MEMORY_RULES = [
 ].join("\n");
 
 /**
+ * How MCP tools work, stated once: search, read, then call; approvals.
+ */
+const MCP_RULES = [
+  "## Your tools",
+  "",
+  "You can use tools on MCP servers your project connected. You do not see them all at once:",
+  "",
+  "1. `mcp_search` for what you want to do (or `mcp_list_tools` for one server).",
+  "2. `mcp_info` on the tool you choose — required before you call it, once per conversation.",
+  "3. `mcp_exec` it with arguments that match its input schema.",
+  "",
+  "Some calls wait for a person to approve them; the conversation pauses until they decide. If a call is denied, do not retry it — try another way, or ask. A result too long to show comes back as a preview with an id for `read_large_result`.",
+].join("\n");
+
+/**
  * Assemble a bot's system prompt for a conversation.
  * @param bot - The bot.
  * @param channel - Where the conversation is.
+ * @param extras.mcp - Whether the bot has MCP servers, so the tools section
+ *   and its capabilities are included.
  * @returns The prompt text.
  */
-export function assembleSystemPrompt(bot: Bot, channel: Channel): string {
+export function assembleSystemPrompt(
+  bot: Bot,
+  channel: Channel,
+  extras: { mcp?: boolean } = {},
+): string {
   const identity = [
     `You are ${bot.displayName}${bot.name !== bot.displayName ? ` (${bot.name})` : ""}, a bot.`,
     bot.description ? bot.description : null,
@@ -67,6 +88,15 @@ export function assembleSystemPrompt(bot: Bot, channel: Channel): string {
     LOOP_RULES,
     "",
     MEMORY_RULES,
+    ...(extras.mcp
+      ? [
+          "",
+          MCP_RULES,
+          ...(bot.capabilities
+            ? ["", "What your tools can do:", "", bot.capabilities.trim()]
+            : []),
+        ]
+      : []),
   ].join("\n");
 }
 

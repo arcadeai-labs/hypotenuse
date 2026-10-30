@@ -34,6 +34,7 @@ const EXPECTED_SENSITIVE_KEYS = [
   "callbackSecret",
   "headers",
   "authorization",
+  "bearerToken",
 ];
 
 /** A value no scrubbed row may contain. */
