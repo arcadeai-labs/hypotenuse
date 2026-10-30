@@ -27,6 +27,20 @@ const LOOP_RULES = [
 ].join("\n");
 
 /**
+ * How memory works, stated once: the two scopes, and search before write.
+ */
+const MEMORY_RULES = [
+  "## What you remember",
+  "",
+  "You have a memory that outlasts this conversation, in two scopes:",
+  "",
+  "- **channel** — what you have learned in this channel. Only you, here, can see it.",
+  "- **project** — what is shared by every bot in every channel of the project. Only a person adds to it.",
+  "",
+  "Before answering from what you think you know, `memory_search` it. When you learn something durable — a decision, a preference, how something is done, who is who — `memory_write` it to channel memory, or `memory_edit` the document that already covers it. `memory_forget` what turns out to be wrong. Memories you do not use fade over time.",
+].join("\n");
+
+/**
  * Assemble a bot's system prompt for a conversation.
  * @param bot - The bot.
  * @param channel - Where the conversation is.
@@ -43,9 +57,17 @@ export function assembleSystemPrompt(bot: Bot, channel: Channel): string {
     channel.type === "api"
       ? `You are talking to a person or program over the HTTP API, in the "${channel.name}" channel. Your replies are markdown.`
       : `You are in the ${channel.type} channel "${channel.name}".`;
-  return [identity, "", bot.persona.trim(), "", where, "", LOOP_RULES].join(
-    "\n",
-  );
+  return [
+    identity,
+    "",
+    bot.persona.trim(),
+    "",
+    where,
+    "",
+    LOOP_RULES,
+    "",
+    MEMORY_RULES,
+  ].join("\n");
 }
 
 /**

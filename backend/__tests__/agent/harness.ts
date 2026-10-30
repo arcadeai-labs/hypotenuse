@@ -38,7 +38,7 @@ export interface AgentStage {
 }
 
 /** The queues the loop uses, cleared at the start of every suite. */
-const LOOP_QUEUES = ["agents", "outbox", "orchestrator"];
+const LOOP_QUEUES = ["agents", "outbox", "orchestrator", "default"];
 
 /**
  * Build the stage.

@@ -6,6 +6,7 @@ import { configCliAuth } from "./cliAuth";
 import { configDatabase } from "./database";
 import { configFrontend } from "./frontend";
 import { configLogger } from "./logger";
+import { configMemory } from "./memory";
 import { configNetwork } from "./network";
 import { configNotifications } from "./notifications";
 import { configObservability } from "./observability";
@@ -40,6 +41,7 @@ export default {
   cliAuth: configCliAuth,
   network: configNetwork,
   agents: configAgents,
+  memory: configMemory,
 };
 
 /**

@@ -41,6 +41,11 @@ const READS = new Set([
   "conversation:list",
   "conversation:view",
   "conversation:entries",
+  "memory:list",
+  "memory:search",
+  "memory:view",
+  "memory:versions",
+  "memory:channels",
 ]);
 
 /**
@@ -64,6 +69,11 @@ const UNAUDITED_WRITERS = new Set([
   "agent:tick",
   "conversation:compact",
   "outbox:deliver",
+  // Memory's machine work: each version's source and provenance, and each
+  // chunk's embedding revision, are the record.
+  "memory:embed",
+  "memory:consolidate",
+  "memory:decay-project",
   // Clocks and sweeps: the clock acting, not a person.
   "notifications:dispatch",
   "notifications:sweep",
@@ -72,6 +82,8 @@ const UNAUDITED_WRITERS = new Set([
   "agents:reap",
   "agents:wake-due",
   "outbox:deliver-due",
+  "memory:decay",
+  "memory:consolidate-due",
 ]);
 
 beforeAll(async () => {

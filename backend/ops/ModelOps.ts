@@ -1,4 +1,6 @@
-import type { LanguageModelV4 } from "@ai-sdk/provider";
+import { createHash } from "node:crypto";
+import type { EmbeddingModelV4, LanguageModelV4 } from "@ai-sdk/provider";
+import { embed } from "ai";
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { api, ErrorType, TypedError } from "keryx";
 import { z } from "zod";
@@ -9,8 +11,10 @@ import {
   providerKind,
 } from "../models/registry";
 import { bots } from "../schema/bots";
+import { MEMORY_EMBEDDING_DIMENSIONS } from "../schema/memory_chunks";
 import {
   type ModelAlias,
+  type ModelAliasKind,
   type ModelAliasOptions,
   modelAliases,
 } from "../schema/model_aliases";
@@ -20,6 +24,7 @@ import {
 } from "../schema/model_connections";
 import { decryptSecret } from "./CryptoOps";
 import type { DbHandle } from "./DbOps";
+import { SEARCH_TEXT_RECIPE } from "./MemoryChunkOps";
 import { urlRefusal } from "./NetworkGuardOps";
 
 /**
@@ -367,7 +372,8 @@ export async function loadModelAlias(
 }
 
 /**
- * The names of a project's aliases, for checking the ones a bot names.
+ * The names of a project's language aliases, for checking the ones a bot
+ * names: a bot thinks with a language model, never an embedding one.
  * @param db - A database handle.
  * @param projectId - The project.
  * @returns Every alias name.
@@ -379,7 +385,12 @@ export async function aliasNames(
   const rows = await db
     .select({ name: modelAliases.name })
     .from(modelAliases)
-    .where(eq(modelAliases.projectId, projectId));
+    .where(
+      and(
+        eq(modelAliases.projectId, projectId),
+        eq(modelAliases.kind, "language"),
+      ),
+    );
   return new Set(rows.map((r) => r.name));
 }
 
@@ -507,19 +518,146 @@ export async function languageModel(
 }
 
 /**
- * The way code will obtain an embedding model. No alias kind names one yet,
- * so it always refuses.
- * @param _projectId - The project.
- * @param alias - The alias name.
- * @returns Never.
- * @throws {TypedError} `CONNECTION_ACTION_RUN`.
+ * The alias memory embeds with. Only an alias of this name may be of kind
+ * `embedding`, and it may be of no other kind, so a project has at most one
+ * embedding model and every chunk's revision names it.
+ */
+export const EMBEDDING_ALIAS = "embedding";
+
+/**
+ * Refuse a name and kind that do not go together: the `embedding` alias is
+ * the one embedding alias, and `default` and `fast` are language models.
+ * @param name - The alias name.
+ * @param kind - Its kind.
+ * @throws {TypedError} `CONNECTION_ACTION_PARAM_VALIDATION` keyed on `kind` or `name`.
+ */
+export function assertAliasKindFits(name: string, kind: ModelAliasKind): void {
+  if (kind === "embedding" && name !== EMBEDDING_ALIAS) {
+    throw new TypedError({
+      message: `An embedding model is named "${EMBEDDING_ALIAS}": memory embeds with the alias of that name, and a project has one.`,
+      type: ErrorType.CONNECTION_ACTION_PARAM_VALIDATION,
+      key: "name",
+    });
+  }
+  if (kind !== "embedding" && name === EMBEDDING_ALIAS) {
+    throw new TypedError({
+      message: `"${EMBEDDING_ALIAS}" is the name of the project's embedding model, so it must be of kind embedding.`,
+      type: ErrorType.CONNECTION_ACTION_PARAM_VALIDATION,
+      key: "kind",
+    });
+  }
+}
+
+/**
+ * Prove an embedding alias would work before it is saved: the provider serves
+ * embeddings, and the model returns vectors of exactly
+ * {@link MEMORY_EMBEDDING_DIMENSIONS} when asked for them.
+ * @param row - The connection the alias would call through.
+ * @param modelId - The provider's model id.
+ * @throws {TypedError} `CONNECTION_ACTION_PARAM_VALIDATION` saying what to choose instead.
+ */
+export async function assertEmbeddingModelUsable(
+  row: ModelConnection,
+  modelId: string,
+): Promise<void> {
+  const kind = providerKind(row.provider);
+  if (!kind.supportsEmbeddings) {
+    throw new TypedError({
+      message: `${kind.label} does not serve embedding models. Point the embedding alias at an OpenAI, Vercel AI Gateway, or OpenAI-compatible connection.`,
+      type: ErrorType.CONNECTION_ACTION_PARAM_VALIDATION,
+      key: "connectionId",
+    });
+  }
+  const credentials = credentialsOf(row);
+  let length: number;
+  try {
+    const { embedding } = await embed({
+      model: kind.build(credentials).embeddingModel(modelId),
+      value: "Hypotenuse checks that this model can embed memory.",
+      dimensions: MEMORY_EMBEDDING_DIMENSIONS,
+      maxRetries: 0,
+    });
+    length = embedding.length;
+  } catch (error) {
+    throw new TypedError({
+      message: `"${modelId}" could not embed text: ${probeMessage(error, credentials.apiKey)}`,
+      type: ErrorType.CONNECTION_ACTION_PARAM_VALIDATION,
+      key: "modelId",
+    });
+  }
+  if (length !== MEMORY_EMBEDDING_DIMENSIONS) {
+    throw new TypedError({
+      message: `"${modelId}" returned ${length}-dimensional vectors and ignored the request for ${MEMORY_EMBEDDING_DIMENSIONS}. Memory stores ${MEMORY_EMBEDDING_DIMENSIONS} dimensions, so choose a model that accepts a dimensions option, such as text-embedding-3-small.`,
+      type: ErrorType.CONNECTION_ACTION_PARAM_VALIDATION,
+      key: "modelId",
+    });
+  }
+}
+
+/** An embedding model, ready for `embedMany`, and the revision its vectors carry. */
+export interface ResolvedEmbeddingModel {
+  model: EmbeddingModelV4;
+  /**
+   * The model, its dimensions, and the search-text recipe, hashed: a chunk
+   * whose `embeddingRevision` differs was embedded some other way and is stale.
+   */
+  revision: string;
+  connectionId: number;
+  modelId: string;
+}
+
+/**
+ * The embedding revision for a model.
+ * @param connectionId - The connection.
+ * @param modelId - The model id.
+ * @returns A short hex digest.
+ */
+export function embeddingRevision(
+  connectionId: number,
+  modelId: string,
+): string {
+  return createHash("sha256")
+    .update(
+      `${connectionId}:${modelId}:${MEMORY_EMBEDDING_DIMENSIONS}:${SEARCH_TEXT_RECIPE}`,
+    )
+    .digest("hex")
+    .slice(0, 16);
+}
+
+/**
+ * **The** way any code obtains an embedding model: the project's
+ * {@link EMBEDDING_ALIAS} alias, with its key decrypted here.
+ * @param projectId - The project.
+ * @returns The model and its revision, or `null` when the project has none —
+ *   memory then ranks by keyword alone.
  */
 export async function embeddingModel(
-  _projectId: number,
-  alias: string,
-): Promise<never> {
-  throw new TypedError({
-    message: `Embedding models are not supported yet, so "${alias}" cannot be used for embeddings.`,
-    type: ErrorType.CONNECTION_ACTION_RUN,
-  });
+  projectId: number,
+): Promise<ResolvedEmbeddingModel | null> {
+  const [row] = await api.db.db
+    .select({ alias: modelAliases, connection: modelConnections })
+    .from(modelAliases)
+    .innerJoin(
+      modelConnections,
+      eq(modelConnections.id, modelAliases.connectionId),
+    )
+    .where(
+      and(
+        eq(modelAliases.projectId, projectId),
+        eq(modelAliases.name, EMBEDDING_ALIAS),
+        eq(modelAliases.kind, "embedding"),
+      ),
+    )
+    .limit(1);
+  if (!row) return null;
+  const kind = providerKind(row.connection.provider);
+  if (!kind.supportsEmbeddings) return null;
+  return {
+    model: kind
+      .build(credentialsOf(row.connection))
+      .embeddingModel(row.alias.modelId),
+    revision: embeddingRevision(row.connection.id, row.alias.modelId),
+    connectionId: row.connection.id,
+    modelId: row.alias.modelId,
+  };
 }

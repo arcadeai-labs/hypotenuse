@@ -54,6 +54,8 @@ export interface ProviderKind {
   credentialSchema: z.ZodType<{ apiKey: string }>;
   /** The base URL used when a connection names none, or `null` when one is required. */
   defaultBaseUrl: string | null;
+  /** Whether the provider serves embedding models (`build(...).embeddingModel`). */
+  supportsEmbeddings: boolean;
   /** Build an AI SDK provider. Call per use; never cache the result. */
   build(credentials: ProviderCredentials): ProviderV4;
   /**
@@ -163,6 +165,7 @@ function gatewayError(error: unknown): Error {
 const anthropic: ProviderKind = {
   kind: "anthropic",
   label: "Anthropic",
+  supportsEmbeddings: false,
   credentialSchema: apiKeySchema,
   defaultBaseUrl: "https://api.anthropic.com/v1",
   build: (c) =>
@@ -186,6 +189,7 @@ const anthropic: ProviderKind = {
 const openai: ProviderKind = {
   kind: "openai",
   label: "OpenAI",
+  supportsEmbeddings: true,
   credentialSchema: apiKeySchema,
   defaultBaseUrl: "https://api.openai.com/v1",
   build: (c) =>
@@ -208,6 +212,7 @@ const openai: ProviderKind = {
 const gateway: ProviderKind = {
   kind: "gateway",
   label: "Vercel AI Gateway",
+  supportsEmbeddings: true,
   credentialSchema: apiKeySchema,
   defaultBaseUrl: "https://ai-gateway.vercel.sh/v4/ai",
   build: (c) =>
@@ -246,6 +251,7 @@ const gateway: ProviderKind = {
 const openaiCompatible: ProviderKind = {
   kind: "openai-compatible",
   label: "OpenAI-compatible",
+  supportsEmbeddings: true,
   credentialSchema: apiKeySchema,
   defaultBaseUrl: null,
   build: (c) =>

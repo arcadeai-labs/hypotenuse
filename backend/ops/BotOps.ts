@@ -104,6 +104,8 @@ export function serializeBot(bot: Bot) {
       bot.monthlyBudgetUsd === null ? null : Number(bot.monthlyBudgetUsd),
     enabled: bot.enabled,
     maxStepsPerTurn: bot.maxStepsPerTurn,
+    memoryChannelHalfLifeDays: bot.memoryChannelHalfLifeDays,
+    memoryProjectHalfLifeDays: bot.memoryProjectHalfLifeDays,
     hasCallbackSecret: bot.apiCallbackSecret !== null,
     createdByUserId: bot.createdByUserId,
     createdAt: bot.createdAt.getTime(),
@@ -521,4 +523,22 @@ export const avatarInput = z
  */
 export function budgetColumn(value: number | null): string | null {
   return value === null ? null : value.toFixed(2);
+}
+
+/**
+ * The Zod input for a memory half-life, in days: 1 to 3650.
+ * @param scope - Which memory it is for.
+ * @returns The schema.
+ */
+export function halfLifeInput(scope: "channel" | "project") {
+  return z
+    .number()
+    .int()
+    .min(1, "A half-life is at least one day")
+    .max(3650, "A half-life is at most 3650 days")
+    .describe(
+      scope === "channel"
+        ? "Days an unused channel memory takes to lose half its search weight (default 30); faded channel memory is eventually forgotten"
+        : "Days an unused project memory takes to lose half of its search weight for this bot (default 180); project memory is never forgotten by decay",
+    );
 }

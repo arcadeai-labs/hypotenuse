@@ -8,9 +8,12 @@ import {
 } from "../../classes/AuditedAction";
 import { AdminMiddleware } from "../../middleware/rbac";
 import { idInput } from "../../ops/InputOps";
+import { enqueueEmbed } from "../../ops/MemoryOps";
 import {
   aliasNameInput,
   aliasOptionsInput,
+  assertAliasKindFits,
+  assertEmbeddingModelUsable,
   loadModelConnection,
   modelIdInput,
   serializeModelAlias,
@@ -20,12 +23,12 @@ import { MODEL_ALIAS_KINDS, modelAliases } from "../../schema/model_aliases";
 /**
  * `model-alias:create` — name a model for the project: `default`, `fast`, or any
  * other name bots can choose. Requires admin standing, because it decides what
- * the project pays for.
+ * the project pays for. An `embedding` alias is probed before it is saved.
  */
 export class ModelAliasCreate extends AuditedAction {
   name = "model-alias:create";
   description =
-    "Name a model for a project: an alias (default, fast, or any lowercase name) pointing at a model connection and one of its model ids, with optional call options. Bots choose models by alias. Every project needs default and fast before its bots can run. Requires admin standing in the project.";
+    "Name a model for a project: an alias (default, fast, or any lowercase name) pointing at a model connection and one of its model ids, with optional call options. Bots choose models by alias. Every project needs default and fast before its bots can run. An alias named embedding, of kind embedding, is the model memory embeds with; it is probed before it is saved. Requires admin standing in the project.";
   middleware = [AdminMiddleware()];
   web = { route: "/project/:projectId/model-alias", method: HTTP_METHOD.PUT };
   inputs = z.object({
@@ -36,7 +39,9 @@ export class ModelAliasCreate extends AuditedAction {
     kind: z
       .enum(MODEL_ALIAS_KINDS)
       .default("language")
-      .describe("What the model is for: language"),
+      .describe(
+        'What the model is for: language (default), or embedding — memory\'s embedding model, which must be named "embedding" and return 1536-dimensional vectors',
+      ),
     connectionId: idInput("The model connection the alias calls through"),
     modelId: modelIdInput,
     options: aliasOptionsInput.default({}),
@@ -63,6 +68,10 @@ export class ModelAliasCreate extends AuditedAction {
       params.connectionId,
       { lock: true },
     );
+    assertAliasKindFits(params.name, params.kind);
+    if (params.kind === "embedding") {
+      await assertEmbeddingModelUsable(modelConnection, params.modelId);
+    }
     const [taken] = await tx
       .select({ id: modelAliases.id })
       .from(modelAliases)
@@ -97,6 +106,26 @@ export class ModelAliasCreate extends AuditedAction {
     connection.metadata.auditAfter = serialized;
     connection.metadata.auditTargetType = "model-alias";
     connection.metadata.auditTargetPath = row.name;
+    connection.metadata.afterCommitData = {
+      embedding: row.kind === "embedding",
+    };
     return { modelAlias: serialized };
+  }
+
+  /**
+   * A new embedding model embeds the project's memory, which until now was
+   * ranked by keyword alone.
+   * @param _result - The response.
+   * @param params - The inputs.
+   * @param connection - Says whether the alias embeds.
+   */
+  async afterCommit(
+    _result: unknown,
+    params: ActionParams<ModelAliasCreate>,
+    connection: AuditedConnection,
+  ) {
+    if (connection.metadata.afterCommitData?.embedding) {
+      await enqueueEmbed(params.projectId);
+    }
   }
 }
