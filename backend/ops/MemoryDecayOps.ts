@@ -4,7 +4,7 @@ import { api, config } from "keryx";
 import type {} from "../config/memory";
 import { bots } from "../schema/bots";
 import { memoryDocuments } from "../schema/memory_documents";
-import { writeVersion } from "./MemoryOps";
+import { lockDocument, writeVersion } from "./MemoryOps";
 
 /**
  * **The decay clock's work.** Ranking already weighs every memory by how
@@ -81,6 +81,9 @@ export async function decayProject(projectId: number): Promise<DecayResult> {
         channelId: doc.channelId,
         path: doc.path,
       };
+      // The document's advisory lock before any row lock, as every writer
+      // takes them: a pin holding it while waiting on this row would deadlock.
+      await lockDocument(tx, key);
       // Re-check under the lock: a read or a write since the select keeps it.
       const [still] = await tx
         .select({ id: memoryDocuments.id })

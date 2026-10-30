@@ -366,7 +366,9 @@ export async function writeVersion(
 /**
  * Take the transaction-scoped advisory lock that serializes writers of one
  * document. Re-entrant within a transaction, so a caller that checks
- * something before {@link writeVersion} may take it first.
+ * something before {@link writeVersion} may take it first. **Every** change
+ * to a document takes it before any row lock on the document: one path that
+ * row-locked first would deadlock against one that did not.
  * @param tx - An open transaction.
  * @param key - The document.
  */

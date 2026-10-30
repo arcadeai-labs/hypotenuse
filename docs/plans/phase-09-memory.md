@@ -477,7 +477,8 @@ memory; with both, on that bot's memory of that channel; one alone is refused be
   action with a `projectId` input; it now skips actions with no route, which nobody can call.
 - **Every change to a document takes its advisory lock first**, pinning included. A pin that only `FOR UPDATE`d the
   current row raced a write: Postgres re-checked `is_current` after the write committed, found no row, and the pin
-  answered 404. `memory.test.ts` races the two.
+  answered 404. `memory.test.ts` races the two. The decay clock takes it before its row-locked re-check for the same
+  reason: a fade that row-locked first and then wanted the advisory lock would deadlock against a pin.
 - **The per-document cap applies to short lists too.** Membot's `diversify` returned a list no longer than `limit`
   untouched, so one document's extra chunks stayed ahead of other documents; it now always reorders.
 - **The embed queue's Redis mark outlives a lost job** for its five-minute expiry, during which a new enqueue is
