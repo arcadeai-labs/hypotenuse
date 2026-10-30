@@ -475,6 +475,11 @@ memory; with both, on that bot's memory of that channel; one alone is refused be
   it `CASCADE` in its throwaway database.
 - **A task-only action that takes a `projectId` is not a tenant leak.** `rbac.test.ts` required a level for every
   action with a `projectId` input; it now skips actions with no route, which nobody can call.
+- **Every change to a document takes its advisory lock first**, pinning included. A pin that only `FOR UPDATE`d the
+  current row raced a write: Postgres re-checked `is_current` after the write committed, found no row, and the pin
+  answered 404. `memory.test.ts` races the two.
+- **The per-document cap applies to short lists too.** Membot's `diversify` returned a list no longer than `limit`
+  untouched, so one document's extra chunks stayed ahead of other documents; it now always reorders.
 - **The embed queue's Redis mark outlives a lost job** for its five-minute expiry, during which a new enqueue is
   skipped. Suites that drop queued jobs drop the marks too (`forgetEmbedMarks`).
 - **Structured output from an unknown Anthropic model id** arrives as a call of a tool named `json` (the SDK's

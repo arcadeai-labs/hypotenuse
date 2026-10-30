@@ -401,6 +401,9 @@ export async function setPinned(
   key: DocumentKey,
   pinned: boolean,
 ): Promise<MemoryDocument | null> {
+  // The writers' lock first: without it, a write committing meanwhile moves
+  // `is_current`, and the re-checked `FOR UPDATE` below finds no row.
+  await lockDocument(tx, key);
   const current = await currentVersion(tx, key, { lock: true });
   if (!current || current.tombstone) return null;
   const [row] = await tx

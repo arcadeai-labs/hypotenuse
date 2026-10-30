@@ -95,6 +95,8 @@ describe("fusion", () => {
     expect(diversify(hits, 3, 5).map((h) => h.i)).toEqual([0, 1, 2, 5, 3]);
     expect(diversify(hits, 3, 4).map((h) => h.i)).toEqual([0, 1, 2, 5]);
     expect(diversify(hits, 0, 3).map((h) => h.i)).toEqual([0, 1, 2]);
+    // A short list still lets the other document ahead of the overflow.
+    expect(diversify(hits, 3, 6).map((h) => h.i)).toEqual([0, 1, 2, 5, 3, 4]);
   });
 
   test("a snippet is centred on the first matched term", () => {

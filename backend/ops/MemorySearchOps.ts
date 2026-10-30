@@ -132,7 +132,7 @@ export function diversify<T extends { documentId: number }>(
   maxPerDocument: number,
   limit: number,
 ): T[] {
-  if (maxPerDocument <= 0 || hits.length <= limit) return hits.slice(0, limit);
+  if (maxPerDocument <= 0) return hits.slice(0, limit);
   const kept: T[] = [];
   const overflow: T[] = [];
   const per = new Map<number, number>();

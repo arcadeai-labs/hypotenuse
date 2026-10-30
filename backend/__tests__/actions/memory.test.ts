@@ -258,6 +258,23 @@ describe("project memory", () => {
   });
 });
 
+describe("pinning beside a write", () => {
+  test("a pin racing a new version still pins the document", async () => {
+    const doc = { scope: "project", path: "facts/race.md" };
+    await writeMemory(stage, { ...doc, content: "Version 0." });
+    for (let i = 1; i <= 8; i++) {
+      const [pin, write] = await Promise.all([
+        act(stage.u.peach, "POST", "memory/document/pin", {
+          ...doc,
+          pinned: i % 2 === 1,
+        }),
+        writeMemory(stage, { ...doc, content: `Version ${i}.` }),
+      ]);
+      expect([pin.status, write.status], `round ${i}`).toEqual([200, 200]);
+    }
+  });
+});
+
 describe("every write is audited, and the words stay out of the audit row", () => {
   test("write, pin, promote, forget, and reindex each leave a row", async () => {
     const { peach } = stage.u;
