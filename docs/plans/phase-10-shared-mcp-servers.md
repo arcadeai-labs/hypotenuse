@@ -5,7 +5,7 @@
 > call. A bot finds tools by searching for them rather than carrying every schema in its prompt. Any call
 > that is not allowlisted stops and waits for a person to approve it, and an approved call runs exactly once.
 
-> **Status: planned, not built.** Builds on the [durable agent loop](./phase-08-durable-agent-loop.md) (the tool
+> **Status: built.** Builds on the [durable agent loop](./phase-08-durable-agent-loop.md) (the tool
 > contract, `tool_call_intent`, `waiting` on `approval`) and [model providers and bots](./phase-07-model-providers-and-bots.md).
 > Approvals are decided in the dashboard, the API, and the CLI here. The [channel framework](./phase-13-channel-framework.md)
 > renders them in Slack, Linear, and Pylon. [Code mode](./phase-12-code-mode.md) calls the same gate from guest
@@ -322,14 +322,14 @@ see exactly one email sent.
 
 ## Definition of done
 
-- [ ] Servers connect over all four auth modes; credentials are encrypted and never serialized.
-- [ ] The client pool uses SSRF-safe fetch, timeouts, refresh-on-401, and eviction.
-- [ ] The meta-tools work, with info-before-exec enforced.
-- [ ] The approval gate is default deny, with patterns, `autoAllowReadOnly`, one approval per intent, resume
+- [x] Servers connect over all four auth modes; credentials are encrypted and never serialized.
+- [x] The client pool uses SSRF-safe fetch, timeouts, refresh-on-401, and eviction.
+- [x] The meta-tools work, with info-before-exec enforced.
+- [x] The approval gate is default deny, with patterns, `autoAllowReadOnly`, one approval per intent, resume
       without replay, expiry, and always-allow.
-- [ ] Large results are stored, paged, and `saveTo` writes to memory.
-- [ ] The capabilities section is generated per bot.
-- [ ] The dashboard inbox, server and bot pages, CLI, and docs ship; both themes are checked.
+- [x] Large results are stored, paged, and `saveTo` writes to memory.
+- [x] The capabilities section is generated per bot.
+- [x] The dashboard inbox, server and bot pages, CLI, and docs ship; both themes are checked.
 
 ## Open questions
 
@@ -342,4 +342,114 @@ see exactly one email sent.
 
 ## Learnings from the build
 
-Not built yet.
+### What is built
+
+| Piece | Where |
+|---|---|
+| `mcp_servers`, `bot_mcp_servers`, `approvals`, `large_results`; `bots.approver_tag`, `approval_ttl_seconds`, `capabilities`, `capabilities_hash` (migration `0008`) | `backend/schema/`, `backend/drizzle/0008_*.sql` |
+| The registry: inputs, the serializer, sealing credentials, per-bot header templates | `backend/ops/McpServerOps.ts` |
+| The MCP authorization spec as a client | `backend/ops/McpOAuthOps.ts` |
+| The client pool and its lifecycle | `backend/ops/McpClientOps.ts`, `backend/initializers/mcpClients.ts` |
+| The catalog, its hybrid search, capabilities | `backend/ops/{McpCatalogOps,CapabilitiesOps}.ts` |
+| The gate: patterns and the call key (pure); approvals, decisions, expiry | `backend/ops/{ApprovalPatternOps,ApprovalOps}.ts` |
+| The tick's gate: decide, settle, park, resume | `backend/ops/TickOps.ts` (`decideGate`, `settleGated`, `parkForApprovals`) |
+| Large results | `backend/ops/LargeResultOps.ts` |
+| The five tools | `backend/tools/{mcp-search,mcp-list-tools,mcp-info,mcp-exec,read-large-result,mcp-shared}.ts` |
+| Actions, tasks, and clocks | `backend/actions/{mcp-server,bot-mcp-server,approval,large-result}/`, `backend/actions/bot/bot-capabilities.ts` |
+| Settings | `backend/config/mcp.ts` |
+| The approval notification | `backend/ops/templates/approval-requested.ts` |
+| The fixture MCP server, with its own OAuth authorization server | `backend/__tests__/fixtures/mcp-server.ts` |
+| Proof | `backend/__tests__/mcp/{registry,meta-tools,approval,crash,large-results}.test.ts`, `__tests__/security/no-secrets.test.ts`, `__tests__/actions/mcp-server.test.ts` |
+
+### Decisions the plan left open
+
+- **Routes live under the project**, like every other action: `PUT /project/:projectId/mcp-server`,
+  `GET /project/:projectId/approvals`, `PUT /project/:projectId/bot/:botId/mcp-server`, and so on. The one route
+  outside it is the OAuth return, `GET /mcp-server/oauth/callback`, whose single-use `state` names the project.
+- **`EndpointSafetyOps` was not ported.** Phase 07's `NetworkGuardOps` already is v1's guard: `urlRefusal` at
+  configuration, and `guardedFetch` — the pinned lookup that defeats rebinding — as the MCP transport's `fetch`, so
+  every request of every connection is checked, not only the first. It gained a `timeoutMs` option, since the 30 s
+  socket idle default is shorter than a 60 s tool call.
+- **Two actions the plan did not list.** `mcp-server:match-tools` (`GET …/match?patterns=`) tests allowlist
+  patterns against a server's catalog, so the dashboard's live preview and the gate share one matcher instead of a
+  copy in the browser. `bot:capabilities` and `mcp-server:refresh-catalog` are the per-item tasks the clock and the
+  write paths enqueue; a clock is never reused as a per-item task.
+- **`mcp-server:test` and `mcp-server:refresh-tools` are audited**, as `model-connection:test` is: they write the
+  status a person reads. The plan had them unaudited. The OAuth hops are audited too, and are the only audited
+  actions answering `GET` — a browser is sent through them (`audited-actions.test.ts` names them).
+- **`approval:decide` takes `decision: approve | deny`, `alwaysAllow`, `note`, and `via`** (`dashboard`, `api`, `cli`;
+  an MCP caller is recorded as `mcp` from the connection, whatever it sends). A denial's note reaches the model.
+- **Who decides**: `canWriteBot`, or the bot's `approverTag`. Who is notified: the approver tag's holders, or the
+  project's admins (`resolveRecipients`). Listing approvals is filtered by `canReadBot`, so an approver who cannot
+  read the bot cannot see its approvals either — give the approver tag read access too.
+- **"`mcp_info` was called" is read from the transcript**, not stored: a non-error `mcp_info` result whose
+  `output.name` is the tool. Compaction keeps the rows, so a read before a compaction still counts.
+- **The gate is a tool hook, `ToolDefinition.gate`**, returning `run`, `run-approved`, `refuse`, `interrupted`, or
+  `park`; the tick applies it (`settleGated`). A gated tool always runs serially. A tool's own refusal in the gate
+  (no such server, info not read) becomes its error result.
+- **A step with a gated call does not end its turn**: its terminal call, if any, gets a `not_run` result ("a call in
+  this step is waiting for approval"), the step's other calls run and are written, then one transaction writes the
+  approvals, queues their notifications, and parks on `{kind: "approval", approvalIds}`. The model sees every
+  result, approved or refused, before it decides how to end the turn.
+- **Intent before effect, for approvals too.** The plan consumed an approval with its result, which is right, but
+  left a worker dying *during* the approved call to re-run it on recovery. `approvals.executing_at` is committed
+  before the call is sent; recovery finds an approved, executing, unconsumed approval and reports the call
+  interrupted (consuming it) rather than sending it twice. `crash.test.ts` fails the result's insert with a trigger
+  and proves the fixture sees exactly one call.
+- **Recovery of a gated intent** asks the gate again. An approval on record decides it (table in `ApprovalOps`); with
+  none, a `park` parks (nothing could have been sent) and a `run` is reported interrupted (an allowlisted call may
+  have been mid-flight).
+- **Cancelling a conversation expires its pending approvals** (`finalizeCancel`); a decision after that is refused.
+- **Expiry is the clock's**, and also caught at decision time: deciding an expired approval expires it, wakes the
+  conversation if nothing else is pending, and refuses.
+- **The catalog lives on the row** (`mcp_servers.tools_cache`), not in Redis: Postgres is the source of truth, and
+  the catalog is small. Search runs `ts_rank_cd` over the visible tools' text in one query (any of the query's words,
+  as memory search does) and fuses it with cosine ranks from the memory embedder by the same weighted RRF. Tool
+  vectors are cached in Redis by embedding revision and text digest (`hyp:mcp-embed:*`, a week), so a refresh
+  re-embeds only what changed. Without an embedding model, search is keyword-only and says so (`searchedBy`).
+- **Capabilities are stored on the bot**, regenerated by `bot:capabilities` when a server is given, taken away,
+  renamed, enabled or disabled, or its catalog changes. The digest of the catalog it came from
+  (`capabilities_hash`) makes a repeat a no-op. The fast model is told never to name a tool, and any tool name with
+  `_` or `-` it writes anyway is replaced. A model failure stores the plain list (each server and its tool count)
+  and a hash that makes the next run try again. `MCP_GENERATE_CAPABILITIES=false` (the browser suite) always stores
+  the plain list. The prompt carries a "Your tools" section and the summary only for a bot with servers, and the MCP
+  tools are offered only then (`ToolDefinition.available` may now be async).
+- **A tool result reaches the model as text.** `mcp_exec` answers `{name, text}` — the result's text parts joined —
+  plus `structuredContent` only when there is no text, and a description of non-text parts. A result whose
+  `isError` is set becomes a `tool_error` envelope. Keeping the result a string matters because
+  `scrubToolOutput` drops keys named in `SENSITIVE_KEYS` (`state`, `code`, `token`, `headers`…) at any depth, which
+  would silently remove an issue's `state` from structured content.
+- **Large results** store the text (or the JSON, with no text) when the serialized result passes
+  `MCP_MAX_INLINE_CHARS`. `saveTo` accepts channel memory only (a bot cannot write project memory), refuses a result
+  larger than a memory document (and stores it as a large result instead, saying so), and is deduped like any bot
+  memory write.
+- **The pool's key is `(server, credential version, digest of the headers)`**, so one bot's filled-in headers never
+  reuse another's client. A credential change bumps the version; the editing action reconnects inside its
+  transaction and retires only the older versions after commit — retiring every client of the server closed the one
+  the edit had just opened (`registry.test.ts` caught it).
+- **OAuth**: discovery reads RFC 9728 protected-resource metadata (path-inserted, then root), falls back to the
+  server's origin as the issuer, then RFC 8414 or OpenID metadata. A client id an admin enters is stored with an
+  empty issuer and reused at the first sign-in; otherwise Hypotenuse registers a public client (PKCE, no secret)
+  and reuses it while the issuer is unchanged. The pending sign-in is a Redis key per `state`, ten minutes, taken
+  once. `oauth-start` answers a 302 (or `{authorizationUrl}` with `format=json`, for the CLI); the callback lands on
+  `/settings/mcp-servers?server=<id>&signedIn=1` or `&oauthError=`. Refresh happens before a token's stated expiry
+  and once on a 401, under the row lock; a second worker that finds a newer credential version uses it instead of
+  refreshing again. A failed refresh marks the server `needs_auth`.
+- **Header templates**: `{{bot.identity}}` is `hypotenuse-<projectId>-<botId>`, stable across a slug rename;
+  `{{bot.slug}}` is the slug. A person's connection test, with no bot, sends `hypotenuse-test` / `test`.
+- **Never MCP**: `mcp-server:oauth-start` and `mcp-server:oauth-callback` joined `NEVER_MCP_ACTION_NAMES`.
+- **`bearerToken` joined `SENSITIVE_KEYS`**; `headers`, `clientSecret`, `code`, and `state` were already there.
+- **Queues**: the refresh fan-out, capabilities, and catalog refreshes run on `default`; the three clocks on
+  `orchestrator`.
+
+### Traps found while building
+
+- **Parallel-safe calls finish in any order**, so their results' `seq` order is not the model's call order. Tests
+  that read several `mcp_search` results by position put each call in its own step.
+- **Redis outlives the test database, and ids restart**, so an embedding revision (a digest of connection id and
+  model) repeats across runs and cached tool vectors survive. The hybrid search test deletes `hyp:mcp-embed:*` first.
+- **Keryx instantiates every export under `actions/`**: the shared inputs of create and edit live in `McpServerOps`.
+- **An action may answer a `Response`** (Keryx passes it through), which is how the OAuth hops redirect.
+- **The SDK's Streamable HTTP client surfaces a 401 as an error with `code: 401`** when no auth provider is given;
+  Hypotenuse does its own OAuth rather than the SDK's `authProvider`, so every request of the flow goes through the
+  SSRF guard and the tokens stay sealed in Postgres.

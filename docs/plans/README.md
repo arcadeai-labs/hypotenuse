@@ -120,6 +120,15 @@ provenance) and `memory_chunks` (`tsvector` and `vector(1536)`); hybrid search w
 and decay; the `embedding` alias kind and `memory:embed`; consolidation of resting conversations into channel facts;
 the `memory:decay` clock; the six memory tools; `memory:*` actions with promotion as a person's audited decision; the
 memory explorer; `hypotenuse memory`; and a retrieval eval with recorded floors.
+**[Phase 10](./phase-10-shared-mcp-servers.md) is built**: `mcp_servers` (credentials sealed; none, headers with
+per-bot templates, bearer, or OAuth with discovery, dynamic registration, PKCE, and refresh under the row lock),
+`bot_mcp_servers` (allowlist patterns and `autoAllowReadOnly`), `approvals`, and `large_results`; a per-process client
+pool on the SSRF guard's fetch; the cached catalog with hybrid search; `mcp_search`, `mcp_list_tools`, `mcp_info`,
+`mcp_exec`, and `read_large_result`; the approval gate, which parks a step on `waiting` / `approval` and resumes the
+same intent without replay, marking an approved call executing before it is sent; generated capabilities in the
+prompt; the clocks `mcp-servers:refresh`, `approvals:expire`, and `large-results:sweep`; Settings → MCP servers, the
+bot's Tools, and the approvals inbox; `hypotenuse mcp-server` and `hypotenuse approval`; and a fixture MCP server with
+its own OAuth authorization server.
 No other phase is built; every later plan's **Learnings from the
 build** section reads "Not built yet." until its phase lands.
 
