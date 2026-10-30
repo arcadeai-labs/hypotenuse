@@ -395,6 +395,11 @@ async function recover(state: TickState): Promise<"continue" | "released"> {
     }
     await appendEntries(tx, conversation.id, conversation.epoch, drafts);
   });
+  // As in `runCalls`: a step's terminal call runs after its other calls, so
+  // a transition never parks the conversation with a call still open.
+  const isTerminal = (i: (typeof rerun)[number]) =>
+    Boolean(getTool(String(i.toolName))?.terminal);
+  rerun.sort((a, b) => Number(isTerminal(a)) - Number(isTerminal(b)));
   for (const intent of rerun) {
     const tool = getTool(String(intent.toolName)) as ToolDefinition;
     const input = (intent.content as { input?: unknown }).input;

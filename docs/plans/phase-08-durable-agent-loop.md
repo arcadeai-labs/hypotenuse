@@ -594,8 +594,10 @@ mid-turn (a Render restart) does not lose the turn.
 - **A terminal tool's effect is its transaction.** The result, the transition, and the outbound outbox row commit
   together, so an open terminal intent means nothing was posted. They still declare `replay: "unsafe"`, as the plan
   says; recovery reports them interrupted and the model decides.
-- **One terminal call per step.** It runs after the step's other calls; a second terminal call in the same step gets
-  a `not_run` error result, so every intent still has a result and hydration stays well formed.
+- **One terminal call per step.** It runs after the step's other calls — in recovery too, which re-runs a step's
+  open safe calls with the terminal one last, so a recovered `wait_for` never parks with a call still open. A second
+  terminal call in the same step gets a `not_run` error result, so every intent still has a result and hydration
+  stays well formed.
 - **A tool result is matched to its intent by `(stepId, toolCallId)`**, not the call id alone, since a provider may
   reuse ids across steps.
 - **`ask_question` writes its result at once** (`asked: true`) and parks on `{kind: "answer", questionEntryId,

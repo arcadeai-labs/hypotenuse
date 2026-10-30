@@ -260,7 +260,8 @@ describe("an intent with no result", () => {
 });
 
 describe("a recovered terminal call", () => {
-  test("a safe terminal call (wait_for) left open re-runs and parks the conversation", async () => {
+  test("a safe terminal call (wait_for) left open re-runs after the step's other calls, then parks", async () => {
+    calls.lookup = 1; // the gate is for first calls; this one must not wait
     const { appendEntries } = await import("../../ops/TranscriptOps");
     const res = await startConversation(stage, "Wait a minute.");
     const id = res.body.conversation.id;
@@ -284,6 +285,16 @@ describe("a recovered terminal call", () => {
           replay: "safe",
           content: { input: { seconds: 60 } },
         },
+        // A safe call the model listed after the terminal one.
+        {
+          kind: "tool_call_intent",
+          role: "assistant",
+          stepId: "dead-step",
+          toolCallId: "toolu_dead_look",
+          toolName: "test_lookup",
+          replay: "safe",
+          content: { input: { what: "the tide" } },
+        },
       ]),
     );
     await setColumns(id, {
@@ -297,6 +308,16 @@ describe("a recovered terminal call", () => {
     expect(after.state).toBe("waiting");
     expect(after.waitingOn?.kind).toBe("timer");
     expect(stage.models.completions).toHaveLength(0);
+    // Every intent of the step was settled before it parked, the terminal last.
+    const { openIntents } = await import("../../ops/ConversationOps");
+    expect(await openIntents(api.db.db, id)).toHaveLength(0);
+    const results = (await shape(id)).filter((s) =>
+      s.startsWith("tool_result"),
+    );
+    expect(results).toEqual([
+      "tool_result:test_lookup",
+      "tool_result:wait_for",
+    ]);
   });
 });
 
