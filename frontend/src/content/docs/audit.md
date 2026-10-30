@@ -12,7 +12,8 @@ change, so the log can never say something happened that did not, or miss someth
 | An organization's | **Organization → Audit log**, or **Open organization audit log** in the command palette | the organization's owners |
 
 An organization's log holds its own changes — renaming it, changing who owns it, its invitations — and every row of
-every project in it, including projects that have since been deleted. Filter it by project to read one.
+every project in it, including projects that have since been deleted. Filter it by project to read one, or choose
+**Organization only** for the organization's own changes — its owners, invites, and settings — with no project's.
 
 ![An organization's audit log, with its filters](illustration:audit)
 

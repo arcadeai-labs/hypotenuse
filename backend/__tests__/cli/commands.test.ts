@@ -498,6 +498,23 @@ describe("audit", () => {
       expect(row.projectId).toBe(universe.projectId);
     }
 
+    const orgOnly = await json(universe.peach, [
+      "--org",
+      String(universe.organizationId),
+      "audit",
+      "list",
+      "--since",
+      "1h",
+      "--org-only",
+    ]);
+    expect(orgOnly.auditLogs.length).toBeGreaterThan(0);
+    for (const row of orgOnly.auditLogs) {
+      expect(row.projectId).toBeNull();
+    }
+    const noOrg = await as(universe.peach, ["audit", "list", "--org-only"]);
+    expect(noOrg.code).toBe(1);
+    expect(noOrg.stderr).toContain("add --org");
+
     const bad = await as(universe.peach, ["audit", "list", "--since", "soon"]);
     expect(bad.code).toBe(1);
     expect(bad.stderr).toContain("Not a time");

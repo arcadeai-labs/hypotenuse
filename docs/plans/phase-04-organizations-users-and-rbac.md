@@ -575,3 +575,6 @@ The decision was to verify addresses.
   can fail. `fixtures/smtp.ts` is a loopback SMTP server that speaks enough of RFC 5321 for nodemailer; the suites
   point `config.notifications` at it and call `resetNotificationTransport()`.
 - **Locally, pgvector on Debian/Ubuntu is `postgresql-16-pgvector`.**
+- **Sign-up's organization is "{name}'s org", not the person's bare name** (`personalOrganizationName` in
+  `OrganizationOps.ts`), so it reads as a place and not a person in the switcher. `organizations.name` is
+  `varchar(256)` and a person's name may be 256 characters, so the name is cut to leave room for the suffix.

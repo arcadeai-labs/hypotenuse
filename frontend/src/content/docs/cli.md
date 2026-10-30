@@ -82,7 +82,7 @@ invites), and `audit list`.
 | `hypotenuse bot callback-secret <bot>` | Create the secret a bot signs its API callbacks with, and print it once. See **Talking to a bot** below |
 | `hypotenuse conversation create --bot --text`, `conversation message <id> --text` | Start a conversation with a bot, or send one a message. See **Talking to a bot** below |
 | `hypotenuse conversation list`, `conversation view <id>`, `conversation follow <id>`, `conversation cancel <id>` | The conversations with bots you can read (`--bot`, `--state` narrow the list); one conversation's state; its transcript as the bot works; stopping it |
-| `hypotenuse audit list` | The project's [audit log](/docs/audit), newest first, or with `--org` the organization's |
+| `hypotenuse audit list` | The project's [audit log](/docs/audit), newest first, or with `--org` the organization's (`--org-only` for its own rows, no project's) |
 | `hypotenuse check-update`, `hypotenuse upgrade` | See whether a newer release exists, and install it |
 
 `audit list` reads the last 30 days unless told otherwise. `--since` and `--until` take a date (`2026-10-01`), epoch

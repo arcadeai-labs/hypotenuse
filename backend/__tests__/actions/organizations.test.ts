@@ -77,8 +77,8 @@ describe("sign-up", () => {
       `/organization/${twin.organizationId}`,
     );
     // The first Bowser's organization was renamed Koopa Troop, and its slug
-    // stayed `bowser`: a slug never follows a rename on its own.
-    expect(body.organization.slug).toBe("bowser-2");
+    // stayed `bowser-s-org`: a slug never follows a rename on its own.
+    expect(body.organization.slug).toBe("bowser-s-org-2");
   });
 });
 
@@ -310,7 +310,7 @@ describe("only owners administer the organization", () => {
       "POST",
       `/organization/${u.organizationId}`,
       {
-        slug: "bowser",
+        slug: "bowser-s-org",
       },
     );
     expect(taken.status).toBe(406);
