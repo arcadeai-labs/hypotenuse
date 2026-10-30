@@ -4,6 +4,7 @@ import accounts from "./accounts.md?raw";
 import audit from "./audit.md?raw";
 import bots from "./bots.md?raw";
 import cli from "./cli.md?raw";
+import conversations from "./conversations.md?raw";
 import gettingStarted from "./getting-started.md?raw";
 import members from "./members.md?raw";
 import models from "./models.md?raw";
@@ -11,6 +12,7 @@ import organizations from "./organizations.md?raw";
 import projects from "./projects.md?raw";
 import styleGuide from "./style-guide.md?raw";
 import tags from "./tags.md?raw";
+import talkingToABotOverTheApi from "./talking-to-a-bot-over-the-api.md?raw";
 
 /** One page of the public docs. */
 export interface DocsSection {
@@ -38,6 +40,12 @@ export const DOCS_SECTIONS: DocsSection[] = [
   { slug: "tags", title: "Tags", markdown: tags },
   { slug: "models", title: "Models", markdown: models },
   { slug: "bots", title: "Bots", markdown: bots },
+  { slug: "conversations", title: "Conversations", markdown: conversations },
+  {
+    slug: "talking-to-a-bot-over-the-api",
+    title: "Talking to a bot over the API",
+    markdown: talkingToABotOverTheApi,
+  },
   { slug: "audit", title: "Audit log", markdown: audit },
   { slug: "cli", title: "Command line", markdown: cli },
   {

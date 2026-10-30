@@ -42,6 +42,16 @@ export const MAIL_INBOX_PORT = BACKEND_PORT + 1001;
 export const MAIL_INBOX_URL = `http://127.0.0.1:${MAIL_INBOX_PORT}`;
 
 /**
+ * The suite's scripted model, which `scripts/e2e-backend.ts` also starts: the
+ * scripted model server the backend's agent suites use, speaking the
+ * providers' real wire formats, and a control server a spec queues a bot's
+ * answers on (`backend/__tests__/fixtures/model-server-process.ts` lists its
+ * routes). A model connection points at it like any provider.
+ */
+export const MODEL_CONTROL_PORT = BACKEND_PORT + 1002;
+export const MODEL_CONTROL_URL = `http://127.0.0.1:${MODEL_CONTROL_PORT}`;
+
+/**
  * Point a Postgres URL at another database on the same server, keeping its
  * credentials and host.
  * @param url - A `postgres://` URL.
@@ -92,8 +102,12 @@ export const BACKEND_ENV: Record<string, string> = {
   // point one at a closed local port and see the test fail fast and offline.
   // Never set in a deployment: it lifts the SSRF guard.
   NETWORK_ALLOW_PRIVATE_HOSTS: "true",
-  // No clocks or queue workers: nothing a spec checks waits on a task.
-  TASK_PROCESSORS: "0",
+  // One queue worker, so a conversation's ticks run as they do deployed; it
+  // polls often, so a spec does not wait out the default five seconds.
+  TASK_PROCESSORS: "1",
+  TASK_TIMEOUT: "100",
+  // Where the scripted model's control server listens; the backend ignores it.
+  MODEL_SERVER_CONTROL_PORT: String(MODEL_CONTROL_PORT),
   PROCESS_NAME: "hypotenuse-e2e",
   LOG_LEVEL: "warn",
 };

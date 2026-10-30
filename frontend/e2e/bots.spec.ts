@@ -148,3 +148,57 @@ test("a member makes a bot, gives it an avatar and a persona; restricting who ma
 
   await otherContext.close();
 });
+
+test("a writer sets the steps per turn and creates a callback secret that is shown once; replacing it asks first", async ({
+  page,
+}) => {
+  const admin = await signUpApi(page.request, "Budget Admin");
+  await openTenant(page, admin);
+  const { bot } = await api<{ bot: { id: number } }>(
+    page.request,
+    "PUT",
+    `/project/${admin.project.id}/bot`,
+    { name: "Penny", persona: "You are Penny." },
+  );
+  await page.goto(`/bots/${bot.id}`);
+
+  // Steps per turn starts at the default and saves.
+  const steps = page.getByTestId("bot-max-steps");
+  await expect(steps).toHaveValue("50", LANDED);
+  await steps.fill("12");
+  await page.getByTestId("save-bot-budget").click();
+  await expect(page.getByTestId("bot-budget-notice")).toContainText("Saved.");
+  await page.reload();
+  await expect(page.getByTestId("bot-max-steps")).toHaveValue("12", LANDED);
+
+  // The secret is created and shown once, with a copy button.
+  await expect(page.getByTestId("bot-callback-status")).toHaveText(
+    "No secret yet",
+  );
+  await page.getByTestId("bot-callback-rotate").click();
+  const shown = page.getByTestId("bot-callback-secret-value");
+  await expect(shown).not.toBeEmpty();
+  const first = await shown.textContent();
+  await expect(page.getByTestId("bot-callback-secret")).toContainText(
+    "never shown again",
+  );
+  await expect(page.getByTestId("bot-callback-status")).toHaveText(
+    "Secret set",
+  );
+
+  // Replacing asks first; cancelling keeps the one shown.
+  await page.getByTestId("bot-callback-rotate").click();
+  await page.getByTestId("bot-callback-replace-cancel").click();
+  await expect(shown).toHaveText(first ?? "");
+  await page.getByTestId("bot-callback-rotate").click();
+  await page.getByTestId("bot-callback-replace-confirm").click();
+  await expect(shown).not.toHaveText(first ?? "");
+
+  // After a reload it is set, and no longer shown.
+  await page.reload();
+  await expect(page.getByTestId("bot-callback-status")).toHaveText(
+    "Secret set",
+    LANDED,
+  );
+  await expect(page.getByTestId("bot-callback-secret")).toHaveCount(0);
+});

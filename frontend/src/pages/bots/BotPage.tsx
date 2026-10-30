@@ -1,9 +1,11 @@
 import type { BotView } from "@backend/actions/bot/bot-view";
 import type { ActionResponse } from "keryx";
+import { MessagesSquare } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { AccessSection } from "../../components/bots/AccessSection";
 import { BudgetSection } from "../../components/bots/BudgetSection";
+import { CallbackSecretSection } from "../../components/bots/CallbackSecretSection";
 import {
   type Bot,
   type BotStanding,
@@ -20,7 +22,14 @@ import { LoadingLabel } from "../../components/LoadingLabel";
 import { DetailLayout } from "../../components/layouts/DetailLayout";
 import { useAuth } from "../../context/AuthContext";
 import { useMay } from "../../hooks/useMay";
-import { Alert, Avatar, Chip, PropertiesPanel, Property } from "../../ui";
+import {
+  Alert,
+  Avatar,
+  Button,
+  Chip,
+  PropertiesPanel,
+  Property,
+} from "../../ui";
 import { botAvatarSrc } from "../../utils/avatar";
 import { botWriteDenied } from "../../utils/bots";
 import { API_URL, apiFetch } from "../../utils/client";
@@ -36,7 +45,8 @@ type Loaded =
  * `/bots/:botId` — one bot: who it is, which models it uses, who may read
  * and change it, and its budget, each section saving on its own; then the
  * parts of a bot this page does not configure yet, disabled. The properties
- * panel says the same at a glance.
+ * panel says the same at a glance, and the header links to its
+ * conversations.
  *
  * Every control is gated twice, both by the server's word: `can()` on the
  * action, and the bot's own write list, which `bot:view` answers as
@@ -167,15 +177,25 @@ export function BotPage() {
           </span>
         }
         actions={
-          <GatedButton
-            size="sm"
-            variant="outline-danger"
-            deniedReason={deleteDenied}
-            onClick={() => setConfirmDelete(true)}
-            data-testid="delete-bot"
-          >
-            Delete bot
-          </GatedButton>
+          <>
+            <Button
+              onClick={() => navigate(`/bots/${bot.id}/conversations`)}
+              size="sm"
+              variant="secondary"
+              data-testid="bot-conversations"
+            >
+              <MessagesSquare size={14} aria-hidden="true" /> Conversations
+            </Button>
+            <GatedButton
+              size="sm"
+              variant="outline-danger"
+              deniedReason={deleteDenied}
+              onClick={() => setConfirmDelete(true)}
+              data-testid="delete-bot"
+            >
+              Delete bot
+            </GatedButton>
+          </>
         }
         properties={
           <PropertiesPanel data-testid="bot-properties">
@@ -258,6 +278,13 @@ export function BotPage() {
           <ModelSection {...sectionProps} aliases={aliases.data} />
           <AccessSection {...sectionProps} tags={tags} />
           <BudgetSection {...sectionProps} />
+          <CallbackSecretSection
+            {...sectionProps}
+            denied={botWriteDenied(
+              reason("bot:rotate-callback-secret"),
+              standing,
+            )}
+          />
           <UnavailableSections />
         </div>
       </DetailLayout>

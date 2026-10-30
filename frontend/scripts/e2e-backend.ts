@@ -11,6 +11,12 @@
  * as a second process: started by path because the frontend may not import
  * backend code. The backend sends through it, and a spec reads verification
  * links from its inbox.
+ *
+ * And it runs the suite's scripted model, `backend/__tests__/fixtures/model-server-process.ts`,
+ * the same way: a model connection points at it, and a spec queues what a
+ * bot's model answers on its control port. If something already holds that
+ * port — a scripted model left running — the new one exits and that one
+ * serves.
  */
 import { join } from "node:path";
 import { SQL } from "bun";
@@ -52,6 +58,13 @@ const mail = Bun.spawn(["bun", "__tests__/fixtures/mail-catcher.ts"], {
   stderr: "inherit",
 });
 
+const model = Bun.spawn(["bun", "__tests__/fixtures/model-server-process.ts"], {
+  cwd: backendDir,
+  env: process.env,
+  stdout: "inherit",
+  stderr: "inherit",
+});
+
 const server = Bun.spawn(["bun", "keryx.ts", "start"], {
   cwd: backendDir,
   env: process.env,
@@ -61,9 +74,11 @@ const server = Bun.spawn(["bun", "keryx.ts", "start"], {
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, () => {
     mail.kill(signal);
+    model.kill(signal);
     server.kill(signal);
   });
 }
 const code = await server.exited;
 mail.kill();
+model.kill();
 process.exit(code);

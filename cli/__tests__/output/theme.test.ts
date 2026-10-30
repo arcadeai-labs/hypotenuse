@@ -137,6 +137,7 @@ describe("glyphs", () => {
       [{ state: "waiting", waitingOn: "timer" }, "◷"],
       [{ state: "ended", outcome: "complete" }, "✓"],
       [{ state: "ended", outcome: "failed" }, "✕"],
+      [{ state: "ended", outcome: "cancelled" }, "◦"],
     ];
     // The literal list above covers every status the shared table knows.
     expect(statuses.length).toBe(CONVERSATION_STATUS_ORDER.length);

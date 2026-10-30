@@ -43,7 +43,7 @@ export const DESTINATIONS: readonly Destination[] = [
     label: "Conversations",
     Icon: MessagesSquare,
     shortcut: "g c",
-    available: false,
+    available: true,
   },
   {
     id: "bots",

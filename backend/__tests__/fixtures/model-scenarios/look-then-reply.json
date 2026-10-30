@@ -1,0 +1,14 @@
+{
+  "description": "One step that searches the transcript, then one that replies having seen the search's result.",
+  "responses": [
+    {
+      "toolCalls": [
+        { "name": "search_history", "input": { "query": "castle" } }
+      ]
+    },
+    {
+      "toolCalls": [{ "name": "reply_and_wait", "input": { "text": "Done." } }],
+      "expect": { "lastMessageIncludes": "search_history" }
+    }
+  ]
+}

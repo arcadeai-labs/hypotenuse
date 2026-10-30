@@ -131,6 +131,7 @@ describe("botBody", () => {
         model: "reasoning",
         fastModel: "fast",
         budget: "25",
+        maxSteps: "12",
         enable: true,
       }),
     ).toEqual({
@@ -140,6 +141,7 @@ describe("botBody", () => {
       modelAlias: "reasoning",
       fastModelAlias: "fast",
       monthlyBudgetUsd: 25,
+      maxStepsPerTurn: 12,
       enabled: true,
     });
   });

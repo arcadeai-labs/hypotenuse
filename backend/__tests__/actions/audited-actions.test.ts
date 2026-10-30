@@ -38,6 +38,9 @@ const READS = new Set([
   "bot:view",
   "bot:list",
   "bot:avatar",
+  "conversation:list",
+  "conversation:view",
+  "conversation:entries",
 ]);
 
 /**
@@ -56,11 +59,19 @@ const UNAUDITED_WRITERS = new Set([
   "cli-auth:exchange",
   // A per-person reading habit, recorded on the notification itself.
   "notification:mark-read",
+  // The agent loop's machine work: the transcript, the summary it writes,
+  // and the outbox rows are the record.
+  "agent:tick",
+  "conversation:compact",
+  "outbox:deliver",
   // Clocks and sweeps: the clock acting, not a person.
   "notifications:dispatch",
   "notifications:sweep",
   "invites:sweep",
   "audit:sweep",
+  "agents:reap",
+  "agents:wake-due",
+  "outbox:deliver-due",
 ]);
 
 beforeAll(async () => {

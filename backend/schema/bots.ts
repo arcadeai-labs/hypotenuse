@@ -11,6 +11,7 @@ import {
   uniqueIndex,
   varchar,
 } from "drizzle-orm/pg-core";
+import type { EncryptedSecret } from "../ops/CryptoOps";
 import { projects } from "./projects";
 import { users } from "./users";
 
@@ -37,8 +38,13 @@ const bytea = customType<{ data: Buffer; driverData: Buffer }>({
  * - `accessRead` / `accessWrite` are tag-name lists, read only through
  *   `AccessOps` (`canReadBot` / `canWriteBot`).
  * - `helpNotifyTag` null means the project's admins.
- * - `monthlyBudgetUsd` is stored and shown; nothing enforces it yet.
+ * - `monthlyBudgetUsd` stops a bot for the month once the cost its provider
+ *   reports reaches it (`CostOps.budgetExceeded`); unpriced calls count nothing.
  * - `enabled` false means the bot accepts no new conversations.
+ * - `maxStepsPerTurn` bounds one turn of the agent loop: a turn that takes
+ *   more model steps fails, saying how many it took.
+ * - `apiCallbackSecret` signs the API channel's callbacks. Sealed with
+ *   `CryptoOps`, shown once by `bot:rotate-callback-secret`, never serialized.
  */
 export const bots = pgTable(
   "bots",
@@ -68,6 +74,8 @@ export const bots = pgTable(
       scale: 2,
     }),
     enabled: boolean("enabled").notNull().default(true),
+    maxStepsPerTurn: integer("max_steps_per_turn").notNull().default(50),
+    apiCallbackSecret: jsonb("api_callback_secret").$type<EncryptedSecret>(),
     createdByUserId: integer("created_by_user_id").references(() => users.id, {
       onDelete: "set null",
     }),

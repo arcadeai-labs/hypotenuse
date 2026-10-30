@@ -22,7 +22,7 @@ export const WAITING_ON = ["answer", "approval", "sandbox", "timer"] as const;
 export type WaitingOn = (typeof WAITING_ON)[number];
 
 /** How an `ended` conversation ended. */
-export const CONVERSATION_OUTCOMES = ["complete", "failed"] as const;
+export const CONVERSATION_OUTCOMES = ["complete", "failed", "cancelled"] as const;
 export type ConversationOutcome = (typeof CONVERSATION_OUTCOMES)[number];
 
 /** Where a sandbox job is in its life. */
@@ -81,6 +81,8 @@ export const CONVERSATION_STATUS: Record<
   "waiting:timer": { glyph: "waiting-system", label: "Waiting on a timer" },
   "ended:complete": { glyph: "complete", label: "Complete" },
   "ended:failed": { glyph: "failed", label: "Failed" },
+  // A person stopped it: over, but not an error, so it spends no error colour.
+  "ended:cancelled": { glyph: "stale", label: "Cancelled" },
 };
 
 /** The glyph and the words for every sandbox job state. */
@@ -136,6 +138,7 @@ export const CONVERSATION_STATUS_ORDER: readonly ConversationStatusKey[] = [
   "waiting:timer",
   "hibernating",
   "ended:failed",
+  "ended:cancelled",
   "ended:complete",
 ];
 

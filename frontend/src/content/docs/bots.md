@@ -23,7 +23,7 @@ read and change it, and whether you may change it.
 | **Identity** | its name, the display name platforms show, its slug, a one-line description, whether it is enabled, its avatar, and its persona |
 | **Model** | which of the project's model names it uses: its main model and its fast one |
 | **Access** | who may read it, who may change it, and whom it asks for help |
-| **Budget** | a monthly ceiling in US dollars — **not enforced yet** |
+| **Budget** | a monthly ceiling in US dollars, and the most model steps one turn may take |
 
 The page also shows **Channels**, **Tools**, **Skills**, **Prompts**, and **Goals**, each reading *Not available
 yet*. They will hold where the bot listens, what it may call, and how it works between conversations.
@@ -76,5 +76,15 @@ channel has answered. It defaults to the project's admins.
 
 ## Budget
 
-A monthly spending ceiling in US dollars, or none. It is recorded and shown now, labelled **Not enforced yet**:
-nothing stops a bot at its budget until model calls are priced.
+A monthly spending ceiling in US dollars, or none. Once the costs its model provider reports reach it, the bot takes
+no more steps that month: a conversation that would go on fails its turn, saying so. Only a provider that reports a
+price (the Vercel AI Gateway) counts toward it yet; calls to other providers are recorded but not priced.
+
+**Steps per turn** caps how many model steps one [turn](/docs/conversations) may take — 50 unless you change it. A
+turn that reaches it fails, saying how many steps it took, rather than running on.
+
+## Talking to it
+
+Anyone who may read a bot may [talk to it over the API](/docs/talking-to-a-bot-over-the-api), and its page lists its
+[conversations](/docs/conversations). **Callback secret** creates the secret its API callbacks are signed with; it is
+shown once.

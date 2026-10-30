@@ -6,7 +6,7 @@
 > parks the conversation. The first way to talk to a bot is plain HTTP: create a conversation, send it a
 > message, and read the reply, or have the reply posted to a signed callback URL.
 
-> **Status: planned, not built.** Builds on [model providers and bots](./phase-07-model-providers-and-bots.md)
+> **Status: built.** Builds on [model providers and bots](./phase-07-model-providers-and-bots.md)
 > (a bot, its model connection, and its prompt text) and [audit logging](./phase-05-audit-logging.md). Memory,
 > MCP servers, skills, code mode, and chat platforms plug into the tool registry and the inbox this phase
 > defines; they arrive in [09](./phase-09-memory.md) through [16](./phase-16-pylon.md).
@@ -532,18 +532,18 @@ mid-turn (a Render restart) does not lose the turn.
 
 ## Definition of done
 
-- [ ] The six tables are migrated; every timestamp column has a time zone.
-- [ ] `agent:tick` implements the contract in §2, including the yield and nudge-once-then-fail.
-- [ ] Every reachable cell of the state table has its own test.
-- [ ] Replay rules hold under a forced crash between intent and result, for both safe and unsafe tools.
-- [ ] Steer, queue, and cancel work as specified.
-- [ ] Background compaction writes summaries and never deletes entries.
-- [ ] One `cost_records` row per model step.
-- [ ] The API channel's six actions, callback signing, CLI commands, and MCP tools work, and the docs ship.
-- [ ] The scripted model server covers the Anthropic and OpenAI-compatible APIs and is used by every agent
+- [x] The six tables are migrated; every timestamp column has a time zone.
+- [x] `agent:tick` implements the contract in §2, including the yield and nudge-once-then-fail.
+- [x] Every reachable cell of the state table has its own test.
+- [x] Replay rules hold under a forced crash between intent and result, for both safe and unsafe tools.
+- [x] Steer, queue, and cancel work as specified.
+- [x] Background compaction writes summaries and never deletes entries.
+- [x] One `cost_records` row per model step.
+- [x] The API channel's six actions, callback signing, CLI commands, and MCP tools work, and the docs ship.
+- [x] The scripted model server covers the Anthropic and OpenAI-compatible APIs and is used by every agent
       test.
-- [ ] The transcript page is live and checked in light and dark.
-- [ ] `docs/ARCHITECTURE.md` describes the tick as built.
+- [x] The transcript page is live and checked in light and dark.
+- [x] `docs/ARCHITECTURE.md` describes the tick as built.
 
 ## Open questions
 
@@ -555,4 +555,154 @@ mid-turn (a Render restart) does not lose the turn.
 
 ## Learnings from the build
 
-Not built yet.
+### What is built
+
+| Piece | Where |
+|---|---|
+| `conversations`, `conversation_inbox`, `conversation_entries`, `channels`, `outbox_messages`, `cost_records`; `bots.max_steps_per_turn` and `bots.api_callback_secret` (migration `0006`) | `backend/schema/`, `backend/drizzle/0006_*.sql` |
+| The tool contract, the registry, and the six built-in tools | `backend/tools/` |
+| The wake operation, inbound messages, cancel, and the state table | `backend/ops/ConversationOps.ts` |
+| The tick: claim, recover, deliver, step, persist, run, decide, yield | `backend/ops/TickOps.ts` |
+| Append, hydrate, serialize | `backend/ops/TranscriptOps.ts` |
+| The prompt assembler, compaction, the outbox and callback signing, cost rows, the two clocks | `backend/ops/{PromptOps,CompactionOps,OutboxOps,CostOps,AgentClockOps}.ts`, `backend/config/agents.ts` |
+| Actions | `backend/actions/{conversation,agent,outbox}/`, `backend/actions/bot/bot-rotate-callback-secret.ts` |
+| The live transcript channel | `backend/channels/projectConversation.ts` |
+| The scripted model server, streaming, with scenarios | `backend/__tests__/fixtures/model-server.ts`, `fixtures/model-scenarios/` |
+| CLI | `cli/src/commands/conversation.ts`, `bot callback-secret`; 2.2.0 |
+| Dashboard: Conversations (project and per bot), the live transcript page, Budget's steps per turn, the Callback secret card | `frontend/src/pages/bots/{ConversationsPage,ConversationPage}.tsx`, `frontend/src/components/transcript/`, `components/bots/{BudgetSection,CallbackSecretSection}.tsx` |
+| The browser suite's scripted model, as a process with a control port | `backend/__tests__/fixtures/model-server-process.ts`, spawned by `frontend/scripts/e2e-backend.ts` and the illustration script |
+| User docs and illustrations | `frontend/src/content/docs/{conversations,talking-to-a-bot-over-the-api}.md`; `bots.md` and `cli.md` updated; the `conversations`, `conversation`, and `bot` illustrations |
+| Proof | `backend/__tests__/agent/*.test.ts` (tick, nudge, state machine, replay, lease, steer and queue, cancel, compaction, cost, clocks, the OpenAI-compatible API, MCP), `__tests__/actions/conversation.test.ts`, `__tests__/outbox/api-callback.test.ts`, `__tests__/channels/project-conversation.test.ts`, `__tests__/cli/conversation-commands.test.ts`, `frontend/e2e/conversations.spec.ts`, `frontend/src/__tests__/transcript.test.ts` |
+
+### Decisions the plan left open
+
+- **Routes live under the project**, like every other action: `PUT /project/:projectId/bot/:botId/conversation`,
+  `PUT /project/:projectId/conversation/:id/message`, `GET /project/:projectId/conversations`, and so on, so
+  `ProjectMemberMiddleware` scopes them. The plan's `PUT /conversation` would have needed a second tenancy path.
+- **Queues stay as the earlier phases set them**: `ingress`, `outbox`, `agents`, `orchestrator`, `default`. Ticks and
+  compaction run on `agents`, delivery on `outbox`, the clocks on `orchestrator`.
+- **The wake is told its prior state by the row**: a new conversation is inserted `hibernating` at epoch 0 and woken
+  like any other (its `status_change` reads `from: "new"`). From `hibernating` or `ended` a wake starts a turn (epoch
+  + 1, counters reset, outcome cleared); from `waiting` it resumes the same turn. `turnBoundary` records that the next
+  step must deliver every pending inbox row, which is how a resumed wait delivers what it kept.
+- **Every model step writes its assistant `message` entry**, even with empty text: it is the step's record (prompt
+  hash, tokens, duration, model). The transcript page and CLI print nothing for an empty one.
+- **Tools are offered to `streamText` without `execute`**, so the SDK stops at the model's calls and the tick records
+  every intent before it runs anything. `maxRetries: 0`: the tick retries 408, 409, 429, 5xx, and a stream cut short
+  (`AGENT_MODEL_ATTEMPTS`, default 3) and fails the turn on anything else, saying why. A host the SSRF guard refuses
+  is never retried.
+- **A terminal tool's effect is its transaction.** The result, the transition, and the outbound outbox row commit
+  together, so an open terminal intent means nothing was posted. They still declare `replay: "unsafe"`, as the plan
+  says; recovery reports them interrupted and the model decides.
+- **One terminal call per step.** It runs after the step's other calls; a second terminal call in the same step gets
+  a `not_run` error result, so every intent still has a result and hydration stays well formed.
+- **A tool result is matched to its intent by `(stepId, toolCallId)`**, not the call id alone, since a provider may
+  reuse ids across steps.
+- **`ask_question` writes its result at once** (`asked: true`) and parks on `{kind: "answer", questionEntryId,
+  timeoutAt}`; the answer is the next message. A timeout cannot be a late `tool_result` (it would follow a user
+  message, which providers refuse), so `agents:wake-due` delivers a `system` inbox row saying nobody answered. A
+  question asked while a message is already pending is answered at once, in the same tick.
+- **The step limits.** `bots.max_steps_per_turn` (default 50) is editable on `bot:edit`. `maxStepsPerTick` (8) and
+  `tickBudgetMs` (60 s) are deployment settings in `config/agents.ts`, with the lease (90 s), the heartbeat (1 s), and
+  the compaction thresholds.
+- **The heartbeat** re-reads the lease and the cancel flag every `heartbeatMs` while a model call or tool runs, and
+  extends the lease every third of it. Losing the lease or seeing a cancel aborts the tick's `AbortSignal`, which aborts
+  the model's HTTP request (the provider sees the disconnect) and any tool that listens.
+- **Cancel** ends a conversation in the request unless a tick holds a live lease; then it sets
+  `cancelRequestedAt`, wakes, and the holder finalizes. Pending inbox rows are kept: the next message is a new turn.
+- **The context window is one setting** (`AGENT_CONTEXT_WINDOW_TOKENS`, 200,000) until aliases carry their model's
+  window. Compaction cuts just before the newest person's message, never splitting a call from its result, and
+  summarizes nothing when the cut would hold no message — it then forgets the size that asked, so a waiting tick goes
+  on. A queued or running compaction is a Redis key (`hyp:compaction:<id>`, ten-minute expiry).
+- **Titles are never derived from the text**: the audit row keeps only the text's length and sha256, and a title
+  taken from the first line would have put the words in its `after` snapshot. A conversation has a title only when the
+  caller gives one.
+- **The callback secret** is per bot, sealed with `CryptoOps`, and returned once by `bot:rotate-callback-secret`
+  (`callbackSecret` joined `SENSITIVE_KEYS`). It is the receiver's verification key, so returning it once is the
+  design, not an exception to rule 6. A conversation cannot take a `callbackUrl` until its bot has one; the URL must
+  pass the SSRF guard at creation, and delivery goes through `guardedFetch`, so a host refused later is
+  `undeliverable`. A 2xx is `sent`; 408, 429, 5xx, a timeout, or a lost response is retried with back-off for
+  `OUTBOX_RETRY_WINDOW_MS` (a day); any other 4xx gives up.
+- **The budget is enforced against reported cost.** A tick whose bot's `cost_records` this month (UTC) sum to its
+  `monthlyBudgetUsd` fails the turn before stepping. Only the Vercel AI Gateway reports a cost, so for other providers
+  the budget counts nothing yet; pricing is later work.
+- **Reasoning from another provider is dropped** in hydration (the open question's proposal): a `thinking` entry
+  carries its provider and is replayed only to the same one.
+- **`requestId` dedupe never expires** (the open question's proposal). A repeated `conversation:create` still
+  writes an audit row and may enqueue an idle tick; both are harmless.
+- **Talking to a bot is `canReadBot`**, and so is cancelling: anyone who may talk to it may stop it.
+
+### The state table in tests
+
+`state-machine.test.ts` has one test per reachable cell, named `<state> × <event>`. The `waiting (approval / sandbox
+/ timer)` row is proven with the timer, the only wait with a writer yet; its approval and sandbox cells, and the
+`waiting (answer) × waitingOn satisfied` cell (an answer through a platform interaction), wait for their phases.
+
+### The frontend
+
+- **Routes:** `/conversations` (the project's, with state filter chips), `/bots/:botId/conversations` (one bot's, with
+  a composer that starts one), and `/conversations/:conversationId`. The Conversations destination in the sidebar,
+  `g c`, and its palette command are live.
+- **The list is flat and paginated by the server**, newest activity first, not grouped by state as `DESIGN.md`'s
+  list views describe: grouping does not combine with server-side paging. Filter chips stand in until it does.
+- **The transcript draws the bot's words from its terminal calls**: `reply_and_wait`, `complete`, `fail`, and
+  `ask_question` (a question is a card with its options) read as the bot speaking when their result is ok; with an
+  error or an interruption they stay a tool row. Other assistant text is shown as "not posted". Tool calls are
+  collapsed `<details>` rows joining intent and result; an interrupted call carries the stale glyph and a sentence.
+  A compaction is a dashed divider; state changes are small system lines. An untitled conversation is named by its
+  first message's first line on its page and "Conversation #id" in lists.
+- **Live:** `useConversation` subscribes to `project:<id>:conversation:<id>` and re-reads entries `since` the newest
+  seq it holds, on every frame and on reconnect, never two reads at once.
+- **The browser suite runs one real queue worker** (`TASK_PROCESSORS=1`, `TASK_TIMEOUT=100` in `e2e/env.ts`), so a
+  tick is a real `agent:tick` job; its model is `model-server-process.ts`, driven over a control port
+  (`MODEL_SERVER_CONTROL_PORT`). The conversations spec runs serially, since the scripted queue is shared.
+- **The illustration script seeds five conversations** by title (completed, waiting on an answer, waiting on a
+  timer, failed, cancelled), pointing the Anthropic connection at the scripted model only while seeding; it needs the
+  dev backend started with `NETWORK_ALLOW_PRIVATE_HOSTS=true`.
+
+### The CLI
+
+Rule 13 decisions:
+
+| Routed action | Command |
+|---|---|
+| `conversation:create` | `conversation create --bot <id\|slug> --text <text\|->` with `--channel`, `--callback-url`, `--request-id`, `--title`, `--follow` |
+| `conversation:message` | `conversation message <id> --text <text\|->` with `--queue`, `--request-id`, `--follow` |
+| `conversation:list` / `view` / `cancel` | `conversation list` (`--bot`, `--state`, paging) / `view <id>` / `cancel <id>` |
+| `conversation:entries` | `conversation follow <id>` (`--since`, `--interval`), and `--follow` on create and message |
+| `bot:rotate-callback-secret` | `bot callback-secret <bot>`; refuses to replace an existing secret without `--yes`, prints only the secret on stdout |
+
+- Following polls `entries` with `since` and stops once a page is short and the conversation is not `working`; it
+  exits 1 when the conversation ended `failed`.
+- The bot's words are the inputs of its terminal calls, so `reply_and_wait`, `complete`, `fail`, and `ask_question`
+  are printed as its messages; other calls are one dim line each.
+
+### Traps found while building
+
+- **A stream cut mid-body is an `APICallError` with status 200** ("Failed to process successful response"). A
+  retry rule keyed on 5xx alone treated it as permanent; a 2xx with a broken body is now retryable.
+- **`streamText` prints every error by default**, even ones the caller handles from the stream; the tick passes
+  `onError: () => {}` and reads the `error` part itself.
+- **A test that captures `config.*` at module load captures nothing**: config is filled in by `api.start()`. Suites
+  snapshot it in `beforeAll` and restore it after each test.
+- **Ticks a test enqueued outlive it in Redis**: the harness takes a tick for a named conversation off the queue
+  (`startTick(id)`), and suites clear the loop's queues after each test.
+- **Keryx sends its own presence frames** (`join`, `leave`) on every channel; a test that asserts every frame is
+  content-free must skip those.
+- **Bun prints the scripted drop**: `model-server.ts` cuts a stream by erroring its body, which Bun reports on the
+  console. It is the honest way to cut the connection; a clean close of a short stream would prove nothing.
+- **Design outcomes differ from the server's by one word.** `design/states.ts` names `complete`; the server says
+  `completed`. The dashboard and CLI translate that one. `cancelled` joined the design table with the faded `stale`
+  glyph: a person's decision to stop a bot is not an error, so it spends no error colour.
+
+- **A tick that throws something unexpected** gives its lease back and owes a tick, then rethrows into Resque's
+  failed queue; `agents:wake-due` retries it ten seconds later. A bug that throws every time loops at that pace, loudly
+  in the logs, without failing the conversation — a person sees it stuck `working` and can cancel it.
+
+### Not verified here
+
+- No real provider answered a conversation: every agent test runs the real `@ai-sdk/anthropic` and
+  `@ai-sdk/openai-compatible` providers against the scripted server. Staging with a real key, and a Render restart
+  mid-turn, are the plan's verification and have not been run.
+- The gateway's reported cost (`providerMetadata.gateway.cost`) is read but not exercised: the scripted server does
+  not speak the gateway's language-model API.

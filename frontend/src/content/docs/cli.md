@@ -79,6 +79,9 @@ invites), and `audit list`.
 | `hypotenuse model alias list`, `model alias set <name> --connection --model`, `model alias remove <name>` | The model names bots use. `default` and `fast` must both exist before any bot can run, and `list` says which are missing. `set` creates an alias or changes the one of that name; `--max-output-tokens` and `--temperature` tune it. Admins only to change |
 | `hypotenuse bot list`, `bot view <bot>` | The bots you can read, and one bot's settings and persona |
 | `hypotenuse bot create --name --persona-file`, `bot edit <bot>`, `bot delete <bot> --yes` | Make a bot, change it, or delete it. See **Bots from the command line** below |
+| `hypotenuse bot callback-secret <bot>` | Create the secret a bot signs its API callbacks with, and print it once. See **Talking to a bot** below |
+| `hypotenuse conversation create --bot --text`, `conversation message <id> --text` | Start a conversation with a bot, or send one a message. See **Talking to a bot** below |
+| `hypotenuse conversation list`, `conversation view <id>`, `conversation follow <id>`, `conversation cancel <id>` | The conversations with bots you can read (`--bot`, `--state` narrow the list); one conversation's state; its transcript as the bot works; stopping it |
 | `hypotenuse audit list` | The project's [audit log](/docs/audit), newest first, or with `--org` the organization's |
 | `hypotenuse check-update`, `hypotenuse upgrade` | See whether a newer release exists, and install it |
 
@@ -131,10 +134,41 @@ hypotenuse bot edit ada --disable
 - `--avatar-file` takes a square PNG or JPEG of at most 512 KB; `bot edit --no-avatar` removes it.
 - `--model` and `--fast-model` name model aliases (`default` and `fast` unless you say otherwise).
 - `--help-tag <tag>` names who the bot asks for help; `--no-help-tag` goes back to the project's admins.
-- `--budget <usd>` records a monthly budget, which is shown but not enforced yet; `--no-budget` clears it.
+- `--budget <usd>` records a monthly budget, which stops the bot once the cost its provider reports reaches it; `--no-budget` clears it.
+- `--max-steps <n>` caps the model steps one turn may take (1–500, default 50).
 - `--enable` and `--disable` decide whether the bot accepts new conversations.
 
 `bot edit` changes only what its flags name.
+
+### Talking to a bot
+
+A conversation started from the command line lives in the bot's API channel. Start one, and follow the bot as it
+works:
+
+```bash
+hypotenuse conversation create --bot ada --text "Why did invoice 1042 go out twice?" --follow
+hypotenuse conversation message 12 --text "It was the March run" --follow
+git diff | hypotenuse conversation create --bot ada --text - --title "Review this diff"
+```
+
+- `--follow` (or `conversation follow <id>` later) prints the transcript — what you and the bot said, one line per
+  tool call, and each change of state — and keeps polling until the bot stops working. Then it prints where the
+  conversation rests: hibernating until someone writes, waiting for an answer, or ended. It exits non-zero when the
+  conversation failed. `follow --since <seq>` skips what you have read.
+- `--text -` reads the message from standard input.
+- `--channel <key>` picks one of the bot's API channels; a channel is the boundary of what the bot remembers, and the
+  default is `default`.
+- `--request-id <id>` makes a retry safe: the same id again returns the first result instead of acting twice.
+- `message --queue` holds the message until the bot finishes its current turn; without it the bot sees the message
+  before its next step.
+- `conversation cancel <id>` stops the bot and ends the conversation as cancelled; writing to it again starts a new
+  turn.
+- `--callback-url <url>` has each of the bot's messages POSTed to that URL, signed with the bot's callback secret.
+  `hypotenuse bot callback-secret ada > ada-callback.secret` creates the secret (it needs write access to the bot)
+  and prints it once — it is never shown again. Replacing an existing secret needs `--yes`, and callbacks signed with
+  the old one stop at once.
+
+Anyone who can read a bot can talk to it, and see and cancel its conversations.
 
 ## Scripting
 

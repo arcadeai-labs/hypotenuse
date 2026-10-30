@@ -57,6 +57,8 @@ export const SENSITIVE_KEYS = [
   "runToken",
   "tokenHash",
   "continuationSecret",
+  // the API channel's callback signing secret
+  "callbackSecret",
   // MCP server and telemetry exporter headers, where credentials hide
   "headers",
   "authorization",

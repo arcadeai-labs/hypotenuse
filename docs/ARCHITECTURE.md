@@ -119,30 +119,41 @@ typed can never reach a private address, even by DNS rebinding.
 
 ## The agent loop
 
-A conversation's state is a row, and every step is a task:
+Built. A conversation's state is a row, and every step is a task. The rows are the orchestration state; every queued
+job is an accelerant that a clock can replace.
 
 | State | Means | Leaves it when |
 |---|---|---|
-| `working` | a tick is queued or running | the tick parks it, or ends it |
-| `hibernating` | at rest, waiting for anyone to say something | an inbound message arrives |
-| `waiting` | parked on a typed `waitingOn`: an `answer`, an `approval`, a `sandbox`, or a `timer` | that thing resolves, a person intervenes, or it times out |
-| `ended` | finished; nothing re-engages it | a new conversation is started |
+| `working` | a tick holds the lease, or one is owed (`wakeRequestedAt`) | a terminal tool parks, rests, or ends it; a cancel ends it |
+| `hibernating` | at rest after answering | an inbound message wakes it for a new turn |
+| `waiting` | parked on a typed `waitingOn`: an `answer` (with an optional timeout) or a `timer`; `approval` and `sandbox` are reserved for the approval gate and sandbox jobs | the answer arrives (the next message), the timer or timeout is due, or it is cancelled |
+| `ended` | closed with an outcome: `completed`, `failed`, or `cancelled` | an inbound message starts a new turn |
 
-One `agent:tick`:
+Every move into `working` goes through one operation, `ConversationOps.wake` (bot `FOR SHARE`, then conversation
+`FOR UPDATE`), and enqueues `agent:tick` after commit. One tick (`ops/TickOps.ts`):
 
-1. **Lease** the conversation (`FOR UPDATE SKIP LOCKED`); only one tick per conversation runs at a time.
-2. **Hydrate** the full model context from `conversation_entries` — messages, tool calls, and results — plus the
-   bot's rendered prompt sections and any newly delivered inbox messages.
-3. **Step** the model once through the AI SDK.
-4. **Write each tool call's intent**, then run the calls (independent ones in parallel), then write the results.
-5. **Continue or park.** More work enqueues the next tick; a terminal tool (`reply_and_wait`, `complete`, `fail`,
-   `wait_for`) parks or ends the conversation. A model that stops without one is nudged once, then the turn fails.
-6. **Notify** through the outbox after commit — streamed text, status, plan steps, the reply.
+1. **Claim** the lease with one conditional `UPDATE` (`working`, no live lease); a duplicate job costs that query.
+2. **Recover**: an intent with no result from an earlier lease re-runs if its tool is `replay: "safe"`, and is
+   otherwise settled as an `interrupted` error the model reads.
+3. **Deliver the inbox**: at a turn boundary every pending row, between steps only `steer` rows.
+4. **Assemble** the system prompt from the bot (`PromptOps`), recording a `context_update` when its hash changes, and
+   **hydrate** every message, reasoning part, tool call, and result from `conversation_entries` (a `compaction` stands
+   in for what it summarized).
+5. **Step** the model once with `streamText`, tools offered without `execute`; text deltas ping the transcript page.
+   A 429, 5xx, or cut stream is retried; nothing is stored for a lost attempt.
+6. **Persist** the step's entries, one `tool_call_intent` per call, and its `cost_records` row in one transaction —
+   before any tool runs — then **run the calls**, each result written as it settles.
+7. **Decide**: a terminal tool (`reply_and_wait`, `complete`, `fail`, `wait_for`, `ask_question`) applies its
+   transition and its outbound message in the same transaction as its result; other tools loop to the next step; text
+   alone is nudged once and then fails the turn. After 8 steps or 60 s the tick yields its worker and owes another.
 
-Recovery is the same mechanism: an intent with no result was interrupted, and re-runs only if its tool is
-replay-safe. Inbound deliveries are idempotent on the platform's id. `agents:reap` takes back expired leases;
-`agents:wake-due` fires timers. Compaction runs in the background and never deletes an entry; `search_history`
-reaches what fell out of the window.
+Every write re-checks the lease under the row lock, and a heartbeat re-reads it and the cancel flag while a model call
+or tool runs, so a stolen lease or a cancel aborts the step. `agents:reap` re-wakes conversations whose lease expired;
+`agents:wake-due` re-enqueues owed ticks, fires timers, and times out questions. When a prompt nears the window,
+`conversation:compact` summarizes the earlier turns with the bot's `fast` model; nothing is deleted, and
+`search_history` reaches every entry. The first channel is the **HTTP API**: `conversation:create` / `message` /
+`list` / `view` / `entries` / `cancel`, with replies optionally `POST`ed to a callback URL, HMAC-signed with the bot's
+callback secret, by `outbox:deliver` (and `outbox:deliver-due`).
 
 ## Memory
 
@@ -186,7 +197,7 @@ repository-scoped installation token minted per command; the pull request goes b
 | Process | Runs |
 |---|---|
 | api | HTTP and WebSocket actions, MCP for people (OAuth 2.1), platform webhooks; migrations, once per deploy, in its pre-deploy (`scripts/migrate.ts`) |
-| worker | task queues — ingress processing, `agent:tick`, outbox delivery, sandbox provisioning, and the clocks |
+| worker | task queues, drained in order: `ingress`, `outbox` (`outbox:deliver`), `agents` (`agent:tick`, `conversation:compact`), `orchestrator` (the clocks), `default` |
 
 Postgres is the source of truth. Redis holds sessions, rate limits, leases, the task queues, and pub/sub;
 WebSocket frames carry no content, and a dashboard re-reads over HTTP.

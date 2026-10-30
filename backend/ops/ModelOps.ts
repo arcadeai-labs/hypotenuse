@@ -452,6 +452,12 @@ export interface ResolvedLanguageModel {
   model: LanguageModelV4;
   options: ModelAliasOptions;
   alias: string;
+  /** The connection the alias points at, for cost attribution. */
+  connectionId: number;
+  /** The connection's provider kind. */
+  provider: string;
+  /** The provider's model id. */
+  modelId: string;
 }
 
 /**
@@ -494,6 +500,9 @@ export async function languageModel(
     model: provider.languageModel(row.alias.modelId),
     options: row.alias.options as ModelAliasOptions,
     alias,
+    connectionId: row.connection.id,
+    provider: row.connection.provider,
+    modelId: row.alias.modelId,
   };
 }
 
