@@ -9,7 +9,7 @@ import {
 import { api, config } from "keryx";
 import { clearLoopQueues, MODEL_KEY } from "../agent/harness";
 import { FIXED_DIMENSION_MODEL } from "../fixtures/model-server";
-import { call, HOOK_TIMEOUT } from "../setup";
+import { call, HOOK_TIMEOUT, runAction } from "../setup";
 import {
   buildMemoryStage,
   clearMemory,
@@ -236,4 +236,29 @@ describe("staleness and reindexing", () => {
     );
     expect(fresh.body.hits[0].semanticRank).toBe(1);
   });
+});
+
+describe("a failed embed run", () => {
+  test("is retried by the project's hourly decay run", async () => {
+    // The alias the suite above left pointing at a working model.
+    expect((await indexState()).embeddingModel).toBe("scripted-embed");
+    await clearLoopQueues();
+    await forgetEmbedMarks();
+    await writeMemory(stage, {
+      scope: "project",
+      path: "facts/well.md",
+      content: "The castle well is forty feet deep.",
+    });
+    // The write's run fails at the model (the SDK retries twice) and is not
+    // rescheduled by itself.
+    stage.models.failEmbeddings(3);
+    await expect(runMemoryJobs()).rejects.toThrow();
+    expect(await runMemoryJobs()).toEqual([]);
+    expect((await indexState()).staleChunks).toBe(1);
+
+    await runAction("memory:decay");
+    await runMemoryJobs("memory:decay-project");
+    expect(await runMemoryJobs()).toEqual(["memory:embed"]);
+    expect((await indexState()).staleChunks).toBe(0);
+  }, 30_000);
 });

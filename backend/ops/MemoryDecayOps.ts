@@ -4,7 +4,7 @@ import { api, config } from "keryx";
 import type {} from "../config/memory";
 import { bots } from "../schema/bots";
 import { memoryDocuments } from "../schema/memory_documents";
-import { lockDocument, writeVersion } from "./MemoryOps";
+import { enqueueEmbed, lockDocument, writeVersion } from "./MemoryOps";
 
 /**
  * **The decay clock's work.** Ranking already weighs every memory by how
@@ -17,6 +17,7 @@ import { lockDocument, writeVersion } from "./MemoryOps";
  * | project, any | nothing — a person forgets project memory |
  * | any non-current version older than the retention window, not cited by a promotion | deleted, with its chunks |
  * | any current version | never deleted |
+ * | chunks without a current vector | `memory:embed` enqueued, retrying a run that failed |
  *
  * A machine writer on the closed unaudited list: its record is the
  * tombstone's `changeNote` and `sourceType = "decay"`.
@@ -124,5 +125,8 @@ export async function decayProject(projectId: number): Promise<DecayResult> {
     )
     .returning({ id: memoryDocuments.id });
 
+  // The hourly retry for embedding: a failed `memory:embed` run is not
+  // rescheduled by itself, and one with nothing stale returns at once.
+  await enqueueEmbed(projectId);
   return { faded: tombstoned, pruned: pruned.length };
 }

@@ -681,8 +681,9 @@ const EMBED_PENDING_TTL_SECONDS = 300;
 
 /**
  * Queue `memory:embed` for a project unless one is already queued or
- * running. Never throws: a write has committed, and a lost enqueue is found
- * by the next write, the next reindex, or the decay clock.
+ * running. Never throws: a write has committed, and a lost or failed run is
+ * retried by the next write, the next reindex, or the project's hourly decay
+ * run, which enqueues one.
  * @param projectId - The project.
  */
 export async function enqueueEmbed(projectId: number): Promise<void> {

@@ -210,6 +210,45 @@ describe("consolidation", () => {
     );
   });
 
+  test("a blank fact does not overwrite the fact it supersedes", async () => {
+    const id = await converse("ops", "Hmm, never mind about deploys.");
+    const channelId = await channelOf(id);
+    await writeMemory(stage, {
+      scope: "channel",
+      botId: stage.botId,
+      channelId,
+      path: "facts/deploy-day.md",
+      content: "Deploys happen on Tuesdays.",
+    });
+    stage.models.play([
+      factsAnswer([
+        {
+          path: "facts/deploy-day.md",
+          statement: "   ",
+          evidenceSeqs: [2],
+          supersedes: "facts/deploy-day.md",
+        },
+      ]),
+    ]);
+    await runMemoryJobs("memory:consolidate");
+    const history = await getMemory<Versions>(
+      stage,
+      "memory/document/versions",
+      {
+        scope: "channel",
+        botId: stage.botId,
+        channelId,
+        path: "facts/deploy-day.md",
+      },
+    );
+    expect(history.body.versions.map((v) => v.content)).toEqual([
+      "Deploys happen on Tuesdays.",
+    ]);
+    // The conversation is still marked read: the answer was taken, and empty.
+    const row = await conversationRow(id);
+    expect(row.memoryConsolidatedSeq).toBe(row.lastSeq);
+  });
+
   test("a conversation with too little new is not consolidated", async () => {
     const id = await converse("ops", "Hello.");
     stage.models.play([factsAnswer([])]);

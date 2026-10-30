@@ -238,6 +238,9 @@ export async function consolidateConversation(
       return false;
     }
     for (const fact of output.facts) {
+      // A blank statement would replace the fact it supersedes with nothing.
+      const statement = fact.statement.trim();
+      if (statement === "") continue;
       const target =
         (fact.supersedes ? factPath(fact.supersedes) : null) ??
         factPath(fact.path);
@@ -246,7 +249,7 @@ export async function consolidateConversation(
         .filter((s) => validSeqs.has(s))
         .sort((a, b) => a - b);
       await writeVersion(tx, keyIn(readSet, "channel", target), {
-        content: fact.statement.trim(),
+        content: statement,
         changeNote: fact.supersedes
           ? `Updated from conversation ${conversationId}`
           : `Learned in conversation ${conversationId}`,

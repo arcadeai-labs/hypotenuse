@@ -481,6 +481,10 @@ memory; with both, on that bot's memory of that channel; one alone is refused be
   reason: a fade that row-locked first and then wanted the advisory lock would deadlock against a pin.
 - **The per-document cap applies to short lists too.** Membot's `diversify` returned a list no longer than `limit`
   untouched, so one document's extra chunks stayed ahead of other documents; it now always reorders.
+- **A failed `memory:embed` run is not rescheduled by itself**: it lands in Resque's failed queue. Each project's
+  hourly `memory:decay-project` run enqueues one, which returns at once when nothing is stale, so a provider outage
+  costs at most an hour of keyword-only search after it ends. `embedding-revision.test.ts` proves the retry.
+- **The model may return a blank fact.** Consolidation skips one rather than writing it over the fact it supersedes.
 - **The embed queue's Redis mark outlives a lost job** for its five-minute expiry, during which a new enqueue is
   skipped. Suites that drop queued jobs drop the marks too (`forgetEmbedMarks`).
 - **Structured output from an unknown Anthropic model id** arrives as a call of a tool named `json` (the SDK's
