@@ -14,14 +14,21 @@ import { bodyText, parseArgSpec } from "../src/input";
 
 describe("parseArgSpec", () => {
   test("name, name! (required), and name=default", () => {
-    expect(parseArgSpec("audience")).toEqual({ name: "audience", required: false });
+    expect(parseArgSpec("audience")).toEqual({
+      name: "audience",
+      required: false,
+    });
     expect(parseArgSpec("since!")).toEqual({ name: "since", required: true });
     expect(parseArgSpec("audience=the whole team")).toEqual({
       name: "audience",
       required: false,
       default: "the whole team",
     });
-    expect(parseArgSpec("x=")).toEqual({ name: "x", required: false, default: "" });
+    expect(parseArgSpec("x=")).toEqual({
+      name: "x",
+      required: false,
+      default: "",
+    });
   });
 
   test("refuses a bad name, and a required argument with a default", () => {
@@ -38,16 +45,18 @@ describe("bodyText", () => {
     expect(await bodyText({ body: "Inline." })).toBe("Inline.");
     expect(await bodyText({ bodyFile: file })).toBe("From a file.");
     expect(await bodyText({})).toBeUndefined();
-    await expect(bodyText({ body: "a", bodyFile: file })).rejects.toThrow("not both");
+    await expect(bodyText({ body: "a", bodyFile: file })).rejects.toThrow(
+      "not both",
+    );
   });
 });
 
 describe("rendering", () => {
   test("loading, review intervals, and arguments read as a person would say them", () => {
     expect(loadingText({ loading: "always", keywords: [] })).toBe("always");
-    expect(loadingText({ loading: "contextual", keywords: ["deploy", "ship"] })).toBe(
-      "contextual (deploy, ship)",
-    );
+    expect(
+      loadingText({ loading: "contextual", keywords: ["deploy", "ship"] }),
+    ).toBe("contextual (deploy, ship)");
     expect(loadingText({ loading: "contextual", keywords: [] })).toBe(
       "contextual (title words)",
     );
@@ -69,8 +78,28 @@ describe("rendering", () => {
       {
         system: "You are Ada.",
         hash: "ab12",
-        sections: [{ id: 1, key: "identity", title: "Identity", scope: "bot", loading: "always", version: 3, estimatedTokens: 4 }],
-        dropped: [{ id: 2, key: "deploys", title: "Deploys", scope: "bot", loading: "contextual", version: 1, estimatedTokens: 900 }],
+        sections: [
+          {
+            id: 1,
+            key: "identity",
+            title: "Identity",
+            scope: "bot",
+            loading: "always",
+            version: 3,
+            estimatedTokens: 4,
+          },
+        ],
+        dropped: [
+          {
+            id: 2,
+            key: "deploys",
+            title: "Deploys",
+            scope: "bot",
+            loading: "contextual",
+            version: 1,
+            estimatedTokens: 900,
+          },
+        ],
         contextTerms: ["deploy"],
         estimatedTokens: 1_200,
         budgetTokens: 1_000,
