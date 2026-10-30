@@ -1,5 +1,5 @@
 import { eq, sql } from "drizzle-orm";
-import { type ActionParams, HTTP_METHOD } from "keryx";
+import { type ActionParams, ErrorType, HTTP_METHOD, TypedError } from "keryx";
 import { z } from "zod";
 import {
   AuditedAction,
@@ -26,6 +26,7 @@ import {
   mcpTimeoutInput,
   oauthClientIdInput,
   oauthClientSecretInput,
+  openCredentials,
   sealCredentials,
   sealJson,
   serializeMcpServer,
@@ -131,6 +132,25 @@ export class McpServerEdit extends AuditedAction {
     if (authMode !== "oauth" && modeChanged) {
       set.oauthTokens = null;
       set.oauthClient = null;
+    }
+    // A secret alone rotates the stored client's secret: its id, endpoints,
+    // and the sign-in stand, and the next token request uses the new one.
+    if (params.clientSecret !== undefined && params.clientId === undefined) {
+      const stored = openCredentials(before).oauthClient;
+      if (authMode !== "oauth" || modeChanged || urlChanged || !stored) {
+        throw new TypedError({
+          message:
+            authMode !== "oauth"
+              ? "clientSecret belongs to an OAuth server."
+              : "There is no OAuth client to give this secret to; send clientId with it.",
+          type: ErrorType.CONNECTION_ACTION_PARAM_VALIDATION,
+          key: "clientSecret",
+        });
+      }
+      set.oauthClient = sealJson({
+        ...stored,
+        clientSecret: params.clientSecret,
+      });
     }
     if (reconnect) {
       set.credentialVersion = sql`${mcpServers.credentialVersion} + 1` as never;

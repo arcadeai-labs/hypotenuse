@@ -9,6 +9,7 @@ import {
 import { eq } from "drizzle-orm";
 import { api, config } from "keryx";
 import { pooledKeys } from "../../ops/McpClientOps";
+import { openCredentials } from "../../ops/McpServerOps";
 import { auditLogs } from "../../schema/audit_logs";
 import { botMcpServers } from "../../schema/bot_mcp_servers";
 import { mcpServers } from "../../schema/mcp_servers";
@@ -223,6 +224,45 @@ describe("auth modes", () => {
       .where(eq(mcpServers.id, server.id));
     expect(row.credentialVersion).toBe(3);
     expect(JSON.stringify(row)).not.toContain("at-");
+  });
+
+  test("a client secret sent alone rotates the stored client's secret and keeps the sign-in", async () => {
+    stage.fixture.setAuth({ mode: "oauth" });
+    const server = await addServer(stage, {
+      name: "secretive",
+      authMode: "oauth",
+      clientId: "given-client",
+      clientSecret: "old-client-secret",
+    });
+    const rotated = await call<{ mcpServer: { status: string } }>(
+      stage.u.url,
+      stage.u.peach,
+      "POST",
+      `/project/${stage.u.projectId}/mcp-server/${server.id}`,
+      { clientSecret: "new-client-secret" },
+    );
+    expect(rotated.status).toBe(200);
+    const [row] = await api.db.db
+      .select()
+      .from(mcpServers)
+      .where(eq(mcpServers.id, server.id));
+    expect(openCredentials(row).oauthClient).toMatchObject({
+      clientId: "given-client",
+      clientSecret: "new-client-secret",
+    });
+    expect(JSON.stringify(rotated.body)).not.toContain("client-secret");
+
+    stage.fixture.setAuth({ mode: "none" });
+    const plain = await addServer(stage, { name: "plain" });
+    const refused = await call<{ error: { key?: string } }>(
+      stage.u.url,
+      stage.u.peach,
+      "POST",
+      `/project/${stage.u.projectId}/mcp-server/${plain.id}`,
+      { clientSecret: "nowhere-to-go" },
+    );
+    expect(refused.status).toBe(406);
+    expect(refused.body.error.key).toBe("clientSecret");
   });
 
   test("oauth-start and the callback are never MCP tools", () => {
