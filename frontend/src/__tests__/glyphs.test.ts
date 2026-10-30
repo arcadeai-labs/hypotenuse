@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
+  CONVERSATION_OUTCOMES,
   CONVERSATION_STATES,
   CONVERSATION_STATUS,
   type ConversationStatus,
@@ -53,10 +54,7 @@ const EVERY_STATUS: ConversationStatus[] = CONVERSATION_STATES.flatMap(
     if (state === "waiting")
       return WAITING_ON.map((waitingOn) => ({ state, waitingOn }));
     if (state === "ended")
-      return [
-        { state, outcome: "complete" },
-        { state, outcome: "failed" },
-      ];
+      return CONVERSATION_OUTCOMES.map((outcome) => ({ state, outcome }));
     return [{ state }];
   },
 );
@@ -82,6 +80,7 @@ describe("conversation status glyphs", () => {
       "waiting:timer": ["waiting-system", "status-pending", "◷"],
       "ended:complete": ["complete", "status-complete", "✓"],
       "ended:failed": ["failed", "status-error", "✕"],
+      "ended:cancelled": ["stale", "status-stale", "◦"],
     });
     expect(Object.keys(actual).sort()).toEqual(
       Object.keys(CONVERSATION_STATUS).sort(),

@@ -18,6 +18,8 @@ import { AccountPage } from "./pages/AccountPage";
 import { AuditLogPage } from "./pages/AuditLogPage";
 import { BotPage } from "./pages/bots/BotPage";
 import { BotsPage } from "./pages/bots/BotsPage";
+import { ConversationPage } from "./pages/bots/ConversationPage";
+import { ConversationsPage } from "./pages/bots/ConversationsPage";
 import { NewBotPage } from "./pages/bots/NewBotPage";
 import { CliActivatePage } from "./pages/cli/CliActivatePage";
 import { CliAuthorizePage } from "./pages/cli/CliAuthorizePage";
@@ -90,6 +92,18 @@ export function App() {
                   <Route path="/bots" element={<BotsPage />} />
                   <Route path="/bots/new" element={<NewBotPage />} />
                   <Route path="/bots/:botId" element={<BotPage />} />
+                  <Route
+                    path="/bots/:botId/conversations"
+                    element={<ConversationsPage />}
+                  />
+                  <Route
+                    path="/conversations"
+                    element={<ConversationsPage />}
+                  />
+                  <Route
+                    path="/conversations/:conversationId"
+                    element={<ConversationPage />}
+                  />
                   <Route path="/projects/new" element={<NewProjectPage />} />
                   <Route
                     path="/organizations/new"

@@ -134,6 +134,7 @@ error in both.
 | conversation `waiting` on `sandbox` / `timer` | ring with a small clock tick | `◷` | `--status-pending` |
 | conversation `ended` (complete) | filled disc with a check | `✓` | `--status-complete` |
 | conversation `ended` (failed) | filled disc with a cross | `✕` | `--status-error` |
+| conversation `ended` (cancelled) | dashed ring, faded — a person stopped it, which is not an error | `◦` | `--status-stale` |
 | sandbox job `provisioning` | dotted ring | `◌` | `--status-pending` |
 | sandbox job `running` | as `working` | `◔` | `--status-active` |
 | sandbox job `complete` / `failed` | as `ended` | `✓` / `✕` | `--status-complete` / `--status-error` |

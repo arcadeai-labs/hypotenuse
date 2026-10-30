@@ -15,6 +15,7 @@ import {
   withPaging,
 } from "../context";
 import { encodeAvatar, parseList, parseNumber, readFileFor } from "../input";
+import { logger } from "../output/logger";
 import { table } from "../output/theme";
 
 /** A bot as the bot actions answer it. */
@@ -32,7 +33,9 @@ interface Bot {
   accessWrite: string[];
   helpNotifyTag: string | null;
   monthlyBudgetUsd: number | null;
+  maxStepsPerTurn?: number;
   enabled: boolean;
+  hasCallbackSecret?: boolean;
   createdAt: number;
   updatedAt: number;
   standing?: { canWrite: boolean };
@@ -56,6 +59,8 @@ export interface BotFlags {
   helpTag?: string | false;
   /** Dollars, or `false` from `--no-budget`. */
   budget?: string | false;
+  /** The most model steps one turn may take. */
+  maxSteps?: string;
   enable?: boolean;
   disable?: boolean;
 }
@@ -101,9 +106,13 @@ function withBotFlags(command: Command): Command {
     .option("--no-help-tag", "ask the project's admins for help")
     .option(
       "--budget <usd>",
-      "a monthly budget in US dollars (stored, not enforced yet)",
+      "a monthly budget in US dollars; reported model costs stop the bot at it",
     )
     .option("--no-budget", "no monthly budget")
+    .option(
+      "--max-steps <n>",
+      "the most model steps one turn may take (1-500, default 50)",
+    )
     .option("--enable", "accept new conversations")
     .option("--disable", "accept no new conversations");
 }
@@ -148,6 +157,9 @@ export function botBody(flags: BotFlags): Record<string, unknown> {
   else if (flags.budget !== undefined) {
     body.monthlyBudgetUsd = parseNumber(flags.budget, "--budget");
   }
+  if (flags.maxSteps !== undefined) {
+    body.maxStepsPerTurn = parseNumber(flags.maxSteps, "--max-steps");
+  }
   if (flags.enable) body.enabled = true;
   if (flags.disable) body.enabled = false;
   return body;
@@ -179,7 +191,9 @@ function botDetail(bot: Bot, canWrite: boolean): string {
     `read          ${accessText(bot.accessRead)}`,
     `write         ${accessText(bot.accessWrite)}`,
     `help          ${bot.helpNotifyTag ?? "the admins"}`,
-    `budget        ${bot.monthlyBudgetUsd == null ? "-" : `$${bot.monthlyBudgetUsd}/month (not enforced yet)`}`,
+    `budget        ${bot.monthlyBudgetUsd == null ? "-" : `$${bot.monthlyBudgetUsd}/month`}`,
+    `steps/turn    ${bot.maxStepsPerTurn ?? 50}`,
+    `callbacks     ${bot.hasCallbackSecret ? "signed (secret set)" : "no secret yet"}`,
     `avatar        ${bot.avatarUrl ? "yes" : "-"}`,
     `you can       ${canWrite ? "read and change it" : "read it"}`,
     `created       ${when(bot.createdAt)}`,
@@ -189,7 +203,7 @@ function botDetail(bot: Bot, canWrite: boolean): string {
 }
 
 /**
- * Register `bot list|view|create|edit|delete`.
+ * Register `bot list|view|create|edit|delete|callback-secret`.
  * @param program - The root program.
  */
 export function registerBotCommands(program: Command): void {
@@ -329,6 +343,44 @@ export function registerBotCommands(program: Command): void {
           `/project/${projectId}/bot/${botId}`,
         );
         emit(ctx, result, () => `Deleted ${result.bot.name}`);
+      });
+    });
+
+  bot
+    .command("callback-secret")
+    .description(
+      "Create or replace the secret a bot signs its API callbacks with, and print it once",
+    )
+    .argument("<bot>", "id or slug")
+    .option(
+      "--yes",
+      "confirm replacing an existing secret; required, because callbacks signed with it stop at once",
+    )
+    .action(async function (this: Command, selector: string) {
+      await runCommand(this, async (ctx) => {
+        const client = ctx.signedInClient();
+        const projectId = await ctx.projectId();
+        const botId = await resolveBotId(client, projectId, selector);
+        const current = await client.request<{ bot: Bot }>(
+          "GET",
+          `/project/${projectId}/bot/${botId}`,
+        );
+        if (current.bot.hasCallbackSecret) {
+          requireYes(
+            this,
+            `${current.bot.name} already has a callback secret, and a new one stops callbacks signed with the old one at once. Re-run with --yes to replace it.`,
+          );
+        }
+        const result = await client.request<{
+          bot: Bot;
+          standing: { canWrite: boolean };
+          callbackSecret: string;
+        }>("POST", `/project/${projectId}/bot/${botId}/callback-secret`);
+        // The secret alone on stdout, so it can be redirected into a file.
+        emit(ctx, result, () => result.callbackSecret);
+        logger.tell(
+          `This is ${result.bot.name}'s callback secret. Store it now: it is never shown again.`,
+        );
       });
     });
 }

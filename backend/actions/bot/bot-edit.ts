@@ -28,6 +28,7 @@ import {
   decodeAvatar,
   helpNotifyTagInput,
   loadReadableBot,
+  maxStepsPerTurnInput,
   monthlyBudgetInput,
   serializeBot,
   summarizeAvatar,
@@ -60,6 +61,7 @@ export class BotEdit extends AuditedAction {
     accessWrite: accessListSchema.optional(),
     helpNotifyTag: helpNotifyTagInput.optional(),
     monthlyBudgetUsd: monthlyBudgetInput.optional(),
+    maxStepsPerTurn: maxStepsPerTurnInput.optional(),
     enabled: z
       .boolean()
       .optional()
@@ -135,6 +137,7 @@ export class BotEdit extends AuditedAction {
       "accessWrite",
       "helpNotifyTag",
       "enabled",
+      "maxStepsPerTurn",
     ] as const) {
       if (params[key] !== undefined) {
         (changes as Record<string, unknown>)[key] = params[key];

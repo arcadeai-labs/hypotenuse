@@ -103,6 +103,8 @@ export function serializeBot(bot: Bot) {
     monthlyBudgetUsd:
       bot.monthlyBudgetUsd === null ? null : Number(bot.monthlyBudgetUsd),
     enabled: bot.enabled,
+    maxStepsPerTurn: bot.maxStepsPerTurn,
+    hasCallbackSecret: bot.apiCallbackSecret !== null,
     createdByUserId: bot.createdByUserId,
     createdAt: bot.createdAt.getTime(),
     updatedAt: bot.updatedAt.getTime(),
@@ -490,7 +492,17 @@ export const monthlyBudgetInput = z
   .max(99_999_999.99)
   .nullable()
   .describe(
-    "A monthly spending ceiling in US dollars, or null for none. Not enforced yet",
+    "A monthly spending ceiling in US dollars, or null for none. Once the costs a provider reports reach it, the bot takes no more steps that month; costs a provider does not report are not counted yet",
+  );
+
+/** The Zod input for the most model steps one turn may take. */
+export const maxStepsPerTurnInput = z
+  .number()
+  .int()
+  .min(1)
+  .max(500)
+  .describe(
+    "The most model steps one turn may take before it fails (default 50)",
   );
 
 /** The Zod input for an avatar. */

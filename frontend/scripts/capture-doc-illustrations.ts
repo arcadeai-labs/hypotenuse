@@ -10,17 +10,29 @@
  * Platform — which {@link seed} creates over the API the first time and finds
  * again after that, so a rerun draws the same picture.
  *
+ * The conversation illustrations need real transcripts, so the first run has
+ * the bots talk to the scripted model server the browser suite uses
+ * (`backend/__tests__/fixtures/model-server-process.ts`, started here by path
+ * unless one already answers on `MODEL_SERVER_CONTROL_PORT`). Its address is
+ * loopback, so that run needs the backend started with
+ * `NETWORK_ALLOW_PRIVATE_HOSTS=true` (`NETWORK_ALLOW_PRIVATE_HOSTS=true bun dev`).
+ * The Anthropic connection points at it only while the conversations are
+ * made, and is put back after.
+ *
  *   cd frontend && bun run docs:illustrations
  */
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { type APIRequestContext, chromium } from "@playwright/test";
+import type { Subprocess } from "bun";
 
 /** What {@link seed} made, for a route that names a row by its id. */
 interface Seeded {
   organizationId: number;
   projectId: number;
   botId: number;
+  /** The conversation the transcript illustration opens. */
+  conversationId: number;
 }
 
 /** One illustration: a route, and optionally the element to crop to (`{theme}` is replaced). */
@@ -70,7 +82,21 @@ const ILLUSTRATIONS: Illustration[] = [
     name: "bot",
     path: ({ botId }) => `/bots/${botId}`,
     width: 1280,
-    height: 2000,
+    height: 2200,
+    signedIn: true,
+  },
+  {
+    name: "conversations",
+    path: "/conversations",
+    width: 1280,
+    height: 440,
+    signedIn: true,
+  },
+  {
+    name: "conversation",
+    path: ({ conversationId }) => `/conversations/${conversationId}`,
+    width: 1280,
+    height: 860,
     signedIn: true,
   },
   {
@@ -263,7 +289,320 @@ async function seed(request: APIRequestContext): Promise<Seeded> {
     organizationId: organization.id,
     projectId: support.id,
     botId: await seedBots(request, support.id),
+    conversationId: await seedConversations(request, support.id),
   };
+}
+
+/** Where the scripted model's control server listens. */
+const MODEL_CONTROL = `http://127.0.0.1:${process.env.MODEL_SERVER_CONTROL_PORT ?? "9180"}`;
+
+/** The scripted model this script started, if it had to. */
+let modelProcess: Subprocess | null = null;
+
+/** One scripted answer to a model step. */
+interface Scripted {
+  text?: string;
+  reasoning?: string;
+  toolCalls?: { name: string; input: Record<string, unknown> }[];
+  hang?: boolean;
+}
+
+/**
+ * Call the scripted model's control server, starting it first if nothing
+ * answers.
+ * @param method - The HTTP verb.
+ * @param path - The route.
+ * @param body - A JSON body.
+ * @returns The parsed answer.
+ */
+async function model<T>(
+  method: "GET" | "POST",
+  path: string,
+  body?: unknown,
+): Promise<T> {
+  const send = () =>
+    fetch(`${MODEL_CONTROL}${path}`, {
+      method,
+      headers: body ? { "content-type": "application/json" } : undefined,
+      body: body ? JSON.stringify(body) : undefined,
+    });
+  try {
+    return (await (await send()).json()) as T;
+  } catch {
+    if (modelProcess) throw new Error("the scripted model stopped answering");
+  }
+  modelProcess = Bun.spawn(
+    ["bun", "__tests__/fixtures/model-server-process.ts"],
+    {
+      cwd: join(import.meta.dirname, "../../backend"),
+      env: {
+        ...process.env,
+        MODEL_SERVER_CONTROL_PORT: new URL(MODEL_CONTROL).port,
+      },
+      stdout: "inherit",
+      stderr: "inherit",
+    },
+  );
+  for (let i = 0; i < 50; i++) {
+    await Bun.sleep(100);
+    try {
+      return (await (await send()).json()) as T;
+    } catch {
+      // Not listening yet.
+    }
+  }
+  throw new Error(`the scripted model never answered at ${MODEL_CONTROL}`);
+}
+
+/** One turn of a seeded conversation: what the person writes and what the model answers. */
+interface Turn {
+  text: string;
+  responses: Scripted[];
+  /** Cancel the turn while its model step is in flight. */
+  cancel?: boolean;
+}
+
+/** The conversations the conversation illustrations show, oldest first. */
+const CONVERSATIONS: { bot: string; title: string; turns: Turn[] }[] = [
+  {
+    bot: "Kit",
+    title: "Summarize this week's incidents",
+    turns: [
+      {
+        text: "Summarize this week's incidents for the platform channel.",
+        responses: [{ hang: true }],
+        cancel: true,
+      },
+    ],
+  },
+  {
+    bot: "Ada",
+    title: "CSV export fails for Initech",
+    turns: [
+      {
+        text: "Initech says their CSV export has failed since Monday. Can you fix it?",
+        responses: [
+          {
+            toolCalls: [
+              {
+                name: "fail",
+                input: {
+                  reason:
+                    "I cannot reach the export service from here. Someone on the platform team can rerun Initech's export; I've noted the date it started failing.",
+                },
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  },
+  {
+    bot: "Kit",
+    title: "Recheck ENG-142 after the deploy",
+    turns: [
+      {
+        text: "Check ENG-142 again after tomorrow's deploy.",
+        responses: [
+          {
+            toolCalls: [
+              {
+                name: "wait_for",
+                input: {
+                  seconds: 604800,
+                  note: "Waiting for the deploy before rechecking ENG-142.",
+                },
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  },
+  {
+    bot: "Ada",
+    title: "Which plan includes SSO?",
+    turns: [
+      {
+        text: "A customer asks which plan includes SSO.",
+        responses: [
+          {
+            toolCalls: [
+              {
+                name: "ask_question",
+                input: {
+                  question:
+                    "Do they mean SSO for the dashboard, or for the API?",
+                  options: ["Dashboard", "API"],
+                },
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  },
+  {
+    bot: "Ada",
+    title: "Refund for Globex",
+    turns: [
+      {
+        text: "Globex was charged twice for October. Can we refund one of the charges?",
+        responses: [
+          {
+            reasoning:
+              "Look for what this conversation already knows about Globex's billing before answering.",
+            toolCalls: [{ name: "search_history", input: { query: "Globex" } }],
+          },
+          {
+            toolCalls: [
+              {
+                name: "reply_and_wait",
+                input: {
+                  text: "Nothing earlier here mentions Globex's October invoices. I can't promise a refund — **a person on the billing team confirms it** — but I've written down the duplicate charge so they can check it.\n\nIs there an invoice number I should add?",
+                },
+              },
+            ],
+          },
+        ],
+      },
+      {
+        text: "It's INV-2291. That's all, thanks.",
+        responses: [
+          {
+            toolCalls: [
+              {
+                name: "complete",
+                input: {
+                  summary:
+                    "Flagged Globex's duplicate October charge (INV-2291) for the billing team to confirm.",
+                },
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  },
+];
+
+/**
+ * Wait until a conversation stops working (or, with `untilWorking`, starts).
+ * @param request - The browser context's request client.
+ * @param base - The conversation's route.
+ * @param untilWorking - Wait for `working` rather than for it to end.
+ * @returns The conversation's state.
+ */
+async function settle(
+  request: APIRequestContext,
+  base: string,
+  untilWorking = false,
+): Promise<string> {
+  for (let i = 0; i < 200; i++) {
+    const { conversation } = await call<{ conversation: { state: string } }>(
+      request,
+      "GET",
+      base,
+    );
+    if (
+      untilWorking
+        ? conversation.state === "working"
+        : conversation.state !== "working"
+    )
+      return conversation.state;
+    await Bun.sleep(100);
+  }
+  throw new Error(`${base} never settled; is a queue worker running?`);
+}
+
+/**
+ * Give the Support project the conversations the conversation illustrations
+ * show, each made only when missing. While any are made, the Anthropic
+ * connection points at the scripted model; it is put back after.
+ * @param request - The browser context's request client.
+ * @param projectId - The Support project.
+ * @returns The id of the conversation the transcript illustration opens.
+ */
+async function seedConversations(
+  request: APIRequestContext,
+  projectId: number,
+): Promise<number> {
+  const listed = async () =>
+    (
+      await call<{ conversations: { id: number; title: string | null }[] }>(
+        request,
+        "GET",
+        `/project/${projectId}/conversations?limit=100`,
+      )
+    ).conversations;
+  let existing = await listed();
+  const missing = CONVERSATIONS.filter(
+    (c) => !existing.some((e) => e.title === c.title),
+  );
+  if (missing.length > 0) {
+    const { bots } = await call<{ bots: { id: number; name: string }[] }>(
+      request,
+      "GET",
+      `/project/${projectId}/bots?limit=100`,
+    );
+    const { modelConnections } = await call<{
+      modelConnections: { id: number; name: string }[];
+    }>(request, "GET", `/project/${projectId}/model-connections?limit=100`);
+    const connection = modelConnections.find((c) => c.name === "Anthropic");
+    if (!connection) throw new Error("the Anthropic connection is missing");
+    const connectionPath = `/project/${projectId}/model-connection/${connection.id}`;
+    const scripted = await model<{ baseUrl: string; apiKey: string }>(
+      "GET",
+      "/connection?provider=anthropic",
+    );
+    const pointed = await call(request, "POST", connectionPath, scripted);
+    if (pointed.error) {
+      throw new Error(
+        `pointing the connection at the scripted model: ${pointed.error.message} (start the backend with NETWORK_ALLOW_PRIVATE_HOSTS=true)`,
+      );
+    }
+    try {
+      for (const plan of missing) {
+        const bot = bots.find((b) => b.name === plan.bot);
+        if (!bot) throw new Error(`the ${plan.bot} bot is missing`);
+        let base = "";
+        for (const [i, turn] of plan.turns.entries()) {
+          await model("POST", "/reset");
+          await model("POST", "/play", { responses: turn.responses });
+          if (i === 0) {
+            const created = await call<{ conversation: { id: number } }>(
+              request,
+              "PUT",
+              `/project/${projectId}/bot/${bot.id}/conversation`,
+              { text: turn.text, title: plan.title },
+            );
+            if (created.error)
+              throw new Error(`conversation: ${created.error.message}`);
+            base = `/project/${projectId}/conversation/${created.conversation.id}`;
+          } else {
+            await call(request, "PUT", `${base}/message`, { text: turn.text });
+          }
+          if (turn.cancel) {
+            await settle(request, base, true);
+            await call(request, "POST", `${base}/cancel`);
+            await settle(request, base);
+            await model("POST", "/release");
+          } else {
+            await settle(request, base);
+          }
+        }
+      }
+    } finally {
+      await call(request, "POST", connectionPath, {
+        baseUrl: null,
+        apiKey: "sk-ant-illustration-placeholder-a1f3",
+      });
+    }
+    existing = await listed();
+  }
+  const shown = existing.find((e) => e.title === "Refund for Globex");
+  if (!shown) throw new Error("the Refund for Globex conversation is missing");
+  return shown.id;
 }
 const OUT = join(
   import.meta.dirname,
@@ -344,6 +683,7 @@ async function main(): Promise<void> {
     }
   } finally {
     await browser.close();
+    modelProcess?.kill();
   }
 }
 

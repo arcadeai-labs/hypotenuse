@@ -26,6 +26,7 @@ import {
   budgetColumn,
   decodeAvatar,
   helpNotifyTagInput,
+  maxStepsPerTurnInput,
   monthlyBudgetInput,
   serializeBot,
   summarizeAvatar,
@@ -63,6 +64,7 @@ export class BotCreate extends AuditedAction {
     accessWrite: accessListSchema.default([]),
     helpNotifyTag: helpNotifyTagInput.default(null),
     monthlyBudgetUsd: monthlyBudgetInput.default(null),
+    maxStepsPerTurn: maxStepsPerTurnInput.default(50),
     enabled: z
       .boolean()
       .default(true)
@@ -131,6 +133,7 @@ export class BotCreate extends AuditedAction {
         helpNotifyTag: params.helpNotifyTag,
         monthlyBudgetUsd: budgetColumn(params.monthlyBudgetUsd),
         enabled: params.enabled,
+        maxStepsPerTurn: params.maxStepsPerTurn,
         avatar: avatar?.bytes ?? null,
         avatarMimeType: avatar?.mimeType ?? null,
         createdByUserId: connection.session?.data.userId ?? null,

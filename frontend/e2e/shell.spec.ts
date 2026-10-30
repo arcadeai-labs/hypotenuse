@@ -44,12 +44,16 @@ test("the sidebar lists 2.0's destinations in order, each disabled until its pag
   await expect(memory).toHaveAttribute("title", "Not available yet");
   await memory.click();
   await expect(page).toHaveURL(/\/status$/);
-  // Settings and Bots exist: links, not disabled rows.
+  // Settings, Bots, and Conversations exist: links, not disabled rows.
   await expect(page.getByTestId("nav-settings")).toHaveAttribute(
     "href",
     "/settings",
   );
   await expect(page.getByTestId("nav-bots")).toHaveAttribute("href", "/bots");
+  await expect(page.getByTestId("nav-conversations")).toHaveAttribute(
+    "href",
+    "/conversations",
+  );
   await page.getByTestId("nav-docs").click();
   await expect(page).toHaveURL(/\/docs\/getting-started$/);
 });

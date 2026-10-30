@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { parseStepsPerTurn } from "../components/bots/BudgetSection";
 import { UNAVAILABLE_BOT_SECTIONS } from "../components/bots/UnavailableSections";
 import {
   BOT_WRITE_DENIED,
@@ -53,6 +54,17 @@ describe("the bot page's sections not built yet", () => {
     ]);
     for (const section of UNAVAILABLE_BOT_SECTIONS) {
       expect(section.purpose).not.toMatch(/phase/i);
+    }
+  });
+});
+
+describe("steps per turn", () => {
+  test("a whole number from 1 to 500, and nothing else", () => {
+    expect(parseStepsPerTurn("50")).toBe(50);
+    expect(parseStepsPerTurn(" 1 ")).toBe(1);
+    expect(parseStepsPerTurn("500")).toBe(500);
+    for (const bad of ["", "0", "501", "2.5", "-3", "ten"]) {
+      expect(parseStepsPerTurn(bad), bad).toBeNull();
     }
   });
 });

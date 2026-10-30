@@ -110,6 +110,11 @@ returned) for Anthropic, OpenAI, Vercel AI Gateway, and OpenAI-compatible endpoi
 and its pinned-DNS `guardedFetch`; `model_aliases` with `default` and `fast` required; `bots` with `canReadBot` /
 `canWriteBot`, the lockout guard, and stored avatars; the scripted model server; Settings → Models, the Bots list, and
 the bot page; and the `model` and `bot` commands.
+**[Phase 08](./phase-08-durable-agent-loop.md) is built**: `conversations`, `conversation_inbox`,
+`conversation_entries`, `channels`, `outbox_messages`, and `cost_records`; `agent:tick` with its lease, recovery and
+replay rules, steer and queue, nudge-once-then-fail, yield, and cancel; the built-in tools; background compaction;
+`agents:reap` and `agents:wake-due`; the HTTP API channel with signed callbacks; a streaming scripted model server
+for the Anthropic and OpenAI-compatible APIs; the transcript pages; and the `conversation` commands.
 No other phase is built; every later plan's **Learnings from the
 build** section reads "Not built yet." until its phase lands.
 
@@ -135,3 +140,6 @@ build** section reads "Not built yet." until its phase lands.
 | Last-admin guard | Counts the project's explicit `admin` tag holders, not owners: a project always keeps someone who administers it by being in it |
 | Models | A bot names aliases, never keys or model ids; `default` and `fast` are required; `ModelOps.languageModel` is the only way to a model, and every provider fetches through the SSRF guard |
 | Bot access | Member-level CRUD gated per bot by `accessRead` / `accessWrite`; an unreadable bot is the same 404 as a missing one; a non-admin cannot save a list that locks them out |
+| Talking to a bot | `canReadBot` is enough to start, write in, read, and cancel its conversations over the API, as a platform channel asks no more |
+| The loop | Rows are the orchestration state; ticks claim a 90 s lease by conditional update and re-check it under the row lock on every write; intents commit before tools run; a terminal tool's effect commits with its result; 8 steps or 60 s per tick, 50 steps per turn by default |
+| API callbacks | Signed with a per-bot secret shown once (`t=…,v1=` HMAC-SHA256), retried for a day with the outbox row id as the delivery id |

@@ -309,6 +309,11 @@ Edit a project name in the browser, then open Audit log: one row, actor you, bef
   A list of audited actions would need a new endpoint for a cosmetic gain.
 - **The project's audit log is its own page, `/audit`**, not a settings section: it is reached from the project
   switcher, and a member who opens it is told it is an admin's rather than shown a failed request.
+- **The agent loop added three unaudited writers** that are not clocks: `agent:tick`, `conversation:compact` (the
+  background summary a tick asks for, recorded as a `compaction` entry in `conversation_entries`), and
+  `outbox:deliver`. `agents:reap`, `agents:wake-due`, and `outbox:deliver-due` are clocks. The decisions they trace to
+  — `conversation:create`, `conversation:message`, `conversation:cancel`, `bot:rotate-callback-secret` — are audited,
+  with a message's text recorded only as its length and sha256.
 - **Rule 13: no CLI command wraps `audit:list` or `organization:audit-list` yet** — deferred, not out of scope, as
   with phase 04's actions: [phase 06](./phase-06-operator-cli.md) is the CLI's sign-in.
 

@@ -31,6 +31,7 @@ const EXPECTED_SENSITIVE_KEYS = [
   "runToken",
   "tokenHash",
   "continuationSecret",
+  "callbackSecret",
   "headers",
   "authorization",
 ];

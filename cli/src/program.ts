@@ -12,6 +12,7 @@ import { registerAuditCommands } from "./commands/audit";
 import { registerAuthCommands } from "./commands/auth";
 import { registerBotCommands } from "./commands/bot";
 import { registerCheckUpdateCommand } from "./commands/check-update";
+import { registerConversationCommands } from "./commands/conversation";
 import { registerInviteCommands } from "./commands/invite";
 import { registerMemberCommands } from "./commands/member";
 import { registerModelCommands } from "./commands/model";
@@ -66,6 +67,7 @@ export function buildProgram(): Command {
   registerTagCommands(program);
   registerModelCommands(program);
   registerBotCommands(program);
+  registerConversationCommands(program);
   registerAuditCommands(program);
   registerCheckUpdateCommand(program);
   registerUpgradeCommand(program);

@@ -1,4 +1,5 @@
 import { configActions } from "./actions";
+import { configAgents } from "./agents";
 import { configAudit } from "./audit";
 import { configChannels } from "./channels";
 import { configCliAuth } from "./cliAuth";
@@ -38,6 +39,7 @@ export default {
   audit: configAudit,
   cliAuth: configCliAuth,
   network: configNetwork,
+  agents: configAgents,
 };
 
 /**

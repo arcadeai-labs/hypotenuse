@@ -38,6 +38,15 @@ const EXPECTED_LEVELS: Record<string, RbacLevel> = {
   "bot:edit": "member",
   "bot:delete": "member",
   "bot:avatar": "member",
+  "bot:rotate-callback-secret": "member",
+  // Conversations are member-level; the bot's read list decides the rest
+  // inside the action. Talking to a bot asks no more than reading it.
+  "conversation:create": "member",
+  "conversation:message": "member",
+  "conversation:list": "member",
+  "conversation:view": "member",
+  "conversation:entries": "member",
+  "conversation:cancel": "member",
 
   // A project's admin level: managing people, tags, invites, the project.
   "project:edit": "admin",
@@ -102,6 +111,13 @@ const EXPECTED_LEVELS: Record<string, RbacLevel> = {
   "notifications:sweep": "none",
   "invites:sweep": "none",
   "audit:sweep": "none",
+  // The agent loop's machine work: task-only, no route, no caller.
+  "agent:tick": "none",
+  "agents:reap": "none",
+  "agents:wake-due": "none",
+  "conversation:compact": "none",
+  "outbox:deliver": "none",
+  "outbox:deliver-due": "none",
   // The CLI's sign-in: a person's own browser hops, its unauthenticated
   // ingress, and their own sign-ins.
   "cli-auth:approve": "none",
@@ -127,6 +143,9 @@ const SESSION_SCOPED_TENANT_FILTERS = new Set([
 
 /** Every clock: task-only, never an HTTP route. */
 const CLOCKS = [
+  "agents:reap",
+  "agents:wake-due",
+  "outbox:deliver-due",
   "notifications:dispatch",
   "notifications:sweep",
   "invites:sweep",
@@ -140,9 +159,16 @@ const EXPECTED_MCP_TOOLS = [
   "bot:delete",
   "bot:edit",
   "bot:list",
+  "bot:rotate-callback-secret",
   "bot:view",
   "cli-token:list",
   "cli-token:revoke",
+  "conversation:cancel",
+  "conversation:create",
+  "conversation:entries",
+  "conversation:list",
+  "conversation:message",
+  "conversation:view",
   "email-verification:resend",
   "invite:accept",
   "invite:create",
