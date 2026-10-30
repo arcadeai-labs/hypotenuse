@@ -99,8 +99,11 @@ export class MemoryWrite extends AuditedAction {
     connection.metadata.auditTargetType = "memory-document";
     connection.metadata.auditTargetPath = `${params.scope}:${params.path}`;
     connection.metadata.auditMetadata = {
-      ...scrubParams({ ...params, content: undefined }),
+      ...scrubParams({ ...params, content: undefined, description: undefined }),
       content: summarizeText(params.content),
+      ...(params.description !== undefined
+        ? { description: summarizeText(params.description) }
+        : {}),
     };
     await lockDocument(tx, key);
     const current = await currentVersion(tx, key);

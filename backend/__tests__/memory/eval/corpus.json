@@ -1,0 +1,79 @@
+{
+  "documents": [
+    {
+      "path": "runbooks/deploy.md",
+      "description": "Deploying the castle website",
+      "content": "# Deploying\nMerge to main, then run the deploy pipeline. Watch the canary dashboard for ten minutes before promoting the release to every region.\n\n## Rollback\nIf error rates climb, run the rollback job; it redeploys the previous build in about two minutes."
+    },
+    {
+      "path": "runbooks/incident.md",
+      "description": "What to do when something breaks",
+      "content": "# Incident response\nPage the on-call engineer through the pager rotation. Open an incident channel, name an incident commander, and post updates every thirty minutes until resolved.\n\n## Postmortem\nWrite a blameless postmortem within five business days."
+    },
+    {
+      "path": "people/peach.md",
+      "description": "Princess Peach",
+      "content": "# Peach\nPeach leads the Mushroom Kingdom. She approves budgets above ten thousand coins and chairs the Monday planning meeting."
+    },
+    {
+      "path": "people/mario.md",
+      "description": "Mario",
+      "content": "# Mario\nMario owns the release checklist and the plumbing of the build system. Ask him about pipes, caching, and flaky tests."
+    },
+    {
+      "path": "people/luigi.md",
+      "description": "Luigi",
+      "content": "# Luigi\nLuigi runs customer support and the haunted mansion help desk. He triages tickets every morning."
+    },
+    {
+      "path": "people/toad.md",
+      "description": "Toad",
+      "content": "# Toad\nToad keeps the castle's inventory: mushrooms, stars, and spare keys. He orders supplies on Fridays."
+    },
+    {
+      "path": "facts/office-hours.md",
+      "description": "When the castle is open",
+      "content": "The castle gates open at dawn and close at dusk. Visitors sign in at the front desk."
+    },
+    {
+      "path": "facts/wifi.md",
+      "description": "Guest network",
+      "content": "The guest wifi network is MushroomGuest and the password rotates every Monday; the front desk has the current one."
+    },
+    {
+      "path": "facts/lunch.md",
+      "description": "Kitchen and lunch",
+      "content": "The kitchen serves lunch from noon to two. Cake is baked every Sunday for the whole staff."
+    },
+    {
+      "path": "facts/billing.md",
+      "description": "How customers are billed",
+      "content": "Customers are invoiced monthly in coins. Refunds above five hundred coins need Peach's approval."
+    },
+    {
+      "path": "decisions/2026-10-database.md",
+      "description": "Choosing the database",
+      "content": "# Database decision\nWe chose Postgres with the pgvector extension for memory search, over a separate vector database, to keep one source of truth."
+    },
+    {
+      "path": "decisions/2026-09-pricing.md",
+      "description": "Pricing change",
+      "content": "# Pricing\nFrom October the starter plan costs nine coins a month and the team plan forty coins per seat."
+    },
+    {
+      "path": "facts/security.md",
+      "description": "Security rules",
+      "content": "Never share the vault combination over chat. Rotate API keys every ninety days and store them in the secrets manager."
+    },
+    {
+      "path": "facts/vacation.md",
+      "description": "Time off",
+      "content": "Staff request vacation in the HR portal at least two weeks ahead; Peach approves requests longer than a week."
+    },
+    {
+      "path": "facts/style.md",
+      "description": "Writing style",
+      "content": "Release notes are written in plain words, with the user-visible change first and the ticket number last."
+    }
+  ]
+}

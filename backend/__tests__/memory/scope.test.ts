@@ -122,9 +122,11 @@ describe("channel isolation", () => {
       [{ name: "memory_search", input: { query: "launch code cannon" } }],
       [{ name: "memory_read", input: { path: SECRET.path, scope: "channel" } }],
     ]);
-    const [, search] = await toolOutputs(stage, a.conversationId, "memory_search").then(
-      (all) => [all.length, all[all.length - 1]] as const,
-    );
+    const [, search] = await toolOutputs(
+      stage,
+      a.conversationId,
+      "memory_search",
+    ).then((all) => [all.length, all[all.length - 1]] as const);
     expect((search.hits as { path: string }[])[0].path).toBe(SECRET.path);
     const [read] = await toolOutputs(stage, a.conversationId, "memory_read");
     expect(String(read.content)).toContain("mushroom-42");
@@ -164,7 +166,12 @@ describe("channel isolation", () => {
     const inA = await getMemory<{ hits: { path: string }[] }>(
       stage,
       "memory/search",
-      { query: "launch code", scope: "both", botId: stage.botId, channelId: a.channelId },
+      {
+        query: "launch code",
+        scope: "both",
+        botId: stage.botId,
+        channelId: a.channelId,
+      },
     );
     expect(inA.body.hits.map((h) => h.path)).toEqual([SECRET.path]);
     const inB = await getMemory<{ hits: unknown[] }>(stage, "memory/search", {

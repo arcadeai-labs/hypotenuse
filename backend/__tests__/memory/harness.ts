@@ -1,6 +1,5 @@
 import { sql } from "drizzle-orm";
 import { api } from "keryx";
-import type { ScriptedResponse } from "../fixtures/model-server";
 import {
   type AgentStage,
   buildAgentStage,
@@ -12,6 +11,7 @@ import {
   sendMessage,
   startConversation,
 } from "../agent/harness";
+import type { ScriptedResponse } from "../fixtures/model-server";
 import { call, type TestUser } from "../setup";
 
 /**
@@ -138,9 +138,7 @@ export async function toolOutputs(
   const { entries } = await readEntries(stage, conversationId);
   return entries
     .filter((e) => e.kind === "tool_result" && e.toolName === toolName)
-    .map(
-      (e) => (e.content as { output: Record<string, unknown> }).output,
-    );
+    .map((e) => (e.content as { output: Record<string, unknown> }).output);
 }
 
 /**
@@ -190,7 +188,7 @@ export async function getMemory<T = Record<string, unknown>>(
   const qs = new URLSearchParams(
     Object.entries(query)
       .filter(([, v]) => v !== undefined)
-      .map(([k, v]) => [k, String(v)]),
+      .map(([k, v]): [string, string] => [k, String(v)]),
   );
   return call<T>(
     stage.u.url,
@@ -208,6 +206,14 @@ export async function clearMemory(): Promise<void> {
   await api.db.db.execute(
     sql`truncate memory_chunks, memory_documents restart identity cascade`,
   );
+  await forgetEmbedMarks();
+}
+
+/**
+ * Drop the Redis marks that say an embed run is queued, as when a queued job
+ * is lost with them.
+ */
+export async function forgetEmbedMarks(): Promise<void> {
   const keys = await api.redis.redis.keys("hyp:memory-embed:*");
   if (keys.length > 0) await api.redis.redis.del(...keys);
 }

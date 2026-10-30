@@ -296,7 +296,7 @@ function liveIn(
 }
 
 /**
- * The keyword side: chunks matching `websearch_to_tsquery`, by `ts_rank_cd`.
+ * The keyword side: chunks matching any of the query's words, by `ts_rank_cd`.
  * @param db - A database handle.
  * @param readSet - The read set.
  * @param choice - Which scopes.
@@ -311,7 +311,11 @@ export async function keywordCandidates(
   query: string,
   pathPrefix?: string,
 ): Promise<Candidate[]> {
-  const tsquery = sql`websearch_to_tsquery('english', ${query})`;
+  // Any of the query's words, as membot's BM25 matches: an AND of every
+  // word (websearch_to_tsquery) misses most questions people actually ask.
+  // `ts_rank_cd` then ranks chunks that cover more of them, closer together,
+  // higher. A query of only stopwords is null and matches nothing.
+  const tsquery = sql`nullif(replace(plainto_tsquery('english', ${query})::text, '&', '|'), '')::tsquery`;
   const score = sql<number>`ts_rank_cd(${memoryChunks.tsv}, ${tsquery})`;
   const rows = await db
     .select({ ...candidateColumns, score })

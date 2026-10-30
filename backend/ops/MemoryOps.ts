@@ -579,13 +579,15 @@ export function serializeMemoryDocument(
 
 /**
  * Shape a version for an audit row: never its words, only their length and
- * digest, as a conversation's message is audited.
+ * digest, as a conversation's message is audited. The description is often
+ * the text's first line, so it is digested too.
  * @param row - The version.
  * @returns The snapshot.
  */
 export function auditMemoryDocument(row: MemoryDocument) {
   return {
     ...serializeMemoryDocument(row),
+    description: summarizeContent(row.description),
     content: summarizeContent(row.content),
   };
 }
