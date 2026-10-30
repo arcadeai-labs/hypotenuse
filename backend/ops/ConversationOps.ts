@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { api, ErrorType, TypedError } from "keryx";
 import { z } from "zod";
+import { approvals } from "../schema/approvals";
 import type { Bot } from "../schema/bots";
 import { bots } from "../schema/bots";
 import { type Channel, channels } from "../schema/channels";
@@ -33,7 +34,7 @@ import { appendEntries, type EntryDraft } from "./TranscriptOps";
  * | `working` | inbox row; a `steer` row enters at the next step, a `queue` row at the turn's end | a live lease: flag it and wake, the tick finalizes; no live lease: finalize here |
  * | `hibernating` | wake: new turn | finalize |
  * | `waiting` (answer) | the message is the answer: wake, same turn | finalize |
- * | `waiting` (timer, approval, sandbox) | inbox row kept until the wait ends | finalize |
+ * | `waiting` (timer, approval, sandbox) | inbox row kept until the wait ends | finalize; its pending approvals expire |
  * | `ended` | wake: new turn, outcome cleared | no-op |
  */
 
@@ -237,6 +238,7 @@ export type WakeReason =
   | "answer"
   | "timer"
   | "question_timeout"
+  | "approval"
   | "cancel"
   | "created";
 
@@ -466,7 +468,8 @@ export async function requestCancel(
 
 /**
  * End a conversation as cancelled: settle every open intent as interrupted,
- * end any wait, release any lease, and supersede outbox rows that were only
+ * end any wait (expiring its pending approvals), release any lease, and
+ * supersede outbox rows that were only
  * progress. Runs with the conversation locked.
  * @param tx - An open transaction.
  * @param conversation - The conversation, locked.
@@ -489,6 +492,16 @@ export async function finalizeCancel(
       text: "The conversation was cancelled.",
     }),
   ]);
+  // An approval nobody decided can no longer run anything.
+  await tx
+    .update(approvals)
+    .set({ status: "expired", decidedAt: new Date() })
+    .where(
+      and(
+        eq(approvals.conversationId, conversation.id),
+        eq(approvals.status, "pending"),
+      ),
+    );
   await tx
     .update(outboxMessages)
     .set({ status: "superseded" })

@@ -4,6 +4,7 @@ import { Brain, MessagesSquare } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { AccessSection } from "../../components/bots/AccessSection";
+import { ApprovalSettingsSection } from "../../components/bots/ApprovalSettingsSection";
 import { BudgetSection } from "../../components/bots/BudgetSection";
 import { CallbackSecretSection } from "../../components/bots/CallbackSecretSection";
 import {
@@ -16,6 +17,7 @@ import { IdentitySection } from "../../components/bots/IdentitySection";
 import { MemorySection } from "../../components/bots/MemorySection";
 import { MissingAliasesBanner } from "../../components/bots/MissingAliasesBanner";
 import { ModelSection } from "../../components/bots/ModelSection";
+import { ToolsSection } from "../../components/bots/ToolsSection";
 import { UnavailableSections } from "../../components/bots/UnavailableSections";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { GatedButton } from "../../components/GatedButton";
@@ -44,8 +46,9 @@ type Loaded =
 
 /**
  * `/bots/:botId` — one bot: who it is, which models it uses, who may read
- * and change it, its budget, and how fast its memory fades, each section
- * saving on its own; then the parts of a bot this page does not configure
+ * and change it, its budget, how fast its memory fades, its MCP servers and
+ * what runs without asking, and who decides what waits, each section saving
+ * on its own; then the parts of a bot this page does not configure
  * yet, disabled. The properties panel says the same at a glance, and the
  * header links to its conversations and its memory.
  *
@@ -254,6 +257,13 @@ export function BotPage() {
             <Property label="Asks for help">
               {bot.helpNotifyTag ?? "Project admins"}
             </Property>
+            <Property label="Approvals">
+              <span data-testid="bot-property-approvals">
+                {bot.approverTag
+                  ? `Its writers and ${bot.approverTag}`
+                  : "Its writers"}
+              </span>
+            </Property>
             <Property label="You">
               <span data-testid="bot-property-standing">
                 {editDenied ? "Can read" : "Can read and change"}
@@ -294,6 +304,12 @@ export function BotPage() {
           <AccessSection {...sectionProps} tags={tags} />
           <BudgetSection {...sectionProps} />
           <MemorySection {...sectionProps} />
+          <ToolsSection
+            projectId={activeProjectId}
+            bot={bot}
+            denied={botWriteDenied(reason("bot-mcp-server:set"), standing)}
+          />
+          <ApprovalSettingsSection {...sectionProps} tags={tags} />
           <CallbackSecretSection
             {...sectionProps}
             denied={botWriteDenied(

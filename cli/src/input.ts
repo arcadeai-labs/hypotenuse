@@ -38,6 +38,71 @@ export function parseNumber(raw: string, flag: string): number {
 }
 
 /**
+ * Collect a repeatable option's values, for commander.
+ * @param value - This occurrence's value.
+ * @param previous - The values so far.
+ * @returns Every value, in order.
+ */
+export function collect(value: string, previous: string[] = []): string[] {
+  return [...previous, value];
+}
+
+/**
+ * Parse HTTP headers written `Name: value`, one per entry. Blank entries are
+ * skipped, so a file of lines with a trailing newline works.
+ * @param lines - The entries, from repeated flags or the lines of stdin.
+ * @param flag - The flag they came from, for the refusal.
+ * @returns The headers, by name.
+ * @throws {Error} When an entry has no name or no colon.
+ */
+export function parseHeaders(
+  lines: readonly string[],
+  flag: string,
+): Record<string, string> {
+  const headers: Record<string, string> = {};
+  for (const raw of lines) {
+    const line = raw.replace(/\r$/, "");
+    if (line.trim() === "") continue;
+    const colon = line.indexOf(":");
+    const name = colon > 0 ? line.slice(0, colon).trim() : "";
+    if (!name) {
+      throw new Error(
+        `${flag} takes "Name: value"; got an entry without a header name.`,
+      );
+    }
+    headers[name] = line.slice(colon + 1).trim();
+  }
+  return headers;
+}
+
+/** Seconds in each unit a duration may be written in. */
+const DURATION_UNITS: Record<string, number> = {
+  s: 1,
+  m: 60,
+  h: 3600,
+  d: 86_400,
+};
+
+/**
+ * Parse a duration a person typed: whole seconds, or a number with a unit
+ * (`90s`, `30m`, `24h`, `7d`).
+ * @param raw - What they typed.
+ * @param flag - The flag's name, for the refusal.
+ * @returns The duration in whole seconds.
+ * @throws {Error} When it is not a positive duration.
+ */
+export function parseDuration(raw: string, flag: string): number {
+  const match = /^(\d+(?:\.\d+)?)\s*([smhd])?$/i.exec(raw.trim());
+  if (!match) {
+    throw new Error(
+      `${flag} takes seconds or a duration like 30m, 24h, or 7d; got "${raw}".`,
+    );
+  }
+  const unit = DURATION_UNITS[(match[2] ?? "s").toLowerCase()] as number;
+  return Math.round(Number(match[1]) * unit);
+}
+
+/**
  * The image type of a file, from its first bytes rather than its name.
  * @param bytes - The file's contents.
  * @returns `image/png`, `image/jpeg`, or null for anything else.
@@ -106,6 +171,8 @@ export interface SecretSources {
   readStdin: () => Promise<string>;
   /** Ask a person for it without echoing. */
   prompt: (question: string) => Promise<string>;
+  /** The flags that name the two sources, for refusals (default the API key's). */
+  flags?: { stdin: string; env: string };
 }
 
 /**
@@ -120,8 +187,12 @@ export interface SecretSources {
  */
 export async function readSecret(sources: SecretSources): Promise<string> {
   const { label } = sources;
+  const flags = sources.flags ?? {
+    stdin: "--api-key-stdin",
+    env: "--api-key-env",
+  };
   if (sources.fromStdin && sources.fromEnv) {
-    throw new Error(`Pass one of --api-key-stdin and --api-key-env, not both.`);
+    throw new Error(`Pass one of ${flags.stdin} and ${flags.env}, not both.`);
   }
   let value: string;
   if (sources.fromStdin) {
@@ -138,7 +209,7 @@ export async function readSecret(sources: SecretSources): Promise<string> {
     value = await sources.prompt(`${label}: `);
   } else {
     throw new Error(
-      `No ${label} given. Pipe it in with --api-key-stdin, or name an environment variable with --api-key-env <NAME>.`,
+      `No ${label} given. Pipe it in with ${flags.stdin}, or name an environment variable with ${flags.env} <NAME>.`,
     );
   }
   if (value.trim() === "") throw new Error(`The ${label} is empty.`);

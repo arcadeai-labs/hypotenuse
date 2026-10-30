@@ -6,11 +6,19 @@ import {
   type LucideIcon,
   MessagesSquare,
   Settings,
+  ShieldCheck,
 } from "lucide-react";
 
 /** One sidebar destination. */
 export interface Destination {
-  id: "home" | "conversations" | "bots" | "memory" | "sandboxes" | "settings";
+  id:
+    | "home"
+    | "conversations"
+    | "approvals"
+    | "bots"
+    | "memory"
+    | "sandboxes"
+    | "settings";
   to: string;
   label: string;
   Icon: LucideIcon;
@@ -43,6 +51,14 @@ export const DESTINATIONS: readonly Destination[] = [
     label: "Conversations",
     Icon: MessagesSquare,
     shortcut: "g c",
+    available: true,
+  },
+  {
+    id: "approvals",
+    to: "/approvals",
+    label: "Approvals",
+    Icon: ShieldCheck,
+    shortcut: "g a",
     available: true,
   },
   {

@@ -9,6 +9,7 @@ import { LoadingLabel } from "../../components/LoadingLabel";
 import { DetailLayout } from "../../components/layouts/DetailLayout";
 import { parseSeqs } from "../../components/memory/model";
 import { relativeTime } from "../../components/shell/NotificationBell";
+import { ApprovalWait } from "../../components/transcript/ApprovalWait";
 import { Composer } from "../../components/transcript/Composer";
 import {
   buildTranscript,
@@ -288,6 +289,13 @@ export function ConversationPage() {
             }
             highlight={highlight}
           />
+          {conversation.state === "waiting" &&
+            conversation.waitingOn?.kind === "approval" && (
+              <ApprovalWait
+                projectId={activeProjectId}
+                approvalIds={conversation.waitingOn.approvalIds}
+              />
+            )}
           <Composer
             onSend={onSend}
             label="Send"

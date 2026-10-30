@@ -66,10 +66,11 @@ describe("routes", () => {
     expect(html).not.toMatch(/phase/i);
   });
 
-  test("settings, bots, conversations, and memory are live destinations", () => {
+  test("settings, bots, conversations, approvals, and memory are live destinations", () => {
     const html = renderAt("/status");
     for (const [id, href] of [
       ["settings", "/settings"],
+      ["approvals", "/approvals"],
       ["bots", "/bots"],
       ["conversations", "/conversations"],
       ["memory", "/memory"],
@@ -89,6 +90,9 @@ describe("routes", () => {
     for (const path of [
       "/settings/members",
       "/settings/models",
+      "/settings/mcp-servers",
+      "/approvals",
+      "/approvals/1",
       "/bots",
       "/bots/new",
       "/bots/1",

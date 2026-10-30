@@ -43,8 +43,10 @@ export type ConversationOutcome = (typeof CONVERSATION_OUTCOMES)[number];
  * - `answer`: an `ask_question` was posted; the next inbound message is the
  *   answer. `timeoutAt`, when set, is when `agents:wake-due` gives up on it.
  * - `timer`: `wait_for` asked to sleep until `at` (epoch ms).
- * - `approval`, `sandbox`: reserved for the approval gate and sandbox jobs,
- *   which do not exist yet; nothing writes them.
+ * - `approval`: a step's tool calls wait for a person; `approvalIds` are the
+ *   approvals the gate wrote (`ApprovalOps`). Woken when none is pending.
+ * - `sandbox`: reserved for sandbox jobs, which do not exist yet; nothing
+ *   writes it.
  */
 export type WaitingOn =
   | { kind: "answer"; questionEntryId: number; timeoutAt: number | null }

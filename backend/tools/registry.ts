@@ -1,12 +1,17 @@
 import { askQuestion } from "./ask-question";
 import { complete } from "./complete";
 import { fail } from "./fail";
+import { mcpExec } from "./mcp-exec";
+import { mcpInfo } from "./mcp-info";
+import { mcpListTools } from "./mcp-list-tools";
+import { mcpSearch } from "./mcp-search";
 import { memoryEdit } from "./memory-edit";
 import { memoryForget } from "./memory-forget";
 import { memoryList } from "./memory-list";
 import { memoryRead } from "./memory-read";
 import { memorySearch } from "./memory-search";
 import { memoryWrite } from "./memory-write";
+import { readLargeResult } from "./read-large-result";
 import { replyAndWait } from "./reply-and-wait";
 import { searchHistory } from "./search-history";
 import type { ToolContext, ToolDefinition } from "./types";
@@ -14,7 +19,7 @@ import { waitFor } from "./wait-for";
 
 /**
  * The tool registry: every tool a bot may be offered, by name. The built-in
- * tools and the memory tools register here; MCP and code mode add theirs through
+ * tools, the memory tools, and the MCP meta-tools register here; code mode adds its own through
  * {@link registerTool}.
  */
 
@@ -68,11 +73,13 @@ export function getTool(name: string): ToolDefinition | undefined {
  * @param ctx - The bot and conversation.
  * @returns Every available tool, sorted by name so the prompt is stable.
  */
-export function availableTools(
+export async function availableTools(
   ctx: Pick<ToolContext, "bot" | "conversation">,
-): ToolDefinition[] {
-  return [...TOOLS.values()]
-    .filter((tool) => tool.available(ctx))
+): Promise<ToolDefinition[]> {
+  const all = [...TOOLS.values()];
+  const shown = await Promise.all(all.map((tool) => tool.available(ctx)));
+  return all
+    .filter((_, i) => shown[i])
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
@@ -89,6 +96,11 @@ for (const tool of [
   memoryWrite,
   memoryEdit,
   memoryForget,
+  mcpSearch,
+  mcpListTools,
+  mcpInfo,
+  mcpExec,
+  readLargeResult,
 ] as ToolDefinition[]) {
   registerTool(tool);
 }

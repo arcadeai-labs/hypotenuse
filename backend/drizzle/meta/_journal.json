@@ -57,6 +57,13 @@
       "when": 1793336493257,
       "tag": "0007_ancient_pandemic",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1793342406541,
+      "tag": "0008_safe_bastion",
+      "breakpoints": true
     }
   ]
 }

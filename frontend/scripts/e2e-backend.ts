@@ -17,6 +17,12 @@
  * bot's model answers on its control port. If something already holds that
  * port — a scripted model left running — the new one exits and that one
  * serves.
+ *
+ * And its MCP servers, `backend/__tests__/fixtures/mcp-server-process.ts`,
+ * likewise: a spec connects one through the settings page by the address its
+ * control port answers. A second scripted model, on `MCP_MODEL_CONTROL_PORT`,
+ * is that spec's own, so its bot's answers never meet the conversations
+ * spec's on the shared queue.
  */
 import { join } from "node:path";
 import { SQL } from "bun";
@@ -65,6 +71,26 @@ const model = Bun.spawn(["bun", "__tests__/fixtures/model-server-process.ts"], {
   stderr: "inherit",
 });
 
+const mcpModel = Bun.spawn(
+  ["bun", "__tests__/fixtures/model-server-process.ts"],
+  {
+    cwd: backendDir,
+    env: {
+      ...process.env,
+      MODEL_SERVER_CONTROL_PORT: process.env.MCP_MODEL_CONTROL_PORT,
+    },
+    stdout: "inherit",
+    stderr: "inherit",
+  },
+);
+
+const mcp = Bun.spawn(["bun", "__tests__/fixtures/mcp-server-process.ts"], {
+  cwd: backendDir,
+  env: process.env,
+  stdout: "inherit",
+  stderr: "inherit",
+});
+
 const server = Bun.spawn(["bun", "keryx.ts", "start"], {
   cwd: backendDir,
   env: process.env,
@@ -75,10 +101,14 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, () => {
     mail.kill(signal);
     model.kill(signal);
+    mcp.kill(signal);
+    mcpModel.kill(signal);
     server.kill(signal);
   });
 }
 const code = await server.exited;
 mail.kill();
 model.kill();
+mcp.kill();
+mcpModel.kill();
 process.exit(code);

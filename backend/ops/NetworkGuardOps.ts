@@ -97,6 +97,8 @@ export interface GuardOptions {
   allowPrivate?: boolean;
   /** The resolver (tests inject one). */
   resolve?: Resolver;
+  /** How long the socket may sit idle (default: `config.network.requestTimeoutMs`). */
+  timeoutMs?: number;
 }
 
 /**
@@ -268,7 +270,7 @@ export async function guardedFetch(
         headers: Object.fromEntries(headers),
         // An IP literal is never looked up; it was checked above.
         lookup: pinnedLookup(resolve, allowPrivate) as never,
-        timeout: config.network.requestTimeoutMs,
+        timeout: options.timeoutMs ?? config.network.requestTimeoutMs,
       },
       (res) => {
         const responseHeaders = new Headers();

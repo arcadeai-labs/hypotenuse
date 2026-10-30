@@ -24,6 +24,7 @@
     "@ai-sdk/openai": "4.0.104",
     "@ai-sdk/openai-compatible": "3.0.80",
     "@ai-sdk/provider": "4.0.34",
+    "@modelcontextprotocol/sdk": "1.32.2",
     "ai": "7.0.156",
     "drizzle-orm": "^0.45.2",
     "drizzle-zod": "^0.8.3",

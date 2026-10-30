@@ -9,6 +9,8 @@ import { ProjectMemberMiddleware } from "../../middleware/rbac";
 import { accessListSchema, assertAccessListTags } from "../../ops/AccessOps";
 import { scrubParams } from "../../ops/AuditOps";
 import {
+  approvalTtlInput,
+  approverTagInput,
   assertAliasesExist,
   assertHelpTag,
   assertNotLockedOut,
@@ -45,7 +47,7 @@ import { bots } from "../../schema/bots";
 export class BotCreate extends AuditedAction {
   name = "bot:create";
   description =
-    "Create a bot in a project: its name, persona (the identity part of its system prompt, in markdown), display name, description, model aliases (default: default and fast), who may read and edit it (tag lists), who it asks for help, a monthly budget, and optionally a square PNG or JPEG avatar (base64, at most 512 KB). Requires membership in the project; you must satisfy the access lists you set.";
+    "Create a bot in a project: its name, persona (the identity part of its system prompt, in markdown), display name, description, model aliases (default: default and fast), who may read and edit it (tag lists), who it asks for help, who may approve its tool calls and how long an approval waits, a monthly budget, and optionally a square PNG or JPEG avatar (base64, at most 512 KB). Requires membership in the project; you must satisfy the access lists you set.";
   middleware = [ProjectMemberMiddleware()];
   web = { route: "/project/:projectId/bot", method: HTTP_METHOD.PUT };
   inputs = z.object({
@@ -64,6 +66,8 @@ export class BotCreate extends AuditedAction {
     accessRead: accessListSchema.default([]),
     accessWrite: accessListSchema.default([]),
     helpNotifyTag: helpNotifyTagInput.default(null),
+    approverTag: approverTagInput.default(null),
+    approvalTtlSeconds: approvalTtlInput.default(86_400),
     monthlyBudgetUsd: monthlyBudgetInput.default(null),
     maxStepsPerTurn: maxStepsPerTurnInput.default(50),
     memoryChannelHalfLifeDays: halfLifeInput("channel").default(30),
@@ -104,6 +108,12 @@ export class BotCreate extends AuditedAction {
     assertNotLockedOut(params.accessRead, callerTags, "accessRead");
     assertNotLockedOut(params.accessWrite, callerTags, "accessWrite");
     await assertHelpTag(tx, params.projectId, params.helpNotifyTag);
+    await assertHelpTag(
+      tx,
+      params.projectId,
+      params.approverTag,
+      "approverTag",
+    );
     await assertAliasesExist(tx, params.projectId, {
       modelAlias: params.modelAlias,
       fastModelAlias: params.fastModelAlias,
@@ -134,6 +144,8 @@ export class BotCreate extends AuditedAction {
         accessRead: params.accessRead,
         accessWrite: params.accessWrite,
         helpNotifyTag: params.helpNotifyTag,
+        approverTag: params.approverTag,
+        approvalTtlSeconds: params.approvalTtlSeconds,
         monthlyBudgetUsd: budgetColumn(params.monthlyBudgetUsd),
         enabled: params.enabled,
         maxStepsPerTurn: params.maxStepsPerTurn,

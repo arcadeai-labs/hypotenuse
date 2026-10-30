@@ -19,7 +19,10 @@ reports back into the conversation it came from.
 > recovering from a killed worker without repeating a side effect, with signed callbacks and a live transcript page.
 > Bots **remember**: versioned channel and project memory with hybrid pgvector + full-text search that decays with
 > disuse, six memory tools, consolidation of resting conversations into channel facts, promotion to project memory
-> only by a person, and a memory explorer. No chat platform is connected yet. The build order and every
+> only by a person, and a memory explorer. Bots **use tools**: project admins connect shared MCP servers (credentials
+> sealed and attached server-side, OAuth included), each bot finds tools through `mcp_search` / `mcp_info` /
+> `mcp_exec` on the servers it is given, and every call outside its allowlist parks the conversation until a person
+> approves it in the approvals inbox — the approved call then runs exactly once. No chat platform is connected yet. The build order and every
 > plan are in
 > [`docs/plans/README.md`](./docs/plans/README.md); the system on one page is
 > [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md). Hypotenuse **v1** — local coding agents answering
@@ -78,7 +81,8 @@ These bind from the first line of code. A rule that names a thing not built yet 
    (`triggers:process-event`, `triggers:process-pending`, recorded in `trigger_events` and `conversation_inbox`);
    `agent:tick`, `conversation:compact`, and every tool a bot runs (recorded in `conversation_entries`); memory's
    machine work (`memory:embed`, `memory:consolidate`, `memory:decay-project`, recorded in `memory_documents` and
-   `memory_chunks`); outbox delivery (`outbox:deliver`, recorded in `outbox_messages`); the sandbox's machine half (`sandbox:events` / `heartbeat` / `complete` and the in-sandbox tools, recorded in
+   `memory_chunks`); the MCP catalog's machine work (`mcp-server:refresh-catalog`, `bot:capabilities`, recorded on
+   `mcp_servers` and `bots`); outbox delivery (`outbox:deliver`, recorded in `outbox_messages`); the sandbox's machine half (`sandbox:events` / `heartbeat` / `complete` and the in-sandbox tools, recorded in
    `sandbox_jobs` and `sandbox_job_events`); and `cost_records`. The audited thing is always **the decision a
    person made** — editing a bot, binding it to a channel, approving a tool call, answering a help request,
    granting a repository. A decision a platform participant makes in a channel (an approval clicked in Slack) is

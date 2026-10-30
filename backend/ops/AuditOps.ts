@@ -62,6 +62,7 @@ export const SENSITIVE_KEYS = [
   // MCP server and telemetry exporter headers, where credentials hide
   "headers",
   "authorization",
+  "bearerToken",
 ] as const;
 
 /**

@@ -14,9 +14,16 @@ import {
   when,
   withPaging,
 } from "../context";
-import { encodeAvatar, parseList, parseNumber, readFileFor } from "../input";
+import {
+  encodeAvatar,
+  parseDuration,
+  parseList,
+  parseNumber,
+  readFileFor,
+} from "../input";
 import { logger } from "../output/logger";
 import { table } from "../output/theme";
+import { registerBotToolsCommands } from "./bot-tools";
 
 /** A bot as the bot actions answer it. */
 interface Bot {
@@ -32,6 +39,8 @@ interface Bot {
   accessRead: string[];
   accessWrite: string[];
   helpNotifyTag: string | null;
+  approverTag?: string | null;
+  approvalTtlSeconds?: number;
   monthlyBudgetUsd: number | null;
   maxStepsPerTurn?: number;
   memoryChannelHalfLifeDays?: number;
@@ -59,6 +68,10 @@ export interface BotFlags {
   write?: string;
   /** A tag name, or `false` from `--no-help-tag`. */
   helpTag?: string | false;
+  /** A tag name, or `false` from `--no-approver-tag`. */
+  approverTag?: string | false;
+  /** How long a tool-call approval waits: seconds or `24h`-style. */
+  approvalTtl?: string;
   /** Dollars, or `false` from `--no-budget`. */
   budget?: string | false;
   /** The most model steps one turn may take. */
@@ -110,6 +123,18 @@ function withBotFlags(command: Command): Command {
       "the tag whose holders it asks for help (default: the admins)",
     )
     .option("--no-help-tag", "ask the project's admins for help")
+    .option(
+      "--approver-tag <tag>",
+      "a tag whose holders may decide its tool-call approvals, besides those who may change it",
+    )
+    .option(
+      "--no-approver-tag",
+      "only those who may change it decide its approvals",
+    )
+    .option(
+      "--approval-ttl <duration>",
+      "how long a tool-call approval waits before it expires: seconds, or 30m / 24h / 7d (1m-30d, default 24h)",
+    )
     .option(
       "--budget <usd>",
       "a monthly budget in US dollars; reported model costs stop the bot at it",
@@ -167,6 +192,16 @@ export function botBody(flags: BotFlags): Record<string, unknown> {
   if (flags.write !== undefined) body.accessWrite = parseList(flags.write);
   if (flags.helpTag === false) body.helpNotifyTag = null;
   else if (flags.helpTag !== undefined) body.helpNotifyTag = flags.helpTag;
+  if (flags.approverTag === false) body.approverTag = null;
+  else if (flags.approverTag !== undefined) {
+    body.approverTag = flags.approverTag;
+  }
+  if (flags.approvalTtl !== undefined) {
+    body.approvalTtlSeconds = parseDuration(
+      flags.approvalTtl,
+      "--approval-ttl",
+    );
+  }
   if (flags.budget === false) body.monthlyBudgetUsd = null;
   else if (flags.budget !== undefined) {
     body.monthlyBudgetUsd = parseNumber(flags.budget, "--budget");
@@ -203,6 +238,18 @@ function accessText(list: string[]): string {
 }
 
 /**
+ * A number of seconds as a person reads it.
+ * @param seconds - The duration.
+ * @returns e.g. `24h`, `7d`, `90m`.
+ */
+function ttlText(seconds: number): string {
+  if (seconds % 86_400 === 0) return `${seconds / 86_400}d`;
+  if (seconds % 3600 === 0) return `${seconds / 3600}h`;
+  if (seconds % 60 === 0) return `${seconds / 60}m`;
+  return `${seconds}s`;
+}
+
+/**
  * Render a bot for a person.
  * @param bot - The bot.
  * @param canWrite - Whether the caller may change it.
@@ -217,6 +264,7 @@ function botDetail(bot: Bot, canWrite: boolean): string {
     `read          ${accessText(bot.accessRead)}`,
     `write         ${accessText(bot.accessWrite)}`,
     `help          ${bot.helpNotifyTag ?? "the admins"}`,
+    `approvals     decided by ${bot.approverTag ? `writers or the ${bot.approverTag} tag` : "those who may change it"}; wait ${ttlText(bot.approvalTtlSeconds ?? 86_400)}`,
     `budget        ${bot.monthlyBudgetUsd == null ? "-" : `$${bot.monthlyBudgetUsd}/month`}`,
     `steps/turn    ${bot.maxStepsPerTurn ?? 50}`,
     `half-life     ${bot.memoryChannelHalfLifeDays ?? 30} days channel memory, ${bot.memoryProjectHalfLifeDays ?? 180} days project memory`,
@@ -230,7 +278,7 @@ function botDetail(bot: Bot, canWrite: boolean): string {
 }
 
 /**
- * Register `bot list|view|create|edit|delete|callback-secret`.
+ * Register `bot list|view|create|edit|delete|callback-secret` and `bot tools …`.
  * @param program - The root program.
  */
 export function registerBotCommands(program: Command): void {
@@ -410,4 +458,6 @@ export function registerBotCommands(program: Command): void {
         );
       });
     });
+
+  registerBotToolsCommands(bot);
 }

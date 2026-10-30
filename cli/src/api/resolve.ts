@@ -182,3 +182,31 @@ export async function resolveConnectionId(
   if (!match) throw new Error(`No model connection named "${selector}"`);
   return match.id;
 }
+
+/**
+ * Resolve an MCP server id or name in a project.
+ * @param client - A signed-in client.
+ * @param projectId - The project.
+ * @param selector - An id (all digits) or the server's name.
+ * @returns The server's id.
+ * @throws {Error} When no server has that name.
+ */
+export async function resolveMcpServerId(
+  client: ApiClient,
+  projectId: number,
+  selector: string,
+): Promise<number> {
+  if (/^\d+$/.test(selector)) return Number(selector);
+  const match = await findInPages<{ id: number; name: string }>(
+    client,
+    `/project/${projectId}/mcp-servers`,
+    "mcpServers",
+    (s) => s.name === selector,
+  );
+  if (!match) {
+    throw new Error(
+      `No MCP server named "${selector}". \`hypotenuse mcp-server list\` shows them.`,
+    );
+  }
+  return match.id;
+}

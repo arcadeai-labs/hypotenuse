@@ -59,6 +59,20 @@ const EXPECTED_LEVELS: Record<string, RbacLevel> = {
   "memory:forget": "member",
   "memory:pin": "member",
   "memory:promote": "member",
+  // MCP servers: members read the registry and catalog; a bot's servers,
+  // approvals, and large results are member-level with the bot's access
+  // lists deciding the rest inside the action (an approval also accepts the
+  // bot's approver tag).
+  "mcp-server:list": "member",
+  "mcp-server:view": "member",
+  "mcp-server:match-tools": "member",
+  "bot-mcp-server:set": "member",
+  "bot-mcp-server:remove": "member",
+  "bot-mcp-server:list": "member",
+  "approval:list": "member",
+  "approval:view": "member",
+  "approval:decide": "member",
+  "large-result:view": "member",
 
   // A project's admin level: managing people, tags, invites, the project.
   "project:edit": "admin",
@@ -83,6 +97,13 @@ const EXPECTED_LEVELS: Record<string, RbacLevel> = {
   "model-alias:delete": "admin",
   // Spends the project's embedding budget.
   "memory:reindex": "admin",
+  // Which MCP servers the project connects, with what credentials.
+  "mcp-server:create": "admin",
+  "mcp-server:edit": "admin",
+  "mcp-server:delete": "admin",
+  "mcp-server:test": "admin",
+  "mcp-server:refresh-tools": "admin",
+  "mcp-server:oauth-start": "admin",
 
   // Organization members. Two of these decide more inside the action:
   // removing someone else needs an owner (leaving does not), and an invite
@@ -138,6 +159,14 @@ const EXPECTED_LEVELS: Record<string, RbacLevel> = {
   "memory:consolidate-due": "none",
   "memory:decay": "none",
   "memory:decay-project": "none",
+  // The MCP catalog and approval gate's machine work: task-only, no caller.
+  "mcp-servers:refresh": "none",
+  "mcp-server:refresh-catalog": "none",
+  "bot:capabilities": "none",
+  "approvals:expire": "none",
+  "large-results:sweep": "none",
+  // The OAuth return hop: its single-use state names the admin who started it.
+  "mcp-server:oauth-callback": "none",
   // The CLI's sign-in: a person's own browser hops, its unauthenticated
   // ingress, and their own sign-ins.
   "cli-auth:approve": "none",
@@ -172,11 +201,20 @@ const CLOCKS = [
   "audit:sweep",
   "memory:decay",
   "memory:consolidate-due",
+  "mcp-servers:refresh",
+  "approvals:expire",
+  "large-results:sweep",
 ];
 
 /** Every action published as an MCP tool for a person's client. */
 const EXPECTED_MCP_TOOLS = [
+  "approval:decide",
+  "approval:list",
+  "approval:view",
   "audit:list",
+  "bot-mcp-server:list",
+  "bot-mcp-server:remove",
+  "bot-mcp-server:set",
   "bot:create",
   "bot:delete",
   "bot:edit",
@@ -201,6 +239,15 @@ const EXPECTED_MCP_TOOLS = [
   "membership:create",
   "membership:delete",
   "membership:list",
+  "large-result:view",
+  "mcp-server:create",
+  "mcp-server:delete",
+  "mcp-server:edit",
+  "mcp-server:list",
+  "mcp-server:match-tools",
+  "mcp-server:refresh-tools",
+  "mcp-server:test",
+  "mcp-server:view",
   "memory:channels",
   "memory:forget",
   "memory:list",
@@ -371,6 +418,8 @@ describe("MCP publish policy", () => {
         "cli-auth:exchange",
         "email-verification:confirm",
         "health",
+        "mcp-server:oauth-callback",
+        "mcp-server:oauth-start",
         "sandbox:git-credential",
         "session:create",
         "session:destroy",

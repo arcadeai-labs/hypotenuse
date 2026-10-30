@@ -52,6 +52,23 @@ export const MODEL_CONTROL_PORT = BACKEND_PORT + 1002;
 export const MODEL_CONTROL_URL = `http://127.0.0.1:${MODEL_CONTROL_PORT}`;
 
 /**
+ * The suite's MCP servers, which `scripts/e2e-backend.ts` also starts: two
+ * real MCP servers on the SDK (one open, one behind OAuth), and a control
+ * server a spec reads their addresses from
+ * (`backend/__tests__/fixtures/mcp-server-process.ts` lists its routes).
+ */
+export const MCP_CONTROL_PORT = BACKEND_PORT + 1003;
+export const MCP_CONTROL_URL = `http://127.0.0.1:${MCP_CONTROL_PORT}`;
+
+/**
+ * A second scripted model, for `mcp.spec.ts` alone. The scripted model answers
+ * in queue order for any conversation, and the conversations spec runs beside
+ * this one on another worker, so each spec that scripts a bot owns a model.
+ */
+export const MCP_MODEL_CONTROL_PORT = BACKEND_PORT + 1004;
+export const MCP_MODEL_CONTROL_URL = `http://127.0.0.1:${MCP_MODEL_CONTROL_PORT}`;
+
+/**
  * Point a Postgres URL at another database on the same server, keeping its
  * credentials and host.
  * @param url - A `postgres://` URL.
@@ -112,6 +129,14 @@ export const BACKEND_ENV: Record<string, string> = {
   MEMORY_CONSOLIDATE_MIN_ENTRIES: "1000000",
   // Where the scripted model's control server listens; the backend ignores it.
   MODEL_SERVER_CONTROL_PORT: String(MODEL_CONTROL_PORT),
+  // Where the MCP servers' control server listens, and the second scripted
+  // model's; the backend ignores both.
+  MCP_SERVER_CONTROL_PORT: String(MCP_CONTROL_PORT),
+  MCP_MODEL_CONTROL_PORT: String(MCP_MODEL_CONTROL_PORT),
+  // A bot's capabilities are a plain list of its servers, not a summary its
+  // `fast` model writes: that would take an answer a spec queued on the
+  // shared scripted model for its conversation.
+  MCP_GENERATE_CAPABILITIES: "false",
   PROCESS_NAME: "hypotenuse-e2e",
   LOG_LEVEL: "warn",
 };

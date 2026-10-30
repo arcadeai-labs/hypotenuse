@@ -107,6 +107,9 @@ export function serializeBot(bot: Bot) {
     memoryChannelHalfLifeDays: bot.memoryChannelHalfLifeDays,
     memoryProjectHalfLifeDays: bot.memoryProjectHalfLifeDays,
     hasCallbackSecret: bot.apiCallbackSecret !== null,
+    approverTag: bot.approverTag,
+    approvalTtlSeconds: bot.approvalTtlSeconds,
+    capabilities: bot.capabilities,
     createdByUserId: bot.createdByUserId,
     createdAt: bot.createdAt.getTime(),
     updatedAt: bot.updatedAt.getTime(),
@@ -234,24 +237,26 @@ export async function assertAliasesExist(
  * @param db - A database handle.
  * @param projectId - The project.
  * @param tag - The tag name, or `null` for the project's admins.
- * @throws {TypedError} `CONNECTION_ACTION_PARAM_VALIDATION` keyed on `helpNotifyTag`.
+ * @param key - The input it came in (`helpNotifyTag` or `approverTag`).
+ * @throws {TypedError} `CONNECTION_ACTION_PARAM_VALIDATION` keyed on `key`.
  */
 export async function assertHelpTag(
   db: DbHandle,
   projectId: number,
   tag: string | null | undefined,
+  key: "helpNotifyTag" | "approverTag" = "helpNotifyTag",
 ): Promise<void> {
   if (!tag) return;
   // An access list reads `*` as every member, but a help tag names one tag
   // whose holders are asked; "everyone" is not a tag anyone holds.
   if (tag.trim() === ACCESS_EVERYONE) {
     throw new TypedError({
-      message: `A help tag names one tag, not "${ACCESS_EVERYONE}". Choose a tag, or null for the project's admins.`,
+      message: `This names one tag, not "${ACCESS_EVERYONE}". Choose a tag, or null.`,
       type: ErrorType.CONNECTION_ACTION_PARAM_VALIDATION,
-      key: "helpNotifyTag",
+      key,
     });
   }
-  await assertAccessListTags(db, projectId, [tag], "helpNotifyTag");
+  await assertAccessListTags(db, projectId, [tag], key);
 }
 
 /**
@@ -485,6 +490,28 @@ export const helpNotifyTagInput = z
   .nullable()
   .describe(
     "The tag whose holders the bot asks for help when nobody answers in-channel; null means the project's admins",
+  );
+
+/** The Zod input for the tag whose holders may decide a bot's approvals. */
+export const approverTagInput = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .min(1)
+  .max(256)
+  .nullable()
+  .describe(
+    "A tag whose holders may approve or deny this bot's tool calls, besides the people who may change the bot; they are also the ones notified. null means only the bot's writers decide, and the project's admins are notified",
+  );
+
+/** The Zod input for how long an approval waits. */
+export const approvalTtlInput = z
+  .number()
+  .int()
+  .min(60)
+  .max(30 * 24 * 60 * 60)
+  .describe(
+    "How long a tool-call approval waits for a decision before it expires and counts as denied, in seconds (default 86400, a day)",
   );
 
 /** The Zod input for a monthly budget in US dollars. */

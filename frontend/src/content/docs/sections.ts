@@ -1,11 +1,13 @@
 import type { ComponentType } from "react";
 import { StyleGuidePage } from "../../pages/StyleGuidePage";
 import accounts from "./accounts.md?raw";
+import approvals from "./approvals.md?raw";
 import audit from "./audit.md?raw";
 import bots from "./bots.md?raw";
 import cli from "./cli.md?raw";
 import conversations from "./conversations.md?raw";
 import gettingStarted from "./getting-started.md?raw";
+import mcpServers from "./mcp-servers.md?raw";
 import members from "./members.md?raw";
 import memory from "./memory.md?raw";
 import models from "./models.md?raw";
@@ -43,6 +45,8 @@ export const DOCS_SECTIONS: DocsSection[] = [
   { slug: "bots", title: "Bots", markdown: bots },
   { slug: "conversations", title: "Conversations", markdown: conversations },
   { slug: "memory", title: "Memory", markdown: memory },
+  { slug: "mcp-servers", title: "MCP servers", markdown: mcpServers },
+  { slug: "approvals", title: "Approvals", markdown: approvals },
   {
     slug: "talking-to-a-bot-over-the-api",
     title: "Talking to a bot over the API",

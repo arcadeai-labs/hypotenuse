@@ -637,8 +637,10 @@ mid-turn (a Render restart) does not lose the turn.
 ### The state table in tests
 
 `state-machine.test.ts` has one test per reachable cell, named `<state> × <event>`. The `waiting (approval / sandbox
-/ timer)` row is proven with the timer, the only wait with a writer yet; its approval and sandbox cells, and the
-`waiting (answer) × waitingOn satisfied` cell (an answer through a platform interaction), wait for their phases.
+/ timer)` row is proven there with the timer; its approval cells (decided, expired, an inbound message kept, cancel)
+are proven in `__tests__/mcp/approval.test.ts`, which [phase 10](./phase-10-shared-mcp-servers.md) added. The sandbox
+cells, and the `waiting (answer) × waitingOn satisfied` cell (an answer through a platform interaction), wait for
+their phases.
 
 ### The frontend
 

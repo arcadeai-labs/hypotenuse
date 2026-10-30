@@ -48,7 +48,7 @@ test("a member makes a bot, gives it an avatar and a persona; restricting who ma
     page.locator(".ui-bot-badge[data-bot='Kit']").first(),
   ).toBeVisible();
   // What the page does not configure yet is there, disabled, and says so.
-  for (const slug of ["channels", "tools", "skills", "prompts", "goals"]) {
+  for (const slug of ["channels", "code", "skills", "prompts", "goals"]) {
     const section = page.getByTestId(`bot-section-${slug}`);
     await expect(section).toHaveAttribute("aria-disabled", "true");
     await expect(section).toContainText("Not available yet");

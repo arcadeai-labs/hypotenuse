@@ -20,6 +20,10 @@
  * - **the email-verification hop** — `email-verification:confirm` is a link a
  *   person follows from their inbox; a model holding the token could confirm
  *   an address nobody read;
+ * - **the MCP server sign-in hops** — `mcp-server:oauth-start` and
+ *   `mcp-server:oauth-callback` send a person's browser through a server's
+ *   authorization page and back; a model cannot sign in, and the callback
+ *   carries a code a model must never hold;
  * - **binary answers** — `bot:avatar` answers image bytes, which no tool
  *   result carries;
  * - **machine families, by prefix** — `webhooks:*` (signed platform ingress),
@@ -68,6 +72,8 @@ export const NEVER_MCP_ACTION_NAMES: ReadonlySet<string> = new Set([
   "cli-auth:exchange",
   "sandbox:git-credential",
   "email-verification:confirm",
+  "mcp-server:oauth-start",
+  "mcp-server:oauth-callback",
   "bot:avatar",
 ]);
 

@@ -126,7 +126,7 @@ job is an accelerant that a clock can replace.
 |---|---|---|
 | `working` | a tick holds the lease, or one is owed (`wakeRequestedAt`) | a terminal tool parks, rests, or ends it; a cancel ends it |
 | `hibernating` | at rest after answering | an inbound message wakes it for a new turn |
-| `waiting` | parked on a typed `waitingOn`: an `answer` (with an optional timeout) or a `timer`; `approval` and `sandbox` are reserved for the approval gate and sandbox jobs | the answer arrives (the next message), the timer or timeout is due, or it is cancelled |
+| `waiting` | parked on a typed `waitingOn`: an `answer` (with an optional timeout), a `timer`, or `approval` (the approvals a step's gated tool calls wait on); `sandbox` is reserved for sandbox jobs | the answer arrives (the next message), the timer or timeout is due, every approval is decided or expired, or it is cancelled |
 | `ended` | closed with an outcome: `completed`, `failed`, or `cancelled` | an inbound message starts a new turn |
 
 Every move into `working` goes through one operation, `ConversationOps.wake` (bot `FOR SHARE`, then conversation
@@ -189,13 +189,25 @@ Built ([phase 09](./plans/phase-09-memory.md)). Every memory is a markdown docum
 
 ## Tools and code mode
 
-- **MCP, progressively.** A bot sees `mcp_search`, `mcp_info`, and `mcp_exec`, not every tool of every server. A
-  call outside the bot's allowlist creates an `approvals` row and parks the conversation until a person decides —
-  in the channel where they are, or in the dashboard.
+- **MCP, progressively.** Built ([phase 10](./plans/phase-10-shared-mcp-servers.md)). A project connects
+  `mcp_servers` once (Streamable HTTP; none, headers, bearer, or OAuth; credentials sealed and attached by the
+  server, header values filled per bot with `{{bot.identity}}`); a bot is given servers in `bot_mcp_servers`. A
+  per-process client pool (`ops/McpClientOps.ts`) connects through the SSRF guard's fetch, keyed by server,
+  credential version, and headers. A bot sees `mcp_search` (keyword fused with the memory embedder over the cached
+  catalog), `mcp_list_tools`, `mcp_info`, `mcp_exec`, and `read_large_result`, not every tool of every server, and a
+  generated *capabilities* summary in its prompt. `mcp_exec` needs `mcp_info` first in the conversation.
+- **The approval gate** (`ops/ApprovalOps.ts`) decides each `mcp_exec` before anything is sent: an allowlist pattern
+  or a read-only tool with `autoAllowReadOnly` runs; anything else writes an `approvals` row bound to the intent and
+  its `callKey`, and the tick parks the step on `waiting` / `approval` after the step's other calls run. A decision
+  (`approval:decide`, or `approvals:expire`) wakes the conversation when none is pending; recovery runs the approved
+  intent — marked `executingAt` and committed before it is sent, consumed with its result — or refuses a denied
+  one. Nothing earlier is replayed. Decided in the dashboard, the API, the CLI, and MCP today; in the channel from
+  [13](./plans/phase-13-channel-framework.md).
 - **Code mode.** `run_code` runs TypeScript in QuickJS compiled to WebAssembly, with a host API of `memory.*` and
   `mcp.*` and hard limits on time, memory, and calls. A gated call inside a program suspends it; approval resumes
   the same program from its recorded host calls.
-- **Large results** go to memory or `large_results`, not into the context window.
+- **Large results** go to memory (`saveTo`) or `large_results` (a preview and an `lr_<id>` the bot pages), not into
+  the context window; `large-results:sweep` deletes them 30 days after their conversation ends.
 
 ## Platforms
 

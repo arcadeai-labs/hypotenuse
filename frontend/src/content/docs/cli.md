@@ -80,6 +80,11 @@ invites), and `audit list`.
 | `hypotenuse bot list`, `bot view <bot>` | The bots you can read, and one bot's settings and persona |
 | `hypotenuse bot create --name --persona-file`, `bot edit <bot>`, `bot delete <bot> --yes` | Make a bot, change it, or delete it. See **Bots from the command line** below |
 | `hypotenuse bot callback-secret <bot>` | Create the secret a bot signs its API callbacks with, and print it once. See **Talking to a bot** below |
+| `hypotenuse mcp-server list`, `mcp-server view <server>`, `mcp-server match <server> --pattern` | The project's shared [MCP servers](/docs/mcp-servers): each one's endpoint, how it signs in (never the credential), its status, and the tools it offers; and which tools an allowlist pattern would let through |
+| `hypotenuse mcp-server add <name> --endpoint`, `mcp-server edit <server>`, `mcp-server test <server>`, `mcp-server refresh <server>`, `mcp-server sign-in <server>`, `mcp-server remove <server> --yes` | Connect a server, change it, check it answers, re-list its tools, sign the project in to an OAuth server, or disconnect it. Admins only; see **MCP servers from the command line** below |
+| `hypotenuse bot tools list <bot>`, `bot tools add <bot> <server>`, `bot tools remove <bot> <server>` | Which MCP servers a bot may use, the calls it makes without asking (`--allow`), and whether read-only tools ask (`--auto-allow-read-only`). Changing them needs write access to the bot |
+| `hypotenuse approval list`, `approval view <id>`, `approval approve <id>`, `approval deny <id>` | Tool calls bots are waiting on ([approvals](/docs/approvals)): list them (`--status pending`, `--bot`, `--conversation` narrow it), read one, and decide it. See **Approvals from the command line** below |
+| `hypotenuse large-result view <lr_id>` | A tool result too long to show in a transcript, which the transcript names `lr_<id>`: a page at a time (`--offset`, `--limit`) or `--all` |
 | `hypotenuse conversation create --bot --text`, `conversation message <id> --text` | Start a conversation with a bot, or send one a message. See **Talking to a bot** below |
 | `hypotenuse conversation list`, `conversation view <id>`, `conversation follow <id>`, `conversation cancel <id>` | The conversations with bots you can read (`--bot`, `--state` narrow the list); one conversation's state; its transcript as the bot works; stopping it |
 | `hypotenuse memory search <query>`, `memory list`, `memory view <path>`, `memory versions <path>`, `memory channels --bot` | Search what bots [remember](/docs/memory) the way a bot does, list documents with how much each has faded, read one (`--version-id` for an earlier version) and its history, and list the channels a bot remembers. See **Memory from the command line** below |
@@ -91,10 +96,11 @@ invites), and `audit list`.
 milliseconds, or a span back from now (`7d`, `12h`, `30m`); `--action tag:edit`, `--actor-type user`, and
 `--target-type tag` narrow it further.
 
-Deleting an organization, a project, or a bot cannot be undone, so those commands refuse to run without `--yes`.
+Deleting an organization, a project, a bot, or an MCP server cannot be undone, so those commands refuse to run
+without `--yes`.
 
-A model connection is named by its id or its name, a bot by its id or its slug, an alias by its name, and a channel
-by its id.
+A model connection or an MCP server is named by its id or its name, a bot by its id or its slug, an alias by its
+name, a channel and an approval by their ids.
 
 ### API keys
 
@@ -142,9 +148,64 @@ hypotenuse bot edit ada --disable
 - `--channel-half-life <days>` and `--project-half-life <days>` set how fast the bot's memory fades:
   the days until a memory it has not used weighs half as much (1–3650; 30 for channel memory and 180 for project
   memory unless you say otherwise).
+- `--approver-tag <tag>` lets that tag's holders decide the bot's tool-call approvals too, besides the people who
+  can change the bot; `--no-approver-tag` goes back to only them.
+- `--approval-ttl <duration>` sets how long an approval waits before it expires and counts as denied: seconds, or
+  `30m`, `24h`, `7d` (one minute to 30 days; a day unless you say otherwise).
 - `--enable` and `--disable` decide whether the bot accepts new conversations.
 
 `bot edit` changes only what its flags name.
+
+### MCP servers from the command line
+
+An admin connects a server once for the whole project, then gives it to bots:
+
+```bash
+hypotenuse mcp-server add docs --endpoint https://mcp.example.com/mcp
+pbpaste | hypotenuse mcp-server add linear --endpoint https://mcp.linear.app/mcp --bearer-stdin
+hypotenuse mcp-server add search --endpoint https://search.example.com/mcp --header "X-Team: billing" --headers-stdin < secret-headers.txt
+hypotenuse mcp-server add github --endpoint https://api.githubcopilot.com/mcp/ --oauth
+hypotenuse mcp-server view docs
+hypotenuse mcp-server match linear --pattern "/^linear\/list_/" --pattern "*/search"
+hypotenuse bot tools add ada linear --allow linear/list_issues --auto-allow-read-only
+hypotenuse bot tools list ada
+```
+
+- How a server signs in follows from the flags: `--header "Name: value"` or `--headers-stdin` (one `Name: value`
+  per line) sends headers, `--bearer-stdin` or `--bearer-env <NAME>` a bearer token, `--oauth` an OAuth sign-in,
+  and none of them nothing; `--auth none|headers|bearer|oauth` says it outright. As with API keys, a credential
+  never goes on the command line: `--header` is for values that are not secret. Only one flag may read standard
+  input.
+- `--oauth` prints the URL to open in a browser to sign the project in; `mcp-server sign-in <server>` prints a fresh
+  one later. `--client-id` with `--client-secret-stdin` or `--client-secret-env` uses a client you registered
+  instead of one registered for you.
+- `add`, `test`, and `refresh` connect and list the server's tools; `test` and `refresh` exit non-zero when it does
+  not answer. `edit` changes only what its flags name (`--name`, `--endpoint`, new credentials, `--timeout-ms` or
+  `--default-timeout`, `--enable` or `--disable`), and new credentials reconnect it.
+- The server never answers a credential: `view` and `list` show header names, a bearer token's last four
+  characters, and whether an OAuth server is signed in.
+- `bot tools add` gives a bot a server or changes its settings for it. Each `--allow <pattern>` (`server/tool`,
+  `server/*`, `*/tool`, a bare tool name, or `/regex/`) names calls that run without asking and replaces the list;
+  `--no-allow` clears it, so every call asks. `--auto-allow-read-only` lets tools the server marks read-only run
+  without asking.
+
+### Approvals from the command line
+
+A tool call outside a bot's allowlist waits for a person. Find it, read it, and decide it:
+
+```bash
+hypotenuse approval list --status pending
+hypotenuse approval view 12
+hypotenuse approval approve 12
+hypotenuse approval approve 13 --always
+hypotenuse approval deny 14 --note "Draft it in the thread instead of sending it"
+```
+
+- `approve` runs exactly that call, with those arguments, once, and the bot carries on. `--always` also lets the bot
+  make that `server/tool` call without asking from now on.
+- `deny` tells the bot not to retry; `--note` is what the bot reads about what to do instead.
+- Deciding needs write access to the bot or its approver tag; `list` and `view` say whether you can. The decision
+  is recorded as made from the CLI, in the project's audit log.
 
 ### Talking to a bot
 

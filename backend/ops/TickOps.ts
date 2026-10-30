@@ -31,6 +31,13 @@ import {
   type Transition,
   toolErrorEnvelope,
 } from "../tools/types";
+import {
+  type ApprovalDraft,
+  consumeApproval,
+  type GateOutcome,
+  insertApprovals,
+  markExecuting,
+} from "./ApprovalOps";
 import { compactionPending, maybeEnqueueCompaction } from "./CompactionOps";
 import { enqueueConsolidation, owesConsolidation } from "./ConsolidationOps";
 import {
@@ -72,6 +79,7 @@ import {
  * | only text again | the turn fails |
  * | `maxStepsPerTick` steps or `tickBudgetMs` used | yield: owe a tick, release, enqueue it |
  * | the turn used `bots.maxStepsPerTurn` steps | the turn fails, saying how many |
+ * | a gated call waits for a person | the other calls' results written, then park on `approval` |
  */
 
 /** This tick lost its lease: another tick owns the conversation now. */
@@ -412,11 +420,14 @@ async function recover(state: TickState): Promise<"continue" | "released"> {
   const open = await openIntents(api.db.db, state.conversationId);
   if (open.length === 0) return "continue";
   const rerun: typeof open = [];
+  const gated: typeof open = [];
   await asHolder(state, async (tx, conversation) => {
     const drafts: EntryDraft[] = [];
     for (const intent of open) {
       const tool = intent.toolName ? getTool(intent.toolName) : undefined;
-      if (tool && tool.replay === "safe" && intent.replay === "safe") {
+      if (tool?.gate) {
+        gated.push(intent);
+      } else if (tool && tool.replay === "safe" && intent.replay === "safe") {
         rerun.push(intent);
       } else {
         drafts.push(interruptedResult(intent));
@@ -424,6 +435,15 @@ async function recover(state: TickState): Promise<"continue" | "released"> {
     }
     await appendEntries(tx, conversation.id, conversation.epoch, drafts);
   });
+  // A gated call that a person decided runs now, or is refused; one still
+  // waiting parks the conversation again. Nothing before it is replayed.
+  const parked: Parked[] = [];
+  for (const intent of gated) {
+    const def = getTool(String(intent.toolName)) as ToolDefinition;
+    const outcome = await decideGate(state, def, intent);
+    const waiting = await settleGated(state, def, intent, outcome, true);
+    if (waiting) parked.push(waiting);
+  }
   // As in `runCalls`: a step's terminal call runs after its other calls, so
   // a transition never parks the conversation with a call still open.
   const isTerminal = (i: (typeof rerun)[number]) =>
@@ -452,7 +472,167 @@ async function recover(state: TickState): Promise<"continue" | "released"> {
     });
     if (next === "released") return "released";
   }
+  if (parked.length > 0) {
+    await parkForApprovals(state, parked);
+    return "released";
+  }
   return "continue";
+}
+
+/** Stands for "write an interrupted result" in {@link settleGated}. */
+const INTERRUPTED = Symbol("interrupted");
+
+/** A gated call waiting for a person: an approval on record, or one to write. */
+interface Parked {
+  intent: Awaited<ReturnType<typeof openIntents>>[number];
+  approvalId?: number;
+  draft?: ApprovalDraft;
+}
+
+/**
+ * Ask a gated tool what to do with a call. A tool's own refusal (no such
+ * server, its info not read) becomes the call's error result; input that does
+ * not validate is left to {@link invoke} to report.
+ * @param state - The tick.
+ * @param def - The tool.
+ * @param intent - The call's intent.
+ * @returns The gate's outcome.
+ */
+async function decideGate(
+  state: TickState,
+  def: ToolDefinition,
+  intent: Awaited<ReturnType<typeof openIntents>>[number],
+): Promise<GateOutcome> {
+  const input = (intent.content as { input?: unknown }).input;
+  const parsed = def.inputSchema.safeParse(input ?? {});
+  if (!parsed.success || !def.gate) return { kind: "run" };
+  const { conversation, bot } = await readConversation(state);
+  const ctx = toolContext(state, conversation, bot, intent);
+  try {
+    return await def.gate(parsed.data, ctx);
+  } catch (error) {
+    if (ctx.signal.aborted) throw ctx.signal.reason;
+    if (error instanceof ToolError)
+      return { kind: "refuse", output: error.envelope() };
+    return {
+      kind: "refuse",
+      output: toolErrorEnvelope(
+        "tool_failed",
+        `${def.name} failed: ${error instanceof Error ? error.message : String(error)}`,
+        "Try again if it may have been transient; otherwise tell the person what failed.",
+      ),
+    };
+  }
+}
+
+/**
+ * Apply a gate's outcome to one call.
+ *
+ * | Outcome | First run | Recovery |
+ * |---|---|---|
+ * | `run` | run it, write its result | interrupted: it may have run before the worker stopped |
+ * | `run-approved` | mark executing (committed), run, write the result and consume the approval in one transaction | the same |
+ * | `refuse` | write the refusal | the same |
+ * | `interrupted` | — | interrupted; the approval consumed |
+ * | `park` | returned, to park the step | the same |
+ * @param state - The tick.
+ * @param def - The tool.
+ * @param intent - The call's intent.
+ * @param outcome - What the gate decided.
+ * @param recovering - Whether an earlier lease left this call open.
+ * @returns The call, when it waits for a person; otherwise `null`.
+ */
+async function settleGated(
+  state: TickState,
+  def: ToolDefinition,
+  intent: Awaited<ReturnType<typeof openIntents>>[number],
+  outcome: GateOutcome,
+  recovering: boolean,
+): Promise<Parked | null> {
+  const input = (intent.content as { input?: unknown }).input;
+  const write = (output: unknown, approvalId?: number) =>
+    asHolder(state, async (tx, conv) => {
+      await appendEntries(tx, conv.id, conv.epoch, [
+        output === INTERRUPTED
+          ? interruptedResult(intent)
+          : resultDraft(intent, output),
+      ]);
+      if (approvalId !== undefined) await consumeApproval(tx, approvalId);
+    });
+  switch (outcome.kind) {
+    case "park":
+      return "approvalId" in outcome
+        ? { intent, approvalId: outcome.approvalId }
+        : { intent, draft: outcome.draft };
+    case "refuse":
+      await write(outcome.output);
+      return null;
+    case "interrupted":
+      await write(INTERRUPTED, outcome.approvalId);
+      return null;
+    case "run": {
+      if (recovering) {
+        await write(INTERRUPTED);
+        return null;
+      }
+      const { conversation, bot } = await readConversation(state);
+      const output = await invoke(
+        def,
+        input,
+        toolContext(state, conversation, bot, intent),
+      );
+      throwIfStopped(state);
+      await write(output);
+      return null;
+    }
+    case "run-approved": {
+      // The intent before the effect: committed before anything is sent.
+      const mine = await asHolder(state, (tx) =>
+        markExecuting(tx, outcome.approvalId),
+      );
+      if (!mine) {
+        await write(INTERRUPTED, outcome.approvalId);
+        return null;
+      }
+      const { conversation, bot } = await readConversation(state);
+      const output = await invoke(
+        def,
+        input,
+        toolContext(state, conversation, bot, intent),
+      );
+      throwIfStopped(state);
+      await write(output, outcome.approvalId);
+      return null;
+    }
+  }
+}
+
+/**
+ * **Park for approvals**: write the approvals a step's gated calls need, queue
+ * their notifications, and move the conversation to `waiting` on them — one
+ * transaction. The step's other calls already have their results.
+ * @param state - The tick.
+ * @param parked - The calls waiting for a person.
+ */
+async function parkForApprovals(
+  state: TickState,
+  parked: Parked[],
+): Promise<void> {
+  await asHolder(state, async (tx, conversation, bot) => {
+    const fresh = await insertApprovals(
+      tx,
+      conversation,
+      bot,
+      parked
+        .filter((p) => p.draft)
+        .map((p) => ({ draft: p.draft as ApprovalDraft, intent: p.intent })),
+    );
+    const approvalIds = [
+      ...parked.flatMap((p) => (p.approvalId ? [p.approvalId] : [])),
+      ...fresh,
+    ];
+    await park(tx, state, conversation, { kind: "approval", approvalIds });
+  });
 }
 
 /**
@@ -584,7 +764,10 @@ async function step(
     .select()
     .from(channels)
     .where(eq(channels.id, conversation.channelId));
-  const prompt = assembleSystemPrompt(bot, channel);
+  const tools = await availableTools({ bot, conversation });
+  const prompt = assembleSystemPrompt(bot, channel, {
+    mcp: tools.some((t) => t.name === "mcp_exec"),
+  });
   const hash = promptHash(prompt);
 
   let model: ResolvedLanguageModel;
@@ -602,7 +785,6 @@ async function step(
     return "released";
   }
 
-  const tools = availableTools({ bot, conversation });
   const { compaction, entries } = await liveEntries(api.db.db, conversation.id);
   const messages = hydrate(compaction, entries, model.provider);
   state.lastPromptHash ??= await lastPromptHash(conversation.id);
@@ -913,6 +1095,9 @@ async function nudgeOrFail(state: TickState): Promise<"continue" | "released"> {
  * **Run the calls** of a step, each result written the moment it settles.
  * Parallel-safe calls run together, the rest in order, and the step's one
  * terminal call last; a second terminal call in the same step is refused.
+ * A gated call (`mcp_exec`) asks its gate first; when any call waits for a
+ * person, the step's terminal call is not run and the conversation parks on
+ * the approvals.
  * @param state - The tick.
  * @param intents - The step's intent entries.
  * @returns What the loop does next.
@@ -930,7 +1115,7 @@ async function runCalls(
     if (def?.terminal) {
       if (terminal) refused.push(intent);
       else terminal = intent;
-    } else if (def?.parallelSafe) parallel.push(intent);
+    } else if (def?.parallelSafe && !def.gate) parallel.push(intent);
     else serial.push(intent);
   }
 
@@ -954,9 +1139,16 @@ async function runCalls(
     );
   }
 
+  const parked: Parked[] = [];
   const runOne = async (intent: (typeof intents)[number]) => {
     throwIfStopped(state);
     const def = getTool(String(intent.toolName));
+    if (def?.gate) {
+      const outcome = await decideGate(state, def, intent);
+      const waiting = await settleGated(state, def, intent, outcome, false);
+      if (waiting) parked.push(waiting);
+      return;
+    }
     const input = (intent.content as { input?: unknown }).input;
     const { conversation, bot } = await readConversation(state);
     if (conversation.cancelRequestedAt) throw new CancelRequested();
@@ -975,6 +1167,28 @@ async function runCalls(
 
   await Promise.all(parallel.map(runOne));
   for (const intent of serial) await runOne(intent);
+
+  if (parked.length > 0) {
+    // A step whose calls wait for a person does not end its turn: the model
+    // sees every result, approved or refused, before it decides how to.
+    const waitingTerminal = terminal;
+    if (waitingTerminal) {
+      await asHolder(state, (tx, conv) =>
+        appendEntries(tx, conv.id, conv.epoch, [
+          resultDraft(
+            waitingTerminal,
+            toolErrorEnvelope(
+              "not_run",
+              "A tool call in this step is waiting for a person's approval, so this turn-ending call was not run.",
+              "When the approval is decided you will see its result; end your turn then.",
+            ),
+          ),
+        ]),
+      );
+    }
+    await parkForApprovals(state, parked);
+    return "released";
+  }
 
   if (!terminal) return "continue";
 

@@ -20,9 +20,9 @@ export const UNAVAILABLE_BOT_SECTIONS: readonly UnavailableSection[] = [
     purpose: "Where it listens: Slack channels, Linear teams, Pylon accounts.",
   },
   {
-    slug: "tools",
-    title: "Tools",
-    purpose: "Code mode, sandboxes, and the MCP servers it may call.",
+    slug: "code",
+    title: "Code",
+    purpose: "Code mode and the sandboxes it hands repository work to.",
   },
   {
     slug: "skills",

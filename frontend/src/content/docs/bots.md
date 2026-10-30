@@ -25,9 +25,11 @@ read and change it, and whether you may change it.
 | **Access** | who may read it, who may change it, and whom it asks for help |
 | **Budget** | a monthly ceiling in US dollars, and the most model steps one turn may take |
 | **Memory** | how fast its memories fade when unused, and a link to what it remembers |
+| **Tools** | which MCP servers it may use, which of their tools run without asking, and what its tools can do |
+| **Approvals** | who may decide its tool calls, and how long a waiting call lasts |
 
-The page also shows **Channels**, **Tools**, **Skills**, **Prompts**, and **Goals**, each reading *Not available
-yet*. They will hold where the bot listens, what else it may call, and how it works between conversations.
+The page also shows **Channels**, **Code**, **Skills**, **Prompts**, and **Goals**, each reading *Not available
+yet*. They will hold where the bot listens, the code it runs, and how it works between conversations.
 
 **Enabled** decides whether the bot takes new conversations. **Delete bot**, behind a confirmation, removes it for
 good.
@@ -99,6 +101,34 @@ whole number of days from 1 to 3650:
 | **Project memory half-life** | 180 days | how fast the project's shared memory fades in this bot's searches; project memory is never forgotten by fading |
 
 **Memory** at the top of the page, or the link in the section, opens what the bot remembers, one channel at a time.
+
+## Tools
+
+![A bot's Tools: its servers, the patterns that let calls run without asking, and what its tools can do](illustration:bot-tools)
+
+A bot calls tools on the project's [MCP servers](/docs/mcp-servers). **Add server** gives it one; until then it has
+none. For each server, two settings decide which calls run without a person's [approval](/docs/approvals):
+
+- **Allowed tools** — patterns naming the calls that run without asking. Empty, the default, means every call
+  waits. As you type, the section shows which of the server's tools each pattern matches.
+
+  | Pattern | Allows |
+  |---|---|
+  | `github/create_issue` | that one tool |
+  | `github/*` | every tool of that server |
+  | `*/search` or `search` | a tool of that name on any server |
+  | `/^github\/list_/` | any `server/tool` the regular expression matches |
+
+- **Run read-only tools without asking** — calls to tools the server marks read-only run at once. Off by default:
+  the mark is the server's claim, not a promise, so turn it on only for servers you trust to tell the truth.
+
+**What its tools can do** is a few lines the bot reads in its instructions, written by its `fast` model from the
+tools it can see, in themes and without tool names — so it searches for the right tool rather than guessing one. It
+is rewritten whenever a server's tools change.
+
+The **Approvals** section sets two more. **Approver tag** names a tag whose holders may approve or deny this bot's calls besides the people who may change
+it; they are the ones notified. **Approvals expire after** sets how long a call waits before it counts as denied —
+a day unless you change it.
 
 ## Talking to it
 
