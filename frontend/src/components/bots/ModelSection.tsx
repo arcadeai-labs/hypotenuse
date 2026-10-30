@@ -7,7 +7,8 @@ import type { ModelAliasesResponse } from "./data";
 import { type BotSectionProps, editBot } from "./IdentitySection";
 
 /**
- * The model names a select offers: every name the project defines, plus the
+ * The model names a select offers: every language-model name the project
+ * defines (never memory's embedding model), plus the
  * bot's current one when the project does not define it yet (a new bot
  * names `default` and `fast` before an admin has set them).
  * @param aliases - `model-alias:list`'s answer, or `null` before it.
@@ -18,10 +19,13 @@ function aliasOptions(
   aliases: ModelAliasesResponse | null,
   current: string,
 ): { name: string; detail: string }[] {
-  const defined = (aliases?.modelAliases ?? []).map((a) => ({
-    name: a.name,
-    detail: `${a.modelId}${a.connectionName ? ` via ${a.connectionName}` : ""}`,
-  }));
+  // A bot thinks with a language model; the embedding name is memory's.
+  const defined = (aliases?.modelAliases ?? [])
+    .filter((a) => a.kind !== "embedding")
+    .map((a) => ({
+      name: a.name,
+      detail: `${a.modelId}${a.connectionName ? ` via ${a.connectionName}` : ""}`,
+    }));
   if (!defined.some((a) => a.name === current)) {
     defined.unshift({ name: current, detail: "not set yet" });
   }

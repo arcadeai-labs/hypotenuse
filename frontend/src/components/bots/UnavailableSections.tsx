@@ -22,7 +22,7 @@ export const UNAVAILABLE_BOT_SECTIONS: readonly UnavailableSection[] = [
   {
     slug: "tools",
     title: "Tools",
-    purpose: "Memory, code mode, sandboxes, and the MCP servers it may call.",
+    purpose: "Code mode, sandboxes, and the MCP servers it may call.",
   },
   {
     slug: "skills",

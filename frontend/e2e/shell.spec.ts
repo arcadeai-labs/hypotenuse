@@ -39,12 +39,12 @@ test("the sidebar lists 2.0's destinations in order, each disabled until its pag
     "nav-settings",
     "nav-docs",
   ]);
-  const memory = page.getByTestId("nav-memory");
-  await expect(memory).toHaveAttribute("aria-disabled", "true");
-  await expect(memory).toHaveAttribute("title", "Not available yet");
-  await memory.click();
+  const sandboxes = page.getByTestId("nav-sandboxes");
+  await expect(sandboxes).toHaveAttribute("aria-disabled", "true");
+  await expect(sandboxes).toHaveAttribute("title", "Not available yet");
+  await sandboxes.click();
   await expect(page).toHaveURL(/\/status$/);
-  // Settings, Bots, and Conversations exist: links, not disabled rows.
+  // Settings, Bots, Conversations, and Memory exist: links, not disabled rows.
   await expect(page.getByTestId("nav-settings")).toHaveAttribute(
     "href",
     "/settings",
@@ -53,6 +53,10 @@ test("the sidebar lists 2.0's destinations in order, each disabled until its pag
   await expect(page.getByTestId("nav-conversations")).toHaveAttribute(
     "href",
     "/conversations",
+  );
+  await expect(page.getByTestId("nav-memory")).toHaveAttribute(
+    "href",
+    "/memory",
   );
   await page.getByTestId("nav-docs").click();
   await expect(page).toHaveURL(/\/docs\/getting-started$/);

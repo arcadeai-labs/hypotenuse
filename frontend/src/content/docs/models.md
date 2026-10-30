@@ -65,6 +65,21 @@ list them lets you type the model's id instead, and you can always type an id th
 A name can also carry a **temperature** (0 to 2) and an **output limit** in tokens, applied to every call made
 through it. A bot that needs different settings uses a different name.
 
+### The embedding model
+
+One more name is optional, and special: **`embedding`**. It is the model [memory](/docs/memory) turns text into
+vectors with, so search can find a memory by what it means and not only by its words. Without it, every bot's memory
+search matches words only, and the memory explorer says so.
+
+- It is listed under **Model names** as an optional row until it is set. **Set** it like any other name.
+- It must be on an **OpenAI**, **Vercel AI Gateway**, or **OpenAI-compatible** connection, and the model must return
+  1536-dimensional vectors — OpenAI's `text-embedding-3-small` and `text-embedding-3-large` do. Hypotenuse tries
+  the model before saving the name, and refuses one that does not work, saying why.
+- Only the name `embedding` can be an embedding model, and it can be nothing else. Bots never think with it, so it is
+  not offered on a bot's page.
+- Pointing it at another model re-embeds the project's memory in the background. Until that finishes, search finds
+  the memories still waiting by their words only.
+
 ## Deleting
 
 - **A connection** cannot be deleted while a model name uses it; the refusal names which. Point those names at

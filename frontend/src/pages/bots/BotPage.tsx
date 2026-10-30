@@ -1,6 +1,6 @@
 import type { BotView } from "@backend/actions/bot/bot-view";
 import type { ActionResponse } from "keryx";
-import { MessagesSquare } from "lucide-react";
+import { Brain, MessagesSquare } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { AccessSection } from "../../components/bots/AccessSection";
@@ -13,6 +13,7 @@ import {
   useModelAliases,
 } from "../../components/bots/data";
 import { IdentitySection } from "../../components/bots/IdentitySection";
+import { MemorySection } from "../../components/bots/MemorySection";
 import { MissingAliasesBanner } from "../../components/bots/MissingAliasesBanner";
 import { ModelSection } from "../../components/bots/ModelSection";
 import { UnavailableSections } from "../../components/bots/UnavailableSections";
@@ -43,10 +44,10 @@ type Loaded =
 
 /**
  * `/bots/:botId` — one bot: who it is, which models it uses, who may read
- * and change it, and its budget, each section saving on its own; then the
- * parts of a bot this page does not configure yet, disabled. The properties
- * panel says the same at a glance, and the header links to its
- * conversations.
+ * and change it, its budget, and how fast its memory fades, each section
+ * saving on its own; then the parts of a bot this page does not configure
+ * yet, disabled. The properties panel says the same at a glance, and the
+ * header links to its conversations and its memory.
  *
  * Every control is gated twice, both by the server's word: `can()` on the
  * action, and the bot's own write list, which `bot:view` answers as
@@ -186,6 +187,14 @@ export function BotPage() {
             >
               <MessagesSquare size={14} aria-hidden="true" /> Conversations
             </Button>
+            <Button
+              onClick={() => navigate(`/bots/${bot.id}/memory`)}
+              size="sm"
+              variant="secondary"
+              data-testid="bot-memory-explorer"
+            >
+              <Brain size={14} aria-hidden="true" /> Memory
+            </Button>
             <GatedButton
               size="sm"
               variant="outline-danger"
@@ -225,6 +234,12 @@ export function BotPage() {
             </Property>
             <Property label="Fast model">
               <span className="mono">{bot.fastModelAlias}</span>
+            </Property>
+            <Property label="Memory fades">
+              <span className="tabular" data-testid="bot-property-memory">
+                {bot.memoryChannelHalfLifeDays}d channel ·{" "}
+                {bot.memoryProjectHalfLifeDays}d project
+              </span>
             </Property>
             <Property label="Who may read">
               <span data-testid="bot-property-read">
@@ -278,6 +293,7 @@ export function BotPage() {
           <ModelSection {...sectionProps} aliases={aliases.data} />
           <AccessSection {...sectionProps} tags={tags} />
           <BudgetSection {...sectionProps} />
+          <MemorySection {...sectionProps} />
           <CallbackSecretSection
             {...sectionProps}
             denied={botWriteDenied(

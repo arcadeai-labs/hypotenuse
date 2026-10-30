@@ -265,9 +265,11 @@ on/off chips; MCP servers and skills by name), its **model** (the registry name 
 
 Scope, then document, then versions. Scopes are the project and each channel, with its platform chip and a count.
 Each document shows its newest version and how faded it is; each version names the bot that wrote it and links to
-the conversation entry it came from, and a promoted fact says which channel it was promoted from. The decay
-indicator is drawn both as a short bar and as a shrinking ring in `/docs/style-guide`; which one the explorer keeps is an
-open question for the memory plan.
+the conversation entry it came from, and a promoted fact says which channel it was promoted from. Decay is the short
+bar (`DecayMeter`), with the half-life on hover; the shrinking ring in `/docs/style-guide` is not used. Built as
+`/memory` (the project's) and `/bots/:botId/memory/:channelId` (a bot's memory of one channel), with the document at
+`…/document?path=`: rendered or raw text, the version history, a line diff against the current version, and pin, edit,
+forget, and promote where the caller's standing allows.
 
 ### 4. The public site and `/docs`
 

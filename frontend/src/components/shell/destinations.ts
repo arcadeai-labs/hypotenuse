@@ -59,7 +59,7 @@ export const DESTINATIONS: readonly Destination[] = [
     label: "Memory",
     Icon: Brain,
     shortcut: "g m",
-    available: false,
+    available: true,
   },
   {
     id: "sandboxes",

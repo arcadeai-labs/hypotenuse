@@ -106,6 +106,10 @@ export const BACKEND_ENV: Record<string, string> = {
   // polls often, so a spec does not wait out the default five seconds.
   TASK_PROCESSORS: "1",
   TASK_TIMEOUT: "100",
+  // No consolidation: it would ask the shared scripted model for facts and
+  // take an answer a spec queued for its conversation. The backend suite
+  // proves consolidation against its own scripted model.
+  MEMORY_CONSOLIDATE_MIN_ENTRIES: "1000000",
   // Where the scripted model's control server listens; the backend ignores it.
   MODEL_SERVER_CONTROL_PORT: String(MODEL_CONTROL_PORT),
   PROCESS_NAME: "hypotenuse-e2e",

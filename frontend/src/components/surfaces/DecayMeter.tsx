@@ -10,6 +10,8 @@ export interface DecayMeterProps {
    * shows both.
    */
   variant?: "bar" | "glyph";
+  /** What hovering it says; the percentage when omitted. */
+  title?: string;
 }
 
 /**
@@ -18,7 +20,11 @@ export interface DecayMeterProps {
  * @param props - See {@link DecayMeterProps}.
  * @returns The meter.
  */
-export function DecayMeter({ freshness, variant = "bar" }: DecayMeterProps) {
+export function DecayMeter({
+  freshness,
+  variant = "bar",
+  title,
+}: DecayMeterProps) {
   const clamped = Math.min(1, Math.max(0, freshness));
   const percent = Math.round(clamped * 100);
   const label = `${percent}% fresh`;
@@ -55,7 +61,7 @@ export function DecayMeter({ freshness, variant = "bar" }: DecayMeterProps) {
       aria-valuemax={100}
       aria-valuenow={percent}
       aria-label={label}
-      title={label}
+      title={title ?? label}
     >
       <span className="decay-bar-fill" style={{ width: `${percent}%` }} />
     </span>

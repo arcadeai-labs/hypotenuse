@@ -329,15 +329,15 @@ promotion, it is found in both.
 
 ## Definition of done
 
-- [ ] pgvector is enabled in development, CI, and staging.
-- [ ] Documents are versioned with tombstones and provenance; chunks hold `tsvector` and vector.
-- [ ] Hybrid search with weighted RRF, the diversity cap, and decay passes the eval floors.
-- [ ] Channel isolation is proven for every tool and action.
-- [ ] `memory:decay`, `memory:embed`, `memory:reindex`, and `memory:consolidate` work, with time controlled by
+- [x] pgvector is enabled in development, CI, and staging.
+- [x] Documents are versioned with tombstones and provenance; chunks hold `tsvector` and vector.
+- [x] Hybrid search with weighted RRF, the diversity cap, and decay passes the eval floors.
+- [x] Channel isolation is proven for every tool and action.
+- [x] `memory:decay`, `memory:embed`, `memory:reindex`, and `memory:consolidate` work, with time controlled by
       columns in tests.
-- [ ] Promotion is a person's audited decision, or an audited binding setting.
-- [ ] The six model tools are registered with replay flags and error hints.
-- [ ] The explorer, CLI, and user docs ship; both themes are checked.
+- [x] Promotion is a person's audited decision, or an audited binding setting.
+- [x] The six model tools are registered with replay flags and error hints.
+- [x] The explorer, CLI, and user docs ship; both themes are checked.
 
 ## Open questions
 
@@ -421,6 +421,27 @@ promotion, it is found in both.
 - **The system prompt gained a "What you remember" section**: the two scopes, search before answering, write what is
   durable, forget what is wrong.
 - **Queues**: embeds, consolidations, and decay runs go on `default`; the two clocks on `orchestrator`.
+
+### The frontend
+
+- **Routes:** `/memory` (project memory; the sidebar's Memory, `g m`, and its palette command are live),
+  `/memory/document?path=…[&version=…]`, `/bots/:botId/memory` (opens the bot's first channel),
+  `/bots/:botId/memory/:channelId`, and `/bots/:botId/memory/:channelId/document?path=…`.
+  `/conversations/:id?seqs=3,5` marks and scrolls to those entries, which is where provenance links.
+- **Decay is the bar**, `DecayMeter`, with the half-life on hover. Search shows score, relevance, decay, and each
+  side's rank; a banner says when search is keyword-only, with Reindex for admins.
+- **The document page** diffs any version against the current one line by line, sends `baseVersionId` on edit and
+  keeps the text on a conflict, and offers "Restore this version" on an old one.
+- **The bot page** has a Memory section for the two half-lives; Settings → Models offers an optional `embedding`
+  row, sent as `kind: "embedding"`, and bot model pickers no longer offer it.
+- **The browser suite turns consolidation off** (`MEMORY_CONSOLIDATE_MIN_ENTRIES` in `e2e/env.ts`): it would ask the
+  shared scripted model for facts and take an answer a spec queued for its conversation. The illustration script
+  waits for the scripted model to go quiet before each scripted turn for the same reason, and seeds memory, including
+  a `memory_write` by Ada with real provenance; `ILLUSTRATIONS=a,b` captures only the named shots.
+- **Rough edges left in the API**, found building the pages: no read by row id, so a promoted copy links to its
+  source channel's explorer rather than the exact document; the edit conflict is recognised by its message, since
+  `apiFetch` drops the error's `key`; `memory:search` does not report half-lives; and a provenance seq names the
+  tool call's intent, so the transcript marks the call's row, not its result.
 
 ### The CLI
 

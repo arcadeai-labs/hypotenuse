@@ -17,9 +17,11 @@
  * loopback, so that run needs the backend started with
  * `NETWORK_ALLOW_PRIVATE_HOSTS=true` (`NETWORK_ALLOW_PRIVATE_HOSTS=true bun dev`).
  * The Anthropic connection points at it only while the conversations are
- * made, and is put back after.
+ * made, and is put back after. The memory illustrations read what Ada wrote
+ * in one of those conversations, plus documents written over the API.
  *
  *   cd frontend && bun run docs:illustrations
+ *   ILLUSTRATIONS=bot,memory bun run docs:illustrations   # only those
  */
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
@@ -33,6 +35,8 @@ interface Seeded {
   botId: number;
   /** The conversation the transcript illustration opens. */
   conversationId: number;
+  /** The channel whose memory the bot's memory illustrations open. */
+  memoryChannelId: number;
 }
 
 /** One illustration: a route, and optionally the element to crop to (`{theme}` is replaced). */
@@ -82,7 +86,7 @@ const ILLUSTRATIONS: Illustration[] = [
     name: "bot",
     path: ({ botId }) => `/bots/${botId}`,
     width: 1280,
-    height: 2200,
+    height: 2440,
     signedIn: true,
   },
   {
@@ -100,6 +104,29 @@ const ILLUSTRATIONS: Illustration[] = [
     signedIn: true,
   },
   {
+    name: "memory",
+    path: "/memory?q=deploy",
+    width: 1280,
+    height: 720,
+    signedIn: true,
+  },
+  {
+    name: "memory-channel",
+    path: ({ botId, memoryChannelId }) =>
+      `/bots/${botId}/memory/${memoryChannelId}`,
+    width: 1280,
+    height: 560,
+    signedIn: true,
+  },
+  {
+    name: "memory-document",
+    path: ({ botId, memoryChannelId }) =>
+      `/bots/${botId}/memory/${memoryChannelId}/document?path=customers/globex.md`,
+    width: 1280,
+    height: 760,
+    signedIn: true,
+  },
+  {
     name: "style-guide",
     path: "/docs/style-guide",
     selector: "[data-testid=style-guide-{theme}]",
@@ -107,6 +134,9 @@ const ILLUSTRATIONS: Illustration[] = [
     height: 900,
   },
 ];
+
+/** `ILLUSTRATIONS=bot,memory` captures only those; unset captures all. */
+const ONLY = process.env.ILLUSTRATIONS?.split(",").map((s) => s.trim());
 
 const BASE = process.env.FRONTEND_URL ?? "http://localhost:3000";
 const API = `${process.env.API_URL ?? "http://localhost:8080"}/api`;
@@ -285,11 +315,14 @@ async function seed(request: APIRequestContext): Promise<Seeded> {
   }
   const support = first ?? projects.find((p) => p.name === "Support");
   if (!support) throw new Error("the Support project is missing");
+  const botId = await seedBots(request, support.id);
+  const conversationId = await seedConversations(request, support.id);
   return {
     organizationId: organization.id,
     projectId: support.id,
-    botId: await seedBots(request, support.id),
-    conversationId: await seedConversations(request, support.id),
+    botId,
+    conversationId,
+    memoryChannelId: await seedMemory(request, support.id, botId),
   };
 }
 
@@ -472,6 +505,21 @@ const CONVERSATIONS: { bot: string; title: string; turns: Turn[] }[] = [
           {
             toolCalls: [
               {
+                name: "memory_write",
+                input: {
+                  scope: "channel",
+                  path: "customers/globex.md",
+                  description: "Globex's billing history and open questions",
+                  content:
+                    "# Globex\n\n- Charged twice for October; the duplicate is **INV-2291**.\n- A refund needs the billing team's confirmation; it has been flagged to them.",
+                  changeNote: "Globex reported a duplicate October charge",
+                },
+              },
+            ],
+          },
+          {
+            toolCalls: [
+              {
                 name: "complete",
                 input: {
                   summary:
@@ -513,6 +561,32 @@ async function settle(
     await Bun.sleep(100);
   }
   throw new Error(`${base} never settled; is a queue worker running?`);
+}
+
+/** How long the scripted model must take no request before a turn counts as finished. */
+const QUIET_MS = Number(process.env.ILLUSTRATIONS_QUIET_MS ?? 6000);
+
+/**
+ * Wait until the scripted model has taken no request for {@link QUIET_MS}.
+ * A conversation that comes to rest has its memory consolidated by its bot's
+ * `fast` model, a moment later on the queue; queueing the next turn's
+ * answers before that ran would hand one of them to the consolidation.
+ * @returns Resolves once the model is quiet.
+ */
+async function quiet(): Promise<void> {
+  let last = -1;
+  let since = Date.now();
+  for (;;) {
+    const { completions } = await model<{ completions: number }>(
+      "GET",
+      "/state",
+    );
+    if (completions !== last) {
+      last = completions;
+      since = Date.now();
+    } else if (Date.now() - since >= QUIET_MS) return;
+    await Bun.sleep(250);
+  }
 }
 
 /**
@@ -567,6 +641,7 @@ async function seedConversations(
         if (!bot) throw new Error(`the ${plan.bot} bot is missing`);
         let base = "";
         for (const [i, turn] of plan.turns.entries()) {
+          await quiet();
           await model("POST", "/reset");
           await model("POST", "/play", { responses: turn.responses });
           if (i === 0) {
@@ -593,6 +668,7 @@ async function seedConversations(
         }
       }
     } finally {
+      await quiet();
       await call(request, "POST", connectionPath, {
         baseUrl: null,
         apiKey: "sk-ant-illustration-placeholder-a1f3",
@@ -603,6 +679,175 @@ async function seedConversations(
   const shown = existing.find((e) => e.title === "Refund for Globex");
   if (!shown) throw new Error("the Refund for Globex conversation is missing");
   return shown.id;
+}
+
+/** One memory document the memory illustrations show, written by Ada Lovelace. */
+interface SeededMemory {
+  path: string;
+  description: string;
+  /** Each version in turn, oldest first, with why it changed. */
+  versions: { content: string; changeNote: string }[];
+  pinned?: boolean;
+}
+
+/** The project's shared memory. */
+const PROJECT_MEMORY: SeededMemory[] = [
+  {
+    path: "facts/deploy-process.md",
+    description: "When and how the platform team deploys",
+    versions: [
+      {
+        content:
+          "# Deploy process\n\n- Deploys go out on **Tuesdays** after the 10:00 standup.\n- The on-call engineer runs them; ask in #platform first.",
+        changeNote: "Written from the platform handbook",
+      },
+      {
+        content:
+          "# Deploy process\n\n- Deploys go out on **Thursdays** after the 10:00 standup.\n- The on-call engineer runs them; ask in #platform first.\n- A deploy that touches billing waits for the billing team's sign-off.",
+        changeNote: "Deploys moved to Thursdays; billing sign-off added",
+      },
+    ],
+  },
+  {
+    path: "policies/refunds.md",
+    description: "Who may promise a refund, and how",
+    pinned: true,
+    versions: [
+      {
+        content:
+          "# Refunds\n\nNever promise a refund. A person on the billing team confirms every one; flag the invoice number to them.",
+        changeNote: "The refund policy",
+      },
+    ],
+  },
+  {
+    path: "people/billing-team.md",
+    description: "Who is on the billing team",
+    versions: [
+      {
+        content:
+          "# Billing team\n\n- **Dana Reyes** leads it, and signs off refunds over $500.\n- **Sam Ortiz** handles invoices and duplicate charges.",
+        changeNote: "The team as of this quarter",
+      },
+    ],
+  },
+];
+
+/** Ada's memory of her API channel, besides what she wrote herself. */
+const CHANNEL_MEMORY: SeededMemory[] = [
+  {
+    path: "customers/initech.md",
+    description: "Initech's CSV export failures",
+    versions: [
+      {
+        content:
+          "# Initech\n\n- Their CSV export has failed since Monday.\n- The platform team reruns exports; Ada cannot reach the export service.",
+        changeNote: "Initech reported failing exports",
+      },
+    ],
+  },
+];
+
+/**
+ * Write a seeded document's versions, and pin it, when it is not there yet.
+ * @param request - The browser context's request client.
+ * @param base - `memory:write`'s route.
+ * @param where - The scope, and the bot and channel for a channel's memory.
+ * @param doc - The document.
+ * @returns Resolves when it is written.
+ */
+async function writeMemory(
+  request: APIRequestContext,
+  base: string,
+  where: Record<string, unknown>,
+  doc: SeededMemory,
+): Promise<void> {
+  for (const version of doc.versions) {
+    const written = await call(request, "PUT", base, {
+      ...where,
+      path: doc.path,
+      description: doc.description,
+      ...version,
+    });
+    if (written.error) throw new Error(`memory: ${written.error.message}`);
+  }
+  if (doc.pinned) {
+    await call(request, "POST", `${base}/pin`, {
+      ...where,
+      path: doc.path,
+      pinned: true,
+    });
+  }
+}
+
+/**
+ * Give the Support project the memory the memory illustrations show: three
+ * project documents (one with two versions, one pinned), and Ada's memory of
+ * her API channel — `customers/globex.md`, which she wrote herself in the
+ * Globex conversation, gains a second version from a person, so its page has
+ * a history and a diff. Each is written only when missing.
+ * @param request - The browser context's request client.
+ * @param projectId - The Support project.
+ * @param botId - Ada.
+ * @returns The channel the channel illustrations open.
+ */
+async function seedMemory(
+  request: APIRequestContext,
+  projectId: number,
+  botId: number,
+): Promise<number> {
+  const base = `/project/${projectId}/memory/document`;
+  const listed = async (query: string) =>
+    (
+      await call<{ documents: { path: string }[] }>(
+        request,
+        "GET",
+        `/project/${projectId}/memory?${query}&limit=100`,
+      )
+    ).documents.map((d) => d.path);
+
+  const project = await listed("scope=project");
+  for (const doc of PROJECT_MEMORY) {
+    if (!project.includes(doc.path))
+      await writeMemory(request, base, { scope: "project" }, doc);
+  }
+
+  const { channels } = await call<{ channels: { id: number; name: string }[] }>(
+    request,
+    "GET",
+    `/project/${projectId}/bot/${botId}/memory/channels?limit=100`,
+  );
+  const channel = channels[0];
+  if (!channel) throw new Error("Ada has no channel to remember");
+  const where = { scope: "channel", botId, channelId: channel.id };
+  const remembered = await listed(
+    `scope=channel&botId=${botId}&channelId=${channel.id}`,
+  );
+  for (const doc of CHANNEL_MEMORY) {
+    if (!remembered.includes(doc.path))
+      await writeMemory(request, base, where, doc);
+  }
+  // Ada wrote Globex's first version in the conversation; a person adds to it.
+  const globex = await call<{
+    document: { versionId: number; content: string };
+  }>(
+    request,
+    "GET",
+    `${base}?scope=channel&botId=${botId}&channelId=${channel.id}&path=customers/globex.md`,
+  );
+  const first =
+    "# Globex\n\n- Charged twice for October; the duplicate is **INV-2291**.\n- A refund needs the billing team's confirmation; it has been flagged to them.";
+  if (globex.error || globex.document.content === first) {
+    await call(request, "PUT", base, {
+      ...where,
+      path: "customers/globex.md",
+      description: "Globex's billing history and open questions",
+      content: `${first}\n- Their billing contact is **Priya Shah**, priya@globex.example.`,
+      changeNote: "Added Globex's billing contact",
+      ...(globex.error ? {} : { baseVersionId: globex.document.versionId }),
+    });
+  }
+  return channel.id;
 }
 const OUT = join(
   import.meta.dirname,
@@ -636,7 +881,9 @@ async function main(): Promise<void> {
       );
       const page = await context.newPage();
       let seeded: Seeded | null = null;
-      for (const shot of ILLUSTRATIONS) {
+      for (const shot of ILLUSTRATIONS.filter(
+        (s) => !ONLY || ONLY.includes(s.name),
+      )) {
         if (shot.signedIn && !seeded) {
           seeded = await seed(context.request);
           // Support is the project every signed-in shot shows.
