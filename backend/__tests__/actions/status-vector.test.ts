@@ -125,7 +125,8 @@ describe("status: the vector extension", () => {
   });
 
   test("a reachable database without it is unhealthy", async () => {
-    await throwaway`DROP EXTENSION vector`;
+    // CASCADE: memory's embedding column and its index depend on the type.
+    await throwaway`DROP EXTENSION vector CASCADE`;
     const body = await status();
     expect(body.checks.database).toBe(true);
     expect(body.checks.redis).toBe(true);

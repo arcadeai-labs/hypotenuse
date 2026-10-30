@@ -70,6 +70,8 @@ export type WaitingOn =
  *   the row lock is how two writers (a tick and a compaction) never collide.
  * - `lastInputTokens` — the newest step's prompt size, which decides when a
  *   background compaction is due.
+ * - `memoryConsolidatedSeq` — the last `seq` whose entries consolidation has
+ *   read into channel memory; `memory:consolidate` starts after it.
  * - `requestId` — the client's dedupe key for `conversation:create`.
  * - `forkedFrom*` — reserved for forking a conversation; nothing writes them.
  */
@@ -106,6 +108,9 @@ export const conversations = pgTable(
     nudgedThisTurn: boolean("nudged_this_turn").notNull().default(false),
     lastSeq: integer("last_seq").notNull().default(0),
     lastInputTokens: integer("last_input_tokens"),
+    memoryConsolidatedSeq: integer("memory_consolidated_seq")
+      .notNull()
+      .default(0),
     requestId: text("request_id"),
     callbackUrl: text("callback_url"),
     createdByUserId: integer("created_by_user_id").references(() => users.id, {

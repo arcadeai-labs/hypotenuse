@@ -32,12 +32,12 @@ test("a destination that is not built yet is neither offered nor reachable by it
 }) => {
   await openStatus(page);
   await page.keyboard.press("g");
-  await page.keyboard.press("m");
+  await page.keyboard.press("s");
   await expect(page).toHaveURL(/\/status$/);
   await page.keyboard.press(`${mod}+k`);
-  await page.getByTestId("command-palette-input").fill("Memory");
+  await page.getByTestId("command-palette-input").fill("Sandboxes");
   await expect(
-    page.getByTestId("command-palette").getByText("Go to Memory"),
+    page.getByTestId("command-palette").getByText("Go to Sandboxes"),
   ).toHaveCount(0);
 });
 

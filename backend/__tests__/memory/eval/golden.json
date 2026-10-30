@@ -1,0 +1,76 @@
+{
+  "queries": [
+    {
+      "query": "how do I roll back a bad deploy",
+      "expect": "runbooks/deploy.md"
+    },
+    {
+      "query": "canary dashboard before release",
+      "expect": "runbooks/deploy.md"
+    },
+    {
+      "query": "who do I page when the site is down",
+      "expect": "runbooks/incident.md"
+    },
+    {
+      "query": "postmortem deadline",
+      "expect": "runbooks/incident.md"
+    },
+    {
+      "query": "who approves big budgets",
+      "expect": "people/peach.md"
+    },
+    {
+      "query": "release checklist owner",
+      "expect": "people/mario.md"
+    },
+    {
+      "query": "customer support tickets triage",
+      "expect": "people/luigi.md"
+    },
+    {
+      "query": "spare keys inventory",
+      "expect": "people/toad.md"
+    },
+    {
+      "query": "what time do the gates close",
+      "expect": "facts/office-hours.md"
+    },
+    {
+      "query": "guest wifi password",
+      "expect": "facts/wifi.md"
+    },
+    {
+      "query": "when is cake baked",
+      "expect": "facts/lunch.md"
+    },
+    {
+      "query": "refund approval",
+      "expect": "facts/billing.md"
+    },
+    {
+      "query": "why postgres and pgvector",
+      "expect": "decisions/2026-10-database.md"
+    },
+    {
+      "query": "team plan price per seat",
+      "expect": "decisions/2026-09-pricing.md"
+    },
+    {
+      "query": "how often to rotate api keys",
+      "expect": "facts/security.md"
+    },
+    {
+      "query": "request vacation",
+      "expect": "facts/vacation.md"
+    },
+    {
+      "query": "how to write release notes",
+      "expect": "facts/style.md"
+    },
+    {
+      "query": "invoices",
+      "expect": "facts/billing.md"
+    }
+  ]
+}

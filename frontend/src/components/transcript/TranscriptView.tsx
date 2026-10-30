@@ -166,16 +166,19 @@ function TranscriptItemLine({
  * @param props.items - What to draw, in order.
  * @param props.speakers - Who is speaking.
  * @param props.waitingOnAnswer - Whether the conversation waits on an answer, so its last question is open.
+ * @param props.highlight - Entries to mark, such as those a memory was learned from.
  * @returns The log.
  */
 export function TranscriptView({
   items,
   speakers,
   waitingOnAnswer,
+  highlight,
 }: {
   items: TranscriptItem[];
   speakers: TranscriptSpeakers;
   waitingOnAnswer: boolean;
+  highlight?: ReadonlySet<number>;
 }) {
   const end = useRef<HTMLDivElement>(null);
   const atBottom = useRef(true);
@@ -207,14 +210,28 @@ export function TranscriptView({
       {items.length === 0 && (
         <p className="tx-empty">Nothing has been said yet.</p>
       )}
-      {items.map((item, i) => (
-        <TranscriptItemLine
-          key={item.key}
-          item={item}
-          speakers={speakers}
-          questionOpen={waitingOnAnswer && i === lastQuestion}
-        />
-      ))}
+      {items.map((item, i) => {
+        const line = (
+          <TranscriptItemLine
+            key={item.key}
+            item={item}
+            speakers={speakers}
+            questionOpen={waitingOnAnswer && i === lastQuestion}
+          />
+        );
+        return highlight?.has(item.seq) ? (
+          <div
+            key={item.key}
+            className="tx-highlight"
+            data-seq={item.seq}
+            data-testid="tx-highlight"
+          >
+            {line}
+          </div>
+        ) : (
+          line
+        );
+      })}
       <div ref={end} className="tx-end" aria-hidden="true" />
     </div>
   );

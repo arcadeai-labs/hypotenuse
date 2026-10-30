@@ -47,6 +47,18 @@ const EXPECTED_LEVELS: Record<string, RbacLevel> = {
   "conversation:view": "member",
   "conversation:entries": "member",
   "conversation:cancel": "member",
+  // Memory is member-level: reading channel memory needs the bot's read
+  // list, changing it the bot's write list, and changing project memory or
+  // promoting into it admin standing — all decided inside the action.
+  "memory:list": "member",
+  "memory:search": "member",
+  "memory:view": "member",
+  "memory:versions": "member",
+  "memory:channels": "member",
+  "memory:write": "member",
+  "memory:forget": "member",
+  "memory:pin": "member",
+  "memory:promote": "member",
 
   // A project's admin level: managing people, tags, invites, the project.
   "project:edit": "admin",
@@ -69,6 +81,8 @@ const EXPECTED_LEVELS: Record<string, RbacLevel> = {
   "model-alias:create": "admin",
   "model-alias:edit": "admin",
   "model-alias:delete": "admin",
+  // Spends the project's embedding budget.
+  "memory:reindex": "admin",
 
   // Organization members. Two of these decide more inside the action:
   // removing someone else needs an owner (leaving does not), and an invite
@@ -118,6 +132,12 @@ const EXPECTED_LEVELS: Record<string, RbacLevel> = {
   "conversation:compact": "none",
   "outbox:deliver": "none",
   "outbox:deliver-due": "none",
+  // Memory's machine work: task-only, no route, no caller.
+  "memory:embed": "none",
+  "memory:consolidate": "none",
+  "memory:consolidate-due": "none",
+  "memory:decay": "none",
+  "memory:decay-project": "none",
   // The CLI's sign-in: a person's own browser hops, its unauthenticated
   // ingress, and their own sign-ins.
   "cli-auth:approve": "none",
@@ -150,6 +170,8 @@ const CLOCKS = [
   "notifications:sweep",
   "invites:sweep",
   "audit:sweep",
+  "memory:decay",
+  "memory:consolidate-due",
 ];
 
 /** Every action published as an MCP tool for a person's client. */
@@ -179,6 +201,16 @@ const EXPECTED_MCP_TOOLS = [
   "membership:create",
   "membership:delete",
   "membership:list",
+  "memory:channels",
+  "memory:forget",
+  "memory:list",
+  "memory:pin",
+  "memory:promote",
+  "memory:reindex",
+  "memory:search",
+  "memory:versions",
+  "memory:view",
+  "memory:write",
   "model-alias:create",
   "model-alias:delete",
   "model-alias:edit",
@@ -289,6 +321,9 @@ describe("actions:permissions", () => {
         continue;
       }
       if (SESSION_SCOPED_TENANT_FILTERS.has(action.name)) continue;
+      // A task-only action (`memory:embed`) has no caller to authorize: the
+      // server enqueued it after an authorized decision, and no route reaches it.
+      if (!action.web?.route) continue;
       expect(levels[action.name], action.name).not.toBe("none");
     }
   });

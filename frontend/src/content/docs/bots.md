@@ -13,7 +13,7 @@ project has set both of those, the Bots page says no bot can run yet — an admi
 
 ## The bot page
 
-![A bot's page: identity, model, access, and budget, with its properties beside them](illustration:bot)
+![A bot's page: identity, model, access, budget, and memory, with its properties beside them](illustration:bot)
 
 Each section saves on its own. The panel on the right sums the bot up: whether it is enabled, its model, who may
 read and change it, and whether you may change it.
@@ -24,9 +24,10 @@ read and change it, and whether you may change it.
 | **Model** | which of the project's model names it uses: its main model and its fast one |
 | **Access** | who may read it, who may change it, and whom it asks for help |
 | **Budget** | a monthly ceiling in US dollars, and the most model steps one turn may take |
+| **Memory** | how fast its memories fade when unused, and a link to what it remembers |
 
 The page also shows **Channels**, **Tools**, **Skills**, **Prompts**, and **Goals**, each reading *Not available
-yet*. They will hold where the bot listens, what it may call, and how it works between conversations.
+yet*. They will hold where the bot listens, what else it may call, and how it works between conversations.
 
 **Enabled** decides whether the bot takes new conversations. **Delete bot**, behind a confirmation, removes it for
 good.
@@ -52,8 +53,8 @@ read through it. **Preview** shows it the way the bot's own messages are drawn.
 - **Say what it must not do**, and what to do instead: "Never promise a refund; say a person on the billing team will
   confirm it."
 - **Say when to hand off.** Name the situations where it should ask a person rather than guess.
-- **Keep facts out.** Things that change — prices, on-call rotas, release dates — belong in memory, not in the
-  persona.
+- **Keep facts out.** Things that change — prices, on-call rotas, release dates — belong in
+  [memory](/docs/memory), not in the persona.
 - **Keep it short.** A page is plenty; every word is read on every turn.
 
 ## Who may read and change it
@@ -82,6 +83,22 @@ price (the Vercel AI Gateway) counts toward it yet; calls to other providers are
 
 **Steps per turn** caps how many model steps one [turn](/docs/conversations) may take — 50 unless you change it. A
 turn that reaches it fails, saying how many steps it took, rather than running on.
+
+## Memory
+
+A bot remembers what it learns in each channel, and reads the project's shared memory too — see
+[Memory](/docs/memory). It searches, lists, reads, writes, edits, and forgets its own channel memory with six
+`memory_*` tools, without asking, and after each conversation comes to rest it writes down the facts worth keeping.
+
+A memory nobody uses fades: it loses half its weight in search every **half-life**. The section sets two, each a
+whole number of days from 1 to 3650:
+
+| Setting | Default | What it does |
+|---|---|---|
+| **Channel memory half-life** | 30 days | how fast what it learned in a channel fades; one that fades far enough unread is forgotten |
+| **Project memory half-life** | 180 days | how fast the project's shared memory fades in this bot's searches; project memory is never forgotten by fading |
+
+**Memory** at the top of the page, or the link in the section, opens what the bot remembers, one channel at a time.
 
 ## Talking to it
 

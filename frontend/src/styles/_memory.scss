@@ -1,0 +1,364 @@
+// The memory explorer and a memory document, as the dashboard draws them from
+// real rows. docs/DESIGN.md#3-the-memory-explorer is the spec; the scope list
+// and the decay bar are the surfaces in `_surfaces.scss`. Tokens only.
+
+.memory-page {
+  display: block;
+  padding: 0 var(--space-5);
+
+  &.has-scopes {
+    display: grid;
+    grid-template-columns: 200px minmax(0, 1fr);
+    gap: var(--space-4);
+    align-items: start;
+
+    @media (max-width: 767.98px) {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+}
+
+.memory-main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+
+  > .ui-alert,
+  > .ui-list-group {
+    margin: 0;
+  }
+
+  > .shell-empty {
+    padding: var(--space-5) 0;
+  }
+}
+
+.memory-intro {
+  max-width: 72ch;
+  margin: 0;
+}
+
+// The scope list: project memory, then a link per channel with its platform
+// and how many documents it holds.
+a.memory-scope {
+  text-decoration: none;
+
+  &[aria-current="page"] {
+    background: var(--bg-selected);
+    color: var(--text-primary);
+  }
+}
+
+// The scope list's surface pushes a row's last cell (its count) to the end;
+// the project link has no count.
+.memory-scope-project > :last-child {
+  margin-left: 0;
+}
+
+.memory-scope-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.memory-scopes-heading {
+  margin-top: var(--space-3);
+  padding: 0 var(--space-2) var(--space-1);
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+  font-weight: 500;
+}
+
+.memory-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-3);
+}
+
+.memory-search {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  color: var(--text-tertiary);
+
+  > .shell-search-input {
+    flex: 1 1 240px;
+  }
+
+  > .form-check {
+    margin: 0;
+    color: var(--text-secondary);
+  }
+}
+
+.memory-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+
+  > .form-check {
+    margin: 0;
+  }
+}
+
+.memory-prefix {
+  max-width: 220px;
+}
+
+// A bordered panel: search results, the editor, the content, history, a diff.
+.memory-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  background: var(--bg-panel);
+
+  > .settings-subheading {
+    margin: 0;
+  }
+}
+
+.memory-hits-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+
+  > .settings-subheading {
+    margin: 0;
+  }
+
+  > .ui-button:last-child {
+    margin-left: auto;
+  }
+}
+
+.memory-hits {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.memory-hit {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border-subtle);
+
+  &:first-child {
+    padding-top: 0;
+    border-top: 0;
+  }
+}
+
+.memory-hit-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.memory-hit-score {
+  margin-left: auto;
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.memory-hit-snippet {
+  margin: 0;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.memory-hit-parts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-4);
+}
+
+.memory-hit-decay {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.memory-path {
+  color: var(--text-primary);
+  font-size: var(--text-xs);
+}
+
+.memory-description {
+  color: var(--text-secondary);
+}
+
+.memory-source {
+  white-space: nowrap;
+}
+
+.memory-row.is-forgotten {
+  opacity: 0.6;
+}
+
+// A memory document's page.
+.memory-document {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+
+  > .ui-alert {
+    margin: 0;
+  }
+}
+
+.memory-document-description {
+  margin: 0;
+  color: var(--text-secondary);
+}
+
+.memory-tabs {
+  display: flex;
+  gap: var(--space-1);
+}
+
+.memory-content {
+  padding: var(--space-2) 0;
+}
+
+.memory-raw {
+  margin: 0;
+  padding: var(--space-3);
+  overflow-x: auto;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  background: var(--bg-sunken);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.memory-editor {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+
+  > .ui-alert {
+    margin: 0;
+  }
+}
+
+.memory-editor-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+
+  > .memory-content {
+    min-height: 200px;
+    padding: var(--space-3) var(--space-4);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius);
+    background: var(--bg-sunken);
+  }
+}
+
+.memory-editor-input {
+  min-height: 240px;
+  line-height: var(--leading);
+  resize: vertical;
+}
+
+.memory-freshness {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.memory-provenance {
+  display: inline-flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.memory-version[aria-current="true"] > a {
+  font-weight: 600;
+}
+
+.memory-version-note {
+  min-width: 0;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.memory-version-compare {
+  margin-left: auto;
+}
+
+.memory-diff {
+  margin: 0;
+  overflow-x: auto;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  background: var(--bg-sunken);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.memory-diff-line {
+  display: block;
+  padding: 0 var(--space-3);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+
+  &.is-add {
+    background: color-mix(in srgb, var(--diff-add) 14%, transparent);
+    color: var(--text-primary);
+
+    > .memory-diff-mark {
+      color: var(--diff-add);
+    }
+  }
+
+  &.is-remove {
+    background: color-mix(in srgb, var(--diff-remove) 14%, transparent);
+    color: var(--text-primary);
+
+    > .memory-diff-mark {
+      color: var(--diff-remove);
+    }
+  }
+
+  &.is-same {
+    color: var(--text-secondary);
+  }
+}
+
+.memory-diff-mark {
+  display: inline-block;
+  width: 2ch;
+  user-select: none;
+}
+
+.memory-diff-stats {
+  font-weight: 400;
+}
+
+// A transcript entry a memory was learned from, reached by the memory's link.
+.tx-highlight {
+  margin: 0 calc(var(--space-2) * -1);
+  padding: var(--space-1) var(--space-2);
+  border-left: 2px solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--accent-subtle);
+}

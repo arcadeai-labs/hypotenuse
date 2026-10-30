@@ -26,6 +26,9 @@ export const PROVIDERS = [
   "openai-compatible",
 ] as const;
 
+/** What an alias's model is for: words, or memory's vectors. */
+export const ALIAS_KINDS = ["language", "embedding"] as const;
+
 /** A model connection as the connection actions answer it. The key never is. */
 interface ModelConnection {
   id: number;
@@ -420,6 +423,7 @@ export function registerModelCommands(program: Command): void {
             result.modelAliases.map((a) => ({
               id: a.id,
               name: a.name,
+              kind: a.kind,
               connection: a.connectionName,
               provider: a.provider,
               model: a.modelId,
@@ -431,6 +435,7 @@ export function registerModelCommands(program: Command): void {
             [
               { key: "id" },
               { key: "name" },
+              { key: "kind" },
               { key: "connection", maxWidth: 30 },
               { key: "provider" },
               { key: "model", maxWidth: 40 },
@@ -454,6 +459,10 @@ export function registerModelCommands(program: Command): void {
     .option("--model <modelId>", "the provider's model id (required to create)")
     .option("--max-output-tokens <n>", "the most tokens one call may produce")
     .option("--temperature <t>", "sampling temperature, 0 to 2")
+    .option(
+      "--kind <kind>",
+      `when creating: ${ALIAS_KINDS.join(" or ")} (default language); embedding is only the alias named embedding, which memory embeds with`,
+    )
     .action(async function (this: Command, name: string) {
       await runCommand(this, async (ctx) => {
         const o = this.opts() as {
@@ -461,7 +470,16 @@ export function registerModelCommands(program: Command): void {
           model?: string;
           maxOutputTokens?: string;
           temperature?: string;
+          kind?: string;
         };
+        if (
+          o.kind !== undefined &&
+          !(ALIAS_KINDS as readonly string[]).includes(o.kind)
+        ) {
+          throw new Error(
+            `--kind is one of ${ALIAS_KINDS.join(", ")}; got "${o.kind}".`,
+          );
+        }
         const client = ctx.signedInClient();
         const projectId = await ctx.projectId();
         const options: ModelAlias["options"] = {};
@@ -486,6 +504,11 @@ export function registerModelCommands(program: Command): void {
         );
 
         if (existing) {
+          if (o.kind !== undefined && o.kind !== existing.kind) {
+            throw new Error(
+              `${name} is of kind ${existing.kind}, and an alias's kind cannot change. Remove it and set it again with --kind ${o.kind}.`,
+            );
+          }
           const body: Record<string, unknown> = {};
           if (connectionId !== undefined) body.connectionId = connectionId;
           if (o.model !== undefined) body.modelId = o.model;
@@ -520,7 +543,15 @@ export function registerModelCommands(program: Command): void {
         const result = await client.request<{ modelAlias: ModelAlias }>(
           "PUT",
           `/project/${projectId}/model-alias`,
-          { body: { name, connectionId, modelId: o.model, options } },
+          {
+            body: {
+              name,
+              kind: o.kind,
+              connectionId,
+              modelId: o.model,
+              options,
+            },
+          },
         );
         const a = result.modelAlias;
         emit(

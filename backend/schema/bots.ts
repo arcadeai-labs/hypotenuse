@@ -43,6 +43,10 @@ const bytea = customType<{ data: Buffer; driverData: Buffer }>({
  * - `enabled` false means the bot accepts no new conversations.
  * - `maxStepsPerTurn` bounds one turn of the agent loop: a turn that takes
  *   more model steps fails, saying how many it took.
+ * - `memoryChannelHalfLifeDays` / `memoryProjectHalfLifeDays` — how fast a
+ *   memory fades in this bot's search ranking: an unused channel memory loses
+ *   half its weight every 30 days by default, a project memory every 180. The
+ *   decay clock also tombstones channel memory that has faded past use.
  * - `apiCallbackSecret` signs the API channel's callbacks. Sealed with
  *   `CryptoOps`, shown once by `bot:rotate-callback-secret`, never serialized.
  */
@@ -75,6 +79,12 @@ export const bots = pgTable(
     }),
     enabled: boolean("enabled").notNull().default(true),
     maxStepsPerTurn: integer("max_steps_per_turn").notNull().default(50),
+    memoryChannelHalfLifeDays: integer("memory_channel_half_life_days")
+      .notNull()
+      .default(30),
+    memoryProjectHalfLifeDays: integer("memory_project_half_life_days")
+      .notNull()
+      .default(180),
     apiCallbackSecret: jsonb("api_callback_secret").$type<EncryptedSecret>(),
     createdByUserId: integer("created_by_user_id").references(() => users.id, {
       onDelete: "set null",

@@ -1,12 +1,13 @@
 import type { BotView } from "@backend/actions/bot/bot-view";
 import type { MembershipList } from "@backend/actions/membership/membership-list";
 import type { ActionResponse } from "keryx";
-import { useCallback, useMemo, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 import { useRead } from "../../components/bots/data";
 import { GatedButton } from "../../components/GatedButton";
 import { LoadingLabel } from "../../components/LoadingLabel";
 import { DetailLayout } from "../../components/layouts/DetailLayout";
+import { parseSeqs } from "../../components/memory/model";
 import { relativeTime } from "../../components/shell/NotificationBell";
 import { Composer } from "../../components/transcript/Composer";
 import {
@@ -54,6 +55,10 @@ export function ConversationPage() {
     activeProjectId,
     Number.isSafeInteger(id) && id > 0 ? id : null,
   );
+  const [search] = useSearchParams();
+  const seqsParam = search.get("seqs");
+  const highlight = useMemo(() => parseSeqs(seqsParam), [seqsParam]);
+  const scrolledTo = useRef<string | null>(null);
   const [cancelling, setCancelling] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
@@ -83,6 +88,17 @@ export function ConversationPage() {
     () => buildTranscript(entries, conversation?.state === "working"),
     [entries, conversation?.state],
   );
+
+  // A link from a memory marks the entries it was learned from: bring the
+  // first into view once it has been drawn, and only once per link.
+  const marked = items.some((item) => highlight.has(item.seq));
+  useEffect(() => {
+    if (!marked || scrolledTo.current === seqsParam) return;
+    scrolledTo.current = seqsParam;
+    document
+      .querySelector(".tx-highlight")
+      ?.scrollIntoView?.({ block: "center" });
+  }, [marked, seqsParam]);
 
   if (!activeProjectId) {
     return (
@@ -270,6 +286,7 @@ export function ConversationPage() {
               conversation.state === "waiting" &&
               conversation.waitingOn?.kind === "answer"
             }
+            highlight={highlight}
           />
           <Composer
             onSend={onSend}

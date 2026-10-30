@@ -25,6 +25,7 @@ import {
   botStanding,
   budgetColumn,
   decodeAvatar,
+  halfLifeInput,
   helpNotifyTagInput,
   maxStepsPerTurnInput,
   monthlyBudgetInput,
@@ -65,6 +66,8 @@ export class BotCreate extends AuditedAction {
     helpNotifyTag: helpNotifyTagInput.default(null),
     monthlyBudgetUsd: monthlyBudgetInput.default(null),
     maxStepsPerTurn: maxStepsPerTurnInput.default(50),
+    memoryChannelHalfLifeDays: halfLifeInput("channel").default(30),
+    memoryProjectHalfLifeDays: halfLifeInput("project").default(180),
     enabled: z
       .boolean()
       .default(true)
@@ -134,6 +137,8 @@ export class BotCreate extends AuditedAction {
         monthlyBudgetUsd: budgetColumn(params.monthlyBudgetUsd),
         enabled: params.enabled,
         maxStepsPerTurn: params.maxStepsPerTurn,
+        memoryChannelHalfLifeDays: params.memoryChannelHalfLifeDays,
+        memoryProjectHalfLifeDays: params.memoryProjectHalfLifeDays,
         avatar: avatar?.bytes ?? null,
         avatarMimeType: avatar?.mimeType ?? null,
         createdByUserId: connection.session?.data.userId ?? null,

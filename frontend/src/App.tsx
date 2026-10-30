@@ -27,6 +27,8 @@ import { DocsLayout } from "./pages/docs/DocsLayout";
 import { DocsPage } from "./pages/docs/DocsPage";
 import { InvitesPage } from "./pages/InvitesPage";
 import { HomePage } from "./pages/marketing/HomePage";
+import { MemoryDocumentPage } from "./pages/memory/MemoryDocumentPage";
+import { MemoryExplorerPage } from "./pages/memory/MemoryExplorerPage";
 import { NewOrganizationPage } from "./pages/NewOrganizationPage";
 import { NewProjectPage } from "./pages/NewProjectPage";
 import { OrganizationAuditPage } from "./pages/organization/OrganizationAuditPage";
@@ -95,6 +97,23 @@ export function App() {
                   <Route
                     path="/bots/:botId/conversations"
                     element={<ConversationsPage />}
+                  />
+                  <Route
+                    path="/bots/:botId/memory"
+                    element={<MemoryExplorerPage />}
+                  />
+                  <Route
+                    path="/bots/:botId/memory/:channelId"
+                    element={<MemoryExplorerPage />}
+                  />
+                  <Route
+                    path="/bots/:botId/memory/:channelId/document"
+                    element={<MemoryDocumentPage />}
+                  />
+                  <Route path="/memory" element={<MemoryExplorerPage />} />
+                  <Route
+                    path="/memory/document"
+                    element={<MemoryDocumentPage />}
                   />
                   <Route
                     path="/conversations"

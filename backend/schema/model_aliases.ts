@@ -13,10 +13,12 @@ import { modelConnections } from "./model_connections";
 import { projects } from "./projects";
 
 /**
- * What a model alias is for. Only `language` exists; memory adds `embedding`
- * to this same table when it needs an embedding model.
+ * What a model alias is for: `language` models think and write; an
+ * `embedding` model turns memory into vectors. Memory uses the alias named
+ * `embedding`, which must be of that kind; a bot's model aliases must be
+ * `language` ones.
  */
-export const MODEL_ALIAS_KINDS = ["language"] as const;
+export const MODEL_ALIAS_KINDS = ["language", "embedding"] as const;
 
 /** One of {@link MODEL_ALIAS_KINDS}. */
 export type ModelAliasKind = (typeof MODEL_ALIAS_KINDS)[number];

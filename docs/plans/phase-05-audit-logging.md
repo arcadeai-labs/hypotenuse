@@ -314,6 +314,14 @@ Edit a project name in the browser, then open Audit log: one row, actor you, bef
   `outbox:deliver`. `agents:reap`, `agents:wake-due`, and `outbox:deliver-due` are clocks. The decisions they trace to
   — `conversation:create`, `conversation:message`, `conversation:cancel`, `bot:rotate-callback-secret` — are audited,
   with a message's text recorded only as its length and sha256.
+- **Memory added three unaudited writers** that are not clocks: `memory:embed` (vectors for chunks, recorded as each
+  chunk's `embedding_revision`), `memory:consolidate` (facts a bot's `fast` model drew from a resting conversation,
+  recorded as each version's `source_type = 'consolidation'` and its `source_ref` citing the conversation and seqs),
+  and `memory:decay-project` (a faded channel memory's tombstone, `change_note = 'faded'`, and the prune of old
+  versions). `memory:decay` and `memory:consolidate-due` are clocks. The memory tools a bot runs are covered by the
+  `agent:tick` row: their provenance is on `memory_documents`. The decisions a person makes about memory —
+  `memory:write`, `memory:forget`, `memory:pin`, `memory:promote`, `memory:reindex` — are audited, with a document's
+  text and description recorded only as their length and sha256.
 - **Rule 13: no CLI command wraps `audit:list` or `organization:audit-list` yet** — deferred, not out of scope, as
   with phase 04's actions: [phase 06](./phase-06-operator-cli.md) is the CLI's sign-in.
 

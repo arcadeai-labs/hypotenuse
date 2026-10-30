@@ -34,6 +34,8 @@ interface Bot {
   helpNotifyTag: string | null;
   monthlyBudgetUsd: number | null;
   maxStepsPerTurn?: number;
+  memoryChannelHalfLifeDays?: number;
+  memoryProjectHalfLifeDays?: number;
   enabled: boolean;
   hasCallbackSecret?: boolean;
   createdAt: number;
@@ -61,6 +63,10 @@ export interface BotFlags {
   budget?: string | false;
   /** The most model steps one turn may take. */
   maxSteps?: string;
+  /** Days for channel memory to fade to half its weight. */
+  channelHalfLife?: string;
+  /** Days for project memory to fade to half its weight. */
+  projectHalfLife?: string;
   enable?: boolean;
   disable?: boolean;
 }
@@ -113,6 +119,14 @@ function withBotFlags(command: Command): Command {
       "--max-steps <n>",
       "the most model steps one turn may take (1-500, default 50)",
     )
+    .option(
+      "--channel-half-life <days>",
+      "days until its channel memory fades to half its weight (1-3650, default 30)",
+    )
+    .option(
+      "--project-half-life <days>",
+      "days until project memory fades to half its weight for it (1-3650, default 180)",
+    )
     .option("--enable", "accept new conversations")
     .option("--disable", "accept no new conversations");
 }
@@ -160,6 +174,18 @@ export function botBody(flags: BotFlags): Record<string, unknown> {
   if (flags.maxSteps !== undefined) {
     body.maxStepsPerTurn = parseNumber(flags.maxSteps, "--max-steps");
   }
+  if (flags.channelHalfLife !== undefined) {
+    body.memoryChannelHalfLifeDays = parseNumber(
+      flags.channelHalfLife,
+      "--channel-half-life",
+    );
+  }
+  if (flags.projectHalfLife !== undefined) {
+    body.memoryProjectHalfLifeDays = parseNumber(
+      flags.projectHalfLife,
+      "--project-half-life",
+    );
+  }
   if (flags.enable) body.enabled = true;
   if (flags.disable) body.enabled = false;
   return body;
@@ -193,6 +219,7 @@ function botDetail(bot: Bot, canWrite: boolean): string {
     `help          ${bot.helpNotifyTag ?? "the admins"}`,
     `budget        ${bot.monthlyBudgetUsd == null ? "-" : `$${bot.monthlyBudgetUsd}/month`}`,
     `steps/turn    ${bot.maxStepsPerTurn ?? 50}`,
+    `half-life     ${bot.memoryChannelHalfLifeDays ?? 30} days channel memory, ${bot.memoryProjectHalfLifeDays ?? 180} days project memory`,
     `callbacks     ${bot.hasCallbackSecret ? "signed (secret set)" : "no secret yet"}`,
     `avatar        ${bot.avatarUrl ? "yes" : "-"}`,
     `you can       ${canWrite ? "read and change it" : "read it"}`,

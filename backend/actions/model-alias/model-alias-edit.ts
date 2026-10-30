@@ -8,9 +8,12 @@ import {
 } from "../../classes/AuditedAction";
 import { AdminMiddleware } from "../../middleware/rbac";
 import { idInput } from "../../ops/InputOps";
+import { enqueueEmbed } from "../../ops/MemoryOps";
 import {
   aliasNameInput,
   aliasOptionsInput,
+  assertAliasKindFits,
+  assertEmbeddingModelUsable,
   botsNamingAlias,
   isReservedModelAlias,
   loadModelAlias,
@@ -71,6 +74,7 @@ export class ModelAliasEdit extends AuditedAction {
 
     const changes: Partial<NewModelAlias> = {};
     if (params.name !== undefined && params.name !== row.name) {
+      assertAliasKindFits(params.name, row.kind);
       if (isReservedModelAlias(row.name)) {
         throw new TypedError({
           message: `"${row.name}" is a required model name and cannot be renamed. Repoint it instead.`,
@@ -120,6 +124,12 @@ export class ModelAliasEdit extends AuditedAction {
       changes.connectionId = target.id;
     }
     if (params.modelId !== undefined) changes.modelId = params.modelId;
+    const repointed =
+      changes.connectionId !== undefined ||
+      (changes.modelId !== undefined && changes.modelId !== row.modelId);
+    if (row.kind === "embedding" && repointed) {
+      await assertEmbeddingModelUsable(target, changes.modelId ?? row.modelId);
+    }
     if (params.options !== undefined) changes.options = params.options;
 
     const [updated] =
@@ -135,6 +145,26 @@ export class ModelAliasEdit extends AuditedAction {
     connection.metadata.auditAfter = serialized;
     connection.metadata.auditTargetType = "model-alias";
     connection.metadata.auditTargetPath = updated.name;
+    connection.metadata.afterCommitData = {
+      reembed: row.kind === "embedding" && repointed,
+    };
     return { modelAlias: serialized };
+  }
+
+  /**
+   * A repointed embedding model makes every stored vector stale; re-embed
+   * them in the background.
+   * @param _result - The response.
+   * @param params - The inputs.
+   * @param connection - Says whether the embedding model moved.
+   */
+  async afterCommit(
+    _result: unknown,
+    params: ActionParams<ModelAliasEdit>,
+    connection: AuditedConnection,
+  ) {
+    if (connection.metadata.afterCommitData?.reembed) {
+      await enqueueEmbed(params.projectId);
+    }
   }
 }

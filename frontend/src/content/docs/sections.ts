@@ -7,6 +7,7 @@ import cli from "./cli.md?raw";
 import conversations from "./conversations.md?raw";
 import gettingStarted from "./getting-started.md?raw";
 import members from "./members.md?raw";
+import memory from "./memory.md?raw";
 import models from "./models.md?raw";
 import organizations from "./organizations.md?raw";
 import projects from "./projects.md?raw";
@@ -41,6 +42,7 @@ export const DOCS_SECTIONS: DocsSection[] = [
   { slug: "models", title: "Models", markdown: models },
   { slug: "bots", title: "Bots", markdown: bots },
   { slug: "conversations", title: "Conversations", markdown: conversations },
+  { slug: "memory", title: "Memory", markdown: memory },
   {
     slug: "talking-to-a-bot-over-the-api",
     title: "Talking to a bot over the API",

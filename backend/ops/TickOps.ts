@@ -32,6 +32,7 @@ import {
   toolErrorEnvelope,
 } from "../tools/types";
 import { compactionPending, maybeEnqueueCompaction } from "./CompactionOps";
+import { enqueueConsolidation, owesConsolidation } from "./ConsolidationOps";
 import {
   enqueueTick,
   finalizeCancel,
@@ -164,6 +165,34 @@ export async function runTick(conversationId: number): Promise<TickResult> {
     clearInterval(heartbeat);
     await enqueueDeliveries(state.outbox);
     await pingConversation(state.projectId, conversationId);
+    await consolidateIfOwed(conversationId);
+  }
+}
+
+/**
+ * When a tick leaves its conversation at rest with enough new entries,
+ * enqueue its consolidation into channel memory. An accelerant only:
+ * `memory:consolidate-due` finds one this misses.
+ * @param conversationId - The conversation.
+ */
+async function consolidateIfOwed(conversationId: number): Promise<void> {
+  try {
+    const [row] = await api.db.db
+      .select({
+        state: conversations.state,
+        lastSeq: conversations.lastSeq,
+        memoryConsolidatedSeq: conversations.memoryConsolidatedSeq,
+      })
+      .from(conversations)
+      .where(eq(conversations.id, conversationId));
+    if (row && owesConsolidation(row)) {
+      await enqueueConsolidation(conversationId);
+    }
+  } catch (e) {
+    api.logger.warn("could not check whether a consolidation is owed", {
+      conversationId,
+      error: e instanceof Error ? e.message : String(e),
+    });
   }
 }
 

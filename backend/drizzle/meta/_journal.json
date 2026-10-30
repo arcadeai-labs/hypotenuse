@@ -50,6 +50,13 @@
       "when": 1793316141832,
       "tag": "0006_flawless_rafael_vega",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1793336493257,
+      "tag": "0007_ancient_pandemic",
+      "breakpoints": true
     }
   ]
 }

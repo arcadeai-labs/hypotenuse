@@ -16,6 +16,23 @@ import { ModelPicker } from "./ModelPicker";
 /** A model name as `model-alias:list` serializes it. */
 export type ModelAlias = ActionResponse<ModelAliasList>["modelAliases"][number];
 
+/**
+ * The one name memory embeds with. An alias of this name is of kind
+ * `embedding`, and no other name may be; without it, memory search matches
+ * words only.
+ */
+export const EMBEDDING_ALIAS = "embedding";
+
+/**
+ * The kind `model-alias:create` takes for a name: `embedding` for the
+ * embedding alias, `language` for every other.
+ * @param name - The alias name.
+ * @returns The kind.
+ */
+export function aliasKindFor(name: string): "embedding" | "language" {
+  return name.trim() === EMBEDDING_ALIAS ? "embedding" : "language";
+}
+
 /** The alias form's fields, as typed. */
 interface Draft {
   /** The alias being edited, or `null` for a new one. */
@@ -144,6 +161,7 @@ export function AliasesCard({
       ...(draft.aliasId === null || !draft.reserved
         ? { name: draft.name.trim() }
         : {}),
+      ...(draft.aliasId === null ? { kind: aliasKindFor(draft.name) } : {}),
       connectionId: draft.connectionId,
       modelId: draft.modelId.trim(),
       options,
@@ -186,6 +204,9 @@ export function AliasesCard({
 
   const noConnections = connections !== null && connections.length === 0;
   const formDenied = draft?.aliasId === null ? createDenied : editDenied;
+  const draftIsEmbedding =
+    draft !== null && aliasKindFor(draft.name) === "embedding";
+  const noEmbedding = !aliases.some((a) => a.name === EMBEDDING_ALIAS);
 
   return (
     <SectionCard
@@ -199,7 +220,9 @@ export function AliasesCard({
           <code>default</code> points at and every bot using it follows, with no
           bot edited. Every project needs <code>default</code> (a bot's main
           model) and <code>fast</code> (its quick, cheap one) before any bot can
-          run.
+          run. An optional <code>embedding</code> name, on an OpenAI, Vercel AI
+          Gateway, or OpenAI-compatible connection, lets memory search find
+          things by meaning as well as by their words.
         </>
       }
       error={error}
@@ -266,6 +289,12 @@ export function AliasesCard({
                       <span className="text-meta">required</span>
                     </>
                   )}
+                  {a.kind === "embedding" && (
+                    <>
+                      {" "}
+                      <span className="text-meta">memory search</span>
+                    </>
+                  )}
                 </td>
                 <td>{a.connectionName ?? "—"}</td>
                 <td className="mono">{a.modelId}</td>
@@ -309,6 +338,32 @@ export function AliasesCard({
                 </td>
               </tr>
             ))}
+          {!loading && noEmbedding && (
+            <tr data-testid="alias-missing-embedding">
+              <td>
+                <span className="mono">{EMBEDDING_ALIAS}</span>{" "}
+                <span className="text-meta">optional</span>
+              </td>
+              <td colSpan={3} className="text-meta">
+                Not set — memory search matches words only.
+              </td>
+              <td className="text-end">
+                <GatedButton
+                  size="sm"
+                  variant="outline-secondary"
+                  disabled={busy || noConnections}
+                  title={noConnections ? "Add a connection first." : undefined}
+                  deniedReason={createDenied}
+                  onClick={() =>
+                    setDraft(blankDraft(EMBEDDING_ALIAS, connections))
+                  }
+                  data-testid="set-alias-embedding"
+                >
+                  Set
+                </GatedButton>
+              </td>
+            </tr>
+          )}
         </tbody>
       </Table>
 
@@ -324,6 +379,14 @@ export function AliasesCard({
           <h3 className="settings-subheading">
             {draft.aliasId === null ? `New model name` : `Edit ${draft.name}`}
           </h3>
+          {draftIsEmbedding && (
+            <p className="text-meta" data-testid="alias-embedding-hint">
+              Memory's embedding model: choose one that returns 1536-dimensional
+              vectors, such as OpenAI's <code>text-embedding-3-small</code>. It
+              is tried before it is saved, and changing it re-embeds the
+              project's memory.
+            </p>
+          )}
           <div className="model-alias-fields">
             <Form.Group controlId="alias-name" className="mb-0">
               <Form.Label>Name</Form.Label>
@@ -378,41 +441,46 @@ export function AliasesCard({
                 testId="alias-model"
               />
             </Form.Group>
-            <Form.Group controlId="alias-temperature" className="mb-0">
-              <Form.Label>
-                Temperature <span className="text-meta">optional, 0–2</span>
-              </Form.Label>
-              <Form.Control
-                size="sm"
-                type="number"
-                min={0}
-                max={2}
-                step={0.1}
-                value={draft.temperature}
-                disabled={busy}
-                onChange={(e) =>
-                  setDraft({ ...draft, temperature: e.target.value })
-                }
-                data-testid="alias-temperature"
-              />
-            </Form.Group>
-            <Form.Group controlId="alias-max-tokens" className="mb-0">
-              <Form.Label>
-                Output limit <span className="text-meta">optional, tokens</span>
-              </Form.Label>
-              <Form.Control
-                size="sm"
-                type="number"
-                min={1}
-                step={1}
-                value={draft.maxOutputTokens}
-                disabled={busy}
-                onChange={(e) =>
-                  setDraft({ ...draft, maxOutputTokens: e.target.value })
-                }
-                data-testid="alias-max-tokens"
-              />
-            </Form.Group>
+            {!draftIsEmbedding && (
+              <>
+                <Form.Group controlId="alias-temperature" className="mb-0">
+                  <Form.Label>
+                    Temperature <span className="text-meta">optional, 0–2</span>
+                  </Form.Label>
+                  <Form.Control
+                    size="sm"
+                    type="number"
+                    min={0}
+                    max={2}
+                    step={0.1}
+                    value={draft.temperature}
+                    disabled={busy}
+                    onChange={(e) =>
+                      setDraft({ ...draft, temperature: e.target.value })
+                    }
+                    data-testid="alias-temperature"
+                  />
+                </Form.Group>
+                <Form.Group controlId="alias-max-tokens" className="mb-0">
+                  <Form.Label>
+                    Output limit{" "}
+                    <span className="text-meta">optional, tokens</span>
+                  </Form.Label>
+                  <Form.Control
+                    size="sm"
+                    type="number"
+                    min={1}
+                    step={1}
+                    value={draft.maxOutputTokens}
+                    disabled={busy}
+                    onChange={(e) =>
+                      setDraft({ ...draft, maxOutputTokens: e.target.value })
+                    }
+                    data-testid="alias-max-tokens"
+                  />
+                </Form.Group>
+              </>
+            )}
           </div>
           <div className="d-flex gap-2 mt-3">
             <GatedButton

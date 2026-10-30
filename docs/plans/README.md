@@ -115,6 +115,11 @@ the bot page; and the `model` and `bot` commands.
 replay rules, steer and queue, nudge-once-then-fail, yield, and cancel; the built-in tools; background compaction;
 `agents:reap` and `agents:wake-due`; the HTTP API channel with signed callbacks; a streaming scripted model server
 for the Anthropic and OpenAI-compatible APIs; the transcript pages; and the `conversation` commands.
+**[Phase 09](./phase-09-memory.md) is built**: `memory_documents` (append-only versions with tombstones and
+provenance) and `memory_chunks` (`tsvector` and `vector(1536)`); hybrid search with weighted RRF, a per-document cap,
+and decay; the `embedding` alias kind and `memory:embed`; consolidation of resting conversations into channel facts;
+the `memory:decay` clock; the six memory tools; `memory:*` actions with promotion as a person's audited decision; the
+memory explorer; `hypotenuse memory`; and a retrieval eval with recorded floors.
 No other phase is built; every later plan's **Learnings from the
 build** section reads "Not built yet." until its phase lands.
 
@@ -143,3 +148,5 @@ build** section reads "Not built yet." until its phase lands.
 | Talking to a bot | `canReadBot` is enough to start, write in, read, and cancel its conversations over the API, as a platform channel asks no more |
 | The loop | Rows are the orchestration state; ticks claim a 90 s lease by conditional update and re-check it under the row lock on every write; intents commit before tools run; a terminal tool's effect commits with its result; 8 steps or 60 s per tick, 50 steps per turn by default |
 | API callbacks | Signed with a per-bot secret shown once (`t=…,v1=` HMAC-SHA256), retried for a day with the outbox row id as the delivery id |
+| Memory scopes | Channel memory is per bot per channel; project memory is shared. A bot never changes project memory: a person promotes into it (`canWriteBot` + admin), audited |
+| Memory embeddings | The project's own `embedding` alias (1536 dimensions, probed when saved); without one, search is keyword-only. Vectors never block a turn |

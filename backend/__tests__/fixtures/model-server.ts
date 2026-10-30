@@ -9,8 +9,8 @@
  * | Prefix | Speaks | Routes |
  * |---|---|---|
  * | `/anthropic/v1` | Anthropic Messages | `GET /models`, `POST /messages` |
- * | `/openai/v1` | OpenAI | `GET /models`, `POST /responses`, `POST /chat/completions` |
- * | `/compatible/v1` | an OpenAI-compatible server | `GET /models`, `POST /chat/completions` |
+ * | `/openai/v1` | OpenAI | `GET /models`, `POST /responses`, `POST /chat/completions`, `POST /embeddings` |
+ * | `/compatible/v1` | an OpenAI-compatible server | `GET /models`, `POST /chat/completions`, `POST /embeddings` |
  * | `/gateway/v4/ai` | Vercel AI Gateway | `GET /config`; and `GET /v1/credits` at the root, as the gateway serves it |
  * | `/leaky/v1` | a broken server that echoes the request's credentials into a 500 | anything |
  *
@@ -27,9 +27,80 @@
  * that hangs until released or abandoned, or a stream cut after some events.
  * A scenario may also be a file under `model-scenarios/`. With nothing queued,
  * a completion answers the text {@link ModelServer.script} set.
+ *
+ * **Embeddings.** `POST /embeddings` answers {@link scriptedEmbedding}: a
+ * deterministic vector from hashed word unigrams and bigrams, normalized, so
+ * texts sharing words land near each other and a test can predict a ranking.
+ * It honours `dimensions`, except for {@link FIXED_DIMENSION_MODEL}, which
+ * always answers 768 — a model that cannot be shrunk.
  */
 
 import { readFileSync } from "node:fs";
+
+/** The embedding model id that ignores `dimensions` and answers 768. */
+export const FIXED_DIMENSION_MODEL = "scripted-embed-768";
+
+/** The embedding models the OpenAI and OpenAI-compatible endpoints serve. */
+export const SCRIPTED_EMBEDDING_MODELS = [
+  { id: "scripted-embed", name: "Scripted Embed" },
+  { id: FIXED_DIMENSION_MODEL, name: "Scripted Embed 768" },
+];
+
+/**
+ * FNV-1a over a string, seeded.
+ * @param text - The text.
+ * @param seed - The seed.
+ * @returns A 32-bit hash.
+ */
+function fnv(text: string, seed: number): number {
+  let h = 0x811c9dc5 ^ seed;
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return h >>> 0;
+}
+
+/**
+ * A word, crudely stemmed, so "deploys" and "deploying" share a feature.
+ * @param word - A lowercase word.
+ * @returns Its stem.
+ */
+function stem(word: string): string {
+  return word.replace(/(ing|ed|es|s)$/, "") || word;
+}
+
+/**
+ * **The scripted embedding** of a text: every word unigram (weight 1) and
+ * bigram (weight 0.5) is hashed to a dimension and a sign, summed, and the
+ * vector normalized. Deterministic, and texts that share words are close.
+ * @param text - The text.
+ * @param dimensions - The vector's size.
+ * @returns The vector.
+ */
+export function scriptedEmbedding(text: string, dimensions: number): number[] {
+  const vector = new Array<number>(dimensions).fill(0);
+  const words = text
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((w) => w.length > 1)
+    .map(stem);
+  const add = (feature: string, weight: number) => {
+    const index = fnv(feature, 7) % dimensions;
+    const sign = fnv(feature, 13) % 2 === 0 ? 1 : -1;
+    vector[index] += sign * weight;
+  };
+  words.forEach((w, i) => {
+    add(w, 1);
+    if (i > 0) add(`${words[i - 1]} ${w}`, 0.5);
+  });
+  const norm = Math.sqrt(vector.reduce((a, v) => a + v * v, 0));
+  if (norm === 0) {
+    vector[0] = 1;
+    return vector;
+  }
+  return vector.map((v) => v / norm);
+}
 
 /** One scripted tool call. */
 export interface ScriptedToolCall {
@@ -126,6 +197,10 @@ export interface ModelServer {
   expectationFailures: string[];
   /** Change the key the server accepts. */
   acceptKey(key: string): void;
+  /** Every text embedded so far, oldest first. */
+  embedded: string[];
+  /** Answer the next `n` embedding requests with a 500. */
+  failEmbeddings(n: number): void;
   /** Forget the recorded requests, the queue, and the counters. */
   reset(): void;
   stop(): Promise<void>;
@@ -523,6 +598,59 @@ export function startModelServer(options: { apiKey: string }): ModelServer {
   let disconnects = 0;
   let acceptedKey = options.apiKey;
   let scripted = "Hello from the scripted model.";
+  const embedded: string[] = [];
+  let failingEmbeddings = 0;
+
+  /**
+   * Answer an OpenAI embeddings request.
+   * @param raw - The raw body.
+   * @returns The response.
+   */
+  const embeddings = (raw: string): Response => {
+    const body = JSON.parse(raw) as {
+      model: string;
+      input: string | string[];
+      dimensions?: number;
+    };
+    if (failingEmbeddings > 0) {
+      failingEmbeddings--;
+      return Response.json(
+        {
+          error: {
+            message: "scripted embedding failure",
+            type: "server_error",
+          },
+        },
+        { status: 500 },
+      );
+    }
+    if (!SCRIPTED_EMBEDDING_MODELS.some((m) => m.id === body.model)) {
+      return Response.json(
+        {
+          error: {
+            message: `The model \`${body.model}\` does not exist or does not embed.`,
+            type: "invalid_request_error",
+            code: "model_not_found",
+          },
+        },
+        { status: 404 },
+      );
+    }
+    const inputs = Array.isArray(body.input) ? body.input : [body.input];
+    embedded.push(...inputs);
+    const dimensions =
+      body.model === FIXED_DIMENSION_MODEL ? 768 : (body.dimensions ?? 1536);
+    return Response.json({
+      object: "list",
+      data: inputs.map((text, index) => ({
+        object: "embedding",
+        index,
+        embedding: scriptedEmbedding(text, dimensions),
+      })),
+      model: body.model,
+      usage: { prompt_tokens: inputs.length, total_tokens: inputs.length },
+    });
+  };
 
   const unauthorized = (shape: "anthropic" | "openai") =>
     Response.json(
@@ -740,6 +868,9 @@ export function startModelServer(options: { apiKey: string }): ModelServer {
         if (req.method === "POST" && path === "/v1/chat/completions") {
           return complete("openai", url.pathname, body, req.signal);
         }
+        if (req.method === "POST" && path === "/v1/embeddings") {
+          return embeddings(body);
+        }
         if (req.method === "POST" && path === "/v1/responses") {
           const { model } = JSON.parse(body) as { model: string };
           return Response.json({
@@ -848,11 +979,17 @@ export function startModelServer(options: { apiKey: string }): ModelServer {
     acceptKey: (key) => {
       acceptedKey = key;
     },
+    embedded,
+    failEmbeddings: (n) => {
+      failingEmbeddings = n;
+    },
     reset: () => {
       requests.length = 0;
       completions.length = 0;
       queue.length = 0;
       expectationFailures.length = 0;
+      embedded.length = 0;
+      failingEmbeddings = 0;
       disconnects = 0;
     },
     stop: async () => {

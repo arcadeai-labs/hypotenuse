@@ -26,6 +26,7 @@ import {
   botStanding,
   budgetColumn,
   decodeAvatar,
+  halfLifeInput,
   helpNotifyTagInput,
   loadReadableBot,
   maxStepsPerTurnInput,
@@ -62,6 +63,8 @@ export class BotEdit extends AuditedAction {
     helpNotifyTag: helpNotifyTagInput.optional(),
     monthlyBudgetUsd: monthlyBudgetInput.optional(),
     maxStepsPerTurn: maxStepsPerTurnInput.optional(),
+    memoryChannelHalfLifeDays: halfLifeInput("channel").optional(),
+    memoryProjectHalfLifeDays: halfLifeInput("project").optional(),
     enabled: z
       .boolean()
       .optional()
@@ -138,6 +141,8 @@ export class BotEdit extends AuditedAction {
       "helpNotifyTag",
       "enabled",
       "maxStepsPerTurn",
+      "memoryChannelHalfLifeDays",
+      "memoryProjectHalfLifeDays",
     ] as const) {
       if (params[key] !== undefined) {
         (changes as Record<string, unknown>)[key] = params[key];

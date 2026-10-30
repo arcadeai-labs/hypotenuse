@@ -1,6 +1,12 @@
 import { askQuestion } from "./ask-question";
 import { complete } from "./complete";
 import { fail } from "./fail";
+import { memoryEdit } from "./memory-edit";
+import { memoryForget } from "./memory-forget";
+import { memoryList } from "./memory-list";
+import { memoryRead } from "./memory-read";
+import { memorySearch } from "./memory-search";
+import { memoryWrite } from "./memory-write";
 import { replyAndWait } from "./reply-and-wait";
 import { searchHistory } from "./search-history";
 import type { ToolContext, ToolDefinition } from "./types";
@@ -8,7 +14,7 @@ import { waitFor } from "./wait-for";
 
 /**
  * The tool registry: every tool a bot may be offered, by name. The built-in
- * tools register here; memory, MCP, and code mode add theirs through
+ * tools and the memory tools register here; MCP and code mode add theirs through
  * {@link registerTool}.
  */
 
@@ -77,6 +83,12 @@ for (const tool of [
   waitFor,
   askQuestion,
   searchHistory,
+  memorySearch,
+  memoryList,
+  memoryRead,
+  memoryWrite,
+  memoryEdit,
+  memoryForget,
 ] as ToolDefinition[]) {
   registerTool(tool);
 }
