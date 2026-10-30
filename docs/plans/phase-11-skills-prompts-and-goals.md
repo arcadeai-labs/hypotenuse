@@ -396,6 +396,28 @@ bun run --cwd cli hypotenuse prompt preview --bot 1 --message "how do we deploy?
   counts the result's rows in the request instead of its length.
 - **commander names `--review-every`'s value `reviewEvery`**, and `--no-review-every` sets the same key to `false`.
 
+### The frontend
+
+- **No tabs.** The bot page is one column of section cards, so the plan's "tabs" became: a **Prompt** page at
+  `/bots/:botId/prompt` (from a button in the bot page's header), and **Goals**, **Skills**, and **Prompt** (budget and
+  section cap) cards on the bot page. **Settings → Skills** (`/settings/skills`) is the library and **Settings →
+  Prompt sections** (`/settings/prompt-sections`) the project's sections, admin-gated. The "Skills", "Prompts", and
+  "Goals" placeholders are gone.
+- **The Prompt page** numbers sections in assembly order, saves with `baseVersion` (a stale or over-budget save shows
+  the server's sentence in that section's card), toggles "Editable by the bot" in place, and shows each section's
+  history with a line diff, agent versions marked and linked to their conversation, and **Revert to this**. The
+  preview pane is `prompt:preview` with a sample message.
+- **The transcript** renders a prompt `context_update` as one line ("Prompt changed: how-i-work v2 → v3") that opens to
+  what was added, removed, changed, or dropped and fetches the changed section's diff on demand; a skill expansion is
+  "Ran skill /name" (or "Could not run skill") opening to the expansion. Entries from before this change, which carry
+  only the prompt text, still render.
+- **The memory diff moved into a shared `DiffBlock`**, used by memory and prompt and skill histories.
+- **Illustrations** `bot-prompt`, `bot-goals`, `bot-skills`, `skills` (and a retaken `bot`): the capture script seeds a
+  conversation in which the bot edits its own *Things I have learned*, so a bot-written version is on the page. The
+  browser suite here needed `PLAYWRIGHT_CHROMIUM_PATH` pointed at the installed Chromium.
+- **Not done:** skills have no revert (no action for it; editing back writes a new version); prompt versions say
+  "Written by a person" rather than the person's name; the command palette has no entries for the new pages.
+
 ### The CLI
 
 `hypotenuse` 2.6.0. Rule 13 decisions:

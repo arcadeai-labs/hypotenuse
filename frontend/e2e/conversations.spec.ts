@@ -251,3 +251,99 @@ test("Cancel stops a bot in the middle of a step", async ({ page }) => {
   await expect(page.getByTestId("cancel-conversation")).toBeDisabled();
   await model("POST", "/release");
 });
+
+test("a person runs a skill with /name, and the transcript shows what the bot read and how its prompt changed", async ({
+  page,
+}) => {
+  const admin = await signUpApi(page.request, "Skill Runner");
+  await openTenant(page, admin);
+  const projectId = admin.project.id;
+  const botId = await botWithScriptedModel(page.request, admin, "Scribe");
+  const { skill } = await api<{ skill: { id: number } }>(
+    page.request,
+    "PUT",
+    `/project/${projectId}/skill`,
+    {
+      name: "release-notes",
+      description: "Drafts release notes for a version",
+      arguments: [{ name: "version", required: true }],
+      body: "Draft release notes for $version, newest change first.",
+    },
+  );
+  await api(page.request, "PUT", `/project/${projectId}/bot/${botId}/skill`, {
+    skillId: skill.id,
+  });
+  // An empty section is left out of the prompt; give How I work some text.
+  const { promptSections } = await api<{
+    promptSections: { id: number; key: string; currentVersion: number }[];
+  }>(
+    page.request,
+    "GET",
+    `/project/${projectId}/prompt-sections?botId=${botId}`,
+  );
+  const howIWork = promptSections.find((s) => s.key === "how-i-work");
+  if (!howIWork) throw new Error("the How I work section is missing");
+  const howIWorkPath = `/project/${projectId}/prompt-section/${howIWork.id}`;
+  await api(page.request, "POST", howIWorkPath, { body: "Keep notes short." });
+
+  // The first turn: a skill invoked, and the first prompt the bot was sent.
+  await script([
+    { toolCalls: [{ name: "reply_and_wait", input: { text: "Drafted." } }] },
+  ]);
+  const { conversation } = await api<{ conversation: { id: number } }>(
+    page.request,
+    "PUT",
+    `/project/${projectId}/bot/${botId}/conversation`,
+    { text: "/release-notes 2.4" },
+  );
+  await page.goto(`/conversations/${conversation.id}`);
+  await expect(page.getByTestId("tx-bot").first()).toContainText(
+    "Drafted.",
+    LANDED,
+  );
+  // The message stays as it was written; the expansion is beside it.
+  await expect(page.getByTestId("tx-person").first()).toContainText(
+    "/release-notes 2.4",
+  );
+  const ran = page.getByTestId("tx-skill").first();
+  await expect(ran).toContainText("Ran skill /release-notes");
+  await ran.locator("summary").click();
+  await expect(ran.getByTestId("tx-skill-text")).toContainText(
+    "Draft release notes for 2.4, newest change first.",
+  );
+  const first = page.getByTestId("tx-prompt").first();
+  await expect(first).toContainText("Prompt set");
+
+  // A person edits a section between turns: the next step's prompt changed,
+  // and the line opens to the section's diff.
+  await api(page.request, "POST", howIWorkPath, {
+    body: "Keep notes short.\nLink the pull requests in every note.",
+  });
+  // A missing required argument is said, not guessed.
+  await script([
+    {
+      toolCalls: [
+        { name: "reply_and_wait", input: { text: "Which version?" } },
+      ],
+    },
+  ]);
+  await page.getByTestId("conversation-composer-input").fill("/release-notes");
+  await page.getByTestId("conversation-composer-send").click();
+  await expect(page.getByTestId("tx-bot")).toHaveCount(2, LANDED);
+  const failed = page.getByTestId("tx-skill").nth(1);
+  await expect(failed).toContainText("Could not run skill /release-notes");
+  await failed.locator("summary").click();
+  await expect(failed.getByTestId("tx-skill-error")).toContainText(
+    '"version" is required',
+  );
+  const changed = page.getByTestId("tx-prompt").nth(1);
+  await expect(changed).toContainText("Prompt changed");
+  await expect(changed.getByTestId("tx-prompt-summary")).toHaveText(
+    "how-i-work v2 → v3",
+  );
+  await changed.locator("> summary").click();
+  await changed.getByTestId("tx-prompt-diff-how-i-work").click();
+  await expect(
+    changed.locator(".memory-diff-line.is-add").first(),
+  ).toContainText("Link the pull requests in every note.", LANDED);
+});

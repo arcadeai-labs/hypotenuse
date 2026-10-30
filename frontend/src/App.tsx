@@ -8,6 +8,8 @@ import { GeneralSection } from "./components/settings/sections/GeneralSection";
 import { McpServersSection } from "./components/settings/sections/McpServersSection";
 import { MembersSection } from "./components/settings/sections/MembersSection";
 import { ModelsSection } from "./components/settings/sections/ModelsSection";
+import { PromptSectionsSection } from "./components/settings/sections/PromptSectionsSection";
+import { SkillLibrarySection } from "./components/settings/sections/SkillLibrarySection";
 import { TagsSection } from "./components/settings/sections/TagsSection";
 import { PublicShell } from "./components/shell/PublicShell";
 import { DOCS_SECTIONS } from "./content/docs/sections";
@@ -20,6 +22,7 @@ import { AuditLogPage } from "./pages/AuditLogPage";
 import { ApprovalPage } from "./pages/approvals/ApprovalPage";
 import { ApprovalsPage } from "./pages/approvals/ApprovalsPage";
 import { BotPage } from "./pages/bots/BotPage";
+import { BotPromptPage } from "./pages/bots/BotPromptPage";
 import { BotsPage } from "./pages/bots/BotsPage";
 import { ConversationPage } from "./pages/bots/ConversationPage";
 import { ConversationsPage } from "./pages/bots/ConversationsPage";
@@ -103,6 +106,10 @@ export function App() {
                   <Route path="/bots/new" element={<NewBotPage />} />
                   <Route path="/bots/:botId" element={<BotPage />} />
                   <Route
+                    path="/bots/:botId/prompt"
+                    element={<BotPromptPage />}
+                  />
+                  <Route
                     path="/bots/:botId/conversations"
                     element={<ConversationsPage />}
                   />
@@ -146,6 +153,11 @@ export function App() {
                     <Route path="general" element={<GeneralSection />} />
                     <Route path="models" element={<ModelsSection />} />
                     <Route path="mcp-servers" element={<McpServersSection />} />
+                    <Route path="skills" element={<SkillLibrarySection />} />
+                    <Route
+                      path="prompt-sections"
+                      element={<PromptSectionsSection />}
+                    />
                     <Route path="members" element={<MembersSection />} />
                     <Route path="tags" element={<TagsSection />} />
                     <Route path="danger" element={<DangerZoneSection />} />

@@ -259,7 +259,10 @@ A **log, not a chat**. Its source is `conversation_entries`: every message, mode
 Identity first — the avatar with its badge, the name, the persona — then **where it listens** (its channel bindings,
 one row per platform, with "Not bound in …" where it has none), its **tools** (memory, code mode, and sandboxes as
 on/off chips; MCP servers and skills by name), its **model** (the registry name and the connection behind it), and
-**who may read and change it** (its `accessRead` and `accessWrite` tags).
+**who may read and change it** (its `accessRead` and `accessWrite` tags). Its goals, attached skills, and prompt
+budget are cards on the same page; the prompt itself has its own page (`/bots/:botId/prompt`): every section in
+assembly order, numbered, with its loading chip, version, and author — a version the bot wrote carries the bot glyph
+and links to its conversation — beside a preview of the exact text sent. A diff is the shared `DiffBlock`.
 
 ### 3. The memory explorer
 

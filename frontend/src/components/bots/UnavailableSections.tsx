@@ -24,21 +24,6 @@ export const UNAVAILABLE_BOT_SECTIONS: readonly UnavailableSection[] = [
     title: "Code",
     purpose: "Code mode and the sandboxes it hands repository work to.",
   },
-  {
-    slug: "skills",
-    title: "Skills",
-    purpose: "The project's shared skills this bot may use.",
-  },
-  {
-    slug: "prompts",
-    title: "Prompts",
-    purpose: "Instructions beyond its persona, written as files.",
-  },
-  {
-    slug: "goals",
-    title: "Goals",
-    purpose: "What it works toward between conversations.",
-  },
 ];
 
 /**

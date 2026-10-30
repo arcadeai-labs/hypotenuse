@@ -10,6 +10,7 @@ import {
 } from "react-router-dom";
 import { useRead } from "../../components/bots/data";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
+import { DiffBlock } from "../../components/DiffBlock";
 import { GatedButton } from "../../components/GatedButton";
 import { LoadingLabel } from "../../components/LoadingLabel";
 import { DetailLayout } from "../../components/layouts/DetailLayout";
@@ -689,33 +690,7 @@ export function MemoryDocumentPage() {
                   +{diffStats(diff).added} −{diffStats(diff).removed}
                 </span>
               </h2>
-              <pre className="memory-diff">
-                {diff.map((line, i) => (
-                  <span
-                    // Lines repeat; their position is their identity.
-                    // biome-ignore lint/suspicious/noArrayIndexKey: a diff line has no id
-                    key={i}
-                    className={`memory-diff-line is-${line.kind}`}
-                  >
-                    <span className="memory-diff-mark" aria-hidden="true">
-                      {line.kind === "add"
-                        ? "+"
-                        : line.kind === "remove"
-                          ? "−"
-                          : " "}
-                    </span>
-                    <span className="visually-hidden">
-                      {line.kind === "add"
-                        ? "added: "
-                        : line.kind === "remove"
-                          ? "removed: "
-                          : ""}
-                    </span>
-                    {line.text || " "}
-                    {"\n"}
-                  </span>
-                ))}
-              </pre>
+              <DiffBlock diff={diff} />
             </section>
           )}
         </div>

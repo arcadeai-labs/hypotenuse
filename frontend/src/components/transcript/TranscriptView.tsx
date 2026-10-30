@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import type { Platform } from "../../../../design/states";
 import { Avatar, Button, PlatformChip, StatusGlyph } from "../../ui";
 import { MarkdownBlock } from "../MarkdownBlock";
+import { PromptChangeLine, SkillRunLine } from "./ContextUpdate";
 import type { TranscriptItem } from "./model";
 import { ToolCall } from "./ToolCall";
 
@@ -131,16 +132,9 @@ function TranscriptItemLine({
         </div>
       );
     case "prompt":
-      return (
-        <details className="tx-fold tx-status" data-testid="tx-prompt">
-          <summary>
-            <span className="tx-status-text">Instructions updated</span>
-          </summary>
-          <pre className="tx-program">
-            <code>{item.prompt}</code>
-          </pre>
-        </details>
-      );
+      return <PromptChangeLine item={item} />;
+    case "skill":
+      return <SkillRunLine item={item} />;
     case "compaction":
       return (
         <details className="tx-fold tx-divider" data-testid="tx-compaction">
@@ -158,8 +152,9 @@ function TranscriptItemLine({
 /**
  * A conversation's transcript, drawn from its entries: a log, not a chat.
  * People's messages carry their name and the platform; the bot's carry its
- * avatar and badge; tool calls are collapsed rows; state changes are small
- * system lines; a compaction is a divider.
+ * avatar and badge; tool calls are collapsed rows; state changes, a prompt
+ * that changed between steps, and a `/skill` expanded are small system lines
+ * that open; a compaction is a divider.
  *
  * It follows: while the reader is at the bottom, new lines keep the bottom
  * in view; once they scroll up, it stays put.

@@ -7,12 +7,15 @@ import bots from "./bots.md?raw";
 import cli from "./cli.md?raw";
 import conversations from "./conversations.md?raw";
 import gettingStarted from "./getting-started.md?raw";
+import goals from "./goals.md?raw";
 import mcpServers from "./mcp-servers.md?raw";
 import members from "./members.md?raw";
 import memory from "./memory.md?raw";
 import models from "./models.md?raw";
 import organizations from "./organizations.md?raw";
 import projects from "./projects.md?raw";
+import prompts from "./prompts.md?raw";
+import skills from "./skills.md?raw";
 import styleGuide from "./style-guide.md?raw";
 import tags from "./tags.md?raw";
 import talkingToABotOverTheApi from "./talking-to-a-bot-over-the-api.md?raw";
@@ -44,6 +47,9 @@ export const DOCS_SECTIONS: DocsSection[] = [
   { slug: "models", title: "Models", markdown: models },
   { slug: "bots", title: "Bots", markdown: bots },
   { slug: "conversations", title: "Conversations", markdown: conversations },
+  { slug: "prompts", title: "Prompts", markdown: prompts },
+  { slug: "goals", title: "Goals", markdown: goals },
+  { slug: "skills", title: "Skills", markdown: skills },
   { slug: "memory", title: "Memory", markdown: memory },
   { slug: "mcp-servers", title: "MCP servers", markdown: mcpServers },
   { slug: "approvals", title: "Approvals", markdown: approvals },

@@ -1,0 +1,630 @@
+// A bot's prompt, goals, and skills as the dashboard draws them: the Prompt
+// page (its sections in assembly order, each with its versions and a diff,
+// and the preview beside them), Settings → Prompt sections and Skills, the
+// bot page's Goals and Skills, and the transcript's prompt-changed and
+// skill lines. Tokens only — every colour semantic, every size a step of the
+// scale. The accent marks what loads only sometimes (a contextual section)
+// and an edit the bot made itself; nothing here waits on a person, so the
+// waiting colour is not used.
+
+// ---------------------------------------------------------------------------
+// The Prompt page
+// ---------------------------------------------------------------------------
+
+.prompt-page {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-5);
+  align-items: start;
+
+  @media (min-width: 1100px) {
+    grid-template-columns: minmax(0, 1fr) minmax(320px, 420px);
+  }
+}
+
+.prompt-page-sections {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+
+  > .ui-alert,
+  > .ui-card {
+    margin: 0 !important;
+  }
+}
+
+.prompt-page-preview {
+  min-width: 0;
+
+  @media (min-width: 1100px) {
+    position: sticky;
+    top: var(--space-4);
+  }
+}
+
+.prompt-section-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+// ---------------------------------------------------------------------------
+// One section
+// ---------------------------------------------------------------------------
+
+.prompt-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  background: var(--bg-panel);
+
+  // A section every bot includes sits on the sunken ground: it is the
+  // project's, read here, written in Settings.
+  &[data-scope="project"] {
+    background: var(--bg-sunken);
+  }
+
+  > .ui-alert {
+    margin: 0;
+  }
+}
+
+.prompt-section-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.prompt-section-place {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: calc(var(--space-4) + var(--space-1));
+  height: calc(var(--space-4) + var(--space-1));
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-pill);
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+  font-weight: 500;
+}
+
+.prompt-section-title {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.prompt-section-version {
+  white-space: nowrap;
+}
+
+// The bot wrote the version this section is at: said in words, with the
+// bot glyph, in the accent.
+.prompt-section-agent {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--accent);
+}
+
+.prompt-section-actions {
+  display: inline-flex;
+  gap: var(--space-2);
+  margin-left: auto;
+}
+
+.prompt-section-keywords {
+  margin: 0;
+}
+
+.prompt-section-switch {
+  margin: 0;
+}
+
+.prompt-section-body {
+  max-height: 320px;
+  overflow: auto;
+  padding: var(--space-2) var(--space-3);
+  border-left: 2px solid var(--border-subtle);
+  color: var(--text-secondary);
+
+  > :last-child {
+    margin-bottom: 0;
+  }
+}
+
+.prompt-section-editor,
+.prompt-new {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.prompt-section-editor-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+
+  > .prompt-section-keywords-field {
+    flex: 1 1 240px;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// A section's versions
+// ---------------------------------------------------------------------------
+
+.prompt-history {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border-subtle);
+}
+
+.prompt-history-list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.prompt-history-version {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-3);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius);
+
+  &[aria-current="true"] {
+    background: var(--bg-selected);
+  }
+}
+
+.prompt-history-pick {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+
+  &:hover {
+    color: var(--accent);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--focus-ring);
+    outline-offset: 2px;
+    border-radius: var(--radius-sm);
+  }
+}
+
+.prompt-history-note {
+  min-width: 0;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.prompt-history-actions {
+  margin-left: auto;
+}
+
+.prompt-history-diff {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.prompt-history-diff-title {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: var(--text-xs);
+  font-weight: 600;
+}
+
+.prompt-chip-agent {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+// ---------------------------------------------------------------------------
+// The preview
+// ---------------------------------------------------------------------------
+
+.prompt-preview {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  background: var(--bg-panel);
+}
+
+.prompt-preview-title {
+  margin: 0;
+  font-size: var(--text-md);
+}
+
+.prompt-preview-subtitle {
+  margin: 0 0 var(--space-1);
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  font-weight: 600;
+}
+
+.prompt-preview-budget {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.prompt-preview-budget-head,
+.prompt-preview-hash,
+.prompt-preview-terms {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.prompt-preview-budget-head {
+  justify-content: space-between;
+  font-weight: 500;
+}
+
+.prompt-preview-hash-value {
+  color: var(--text-primary);
+}
+
+.prompt-preview-sections {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+
+  > li {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+  }
+
+  &.is-dropped {
+    color: var(--text-tertiary);
+    text-decoration: line-through;
+  }
+}
+
+.prompt-preview-section-title {
+  min-width: 0;
+  color: inherit;
+  font-weight: 500;
+}
+
+.prompt-preview-text {
+  > summary {
+    color: var(--text-secondary);
+    font-size: var(--text-xs);
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  > pre {
+    max-height: 480px;
+    margin: var(--space-2) 0 0;
+    padding: var(--space-2) var(--space-3);
+    overflow: auto;
+    border-radius: var(--radius);
+    background: var(--bg-sunken);
+    color: var(--text-primary);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// A bot's goals
+// ---------------------------------------------------------------------------
+
+.goal-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-4);
+  padding: 0;
+  list-style: none;
+}
+
+.goal {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+
+  // A goal no longer worked on reads quieter than the active ones.
+  &[data-status="achieved"],
+  &[data-status="dropped"] {
+    background: var(--bg-sunken);
+
+    .goal-title {
+      color: var(--text-secondary);
+    }
+  }
+
+  &[data-status="dropped"] .goal-title {
+    text-decoration: line-through;
+  }
+
+  > .ui-alert {
+    margin: 0;
+  }
+}
+
+.goal-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.goal-title {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.goal-actions {
+  display: inline-flex;
+  gap: var(--space-2);
+  margin-left: auto;
+}
+
+// High priority is heavier type, not a colour.
+.goal-chip-high {
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+// A review that has come due is a timer that has run out: the pending
+// status colour, as a conversation waiting on a timer has.
+.goal-chip-due {
+  border-color: var(--status-pending);
+  color: var(--text-primary);
+}
+
+.goal-review,
+.goal-description {
+  margin: 0;
+}
+
+.goal-description {
+  color: var(--text-secondary);
+}
+
+.goal-notes {
+  display: flex;
+  flex-direction: column;
+  padding-left: var(--space-3);
+  border-left: 2px solid var(--border-subtle);
+}
+
+.goal-notes-text {
+  margin: 0;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+}
+
+.goal-editor,
+.goal-new {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.goal-new-title {
+  margin: 0;
+}
+
+.goal-fields-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+// ---------------------------------------------------------------------------
+// A bot's skills
+// ---------------------------------------------------------------------------
+
+.bot-skill-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-4);
+  padding: 0;
+  list-style: none;
+}
+
+.bot-skill {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+}
+
+.bot-skill-head,
+.bot-skill-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+}
+
+.bot-skill-usage {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.bot-skill-description {
+  margin: 0;
+  color: var(--text-secondary);
+}
+
+// ---------------------------------------------------------------------------
+// Settings → Skills
+// ---------------------------------------------------------------------------
+
+.skill-name-cell {
+  min-width: 0;
+}
+
+.skill-description {
+  display: block;
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+}
+
+.skill-detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+}
+
+.skill-detail-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.skill-detail-args {
+  margin: 0;
+  padding-left: var(--space-4);
+  color: var(--text-secondary);
+}
+
+.skill-detail-body {
+  max-height: 320px;
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  overflow: auto;
+  border-radius: var(--radius);
+  background: var(--bg-sunken);
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.skill-history {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.skill-editor {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.skill-editor-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+.skill-editor-grow {
+  flex: 1 1 320px;
+}
+
+.skill-arguments {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.skill-argument {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) minmax(0, 2fr) minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.skill-argument-place {
+  min-width: 3ch;
+}
+
+.skill-editor-access {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--space-3);
+}
+
+// ---------------------------------------------------------------------------
+// The transcript: a prompt that changed, a skill a person ran
+// ---------------------------------------------------------------------------
+
+.tx-context > .tx-context-detail {
+  display: flex;
+  flex-basis: 100%;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: var(--space-1) 0 var(--space-1) var(--space-5);
+  color: var(--text-secondary);
+}
+
+.tx-context-label {
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+  font-weight: 500;
+}
+
+.tx-context-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: var(--space-1) 0 0;
+  padding: 0;
+  list-style: none;
+
+  > li > .memory-diff {
+    margin-top: var(--space-1);
+  }
+}
+
+.tx-context-prompt {
+  max-height: 240px;
+  margin-top: var(--space-1);
+  white-space: pre-wrap;
+}
+
+.tx-context-expansion {
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius);
+  background: var(--bg-sunken);
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+
+  > :last-child {
+    margin-bottom: 0;
+  }
+}
