@@ -21,9 +21,15 @@ export interface AuditFilters {
   until: string;
   action: string;
   actorType: "" | AuditRow["actor"]["type"];
-  /** A project id, for the organization's log only. */
+  /**
+   * A project id, or {@link ORGANIZATION_ONLY} for the rows of no project; for
+   * the organization's log only.
+   */
   projectId: string;
 }
+
+/** The project filter's value for "the organization's own rows". */
+export const ORGANIZATION_ONLY = "organization";
 
 /** Every filter cleared. */
 export const NO_FILTERS: AuditFilters = {
@@ -58,7 +64,11 @@ export function auditQuery(filters: AuditFilters, page: number): string {
   }
   if (filters.action) query.set("action", filters.action);
   if (filters.actorType) query.set("actorType", filters.actorType);
-  if (filters.projectId) query.set("projectId", filters.projectId);
+  if (filters.projectId === ORGANIZATION_ONLY) {
+    query.set("organizationOnly", "true");
+  } else if (filters.projectId) {
+    query.set("projectId", filters.projectId);
+  }
   return query.toString();
 }
 
@@ -233,6 +243,7 @@ export function AuditLogView({ path, testId, projects }: AuditLogViewProps) {
               onChange={(e) => set("projectId", e.currentTarget.value)}
             >
               <option value="">Every project</option>
+              <option value={ORGANIZATION_ONLY}>Organization only</option>
               {projects.map((p) => (
                 <option key={p.id} value={String(p.id)}>
                   {p.name}

@@ -123,6 +123,14 @@ test("an owner reads the organization's log, every project in it, from Organizat
   await expect(rows).toHaveCount(1);
   await expect(rows.first()).toContainText("project:create");
   await expect(rows.first()).toContainText("Org Auditor");
+
+  // Organization only: sign-up's organization row, and nothing of a project's.
+  await page
+    .locator("#organization-audit-project")
+    .selectOption("organization");
+  await expect(rows.filter({ hasText: "organization:create" })).toHaveCount(1);
+  await expect(rows.filter({ hasText: "Second Desk" })).toHaveCount(0);
+  await expect(rows.filter({ hasText: "Default" })).toHaveCount(0);
 });
 
 test("the palette opens the audit log", async ({ page }) => {
