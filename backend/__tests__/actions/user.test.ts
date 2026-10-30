@@ -44,7 +44,10 @@ describe("user:create", () => {
     const { user, organization, project, membership } = res.body;
     expect(user.email).toBe("rosalina@comet.observatory");
     expect(user).not.toHaveProperty("password_hash");
-    expect(organization).toMatchObject({ name: "Rosalina", slug: "rosalina" });
+    expect(organization).toMatchObject({
+      name: "Rosalina's org",
+      slug: "rosalina-s-org",
+    });
     expect(project).toMatchObject({
       name: "Default",
       slug: "default",
@@ -72,6 +75,19 @@ describe("user:create", () => {
     expect(settings.length).toBe(1);
   });
 
+  test("cuts a name too long for the organization so the suffix still fits", async () => {
+    const name = "R".repeat(256);
+    const res = await call<ActionResponse<UserCreate>>(
+      u.url,
+      null,
+      "PUT",
+      "/user",
+      { name, email: "long@comet.observatory", password: "lumas-forever" },
+    );
+    expect(res.status).toBe(200);
+    expect(res.body.organization.name).toBe(`${"R".repeat(250)}'s org`);
+  });
+
   test("writes the sign-up row and synthetic rows for the tenant it created", async () => {
     const rows = await api.db.db
       .select()
@@ -86,7 +102,7 @@ describe("user:create", () => {
     const [org] = await api.db.db
       .select()
       .from(organizations)
-      .where(eq(organizations.slug, "rosalina"));
+      .where(eq(organizations.slug, "rosalina-s-org"));
     const [owner] = await api.db.db
       .select({ userId: organizationMemberships.userId })
       .from(organizationMemberships)

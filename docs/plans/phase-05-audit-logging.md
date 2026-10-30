@@ -337,3 +337,6 @@ Edit a project name in the browser, then open Audit log: one row, actor you, bef
   strict mode caught it. The current page is `audit-current-page`.
 - **`audited-actions.test.ts` reads `AGENTS.md` and this doc**, and fails if an unaudited writer that is not a clock
   is missing from either, so the closed list cannot drift between them.
+- **`organization:audit-list` takes `organizationOnly`**, the rows with no `projectId` — the organization's own
+  changes. It and `projectId` are mutually exclusive (406); the page's project filter offers it as
+  **Organization only**, and the CLI as `audit list --org --org-only`.

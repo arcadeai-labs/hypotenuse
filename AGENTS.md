@@ -229,6 +229,10 @@ exist locks nothing — `INSERT … ON CONFLICT DO NOTHING`, then lock.
 **Use the system's Postgres (with the `pgvector` extension) and Redis — never Docker or Docker Compose for them.**
 Docker is used only to build deployment images and as the development **sandbox provider**.
 
+**Agents: use the `local-stack` skill** ([`.claude/skills/local-stack/SKILL.md`](./.claude/skills/local-stack/SKILL.md))
+— the exact, verified commands to bring the stack up and check it, including on a Linux container (Ubuntu's
+`postgresql-16-pgvector`, a password role instead of loosening `pg_hba.conf`). Keep it current when setup changes.
+
 ```bash
 brew install postgresql@18 pgvector redis        # once per machine
 brew services start postgresql@18 redis

@@ -39,6 +39,20 @@ export async function uniqueOrganizationSlug(
   );
 }
 
+/** The longest organization name `organizations.name` holds. */
+const ORGANIZATION_NAME_MAX = 256;
+
+/**
+ * The name of the organization sign-up makes for a person: "Ada's org". A name
+ * long enough to overflow the column is cut so the suffix still fits.
+ * @param personName - The person's display name.
+ * @returns The organization's display name.
+ */
+export function personalOrganizationName(personName: string): string {
+  const suffix = "'s org";
+  return `${personName.slice(0, ORGANIZATION_NAME_MAX - suffix.length).trimEnd()}${suffix}`;
+}
+
 /**
  * Create an organization with its first owner. Must run inside a transaction:
  * an organization with no owner is one nobody can administer, invite into, or

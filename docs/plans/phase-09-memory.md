@@ -445,7 +445,7 @@ promotion, it is found in both.
 
 ### The CLI
 
-`hypotenuse` 2.3.0, `cli/src/commands/memory.ts`. With neither `--bot` nor `--channel` a command acts on project
+`hypotenuse` 2.4.0, `cli/src/commands/memory.ts`. With neither `--bot` nor `--channel` a command acts on project
 memory; with both, on that bot's memory of that channel; one alone is refused before any request. Rule 13 decisions:
 
 | Routed action | Command |

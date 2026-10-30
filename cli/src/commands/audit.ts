@@ -75,7 +75,7 @@ export function registerAuditCommands(program: Command): void {
     audit
       .command("list")
       .description(
-        "List the selected project's audit log (admin), newest first; with --org, the organization's (owner), narrowed by an explicit --project",
+        "List the selected project's audit log (admin), newest first; with --org, the organization's (owner), narrowed by an explicit --project or to its own rows by --org-only",
       )
       .option(
         "--since <time>",
@@ -84,7 +84,11 @@ export function registerAuditCommands(program: Command): void {
       .option("--until <time>", "end of the range (default now)")
       .option("--action <name>", "only this action, e.g. tag:edit")
       .option("--actor-type <type>", "only user, participant, or system")
-      .option("--target-type <type>", "only this kind of thing, e.g. tag"),
+      .option("--target-type <type>", "only this kind of thing, e.g. tag")
+      .option(
+        "--org-only",
+        "with --org, only the organization's own rows, which belong to no project",
+      ),
   ).action(async function (this: Command) {
     await runCommand(this, async (ctx) => {
       const opts = this.opts() as {
@@ -93,7 +97,16 @@ export function registerAuditCommands(program: Command): void {
         action?: string;
         actorType?: string;
         targetType?: string;
+        orgOnly?: boolean;
       };
+      if (opts.orgOnly && !ctx.options.org) {
+        throw new Error("--org-only reads an organization's log: add --org");
+      }
+      if (opts.orgOnly && ctx.options.project) {
+        throw new Error(
+          "Give --project or --org-only, not both: a row belongs to a project or to none",
+        );
+      }
       const client = ctx.signedInClient();
       const filters = {
         since: parseTime(opts.since ?? `${DEFAULT_WINDOW_DAYS}d`),
@@ -111,7 +124,9 @@ export function registerAuditCommands(program: Command): void {
           ctx.options.org,
         );
         path = `/organization/${organizationId}/audit`;
-        if (ctx.options.project) {
+        if (opts.orgOnly) {
+          query = { ...filters, organizationOnly: true };
+        } else if (ctx.options.project) {
           query = {
             ...filters,
             projectId: await resolveProjectId(client, ctx.options.project),

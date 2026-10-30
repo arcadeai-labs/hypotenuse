@@ -227,6 +227,30 @@ describe("organization:audit-list", () => {
     expect(projects.has(u.bowser.projectId)).toBe(false);
   });
 
+  test("organizationOnly narrows it to the rows of no project", async () => {
+    const { status, body } = await organizationLog(
+      u.peach,
+      u.organizationId,
+      "organizationOnly=true&limit=100",
+    );
+    expect(status).toBe(200);
+    expect(body.auditLogs.length).toBeGreaterThan(0);
+    expect(body.auditLogs.every((r) => r.projectId === null)).toBe(true);
+    expect(body.auditLogs.some((r) => r.action === "organization:edit")).toBe(
+      true,
+    );
+  });
+
+  test("organizationOnly with a projectId is refused", async () => {
+    const { status, body } = await organizationLog(
+      u.peach,
+      u.organizationId,
+      `organizationOnly=true&projectId=${u.projectId}`,
+    );
+    expect(status).toBe(406);
+    expect(JSON.stringify(body)).toContain("not both");
+  });
+
   test("an owner who never joined a project reads it too", async () => {
     const { status, body } = await organizationLog(
       u.daisy,

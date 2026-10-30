@@ -25,7 +25,7 @@ test("sign-up lands in the app, in a new organization and its Default project", 
   await expect(page.getByTestId("app-shell")).toBeVisible();
   // An organization named after them, which they own…
   await expect(page.getByTestId("organization-switcher-toggle")).toContainText(
-    "Grace Hopper",
+    "Grace Hopper's org",
   );
   await expect(page.getByTestId("organization-role")).toHaveText("Owner");
   // …and its first project, active.

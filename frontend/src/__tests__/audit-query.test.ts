@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { auditQuery, NO_FILTERS } from "../components/audit/AuditLogView";
+import {
+  auditQuery,
+  NO_FILTERS,
+  ORGANIZATION_ONLY,
+} from "../components/audit/AuditLogView";
 
 describe("auditQuery", () => {
   test("no filters asks for the page and nothing else", () => {
@@ -37,5 +41,13 @@ describe("auditQuery", () => {
     expect(query.get("actorType")).toBe("participant");
     expect(query.get("projectId")).toBe("7");
     expect(query.has("since")).toBe(false);
+  });
+
+  test("organization only asks for the rows of no project, not a project id", () => {
+    const query = new URLSearchParams(
+      auditQuery({ ...NO_FILTERS, projectId: ORGANIZATION_ONLY }, 1),
+    );
+    expect(query.get("organizationOnly")).toBe("true");
+    expect(query.has("projectId")).toBe(false);
   });
 });

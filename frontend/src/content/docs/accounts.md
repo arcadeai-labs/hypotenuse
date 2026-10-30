@@ -8,7 +8,7 @@ compared without regard to case, so `Ana@Example.com` and `ana@example.com` are 
 Sign up with your name, your email, and a password of at least eight characters. Signing up also sets up a place to
 work, all at once:
 
-- an **organization** named after you, which you **own**;
+- an **organization** named after you ("Ada's org"), which you **own**;
 - a first **project** in it, called **Default**, where you are an **admin**.
 
 We email you a link to confirm your address. Follow it — on any device; you do not need to be signed in there — and
