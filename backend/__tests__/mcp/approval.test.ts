@@ -383,7 +383,8 @@ describe("the gate in a conversation", () => {
     const rows = await api.db.db
       .select()
       .from(auditLogs)
-      .where(eq(auditLogs.action, "approval:decide"));
+      .where(eq(auditLogs.action, "approval:decide"))
+      .orderBy(auditLogs.id);
     const row = rows[rows.length - 1];
     expect(row.after).toMatchObject({
       approval: { id: approval.id, status: "approved" },
