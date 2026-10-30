@@ -20,6 +20,18 @@
  * made, and is put back after. The memory illustrations read what Ada wrote
  * in one of those conversations, plus documents written over the API.
  *
+ * The MCP illustrations need real MCP servers, so the script starts the
+ * browser suite's (`backend/__tests__/fixtures/mcp-server-process.ts`, with
+ * its mailbox toolset) unless one already answers on `MCP_SERVER_CONTROL_PORT`.
+ * They listen on loopback too, and a fixture's port changes every time it
+ * starts, so a rerun points the seeded servers at the new addresses. Two of
+ * the seeded conversations park on a call to the mailbox, which is what the
+ * approvals inbox shows; Ada's approvals expire after thirty days. Start the
+ * backend with `MCP_GENERATE_CAPABILITIES=false` as well, so writing Ada's
+ * capabilities never takes a scripted answer meant for a conversation:
+ *
+ *   NETWORK_ALLOW_PRIVATE_HOSTS=true MCP_GENERATE_CAPABILITIES=false bun dev
+ *
  *   cd frontend && bun run docs:illustrations
  *   ILLUSTRATIONS=bot,memory bun run docs:illustrations   # only those
  */
@@ -37,6 +49,8 @@ interface Seeded {
   conversationId: number;
   /** The channel whose memory the bot's memory illustrations open. */
   memoryChannelId: number;
+  /** The MCP server whose catalog the MCP servers illustration opens. */
+  mcpServerId: number;
 }
 
 /** One illustration: a route, and optionally the element to crop to (`{theme}` is replaced). */
@@ -86,7 +100,29 @@ const ILLUSTRATIONS: Illustration[] = [
     name: "bot",
     path: ({ botId }) => `/bots/${botId}`,
     width: 1280,
-    height: 2440,
+    height: 3440,
+    signedIn: true,
+  },
+  {
+    name: "mcp-servers",
+    path: ({ mcpServerId }) => `/settings/mcp-servers?server=${mcpServerId}`,
+    width: 1280,
+    height: 1240,
+    signedIn: true,
+  },
+  {
+    name: "bot-tools",
+    path: ({ botId }) => `/bots/${botId}`,
+    selector: "[data-testid=bot-bot-tools]",
+    width: 1280,
+    height: 4000,
+    signedIn: true,
+  },
+  {
+    name: "approvals",
+    path: "/approvals",
+    width: 1280,
+    height: 440,
     signedIn: true,
   },
   {
@@ -316,6 +352,8 @@ async function seed(request: APIRequestContext): Promise<Seeded> {
   const support = first ?? projects.find((p) => p.name === "Support");
   if (!support) throw new Error("the Support project is missing");
   const botId = await seedBots(request, support.id);
+  // Before the conversations: two of them call Ada's mailbox.
+  const mcpServerId = await seedMcp(request, support.id, botId);
   const conversationId = await seedConversations(request, support.id);
   return {
     organizationId: organization.id,
@@ -323,6 +361,7 @@ async function seed(request: APIRequestContext): Promise<Seeded> {
     botId,
     conversationId,
     memoryChannelId: await seedMemory(request, support.id, botId),
+    mcpServerId,
   };
 }
 
@@ -467,6 +506,64 @@ const CONVERSATIONS: { bot: string; title: string; turns: Turn[] }[] = [
                   question:
                     "Do they mean SSO for the dashboard, or for the API?",
                   options: ["Dashboard", "API"],
+                },
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  },
+  {
+    bot: "Ada",
+    title: "Tell Globex their refund is with billing",
+    turns: [
+      {
+        text: "Email Globex's billing contact that the duplicate charge is with our billing team.",
+        responses: [
+          {
+            toolCalls: [
+              { name: "mcp_info", input: { name: "mail/send_email" } },
+            ],
+          },
+          {
+            toolCalls: [
+              {
+                name: "mcp_exec",
+                input: {
+                  name: "mail/send_email",
+                  args: {
+                    to: "priya@globex.example",
+                    subject: "Your duplicate October charge (INV-2291)",
+                    body: "Hi Priya — our billing team has the duplicate charge on INV-2291 and will confirm the refund.",
+                  },
+                },
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  },
+  {
+    bot: "Ada",
+    title: "Clean up the duplicate invoice mail",
+    turns: [
+      {
+        text: "Delete the duplicate INV-2291 email from the support inbox.",
+        responses: [
+          {
+            toolCalls: [
+              { name: "mcp_info", input: { name: "mail/delete_message" } },
+            ],
+          },
+          {
+            toolCalls: [
+              {
+                name: "mcp_exec",
+                input: {
+                  name: "mail/delete_message",
+                  args: { messageId: "msg-inv-2291-copy" },
                 },
               },
             ],
@@ -679,6 +776,119 @@ async function seedConversations(
   const shown = existing.find((e) => e.title === "Refund for Globex");
   if (!shown) throw new Error("the Refund for Globex conversation is missing");
   return shown.id;
+}
+
+/** Where the MCP fixtures' control server listens. */
+const MCP_CONTROL = `http://127.0.0.1:${process.env.MCP_SERVER_CONTROL_PORT ?? "9184"}`;
+
+/** The MCP fixtures this script started, if it had to. */
+let mcpProcess: Subprocess | null = null;
+
+/**
+ * The MCP fixtures' addresses, starting them first if nothing answers.
+ * @returns The open (mailbox) server's and the OAuth server's MCP endpoints.
+ */
+async function mcpFixtureUrls(): Promise<{ url: string; oauthUrl: string }> {
+  const read = async () =>
+    (await (await fetch(`${MCP_CONTROL}/urls`)).json()) as {
+      url: string;
+      oauthUrl: string;
+    };
+  try {
+    return await read();
+  } catch {
+    // Not running; start it below.
+  }
+  mcpProcess = Bun.spawn(["bun", "__tests__/fixtures/mcp-server-process.ts"], {
+    cwd: join(import.meta.dirname, "../../backend"),
+    env: {
+      ...process.env,
+      MCP_SERVER_CONTROL_PORT: new URL(MCP_CONTROL).port,
+      MCP_FIXTURE_TOOLSET: "illustration",
+    },
+    stdout: "inherit",
+    stderr: "inherit",
+  });
+  for (let i = 0; i < 50; i++) {
+    await Bun.sleep(100);
+    try {
+      return await read();
+    } catch {
+      // Not listening yet.
+    }
+  }
+  throw new Error(`the MCP fixtures never answered at ${MCP_CONTROL}`);
+}
+
+/** The Support project's MCP servers: a mailbox, and a calendar nobody signed in to yet. */
+const MCP_SERVERS = [
+  { name: "mail", authMode: "none", oauth: false },
+  { name: "calendar", authMode: "oauth", oauth: true },
+] as const;
+
+/**
+ * Give the Support project what the MCP illustrations show: the mailbox and
+ * an OAuth calendar waiting for its sign-in, each pointed at where the
+ * fixtures listen now; the mailbox given to Ada with its two reads
+ * allowlisted; and Ada's approvals decided by the billing tag, waiting thirty
+ * days.
+ * @param request - The browser context's request client.
+ * @param projectId - The Support project.
+ * @param botId - Ada.
+ * @returns The mailbox's id.
+ */
+async function seedMcp(
+  request: APIRequestContext,
+  projectId: number,
+  botId: number,
+): Promise<number> {
+  const urls = await mcpFixtureUrls();
+  const listed = await call<{
+    mcpServers: { id: number; name: string; url: string }[];
+  }>(request, "GET", `/project/${projectId}/mcp-servers?limit=100`);
+  const ids: Record<string, number> = {};
+  for (const plan of MCP_SERVERS) {
+    const url = plan.oauth ? urls.oauthUrl : urls.url;
+    const found = listed.mcpServers.find((s) => s.name === plan.name);
+    if (!found) {
+      const created = await call<{ mcpServer: { id: number } }>(
+        request,
+        "PUT",
+        `/project/${projectId}/mcp-server`,
+        { name: plan.name, url, authMode: plan.authMode },
+      );
+      if (created.error)
+        throw new Error(
+          `mcp server: ${created.error.message} (start the backend with NETWORK_ALLOW_PRIVATE_HOSTS=true)`,
+        );
+      ids[plan.name] = created.mcpServer.id;
+    } else {
+      ids[plan.name] = found.id;
+      if (found.url !== url) {
+        const path = `/project/${projectId}/mcp-server/${found.id}`;
+        await call(request, "POST", path, { url });
+        if (!plan.oauth) await call(request, "POST", `${path}/refresh`);
+      }
+    }
+  }
+  const mail = ids.mail;
+  if (mail === undefined) throw new Error("the mail server is missing");
+  const bound = await call(
+    request,
+    "PUT",
+    `/project/${projectId}/bot/${botId}/mcp-server`,
+    {
+      mcpServerId: mail,
+      allowedTools: ["mail/read_inbox", "mail/search_messages"],
+      autoAllowReadOnly: false,
+    },
+  );
+  if (bound.error) throw new Error(`bot mcp server: ${bound.error.message}`);
+  await call(request, "POST", `/project/${projectId}/bot/${botId}`, {
+    approverTag: "billing",
+    approvalTtlSeconds: 30 * 24 * 60 * 60,
+  });
+  return mail;
 }
 
 /** One memory document the memory illustrations show, written by Ada Lovelace. */
@@ -931,6 +1141,7 @@ async function main(): Promise<void> {
   } finally {
     await browser.close();
     modelProcess?.kill();
+    mcpProcess?.kill();
   }
 }
 

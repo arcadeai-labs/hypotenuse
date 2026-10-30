@@ -25,10 +25,11 @@ read and change it, and whether you may change it.
 | **Access** | who may read it, who may change it, and whom it asks for help |
 | **Budget** | a monthly ceiling in US dollars, and the most model steps one turn may take |
 | **Memory** | how fast its memories fade when unused, and a link to what it remembers |
-| **Tools** | which MCP servers it may use, which of their tools run without asking, and who decides the rest |
+| **Tools** | which MCP servers it may use, which of their tools run without asking, and what its tools can do |
+| **Approvals** | who may decide its tool calls, and how long a waiting call lasts |
 
-The page also shows **Channels**, **Skills**, **Prompts**, and **Goals**, each reading *Not available yet*. They
-will hold where the bot listens and how it works between conversations.
+The page also shows **Channels**, **Code**, **Skills**, **Prompts**, and **Goals**, each reading *Not available
+yet*. They will hold where the bot listens, the code it runs, and how it works between conversations.
 
 **Enabled** decides whether the bot takes new conversations. **Delete bot**, behind a confirmation, removes it for
 good.
@@ -125,7 +126,7 @@ none. For each server, two settings decide which calls run without a person's [a
 tools it can see, in themes and without tool names — so it searches for the right tool rather than guessing one. It
 is rewritten whenever a server's tools change.
 
-**Approver tag** names a tag whose holders may approve or deny this bot's calls besides the people who may change
+The **Approvals** section sets two more. **Approver tag** names a tag whose holders may approve or deny this bot's calls besides the people who may change
 it; they are the ones notified. **Approvals expire after** sets how long a call waits before it counts as denied —
 a day unless you change it.
 

@@ -453,3 +453,54 @@ see exactly one email sent.
 - **The SDK's Streamable HTTP client surfaces a 401 as an error with `code: 401`** when no auth provider is given;
   Hypotenuse does its own OAuth rather than the SDK's `authProvider`, so every request of the flow goes through the
   SSRF guard and the tokens stay sealed in Postgres.
+
+### The frontend
+
+- **Routes:** `/settings/mcp-servers` (Project, after Models; `?server=<id>` opens a server's tools, and the OAuth
+  return's `signedIn=1` / `oauthError=` shows a banner once), `/approvals` (Pending by default, chips for the other
+  statuses), and `/approvals/:approvalId`. **Approvals** is a sidebar destination (`g a`) with the pending count,
+  re-read on navigation and on every notification frame.
+- **The bot page** gained **Tools** (servers, a per-server pattern editor previewed live through
+  `mcp-server:match-tools`, the read-only switch with its warning, the capabilities text) and **Approvals** (approver
+  tag, expiry). The unavailable placeholder that read "Tools" is now "Code".
+- **A conversation waiting on approval** says "Waiting for approval to run `server/tool`" and links each approval.
+- **Colour is spent only where a person is needed**: "Waits for approval" chips and pending approvals use the
+  waiting colour; a destructive annotation is heavier type, not a colour.
+- **The browser suite** runs `backend/__tests__/fixtures/mcp-server-process.ts` (an open fixture, one behind
+  OAuth, and a control port) and sets `MCP_GENERATE_CAPABILITIES=false`. `mcp.spec.ts` drives its own scripted
+  model on a second control port: the shared one answers in queue order for any conversation, and
+  `conversations.spec.ts` runs beside it.
+- **Illustrations** (`mcp-servers`, `bot-tools`, `approvals`, and a retaken `bot`) need the dev backend with
+  `NETWORK_ALLOW_PRIVATE_HOSTS=true MCP_GENERATE_CAPABILITIES=false`; the capture script starts the fixture process
+  itself (`MCP_FIXTURE_TOOLSET=illustration` lists a believable mailbox) and repoints the seeded servers at its
+  fresh ports on a rerun. Its seed now parks two conversations on approvals, so a retake of `conversations` will show
+  them.
+
+### The CLI
+
+`hypotenuse` 2.5.0. Rule 13 decisions:
+
+| Routed action | Command |
+|---|---|
+| `mcp-server:create` / `edit` / `delete` | `mcp-server add <name> --endpoint <url>` / `edit <server>` / `remove <server> --yes` |
+| `mcp-server:list` / `view` / `test` / `refresh-tools` / `match-tools` | `mcp-server list` / `view` / `test` / `refresh` / `match --pattern` |
+| `mcp-server:oauth-start` | `mcp-server sign-in <server>` (prints the URL), and `add --oauth` |
+| `bot-mcp-server:set` / `remove` / `list` | `bot tools add <bot> <server> [--allow]…` / `bot tools remove` / `bot tools list` |
+| `approval:list` / `view` / `decide` | `approval list` / `view <id>` / `approve <id> [--always]` and `deny <id> [--note]` (sent `via: cli`) |
+| `large-result:view` | `large-result view <lr_id\|id>` |
+| `bot:create` / `bot:edit` new fields | `--approver-tag`, `--no-approver-tag`, `--approval-ttl <secs\|30m\|24h\|7d>` |
+| `mcp-servers:refresh`, `mcp-server:refresh-catalog`, `bot:capabilities`, `approvals:expire`, `large-results:sweep` | out of scope: tasks with no route |
+| `mcp-server:oauth-callback` | out of scope: a browser hop |
+
+- **`--endpoint`, not `--url`**: `--url` is the program's global option naming the Hypotenuse server, and commander
+  reads it anywhere in argv.
+- **Secrets never ride argv**: a bearer token is `--bearer-stdin`, `--bearer-env <NAME>`, or a hidden prompt;
+  secret headers `--headers-stdin`; a client secret `--client-secret-stdin` / `--client-secret-env`.
+
+### Not verified here
+
+- No real MCP server was called: every connection is the fixture, on the SDK's own server half, over loopback with
+  the SSRF guard lifted. The staging verification (an Arcade gateway, an email approved in the dashboard, exactly one
+  sent) has not been run.
+- `no-secrets.test.ts` scans answers and stored rows, not log lines.
+- Per-tool timeouts are per server (`mcp_servers.timeout_ms`), not per tool as the plan said.

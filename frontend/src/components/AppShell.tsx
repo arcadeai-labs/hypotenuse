@@ -16,6 +16,7 @@ import {
   commandDeniedReason,
 } from "../commands/registry";
 import { useAuth } from "../context/AuthContext";
+import { useNotifications } from "../context/NotificationContext";
 import { useTheme } from "../context/ThemeContext";
 import { useMay } from "../hooks/useMay";
 import { Mark, Sheet } from "../ui";
@@ -97,6 +98,45 @@ function usePendingInviteCount(
 }
 
 /**
+ * How many tool calls wait for approval in the active project, among the
+ * bots the person may read — `approval:list`'s total for one row. Re-read when
+ * the project or the page changes, and when a notification arrives, since a
+ * new approval notifies whoever may decide it.
+ * @param projectId - The active project, or null.
+ * @param pathname - The current route, so deciding one and leaving re-reads.
+ * @param unread - The unread notification count, as a re-read trigger.
+ * @returns The count, zero while unknown.
+ */
+function usePendingApprovalCount(
+  projectId: number | null,
+  pathname: string,
+  unread: number,
+): number {
+  const [count, setCount] = useState(0);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `pathname` and `unread` are re-read triggers.
+  useEffect(() => {
+    if (projectId === null) {
+      setCount(0);
+      return;
+    }
+    let cancelled = false;
+    apiFetch<{ pagination: { total: number } }>(
+      `/project/${projectId}/approvals?status=pending&limit=1`,
+    )
+      .then((res) => {
+        if (!cancelled) setCount(res.pagination.total);
+      })
+      .catch(() => {
+        if (!cancelled) setCount(0);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId, pathname, unread]);
+  return count;
+}
+
+/**
  * The product's frame: sidebar, main column, command palette, shortcut sheet,
  * and the one global key listener. The switchers and account menu read the
  * session; every gated control asks `can()` through {@link useMay}, so it
@@ -112,6 +152,16 @@ export function AppShell() {
   const auth = useAuth();
   const { may, reason } = useMay();
   const pendingInvites = usePendingInviteCount(auth.user?.id ?? null, pathname);
+  const { unreadCount } = useNotifications();
+  const pendingApprovals = usePendingApprovalCount(
+    auth.user ? auth.activeProjectId : null,
+    pathname,
+    unreadCount,
+  );
+  const counts = useMemo(
+    () => ({ approvals: pendingApprovals }),
+    [pendingApprovals],
+  );
 
   const data: ShellData = useMemo(
     () => ({
@@ -267,6 +317,7 @@ export function AppShell() {
             data={data}
             actions={actions}
             collapsed={false}
+            counts={counts}
             inSheet
             onToggle={() => setMobileNavOpen(false)}
             onNavigate={() => setMobileNavOpen(false)}
@@ -278,6 +329,7 @@ export function AppShell() {
             data={data}
             actions={actions}
             collapsed={collapsed}
+            counts={counts}
             onToggle={toggleSidebar}
           />
         </div>

@@ -33,6 +33,7 @@ test("the sidebar lists 2.0's destinations in order, each disabled until its pag
   expect(ids).toEqual([
     "nav-home",
     "nav-conversations",
+    "nav-approvals",
     "nav-bots",
     "nav-memory",
     "nav-sandboxes",
@@ -44,7 +45,8 @@ test("the sidebar lists 2.0's destinations in order, each disabled until its pag
   await expect(sandboxes).toHaveAttribute("title", "Not available yet");
   await sandboxes.click();
   await expect(page).toHaveURL(/\/status$/);
-  // Settings, Bots, Conversations, and Memory exist: links, not disabled rows.
+  // Settings, Bots, Conversations, Approvals, and Memory exist: links, not
+  // disabled rows.
   await expect(page.getByTestId("nav-settings")).toHaveAttribute(
     "href",
     "/settings",
@@ -53,6 +55,10 @@ test("the sidebar lists 2.0's destinations in order, each disabled until its pag
   await expect(page.getByTestId("nav-conversations")).toHaveAttribute(
     "href",
     "/conversations",
+  );
+  await expect(page.getByTestId("nav-approvals")).toHaveAttribute(
+    "href",
+    "/approvals",
   );
   await expect(page.getByTestId("nav-memory")).toHaveAttribute(
     "href",

@@ -5,6 +5,7 @@ import { ProtectedRoute } from "./components/ProtectedRoute";
 import { DEFAULT_SETTINGS_SECTION } from "./components/settings/sections";
 import { DangerZoneSection } from "./components/settings/sections/DangerZoneSection";
 import { GeneralSection } from "./components/settings/sections/GeneralSection";
+import { McpServersSection } from "./components/settings/sections/McpServersSection";
 import { MembersSection } from "./components/settings/sections/MembersSection";
 import { ModelsSection } from "./components/settings/sections/ModelsSection";
 import { TagsSection } from "./components/settings/sections/TagsSection";
@@ -16,6 +17,8 @@ import { NotificationProvider } from "./context/NotificationContext";
 import { StandingProvider } from "./context/StandingContext";
 import { AccountPage } from "./pages/AccountPage";
 import { AuditLogPage } from "./pages/AuditLogPage";
+import { ApprovalPage } from "./pages/approvals/ApprovalPage";
+import { ApprovalsPage } from "./pages/approvals/ApprovalsPage";
 import { BotPage } from "./pages/bots/BotPage";
 import { BotsPage } from "./pages/bots/BotsPage";
 import { ConversationPage } from "./pages/bots/ConversationPage";
@@ -91,6 +94,11 @@ export function App() {
                   <Route path="/account" element={<AccountPage />} />
                   <Route path="/invites" element={<InvitesPage />} />
                   <Route path="/audit" element={<AuditLogPage />} />
+                  <Route path="/approvals" element={<ApprovalsPage />} />
+                  <Route
+                    path="/approvals/:approvalId"
+                    element={<ApprovalPage />}
+                  />
                   <Route path="/bots" element={<BotsPage />} />
                   <Route path="/bots/new" element={<NewBotPage />} />
                   <Route path="/bots/:botId" element={<BotPage />} />
@@ -137,6 +145,7 @@ export function App() {
                     />
                     <Route path="general" element={<GeneralSection />} />
                     <Route path="models" element={<ModelsSection />} />
+                    <Route path="mcp-servers" element={<McpServersSection />} />
                     <Route path="members" element={<MembersSection />} />
                     <Route path="tags" element={<TagsSection />} />
                     <Route path="danger" element={<DangerZoneSection />} />

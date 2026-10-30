@@ -47,7 +47,7 @@ describe("the bot page's sections not built yet", () => {
   test("are the five the page will configure, and name no plan", () => {
     expect(UNAVAILABLE_BOT_SECTIONS.map((s) => s.title)).toEqual([
       "Channels",
-      "Tools",
+      "Code",
       "Skills",
       "Prompts",
       "Goals",

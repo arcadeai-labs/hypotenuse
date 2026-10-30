@@ -21,7 +21,7 @@ calls the bot made in the same step that did not need approval have already run.
 
 ## Deciding
 
-**Approvals** in the sidebar lists the calls waiting on someone; the notification bell links to each. An approval
+**Approvals** in the sidebar (`g a`) lists the calls waiting on someone, with a count; the notification bell links to each. An approval
 shows the bot, the tool, the exact arguments it wants to send (with anything that looks like a secret removed), the
 conversation it came from, and who was talking to the bot.
 

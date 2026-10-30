@@ -257,6 +257,21 @@ describe("status lines", () => {
       "Nudged to end its turn with a tool",
     );
   });
+
+  test("a wait names what it waits on, and an approval's wake says why", () => {
+    expect(statusLine({ to: "waiting", reason: "approval" }).text).toBe(
+      "Waiting for approval",
+    );
+    expect(statusLine({ to: "waiting", reason: "sandbox" }).text).toBe(
+      "Waiting on a sandbox",
+    );
+    expect(statusLine({ to: "waiting", reason: "answer" }).text).toBe(
+      "Waiting for an answer",
+    );
+    expect(statusLine({ to: "working", reason: "approval" }).text).toBe(
+      "Woke when its approvals were decided",
+    );
+  });
 });
 
 describe("conversation state", () => {

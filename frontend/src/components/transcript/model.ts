@@ -141,6 +141,14 @@ const WAKE_WORDS: Record<string, string> = {
   question_timeout: "Woke: nobody answered in time",
   cancel: "Woke to stop",
   nudge: "Nudged to end its turn with a tool",
+  approval: "Woke when its approvals were decided",
+};
+
+/** What a conversation waits on, as its status line reads. */
+const WAITING_WORDS: Record<string, string> = {
+  timer: "Waiting on a timer",
+  approval: "Waiting for approval",
+  sandbox: "Waiting on a sandbox",
 };
 
 /**
@@ -171,8 +179,7 @@ export function statusLine(content: Record<string, unknown>): {
       return { text: "Resting until someone writes", detail, tone: "quiet" };
     case "waiting":
       return {
-        text:
-          reason === "timer" ? "Waiting on a timer" : "Waiting for an answer",
+        text: WAITING_WORDS[reason] ?? "Waiting for an answer",
         detail,
         tone: "quiet",
       };
