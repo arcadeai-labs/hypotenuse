@@ -74,6 +74,7 @@ describe("a turn", () => {
             "memory_read",
             "memory_search",
             "memory_write",
+            "mcp_list_tools",
             "prompt_create",
             "prompt_edit",
             "prompt_list",

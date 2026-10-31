@@ -138,6 +138,31 @@ test("mcp.exec respects the allowlist: a tool outside it waits for approval", as
   expect(stage.fixture.calls).toEqual([]);
 });
 
+test("mcp.listTools answers what the direct tool does: every server's tools, or an empty list and a note", async () => {
+  const none = await runOnce(`return await mcp.listTools()`);
+  expect(none.result.result).toMatchObject({
+    servers: [],
+    total: 0,
+    tools: [],
+  });
+  expect((none.result.result as { note: string }).note).toContain(
+    "no MCP servers",
+  );
+
+  await bindServer(stage, serverId);
+  const { result } = await runOnce(`return await mcp.listTools()`);
+  const out = result.result as {
+    servers: { name: string; tools: number }[];
+    total: number;
+    tools: { name: string }[];
+    nextOffset: number | null;
+  };
+  expect(out.servers).toEqual([{ name: "mail", tools: out.total }]);
+  expect(out.tools.length).toBe(out.total);
+  expect(out.total).toBeGreaterThan(0);
+  expect(out.nextOffset).toBeNull();
+});
+
 test("an unknown server or tool is refused as an mcp error", async () => {
   await bindServer(stage, serverId, { allowedTools: ["mail/*"] });
   const { result } = await runOnce(`return await mcp.info("nope", "x")`);

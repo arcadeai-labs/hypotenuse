@@ -59,7 +59,7 @@ person to [approve](/docs/approvals) it.
 | Tool | What the bot does with it |
 |---|---|
 | `mcp_search` | finds tools across its servers by what they do, and learns whether each would wait for approval |
-| `mcp_list_tools` | lists one server's tools |
+| `mcp_list_tools` | lists every tool it may call, or one server's — offered even to a bot with no server, so asking a bot what tools it has gets a straight answer |
 | `mcp_info` | reads one tool's description and inputs — required before the bot may call it |
 | `mcp_exec` | calls a tool; may wait for approval |
 | `read_large_result` | reads more of a result too long to show at once |
