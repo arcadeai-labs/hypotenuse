@@ -5,12 +5,14 @@
 > on each platform. Who may talk to a bot is decided by the platform: whoever can post where the bot is can
 > talk to it. While the bot works, people see its status, its streamed answer, its plan, its questions, and
 > its approval requests, in whatever form that platform supports best. When nobody in the channel can help, the
-> bot can escalate to the project's people.
+> bot can escalate to the project's people. The dashboard is a platform too: a member can chat with a bot there and
+> see exactly what a teammate on a platform would, which is how a bot is tested before any platform is connected.
 
 > **Status: planned, not built.** Builds on the [durable agent loop](./phase-08-durable-agent-loop.md) (the
 > inbox, the wake operation, the first cut of `channels` and `outbox_messages`),
 > [memory](./phase-09-memory.md) (channel scope), and [shared MCP servers](./phase-10-shared-mcp-servers.md)
-> (approvals). Its first adapter is a generic signed **webhook** platform; [Slack](./phase-14-slack.md),
+> (approvals). Its first two adapters are a generic signed **webhook** platform and the dashboard's own **`web`**
+> platform, the chat; [Slack](./phase-14-slack.md),
 > [Linear](./phase-15-linear.md), and [Pylon](./phase-16-pylon.md) are the next three, each against this
 > contract.
 
@@ -75,6 +77,10 @@ budgets the defense against abuse, because identity is not.
     - the conformance target for the contract.
 14. **The fake-platform harness:** a pattern and a base class for in-process platform fakes over the real wire
     protocol. [14](./phase-14-slack.md) through [16](./phase-16-pylon.md) build on it.
+15. **The `web` platform, the dashboard chat** (§11): a member talks to a bot in the dashboard and sees the
+    interactive surface rendered with every capability — streamed text, a status line, plan steps, questions as
+    buttons, approvals decided in place — in `web` channels whose memory is their own, with fresh scratch channels
+    for a clean test.
 
 **Out:**
 
@@ -85,6 +91,7 @@ budgets the defense against abuse, because identity is not.
 - A shared, marketplace-listed app per platform. One app per bot is the decision. A shared app would be a later
   phase if installs become the bottleneck.
 - Mirroring a conversation into a second channel. A conversation lives in exactly one channel.
+- A dashboard chat for anyone outside the project. The `web` platform is a member's tool, gated by project RBAC.
 
 ## What already exists
 
@@ -96,6 +103,7 @@ budgets the defense against abuse, because identity is not.
 | v1's notification table outcomes | [`backend/ops/LinearNotificationOps.ts`](https://github.com/arcadeai-labs/hypotenuse/blob/v1/backend/ops/LinearNotificationOps.ts) | Every inbound event type has a decided outcome, written as a table |
 | finear's control routes | [`docs/LINEAR_COVERAGE.md`](https://github.com/arcadeai-labs/hypotenuse/blob/v1/docs/LINEAR_COVERAGE.md) | The model for every fake: real wire protocol, `/__test/*` control routes, and a recording proxy |
 | The wake operation, inbox, and outbox | [08](./phase-08-durable-agent-loop.md) | Inbound messages enter through `ConversationOps.wake`; outbound messages through `outbox_messages` |
+| The dashboard's composers and live transcript | [08](./phase-08-durable-agent-loop.md): `conversation:create` / `conversation:message`, `useConversation`, `components/transcript/` | The `web` platform's inbound path and the data the chat folds; today's page is an operator's log, with no streaming, no status, disabled option buttons, and approvals as links |
 
 ## What this must not weaken
 
@@ -338,6 +346,52 @@ its fake:
 - question round trip;
 - approval round trip under each `approvalPolicy`.
 
+### 11. The `web` platform: the dashboard chat
+
+[08](./phase-08-durable-agent-loop.md) let a member write to a bot from the dashboard, onto the bot's `api` channel,
+and shows them a log. The `web` adapter makes the dashboard a platform, so the person configuring a bot can check
+that a prompt edit, a memory, an MCP server, or a skill does what they meant, and see what a teammate on Slack would.
+
+It differs from every other adapter in one way: **its people are Hypotenuse members, not participants.** Who may
+talk is project RBAC (`canReadBot`), as for the API channel today, and the sender is the user.
+
+| Contract piece | `web` |
+|---|---|
+| Installation | none: built in for every bot (`botInstallationId` null) |
+| Inbound | `conversation:create` with `channelType: "web"` and `conversation:message`, audited as today; no `webhooks:web`, no `trigger_events` |
+| Channel | `type: "web"`, `externalId` = the channel key: `dashboard` by default, or `scratch-<8 hex>` when created with `fresh: true` — a memory boundary with nothing in it |
+| Binding | none: a member's RBAC is the permission, so §5's binding rows do not apply |
+| Capabilities | all true: `threads`, `streaming`, `status`, `plan`, `buttons`, `edits` |
+| `send` | marks the row `sent` at once: the dashboard reads Postgres, so there is nothing to post |
+| Answer as interaction | an option button is a `conversation:message` with the option's label, `source: interaction` |
+| Approval | decided in the card through `approval:decide`, under its own gate; the binding's `approvalPolicy` does not apply |
+| Callback URL | refused with `channelType: "web"` |
+
+**The live read.** `conversation:live` (`GET /project/:projectId/conversation/:id/live`) answers the newest
+unsuperseded `status`, `stream`, and `plan` rows for the conversation, and the page reads it with entries on each
+content-free ping. Streamed text therefore lives in a Postgres row (§6's ephemeral `stream` row, coalesced at most
+every 250 ms), never on a WebSocket frame. A step's committed `message` row supersedes its `stream` row, so an
+interrupted step's partial text disappears when the step is retried. `conversation:view`'s `standing` gains
+`canAnswer` and `canDecideApprovals`, so the client never decides whether a button is live.
+
+**The chat view** is a second fold of the same entries, beside today's transcript view, one row per entry kind:
+
+| Entry | Chat item |
+|---|---|
+| `message` from a person | a bubble with their name |
+| `message` from the system (a timeout, a wake, a help answer) | a centred system line |
+| terminal call (`reply_and_wait`, `complete`, `fail`) with an ok result | a bot bubble, with the bot's avatar and badge; `complete` and `fail` add an outcome chip |
+| `ask_question` with an ok result | a question card; options are buttons while `standing.canAnswer` |
+| an approval wait | an approval card, decidable while `standing.canDecideApprovals` |
+| any other tool call, model step, context update, thinking | counted into the turn's "worked through N steps" line, which opens the transcript view at that turn (`?seqs=`) |
+| a terminal call that errored or was interrupted | counted into the steps line, which then carries the warning glyph |
+| compaction | an "earlier messages summarized" divider |
+
+Each bot bubble has collapsed diagnostics: the step's model alias, tokens, duration, and prompt hash.
+
+**Conformance.** The `web` adapter runs the conformance cases that need no wire — ordering, supersession, nothing
+after a question, the question and approval round trips — with the dashboard's own reads as the platform.
+
 ## Schema sketch
 
 ```ts
@@ -350,7 +404,7 @@ bot_installations: id serial pk, projectId, botId, type text,
   installedByUserId int, createdAt tstz, updatedAt tstz
   unique (botId, type, externalWorkspaceId)
 
-// backend/schema/channels.ts (generalized)
+// backend/schema/channels.ts (generalized; type gains 'web', whose rows have no installation)
 channels: id serial pk, projectId, type text, botInstallationId int null,
   externalId text, parentExternalId text null,  // e.g. Linear team for a project
   name text, isPrivate bool, isShared bool, archived bool default false,
@@ -412,6 +466,8 @@ help_requests: id serial pk, projectId, botId, conversationId, entryId,
 | `triggers:process-pending` | — (clock, 5 s) | — | no | no |
 | `outbox:deliver` / `outbox:deliver-due` | — (task / clock) | — | no | no |
 | `help:expire` | — (clock, 1 min) | — | no | no |
+| `conversation:create` | unchanged; gains `channelType` (`api` default, `web`) and `fresh` | member + `canReadBot` | yes | yes (as today) |
+| `conversation:live` | `GET /project/:projectId/conversation/:id/live` | member + `canReadBot` | yes | no (read) |
 
 `rbac.test.ts` asserts every `webhooks:*` action is never an MCP tool, by prefix. The OAuth hops are named in
 `NEVER_MCP_ACTION_NAMES`.
@@ -427,12 +483,18 @@ help_requests: id serial pk, projectId, botId, conversationId, entryId,
 - **Project → Help inbox,** where `help:answer` is answered.
 - **Project → Events:** a `trigger_events` log for admins, with an outcome filter.
 - **The conversation page** shows the platform, a link to the thread, session, or issue, and participant names
-  on messages.
+  on messages, and toggles between the **Chat** and **Transcript** views of any conversation.
+- **Chat** (§11): a Chat button on the bot page and each bot's row; `/bots/:botId/chat` opens the newest `web`
+  conversation the viewer started with that bot, or a blank composer; `/chat` picks a bot first; a palette command
+  "Chat with …"; "New chat in a fresh channel". `/` completes the bot's skills in the composer.
 - **User docs:**
-  - `frontend/src/content/docs/{channels,connecting-a-platform,escalation,webhook-platform}.md`;
+  - `frontend/src/content/docs/{channels,connecting-a-platform,escalation,webhook-platform,chat}.md` — `chat.md`
+    covers starting a chat, fresh channels and what they do to memory, the status line, and answering and approving
+    in place;
   - `rbac.md` gains the binding and approval-policy rules.
 - **CLI:** `hypotenuse installation manifest|connect|test|list`, `hypotenuse binding …`,
-  `hypotenuse help list|answer`.
+  `hypotenuse help list|answer`; `conversation create --web [--fresh]`, and `conversation follow` prints the
+  `stream` row's text as it grows on a TTY. `conversation:live` has no command of its own.
 
 ## Steps
 
@@ -464,7 +526,12 @@ into [08](./phase-08-durable-agent-loop.md)'s stream sink.
 
 ### 10. Harness — `backend/__tests__/fakes/base.ts`, `backend/__tests__/fakes/webhook/server.ts`, `backend/__tests__/channels/conformance.ts`
 
-### 11. Frontend, CLI, docs — as above
+### 11. The `web` adapter and the chat — `backend/channels/web/adapter.ts`, `backend/actions/conversation/conversation-live.ts`, `frontend/src/components/chat/*`, `frontend/src/pages/bots/ChatPage.tsx`
+
+Built right after the outbox and surfaces, before the webhook harness, so every later step can be tried in the
+dashboard.
+
+### 12. Frontend, CLI, docs — as above
 
 ## Test plan
 
@@ -497,12 +564,25 @@ into [08](./phase-08-durable-agent-loop.md)'s stream sink.
   - The cap.
 - `__tests__/channels/rate-limit.test.ts`: per participant and per channel, with an ephemeral note once.
 - `__tests__/security/no-secrets.test.ts` (extended): installation credentials appear nowhere.
+- `__tests__/channels/web.test.ts`:
+  - `channelType: "web"` creates a `dashboard` channel; `fresh` a new one each time; a `callbackUrl` is refused
+    naming the field; an API call without `channelType` is unchanged.
+  - A fact learned in a fresh channel is not found from `dashboard`.
+  - The scripted model streams slowly: `conversation:live` returns a growing prefix, every frame is content-free,
+    and the committed message supersedes the stream row; a dropped stream's partial text is replaced by the retry's.
+  - `standing.canAnswer` and `canDecideApprovals`, each true and false.
+  - The `web` conformance cases.
+- `frontend/src/__tests__/chat.test.ts`: one test per row of §11's chat table.
+- `frontend/e2e/chat.spec.ts`: start a chat from the bot page, watch the reply stream in, answer a question by
+  button, approve a gated MCP call from its card, open the steps line into the transcript; both themes
+  screenshotted.
 
 ## Verification
 
 ```bash
 cd backend && bun test __tests__/channels __tests__/security
 bun run --cwd cli hypotenuse installation manifest --bot 1 --type webhook
+bun run test:e2e -- chat
 ```
 
 On staging, a small script acting as the webhook platform holds a conversation with a bot, answers a question
@@ -522,7 +602,10 @@ by button, and approves a call in-channel under the `participants` policy.
 - [ ] Rate limits per participant and channel.
 - [ ] The fake-platform base and conformance suite are documented for [14](./phase-14-slack.md) through
       [16](./phase-16-pylon.md).
-- [ ] The Channels tab, Help inbox, Events log, CLI, and docs ship; both themes are checked.
+- [ ] A member chats with a bot in the dashboard, in its `dashboard` channel or a fresh one: replies stream, the
+      status line and plan come from the surface rows, questions and approvals are answered in place, and the chat
+      and transcript are two views of one conversation.
+- [ ] The Channels tab, Help inbox, Events log, Chat, CLI, and docs ship; both themes are checked.
 
 ## Open questions
 
@@ -531,6 +614,9 @@ by button, and approves a call in-channel under the `participants` policy.
 - Whether `autoBind` should default to on for private channels, since inviting the bot is already a deliberate
   platform act. Default off until a team asks otherwise.
 - Per-binding model budgets, beyond per-bot budgets: [22](./phase-22-telemetry-and-cost.md).
+- Whether a bot's `dashboard` channel is shared by the project's members or one per person. Shared is what a Slack
+  channel is, and lets a team build up a test bot's memory together; fresh channels cover a private test. The
+  proposal is shared.
 
 ## Learnings from the build
 

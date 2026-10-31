@@ -44,7 +44,7 @@ Much of this is a port, and each port says so in its phase:
 | [10](./phase-10-shared-mcp-servers.md) | Shared MCP servers | Per-project MCP servers with server-side credentials; progressive disclosure; per-bot allowlists; the approval gate; large results |
 | [11](./phase-11-skills-prompts-and-goals.md) | Skills, prompts, and goals | Shared skills, prompt sections, goals, guarded self-editing, a generated capabilities section |
 | [12](./phase-12-code-mode.md) | Code mode | `run_code`: TypeScript in QuickJS-WASM against `memory.*` and `mcp.*`, with limits and resumable continuations |
-| [13](./phase-13-channel-framework.md) | Channel framework | Platform adapters, bot installations, channels and bindings, participants, ingress, the outbox, the interactive surface, escalation to people |
+| [13](./phase-13-channel-framework.md) | Channel framework | Platform adapters, bot installations, channels and bindings, participants, ingress, the outbox, the interactive surface, escalation to people; the dashboard chat as the `web` platform |
 | [14](./phase-14-slack.md) | Slack | One Slack app per bot; mentions, DMs, threads; streamed replies, status, plan steps; buttons for questions and approvals |
 | [15](./phase-15-linear.md) | Linear | One Linear app per bot; agent sessions as conversations; v1's OAuth, webhook, outbox, and finear stack ported |
 | [16](./phase-16-pylon.md) | Pylon | Pylon issues as conversations, customer accounts as channels; internal notes by default |
@@ -163,6 +163,7 @@ build** section reads "Not built yet." until its phase lands.
 | Models | A bot names aliases, never keys or model ids; `default` and `fast` are required; `ModelOps.languageModel` is the only way to a model, and every provider fetches through the SSRF guard |
 | Bot access | Member-level CRUD gated per bot by `accessRead` / `accessWrite`; an unreadable bot is the same 404 as a missing one; a non-admin cannot save a list that locks them out |
 | Talking to a bot | `canReadBot` is enough to start, write in, read, and cancel its conversations over the API, as a platform channel asks no more |
+| Testing a bot | The dashboard is a platform (planned in [13](./phase-13-channel-framework.md#11-the-web-platform-the-dashboard-chat)): members chat with a bot in its `web` channels and see the interactive surface with every capability |
 | The loop | Rows are the orchestration state; ticks claim a 90 s lease by conditional update and re-check it under the row lock on every write; intents commit before tools run; a terminal tool's effect commits with its result; 8 steps or 60 s per tick, 50 steps per turn by default |
 | API callbacks | Signed with a per-bot secret shown once (`t=…,v1=` HMAC-SHA256), retried for a day with the outbox row id as the delivery id |
 | Memory scopes | Channel memory is per bot per channel; project memory is shared. A bot never changes project memory: a person promotes into it (`canWriteBot` + admin), audited |

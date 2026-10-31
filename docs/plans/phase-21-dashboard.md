@@ -45,7 +45,7 @@ The rule from v1 and ToolExec holds: **Postgres is the source of truth, and WebS
 
 **Out:**
 
-- A chat client. The dashboard watches and intervenes; people talk to bots on their platforms (and through the API channel). There is no compose box beyond answering a pending question.
+- A chat client of its own. The chat is the `web` platform of [the channel framework](./phase-13-channel-framework.md#11-the-web-platform-the-dashboard-chat); this phase's views link to it.
 - Analytics beyond the counts above. Spend and telemetry are [their own phase](./phase-22-telemetry-and-cost.md).
 - Editing a bot's prompts or skills: already on the bot pages.
 
