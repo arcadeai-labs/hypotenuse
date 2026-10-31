@@ -215,7 +215,7 @@ export function hydrate(
             assistantFor(entry.stepId).parts.push({ type: "text", text });
         } else {
           flush();
-          messages.push({ role: "user", content: String(content.text ?? "") });
+          messages.push({ role: "user", content: userMessageText(content) });
         }
         break;
       case "thinking":
@@ -282,6 +282,24 @@ export function hydrate(
 }
 
 /**
+ * What the model reads for a person's message: its text, or — for a message
+ * that invoked a skill — the skill's expansion in its place.
+ * @param content - The message entry's content.
+ * @returns The text.
+ */
+export function userMessageText(content: Record<string, unknown>): string {
+  const text = String(content.text ?? "");
+  const skill = content.skill as
+    | { name: string; text: string | null; error?: string }
+    | undefined;
+  if (!skill) return text;
+  if (skill.text !== null) {
+    return `${text}\n\n(This message ran the skill /${skill.name}. Its instructions, filled in:)\n\n${skill.text}`;
+  }
+  return `${text}\n\n(This message tried to run the skill /${skill.name}, which could not be filled in: ${skill.error ?? "its arguments did not fit."} Tell the person what the skill needs.)`;
+}
+
+/**
  * One line of text for an entry, for search and for summaries.
  * @param entry - The entry.
  * @returns Its text.
@@ -300,7 +318,9 @@ export function entryText(entry: ConversationEntry): string {
     case "compaction":
       return String(content.summary ?? "");
     case "context_update":
-      return `The system prompt changed (${entry.promptHash ?? "unknown"}).`;
+      return (content.skill as { name?: string } | undefined)?.name
+        ? `The skill /${(content.skill as { name: string }).name} was expanded.`
+        : `The system prompt changed (${entry.promptHash ?? "unknown"}).`;
     default:
       return JSON.stringify(content);
   }

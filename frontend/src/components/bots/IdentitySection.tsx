@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import { Avatar, Button, Form } from "../../ui";
 import { AVATAR_ACCEPT, botAvatarSrc, readAvatar } from "../../utils/avatar";
 import { API_URL, apiFetch } from "../../utils/client";
@@ -64,7 +65,8 @@ function identityOf(bot: Bot): IdentityDraft {
 /**
  * Who the bot is: its avatar (always drawn with the bot badge), its name and
  * the name platforms show, its slug, what it is for, whether it takes new
- * conversations, and its persona, with a preview.
+ * conversations, and its persona — the text of its prompt's *Identity*
+ * section — with a preview.
  *
  * The avatar goes up the moment a file is chosen, as its own edit, so a
  * picture is never lost behind an unsaved form; the other fields save
@@ -284,8 +286,10 @@ export function IdentitySection({
           testId="bot-persona"
         />
         <Form.Text className="text-meta">
-          Who the bot is and how it behaves, in markdown. It opens every
-          conversation the bot has.
+          Who the bot is and how it behaves, in markdown: the Identity section
+          that opens its prompt. A save is a new version of it. The rest of its
+          prompt, and every version, is on{" "}
+          <Link to={`/bots/${bot.id}/prompt`}>its Prompt page</Link>.
         </Form.Text>
       </Form.Group>
     </SectionCard>

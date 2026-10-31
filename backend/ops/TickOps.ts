@@ -54,7 +54,14 @@ import type { TxHandle } from "./DbOps";
 import { languageModel, type ResolvedLanguageModel } from "./ModelOps";
 import { HostRefused } from "./NetworkGuardOps";
 import { enqueueDeliveries, queueOutbound } from "./OutboxOps";
-import { assembleSystemPrompt, promptHash } from "./PromptOps";
+import {
+  type AssembledPrompt,
+  assemblePrompt,
+  diffSections,
+  loadPromptInputs,
+  type SectionRef,
+} from "./PromptOps";
+import { expandInvocation } from "./SkillOps";
 import {
   appendEntries,
   type EntryDraft,
@@ -122,6 +129,8 @@ interface TickState {
   outbox: number[];
   /** The newest step's prompt hash, to write a `context_update` on change. */
   lastPromptHash: string | null;
+  /** The sections of the newest step's prompt, to diff the next one against. */
+  lastSections: SectionRef[] | null;
 }
 
 /**
@@ -143,6 +152,7 @@ export async function runTick(conversationId: number): Promise<TickResult> {
     startedAt: Date.now(),
     outbox: [],
     lastPromptHash: null,
+    lastSections: null,
   };
   const heartbeat = startHeartbeat(state);
   await pingConversation(state.projectId, conversationId);
@@ -654,7 +664,9 @@ async function readConversation(
 
 /**
  * **Deliver the inbox**: claim undelivered rows and append each as a user
- * message. At a turn boundary (a new turn, or a resumed wait) every pending
+ * message; a person's `/<skill> args…` carries its expansion, which the model
+ * reads in place of the text, and a `context_update` shows it beside the message.
+ * At a turn boundary (a new turn, or a resumed wait) every pending
  * row is delivered; between the steps of a running turn only `steer` rows are.
  * @param tx - The holder's transaction.
  * @param conversation - The conversation, locked.
@@ -677,11 +689,13 @@ async function deliverInbox(
     .orderBy(asc(conversationInbox.id))
     .for("update", { skipLocked: true });
   if (rows.length > 0) {
-    await appendEntries(
-      tx,
-      conversation.id,
-      conversation.epoch,
-      rows.map((row) => ({
+    const drafts: EntryDraft[] = [];
+    for (const row of rows) {
+      const fromPerson = row.source === "user" || row.source === "participant";
+      const skill = fromPerson
+        ? await expandInvocation(tx, conversation.botId, row.text)
+        : null;
+      drafts.push({
         kind: "message",
         role: "user",
         content: {
@@ -689,11 +703,16 @@ async function deliverInbox(
           source: row.source,
           delivery: row.delivery,
           inboxId: row.id,
+          ...(skill ? { skill } : {}),
         },
         userId: row.userId,
         participantId: row.participantId,
-      })),
-    );
+      });
+      // The transcript keeps the message as sent; the expansion the model
+      // reads in its place is shown beside it.
+      if (skill) drafts.push({ kind: "context_update", content: { skill } });
+    }
+    await appendEntries(tx, conversation.id, conversation.epoch, drafts);
     await tx
       .update(conversationInbox)
       .set({ deliveredAt: new Date() })
@@ -765,10 +784,15 @@ async function step(
     .from(channels)
     .where(eq(channels.id, conversation.channelId));
   const tools = await availableTools({ bot, conversation });
-  const prompt = assembleSystemPrompt(bot, channel, {
-    mcp: tools.some((t) => t.name === "mcp_exec"),
-  });
-  const hash = promptHash(prompt);
+  const assembled = assemblePrompt(
+    await loadPromptInputs(api.db.db, bot, {
+      channel,
+      conversation,
+      mcp: tools.some((t) => t.name === "mcp_exec"),
+    }),
+  );
+  const prompt = assembled.system;
+  const hash = assembled.hash;
 
   let model: ResolvedLanguageModel;
   try {
@@ -787,7 +811,11 @@ async function step(
 
   const { compaction, entries } = await liveEntries(api.db.db, conversation.id);
   const messages = hydrate(compaction, entries, model.provider);
-  state.lastPromptHash ??= await lastPromptHash(conversation.id);
+  if (state.lastPromptHash === null) {
+    const last = await lastContext(conversation.id);
+    state.lastPromptHash = last.hash;
+    state.lastSections = last.sections;
+  }
 
   const answer = await callModel(state, model, prompt, messages, tools);
   if (typeof answer === "string") {
@@ -804,7 +832,11 @@ async function step(
         kind: "context_update",
         stepId,
         promptHash: hash,
-        content: { prompt, previousPromptHash: state.lastPromptHash },
+        content: contextUpdateContent(
+          assembled,
+          state.lastPromptHash,
+          state.lastSections ?? [],
+        ),
       });
     }
     for (const r of answer.reasoning) {
@@ -870,6 +902,7 @@ async function step(
     };
   });
   state.lastPromptHash = hash;
+  state.lastSections = assembled.sections;
 
   const usedTokens = answer.usage.inputTokens;
   if (
@@ -888,11 +921,14 @@ async function step(
 }
 
 /**
- * The prompt hash of the newest step, from the transcript.
+ * The prompt hash of the newest step, and the sections of the newest
+ * recorded prompt, from the transcript.
  * @param conversationId - The conversation.
- * @returns The hash, or `null` before the first step.
+ * @returns The hash (`null` before the first step) and the sections.
  */
-async function lastPromptHash(conversationId: number): Promise<string | null> {
+async function lastContext(
+  conversationId: number,
+): Promise<{ hash: string | null; sections: SectionRef[] }> {
   const [row] = await api.db.db
     .select({ hash: conversationEntries.promptHash })
     .from(conversationEntries)
@@ -904,7 +940,48 @@ async function lastPromptHash(conversationId: number): Promise<string | null> {
     )
     .orderBy(desc(conversationEntries.seq))
     .limit(1);
-  return row?.hash ?? null;
+  const [update] = await api.db.db
+    .select({ content: conversationEntries.content })
+    .from(conversationEntries)
+    .where(
+      and(
+        eq(conversationEntries.conversationId, conversationId),
+        eq(conversationEntries.kind, "context_update"),
+        isNotNull(conversationEntries.promptHash),
+      ),
+    )
+    .orderBy(desc(conversationEntries.seq))
+    .limit(1);
+  const sections = (update?.content as { sections?: SectionRef[] } | undefined)
+    ?.sections;
+  return { hash: row?.hash ?? null, sections: sections ?? [] };
+}
+
+/**
+ * What a `context_update` records: the prompt sent, the parts it was built
+ * from (each section by id and version, everything else verbatim, so the
+ * prompt can be rebuilt and its hash checked), and how its sections differ
+ * from the previous step's.
+ * @param assembled - The new prompt.
+ * @param previousPromptHash - The previous step's hash.
+ * @param previousSections - The previous prompt's sections.
+ * @returns The entry's content.
+ */
+export function contextUpdateContent(
+  assembled: AssembledPrompt,
+  previousPromptHash: string | null,
+  previousSections: SectionRef[],
+) {
+  return {
+    prompt: assembled.system,
+    previousPromptHash,
+    parts: assembled.parts,
+    sections: assembled.sections,
+    ...diffSections(previousSections, assembled.sections),
+    dropped: assembled.dropped,
+    estimatedTokens: assembled.estimatedTokens,
+    budgetTokens: assembled.budgetTokens,
+  };
 }
 
 /**

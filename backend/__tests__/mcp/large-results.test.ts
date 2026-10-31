@@ -69,7 +69,10 @@ describe("large results", () => {
     expect(ref).toMatch(/^lr_\d+$/);
     // The model saw only the preview.
     const prompt = JSON.stringify(stage.models.completions.at(-2)?.body);
-    expect(prompt.length).toBeLessThan(20_000);
+    const rows = prompt.split("row of the long report").length - 1;
+    expect(rows).toBeLessThanOrEqual(
+      Math.ceil(config.mcp.previewChars / "row of the long report, ".length),
+    );
 
     stage.models.play([
       {

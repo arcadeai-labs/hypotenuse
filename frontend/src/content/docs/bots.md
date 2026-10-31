@@ -13,7 +13,7 @@ project has set both of those, the Bots page says no bot can run yet — an admi
 
 ## The bot page
 
-![A bot's page: identity, model, access, budget, and memory, with its properties beside them](illustration:bot)
+![A bot's page: identity, model, access, budget, prompt, goals, skills, and memory, with its properties beside them](illustration:bot)
 
 Each section saves on its own. The panel on the right sums the bot up: whether it is enabled, its model, who may
 read and change it, and whether you may change it.
@@ -24,12 +24,18 @@ read and change it, and whether you may change it.
 | **Model** | which of the project's model names it uses: its main model and its fast one |
 | **Access** | who may read it, who may change it, and whom it asks for help |
 | **Budget** | a monthly ceiling in US dollars, and the most model steps one turn may take |
+| **Prompt** | its prompt budget in tokens, how many sections it may add to its own prompt, and a link to its [prompt](/docs/prompts) |
+| **Goals** | what it works toward — see [Goals](/docs/goals) |
+| **Skills** | which of the project's [skills](/docs/skills) it may use, and which version of each |
 | **Memory** | how fast its memories fade when unused, and a link to what it remembers |
 | **Tools** | which MCP servers it may use, which of their tools run without asking, and what its tools can do |
 | **Approvals** | who may decide its tool calls, and how long a waiting call lasts |
 
-The page also shows **Channels**, **Code**, **Skills**, **Prompts**, and **Goals**, each reading *Not available
-yet*. They will hold where the bot listens, the code it runs, and how it works between conversations.
+The page also shows **Channels** and **Code**, each reading *Not available yet*. They will hold where the bot
+listens and the code it runs.
+
+**Prompt** at the top of the page opens the bot's [prompt](/docs/prompts): every section of what it is told before
+each step, their versions, and a preview of the whole.
 
 **Enabled** decides whether the bot takes new conversations. **Delete bot**, behind a confirmation, removes it for
 good.
@@ -46,8 +52,10 @@ good.
 
 ### Writing a persona
 
-The persona is who the bot is, in markdown. It opens every conversation the bot has, so everything else it does is
-read through it. **Preview** shows it the way the bot's own messages are drawn.
+The persona is who the bot is, in markdown. It is the **Identity** section of the bot's [prompt](/docs/prompts),
+which opens every step the bot takes, so everything else it does is read through it. **Preview** shows it the way
+the bot's own messages are drawn. Saving it makes a new version of the Identity section; its history, and the rest
+of the prompt, are on the bot's Prompt page. The bot can never edit its own Identity.
 
 - **Say who it is and whom it serves.** "You are Ada, the support team's teammate in #billing" beats "You are a
   helpful assistant".
@@ -57,7 +65,8 @@ read through it. **Preview** shows it the way the bot's own messages are drawn.
 - **Say when to hand off.** Name the situations where it should ask a person rather than guess.
 - **Keep facts out.** Things that change — prices, on-call rotas, release dates — belong in
   [memory](/docs/memory), not in the persona.
-- **Keep it short.** A page is plenty; every word is read on every turn.
+- **Keep it short.** A page is plenty; every word is read on every turn. Procedures that matter only sometimes belong
+  in a [contextual section](/docs/prompts#when-a-section-loads) or a [skill](/docs/skills).
 
 ## Who may read and change it
 
@@ -85,6 +94,20 @@ price (the Vercel AI Gateway) counts toward it yet; calls to other providers are
 
 **Steps per turn** caps how many model steps one [turn](/docs/conversations) may take — 50 unless you change it. A
 turn that reaches it fails, saying how many steps it took, rather than running on.
+
+## Prompt
+
+**Prompt budget** is the most its prompt may be, in tokens (about four characters each): 8,000 unless you change it,
+from 1,000 to 200,000. Contextual sections are dropped to fit it, and a change that would push the sections that
+always load over it is refused. **Sections it may add** caps how many sections the bot may add to its own prompt —
+10 unless you change it; 0 stops it. See [Prompts](/docs/prompts).
+
+## Goals and skills
+
+**Goals** lists what the bot works toward; active goals are in its prompt. See [Goals](/docs/goals).
+
+**Skills** attaches procedures from the project's library. The bot follows each skill's latest version unless you
+pin one. See [Skills](/docs/skills).
 
 ## Memory
 

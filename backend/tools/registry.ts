@@ -1,6 +1,8 @@
 import { askQuestion } from "./ask-question";
 import { complete } from "./complete";
 import { fail } from "./fail";
+import { goalList } from "./goal-list";
+import { goalUpdate } from "./goal-update";
 import { mcpExec } from "./mcp-exec";
 import { mcpInfo } from "./mcp-info";
 import { mcpListTools } from "./mcp-list-tools";
@@ -11,15 +13,22 @@ import { memoryList } from "./memory-list";
 import { memoryRead } from "./memory-read";
 import { memorySearch } from "./memory-search";
 import { memoryWrite } from "./memory-write";
+import { promptCreate } from "./prompt-create";
+import { promptEdit } from "./prompt-edit";
+import { promptList } from "./prompt-list";
+import { promptRead } from "./prompt-read";
 import { readLargeResult } from "./read-large-result";
 import { replyAndWait } from "./reply-and-wait";
 import { searchHistory } from "./search-history";
+import { skillList } from "./skill-list";
 import type { ToolContext, ToolDefinition } from "./types";
+import { useSkill } from "./use-skill";
 import { waitFor } from "./wait-for";
 
 /**
  * The tool registry: every tool a bot may be offered, by name. The built-in
- * tools, the memory tools, and the MCP meta-tools register here; code mode adds its own through
+ * tools, the memory tools, the MCP meta-tools, and the prompt, goal, and skill
+ * tools register here; code mode adds its own through
  * {@link registerTool}.
  */
 
@@ -101,6 +110,14 @@ for (const tool of [
   mcpInfo,
   mcpExec,
   readLargeResult,
+  promptList,
+  promptRead,
+  promptEdit,
+  promptCreate,
+  goalList,
+  goalUpdate,
+  skillList,
+  useSkill,
 ] as ToolDefinition[]) {
   registerTool(tool);
 }

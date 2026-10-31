@@ -53,6 +53,16 @@ const READS = new Set([
   "approval:list",
   "approval:view",
   "large-result:view",
+  "prompt-section:list",
+  "prompt-section:view",
+  "prompt-section:versions",
+  "prompt:preview",
+  "goal:list",
+  "goal:view",
+  "skill:list",
+  "skill:view",
+  "skill:versions",
+  "bot-skill:list",
 ]);
 
 /**

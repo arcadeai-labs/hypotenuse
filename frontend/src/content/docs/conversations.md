@@ -39,7 +39,15 @@ spent takes no more steps that month.
 | A tool call, collapsed | what the bot asked a tool to do, and what came back. Open it to see both |
 | **Interrupted** on a tool call | the process running the call stopped before it finished. The bot is told, and checks before trying again |
 | A thin line saying the state changed | the bot woke, rested, paused, ended, or was reminded to finish its turn |
+| **Prompt set** or **Prompt changed** | what the bot is told before each step differed from the step before — a [section](/docs/prompts) was edited (perhaps by the bot itself), added, removed, or matched by the latest message. Open it to see which sections, **Show the change** for what changed in one, and the full text the step was sent |
+| **Ran skill /name** | your message started with one of the bot's [skills](/docs/skills). Open it to see the instructions the bot read in place of your message. **Could not run skill** says what was missing |
 | A divider reading *summary* | the conversation grew long, so its earlier part was summarized for the bot. Nothing above it is deleted, and the bot can still search it |
+
+## Running a skill
+
+Start a message with `/` and the name of one of the bot's [skills](/docs/skills) — `/release-notes 2.4` — and the
+bot reads the skill's instructions, with what you typed after the name filled in, in place of your message. Your
+message stays in the transcript as you wrote it.
 
 ## Stopping a bot
 

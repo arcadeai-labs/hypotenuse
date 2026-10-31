@@ -1,6 +1,6 @@
 import type { BotView } from "@backend/actions/bot/bot-view";
 import type { ActionResponse } from "keryx";
-import { Brain, MessagesSquare } from "lucide-react";
+import { Brain, FileText, MessagesSquare } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { AccessSection } from "../../components/bots/AccessSection";
@@ -13,10 +13,13 @@ import {
   useAccessTags,
   useModelAliases,
 } from "../../components/bots/data";
+import { GoalsSection } from "../../components/bots/GoalsSection";
 import { IdentitySection } from "../../components/bots/IdentitySection";
 import { MemorySection } from "../../components/bots/MemorySection";
 import { MissingAliasesBanner } from "../../components/bots/MissingAliasesBanner";
 import { ModelSection } from "../../components/bots/ModelSection";
+import { PromptSettingsSection } from "../../components/bots/PromptSettingsSection";
+import { SkillsSection } from "../../components/bots/SkillsSection";
 import { ToolsSection } from "../../components/bots/ToolsSection";
 import { UnavailableSections } from "../../components/bots/UnavailableSections";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
@@ -46,11 +49,12 @@ type Loaded =
 
 /**
  * `/bots/:botId` — one bot: who it is, which models it uses, who may read
- * and change it, its budget, how fast its memory fades, its MCP servers and
- * what runs without asking, and who decides what waits, each section saving
- * on its own; then the parts of a bot this page does not configure
- * yet, disabled. The properties panel says the same at a glance, and the
- * header links to its conversations and its memory.
+ * and change it, its budget, the size of its prompt, its goals, its skills,
+ * how fast its memory fades, its MCP servers and what runs without asking,
+ * and who decides what waits, each section saving on its own; then the parts
+ * of a bot this page does not configure yet, disabled. The properties panel
+ * says the same at a glance, and the header links to its prompt, its
+ * conversations, and its memory.
  *
  * Every control is gated twice, both by the server's word: `can()` on the
  * action, and the bot's own write list, which `bot:view` answers as
@@ -183,6 +187,14 @@ export function BotPage() {
         actions={
           <>
             <Button
+              onClick={() => navigate(`/bots/${bot.id}/prompt`)}
+              size="sm"
+              variant="secondary"
+              data-testid="bot-prompt-page"
+            >
+              <FileText size={14} aria-hidden="true" /> Prompt
+            </Button>
+            <Button
               onClick={() => navigate(`/bots/${bot.id}/conversations`)}
               size="sm"
               variant="secondary"
@@ -237,6 +249,14 @@ export function BotPage() {
             </Property>
             <Property label="Fast model">
               <span className="mono">{bot.fastModelAlias}</span>
+            </Property>
+            <Property label="Prompt budget">
+              <span
+                className="tabular"
+                data-testid="bot-property-prompt-budget"
+              >
+                {bot.promptBudgetTokens.toLocaleString()} tokens
+              </span>
             </Property>
             <Property label="Memory fades">
               <span className="tabular" data-testid="bot-property-memory">
@@ -303,6 +323,17 @@ export function BotPage() {
           <ModelSection {...sectionProps} aliases={aliases.data} />
           <AccessSection {...sectionProps} tags={tags} />
           <BudgetSection {...sectionProps} />
+          <PromptSettingsSection {...sectionProps} />
+          <GoalsSection
+            projectId={activeProjectId}
+            bot={bot}
+            denied={botWriteDenied(reason("goal:create"), standing)}
+          />
+          <SkillsSection
+            projectId={activeProjectId}
+            bot={bot}
+            denied={botWriteDenied(reason("bot-skill:attach"), standing)}
+          />
           <MemorySection {...sectionProps} />
           <ToolsSection
             projectId={activeProjectId}
@@ -329,7 +360,8 @@ export function BotPage() {
         onCancel={() => setConfirmDelete(false)}
         testId="delete-bot"
       >
-        Its persona, settings, and avatar are deleted, and it cannot be undone.
+        Its prompt, goals, settings, and avatar are deleted, and it cannot be
+        undone.
       </ConfirmDialog>
     </div>
   );

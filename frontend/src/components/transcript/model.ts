@@ -85,7 +85,8 @@ export type TranscriptItem =
       tone: "quiet" | "error";
       createdAt: number;
     }
-  | { kind: "prompt"; key: string; seq: number; prompt: string }
+  | ({ kind: "prompt"; key: string; seq: number } & PromptChange)
+  | ({ kind: "skill"; key: string; seq: number } & SkillRun)
   | {
       kind: "compaction";
       key: string;
@@ -93,6 +94,146 @@ export type TranscriptItem =
       summary: string;
       throughSeq: number;
     };
+
+/** A prompt section as a `context_update` names it: by id, key, and version. */
+export interface SectionRef {
+  id: number;
+  key: string;
+  version: number;
+}
+
+/**
+ * What a `context_update` that changed the prompt says: the text sent, and
+ * how its sections differ from the previous step's.
+ */
+export interface PromptChange {
+  /** The full system prompt the step was sent. */
+  prompt: string;
+  /** Whether this is the conversation's first prompt, so everything in it is new. */
+  first: boolean;
+  /** The sections the prompt was built from, in order. */
+  sections: SectionRef[];
+  added: SectionRef[];
+  removed: SectionRef[];
+  changed: (SectionRef & { previousVersion: number })[];
+  /** Contextual sections that matched but were dropped to fit the budget. */
+  dropped: SectionRef[];
+  estimatedTokens: number | null;
+  budgetTokens: number | null;
+}
+
+/** What a `context_update` that expanded a person's `/skill` says. */
+export interface SkillRun {
+  name: string;
+  version: number | null;
+  /** What followed the skill's name in the message. */
+  arguments: string;
+  /** The expansion the model read in place of the message, or `null` when it could not be filled in. */
+  text: string | null;
+  /** Why it could not be, when it could not. */
+  error: string | null;
+}
+
+/**
+ * Read a list of section refs from a `context_update`, keeping only
+ * well-formed ones.
+ * @param value - The field.
+ * @returns The refs.
+ */
+function sectionRefs(value: unknown): SectionRef[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((v) => {
+    const r = v as Record<string, unknown>;
+    return typeof r?.id === "number" && typeof r.version === "number"
+      ? [{ id: r.id, key: String(r.key ?? ""), version: r.version }]
+      : [];
+  });
+}
+
+/**
+ * Read a number field that may be missing.
+ * @param value - The field.
+ * @returns The number, or `null`.
+ */
+function numberOrNull(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+/**
+ * What a `context_update` entry is: a person's `/skill` expanded (it carries
+ * `skill`), or the prompt changing between steps (everything else, including
+ * an older entry that recorded only the text).
+ * @param content - The entry's content.
+ * @returns The prompt change, or the skill run.
+ */
+export function readContextUpdate(
+  content: Record<string, unknown>,
+): ({ kind: "prompt" } & PromptChange) | ({ kind: "skill" } & SkillRun) {
+  const skill = content.skill as Record<string, unknown> | undefined;
+  if (skill && typeof skill === "object") {
+    return {
+      kind: "skill",
+      name: String(skill.name ?? ""),
+      version: numberOrNull(skill.version),
+      arguments: typeof skill.arguments === "string" ? skill.arguments : "",
+      text: typeof skill.text === "string" ? skill.text : null,
+      error:
+        typeof skill.error === "string"
+          ? skill.error
+          : typeof skill.text === "string"
+            ? null
+            : "It could not be filled in.",
+    };
+  }
+  const changed = Array.isArray(content.changed)
+    ? sectionRefs(content.changed).map((ref, i) => ({
+        ...ref,
+        previousVersion:
+          numberOrNull(
+            (content.changed as Record<string, unknown>[])[i]?.previousVersion,
+          ) ?? ref.version - 1,
+      }))
+    : [];
+  return {
+    kind: "prompt",
+    prompt: text(content, "prompt"),
+    // An entry from before sections were recorded has no previous hash either.
+    first: content.previousPromptHash == null,
+    sections: sectionRefs(content.sections),
+    added: sectionRefs(content.added),
+    removed: sectionRefs(content.removed),
+    changed,
+    dropped: sectionRefs(content.dropped),
+    estimatedTokens: numberOrNull(content.estimatedTokens),
+    budgetTokens: numberOrNull(content.budgetTokens),
+  };
+}
+
+/**
+ * A prompt change in one line: which sections came in, went, or changed.
+ * @param change - The change.
+ * @returns e.g. "how-i-work v2 → v3; added release-notes"; for the first prompt, how many sections it had ("" when none were recorded).
+ */
+export function promptChangeSummary(change: PromptChange): string {
+  if (change.first) {
+    if (change.sections.length === 0) return "";
+    return change.sections.length === 1
+      ? "1 section"
+      : `${change.sections.length} sections`;
+  }
+  const parts: string[] = [];
+  for (const c of change.changed)
+    parts.push(`${c.key} v${c.previousVersion} → v${c.version}`);
+  if (change.added.length > 0)
+    parts.push(`added ${change.added.map((s) => s.key).join(", ")}`);
+  if (change.removed.length > 0)
+    parts.push(`removed ${change.removed.map((s) => s.key).join(", ")}`);
+  if (change.dropped.length > 0)
+    parts.push(`dropped ${change.dropped.map((s) => s.key).join(", ")}`);
+  return parts.length > 0
+    ? parts.join("; ")
+    : "its goals, skills, tools, or channel changed";
+}
 
 /**
  * Where a tool call stands. `running` has an intent and no result while the
@@ -315,12 +456,7 @@ export function buildTranscript(
         // corrupt transcript; there is nothing honest to draw for it alone.
         break;
       case "context_update":
-        items.push({
-          kind: "prompt",
-          key,
-          seq: entry.seq,
-          prompt: text(content, "prompt"),
-        });
+        items.push({ key, seq: entry.seq, ...readContextUpdate(content) });
         break;
       case "status_change": {
         // A turn's own ending is already said by the bot's message; the line

@@ -22,7 +22,11 @@ reports back into the conversation it came from.
 > only by a person, and a memory explorer. Bots **use tools**: project admins connect shared MCP servers (credentials
 > sealed and attached server-side, OAuth included), each bot finds tools through `mcp_search` / `mcp_info` /
 > `mcp_exec` on the servers it is given, and every call outside its allowlist parks the conversation until a person
-> approves it in the approvals inbox — the approved call then runs exactly once. No chat platform is connected yet. The build order and every
+> approves it in the approvals inbox — the approved call then runs exactly once. Bots **are configured as data**: a
+> system prompt assembled from versioned sections (always or contextual on keywords, within a token budget, its hash
+> and section versions in every transcript), goals they review and update, and a project library of skills they run
+> with `use_skill` or a person runs with `/<name>`; a bot edits only sections a person marked editable, and a person
+> can revert it. No chat platform is connected yet. The build order and every
 > plan are in
 > [`docs/plans/README.md`](./docs/plans/README.md); the system on one page is
 > [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md). Hypotenuse **v1** — local coding agents answering
@@ -79,13 +83,14 @@ These bind from the first line of code. A rule that names a thing not built yet 
    clocks and sweeps; the CLI's sign-in ingress (`cli-auth:device` / `cli-auth:exchange`, a token's sliding
    expiry); machine ingress (`webhooks:*`, recorded in `trigger_events`) and its processing
    (`triggers:process-event`, `triggers:process-pending`, recorded in `trigger_events` and `conversation_inbox`);
-   `agent:tick`, `conversation:compact`, and every tool a bot runs (recorded in `conversation_entries`); memory's
+   `agent:tick`, `conversation:compact`, and every tool a bot runs (recorded in `conversation_entries`, and a
+   prompt or goal edit also in `prompt_section_versions` and `goals`); memory's
    machine work (`memory:embed`, `memory:consolidate`, `memory:decay-project`, recorded in `memory_documents` and
    `memory_chunks`); the MCP catalog's machine work (`mcp-server:refresh-catalog`, `bot:capabilities`, recorded on
    `mcp_servers` and `bots`); outbox delivery (`outbox:deliver`, recorded in `outbox_messages`); the sandbox's machine half (`sandbox:events` / `heartbeat` / `complete` and the in-sandbox tools, recorded in
    `sandbox_jobs` and `sandbox_job_events`); and `cost_records`. The audited thing is always **the decision a
-   person made** — editing a bot, binding it to a channel, approving a tool call, answering a help request,
-   granting a repository. A decision a platform participant makes in a channel (an approval clicked in Slack) is
+   person made** — editing a bot, its prompt, its goals, or a skill, binding it to a channel, approving a tool call,
+   answering a help request, granting a repository. A decision a platform participant makes in a channel (an approval clicked in Slack) is
    audited too, as `actorType: "participant"`.
 6. **Credentials never leave the server.** No action returns a platform token, signing secret, model key, MCP
    server credential, or GitHub App key, and no serializer has a field one fits in. A sandbox holds exactly one

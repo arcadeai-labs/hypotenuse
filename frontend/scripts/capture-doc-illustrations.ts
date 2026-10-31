@@ -32,6 +32,13 @@
  *
  *   NETWORK_ALLOW_PRIVATE_HOSTS=true MCP_GENERATE_CAPABILITIES=false bun dev
  *
+ * The prompt, goal, and skill illustrations read what {@link seedPrompt}
+ * writes over the API — two people's edits to Ada's *How I work*, a
+ * contextual section, two sections every bot includes, three goals, and two
+ * skills, one edited — plus a seeded conversation in which Ada adds to her
+ * own *Things I have learned* with `prompt_edit`, so her history has an edit
+ * marked as the bot's.
+ *
  *   cd frontend && bun run docs:illustrations
  *   ILLUSTRATIONS=bot,memory bun run docs:illustrations   # only those
  */
@@ -63,6 +70,8 @@ interface Illustration {
   height?: number;
   /** Taken signed in as the seeded person. */
   signedIn?: boolean;
+  /** Selectors clicked in turn before the shot, to open what it shows. */
+  open?: string[];
 }
 
 /** Every illustration the docs embed. Add a row, rerun, commit the PNGs. */
@@ -100,8 +109,41 @@ const ILLUSTRATIONS: Illustration[] = [
     name: "bot",
     path: ({ botId }) => `/bots/${botId}`,
     width: 1280,
-    height: 3440,
+    height: 5200,
     signedIn: true,
+  },
+  {
+    name: "bot-prompt",
+    path: ({ botId }) => `/bots/${botId}/prompt`,
+    width: 1440,
+    height: 1500,
+    signedIn: true,
+    open: ["[data-testid=prompt-section-bot-things-i-have-learned-history]"],
+  },
+  {
+    name: "bot-goals",
+    path: ({ botId }) => `/bots/${botId}`,
+    selector: "[data-testid=bot-bot-goals]",
+    width: 1280,
+    height: 5200,
+    signedIn: true,
+  },
+  {
+    name: "bot-skills",
+    path: ({ botId }) => `/bots/${botId}`,
+    selector: "[data-testid=bot-bot-skills]",
+    width: 1280,
+    height: 5200,
+    signedIn: true,
+  },
+  {
+    name: "skills",
+    path: "/settings/skills",
+    selector: "[data-testid=skills-card]",
+    width: 1280,
+    height: 1400,
+    signedIn: true,
+    open: ["[data-testid=skill-expand-release-notes]"],
   },
   {
     name: "mcp-servers",
@@ -355,6 +397,7 @@ async function seed(request: APIRequestContext): Promise<Seeded> {
   // Before the conversations: two of them call Ada's mailbox.
   const mcpServerId = await seedMcp(request, support.id, botId);
   const conversationId = await seedConversations(request, support.id);
+  await seedPrompt(request, support.id, botId);
   return {
     organizationId: organization.id,
     projectId: support.id,
@@ -564,6 +607,48 @@ const CONVERSATIONS: { bot: string; title: string; turns: Turn[] }[] = [
                 input: {
                   name: "mail/delete_message",
                   args: { messageId: "msg-inv-2291-copy" },
+                },
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  },
+  {
+    bot: "Ada",
+    title: "Staging is called preprod here",
+    turns: [
+      {
+        text: "FYI: on this team, staging is called preprod. Please remember that.",
+        responses: [
+          {
+            toolCalls: [
+              {
+                name: "prompt_edit",
+                input: {
+                  section: "things-i-have-learned",
+                  patches: [
+                    {
+                      start_line: 1,
+                      end_line: 1,
+                      content:
+                        "- This team calls the staging environment **preprod**.",
+                    },
+                  ],
+                  baseVersion: 1,
+                  changeNote: "The team told me staging is called preprod",
+                },
+              },
+            ],
+          },
+          {
+            toolCalls: [
+              {
+                name: "complete",
+                input: {
+                  summary:
+                    "Noted in my instructions: staging is called preprod here.",
                 },
               },
             ],
@@ -1059,6 +1144,215 @@ async function seedMemory(
   }
   return channel.id;
 }
+/** One version of a seeded section's text, with why it changed. */
+interface SeededText {
+  body: string;
+  changeNote: string;
+}
+
+/** The versions people wrote of Ada's *How I work*, oldest first. */
+const HOW_ADA_WORKS: SeededText[] = [
+  {
+    body: "- Look in this channel's memory before asking anyone.\n- Keep replies to a short paragraph; link rather than paste.",
+    changeNote: "How Ada answers",
+  },
+  {
+    body: "- Look in this channel's memory before asking anyone.\n- Keep replies to a short paragraph; link rather than paste.\n- Name an invoice by its number, never by its date.",
+    changeNote: "Invoices by number",
+  },
+];
+
+/** Sections of the Support project: Ada's own, and every bot's. */
+const SECTIONS: {
+  title: string;
+  body: string;
+  loading: "always" | "contextual";
+  keywords?: string[];
+  agentEditable?: boolean;
+  /** Every bot's, when true; Ada's, otherwise. */
+  project?: boolean;
+}[] = [
+  {
+    title: "Refunds",
+    body: "A refund needs the billing team's confirmation. Flag the invoice number to them in #billing, and tell the customer a person will confirm it.",
+    loading: "contextual",
+    keywords: ["refund", "refunds", "credit", "chargeback"],
+  },
+  {
+    title: "House style",
+    body: "Write in plain words. Never promise a date or a refund; say who will confirm it.",
+    loading: "always",
+    project: true,
+  },
+  {
+    title: "Glossary",
+    body: "- **preprod** — the staging environment.\n- **INV-** — an invoice number.",
+    loading: "contextual",
+    keywords: ["preprod", "staging", "invoice"],
+    project: true,
+  },
+];
+
+/** Ada's goals. */
+const GOALS = [
+  {
+    title: "Answer every billing question the same day",
+    description:
+      "A question asked before 17:00 gets an answer, or a named person who will answer, that day.",
+    priority: "high",
+    reviewEverySeconds: 7 * 86_400,
+    notes: "On track this week: 14 of 15 answered the same day.",
+  },
+  {
+    title: "Keep the refund policy page current",
+    priority: "medium",
+    reviewEverySeconds: 30 * 86_400,
+    notes: "",
+  },
+  {
+    title: "Move the October invoices to the new template",
+    priority: "low",
+    status: "achieved",
+    reviewEverySeconds: null,
+    notes: "Done; the template went out with INV-2300.",
+  },
+];
+
+/** The Support project's skills; each later body is a new version. */
+const SKILLS = [
+  {
+    name: "release-notes",
+    description: "Drafts customer-facing release notes for a version",
+    arguments: [
+      {
+        name: "version",
+        description: "The version, such as 2.4",
+        required: true,
+      },
+      { name: "audience", required: false, default: "customers" },
+    ],
+    bodies: [
+      "Draft release notes for $version, for $audience.\n\nOne line per change.",
+      "Draft release notes for $version, for $audience.\n\nOne line per change, newest first. Link each change's pull request, and leave out anything internal.",
+    ],
+    /** Ada's pin: `null` follows the latest. */
+    pinned: 1 as number | null,
+  },
+  {
+    name: "standup-summary",
+    description: "Summarizes yesterday's conversations for the morning standup",
+    arguments: [],
+    bodies: [
+      "Summarize the conversations in this channel since yesterday's standup: what was answered, what is waiting on whom, and anything to raise.",
+    ],
+    pinned: null as number | null,
+  },
+];
+
+/**
+ * Give the Support project what the prompt, goal, and skill illustrations
+ * show, each made only when missing: two versions of Ada's *How I work* by
+ * a person (her *Things I have learned* is written by Ada herself, in a
+ * seeded conversation), a contextual section of hers, two sections every bot
+ * includes, her goals, and two skills — one edited, so it has two versions —
+ * attached to her, one pinned to its first version.
+ * @param request - The browser context's request client.
+ * @param projectId - The Support project.
+ * @param botId - Ada.
+ */
+async function seedPrompt(
+  request: APIRequestContext,
+  projectId: number,
+  botId: number,
+): Promise<void> {
+  const base = `/project/${projectId}`;
+  const sectionsOf = async (botQuery: string) =>
+    (
+      await call<{
+        promptSections: {
+          id: number;
+          key: string;
+          title: string;
+          currentVersion: number;
+        }[];
+      }>(request, "GET", `${base}/prompt-sections?${botQuery}limit=100`)
+    ).promptSections;
+
+  const own = await sectionsOf(`botId=${botId}&`);
+  const howIWork = own.find((s) => s.key === "how-i-work");
+  if (!howIWork) throw new Error("Ada's How I work section is missing");
+  for (const [i, text] of HOW_ADA_WORKS.entries()) {
+    // Version 1 is the empty seed; each text here is the version after it.
+    if (howIWork.currentVersion > i + 1) continue;
+    const edited = await call(
+      request,
+      "POST",
+      `${base}/prompt-section/${howIWork.id}`,
+      text,
+    );
+    if (edited.error) throw new Error(`section: ${edited.error.message}`);
+  }
+
+  const shared = await sectionsOf("");
+  for (const plan of SECTIONS) {
+    const existing = plan.project ? shared : own;
+    if (existing.some((s) => s.title === plan.title)) continue;
+    const created = await call(request, "PUT", `${base}/prompt-section`, {
+      ...(plan.project ? {} : { botId }),
+      title: plan.title,
+      body: plan.body,
+      loading: plan.loading,
+      keywords: plan.keywords ?? [],
+      ...(plan.project ? {} : { agentEditable: plan.agentEditable ?? false }),
+    });
+    if (created.error) throw new Error(`section: ${created.error.message}`);
+  }
+
+  const { goals } = await call<{ goals: { title: string }[] }>(
+    request,
+    "GET",
+    `${base}/bot/${botId}/goals?limit=100`,
+  );
+  for (const [i, goal] of GOALS.entries()) {
+    if (goals.some((g) => g.title === goal.title)) continue;
+    const created = await call(request, "PUT", `${base}/bot/${botId}/goal`, {
+      ...goal,
+      position: i,
+    });
+    if (created.error) throw new Error(`goal: ${created.error.message}`);
+  }
+
+  const { skills } = await call<{
+    skills: { id: number; name: string; currentVersion: number }[];
+  }>(request, "GET", `${base}/skills?limit=100`);
+  for (const plan of SKILLS) {
+    let skill = skills.find((s) => s.name === plan.name);
+    if (!skill) {
+      const created = await call<{
+        skill: { id: number; name: string; currentVersion: number };
+      }>(request, "PUT", `${base}/skill`, {
+        name: plan.name,
+        description: plan.description,
+        arguments: plan.arguments,
+        body: plan.bodies[0],
+      });
+      if (created.error) throw new Error(`skill: ${created.error.message}`);
+      skill = created.skill;
+    }
+    for (let v = skill.currentVersion; v < plan.bodies.length; v++) {
+      await call(request, "POST", `${base}/skill/${skill.id}`, {
+        body: plan.bodies[v],
+        changeNote: "Newest first, with links",
+      });
+    }
+    const attached = await call(request, "PUT", `${base}/bot/${botId}/skill`, {
+      skillId: skill.id,
+      pinnedVersion: plan.pinned,
+    });
+    if (attached.error) throw new Error(`bot skill: ${attached.error.message}`);
+  }
+}
+
 const OUT = join(
   import.meta.dirname,
   "..",
@@ -1127,6 +1421,10 @@ async function main(): Promise<void> {
           content:
             ".shell-banner:has([data-testid=verify-email-banner]) { display: none; }",
         });
+        for (const selector of shot.open ?? []) {
+          await page.locator(selector).click();
+          await page.waitForLoadState("networkidle");
+        }
         await page.evaluate(() => document.fonts.ready);
         const file = join(OUT, `${shot.name}-${theme}.png`);
         if (shot.selector)

@@ -13,6 +13,7 @@ import {
 import type { SessionImpl } from "../../middleware/session";
 import { botStanding, loadReadableBot, serializeBot } from "../../ops/BotOps";
 import { idInput } from "../../ops/InputOps";
+import { botPersona } from "../../ops/PromptSectionOps";
 
 /**
  * `bot:view` — one bot, and whether the caller may change it. Requires
@@ -47,6 +48,9 @@ export class BotView implements Action {
       params.botId,
       callerTags,
     );
-    return { bot: serializeBot(bot), standing: botStanding(bot, callerTags) };
+    return {
+      bot: serializeBot(bot, await botPersona(api.db.db, bot.id)),
+      standing: botStanding(bot, callerTags),
+    };
   }
 }

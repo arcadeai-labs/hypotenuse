@@ -13,6 +13,7 @@ import {
   serializeBot,
 } from "../../ops/BotOps";
 import { idInput } from "../../ops/InputOps";
+import { botPersona } from "../../ops/PromptSectionOps";
 import { bots } from "../../schema/bots";
 
 /**
@@ -52,8 +53,8 @@ export class BotDelete extends AuditedAction {
     );
     assertCanWriteBot(bot, callerTags);
 
+    const serialized = serializeBot(bot, await botPersona(tx, bot.id));
     await tx.delete(bots).where(eq(bots.id, bot.id));
-    const serialized = serializeBot(bot);
     connection.metadata.auditBefore = serialized;
     connection.metadata.auditTargetType = "bot";
     connection.metadata.auditTargetPath = bot.slug;
