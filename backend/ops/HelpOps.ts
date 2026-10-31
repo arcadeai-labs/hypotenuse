@@ -11,6 +11,7 @@ import {
   lockConversation,
   pingConversation,
   receiveMessage,
+  wake,
 } from "./ConversationOps";
 import type { DbHandle, TxHandle } from "./DbOps";
 import { hasTag, isAdmin, resolveProjectAccess } from "./MembershipOps";
@@ -26,7 +27,7 @@ import { emitStatus } from "./SurfaceOps";
  *
  * | Event | Request | Conversation |
  * |---|---|---|
- * | raised, `blocking` | `pending` | `waiting` / `answer` |
+ * | raised, `blocking` | `pending` | `waiting` / `help`: messages meanwhile wait in the inbox |
  * | raised, not blocking | `pending` | the turn goes on |
  * | `help:answer` | `answered` | a `system` message "Answer from <name>: …" wakes it (or queues, mid-turn) |
  * | `help:cancel` | `cancelled` | a `system` message saying it was withdrawn |
@@ -198,6 +199,16 @@ export async function settleHelpRequest(
     source: "system",
     metadata: { helpRequestId: request.id, status: settle.status },
   });
+  // A conversation waiting on this request resumes; any message that
+  // arrived meanwhile is delivered with the answer.
+  const waiting = received.conversation;
+  if (
+    waiting.state === "waiting" &&
+    waiting.waitingOn?.kind === "help" &&
+    waiting.waitingOn.helpRequestId === request.id
+  ) {
+    return { before, request: row, woke: await wake(tx, waiting, "help") };
+  }
   return {
     before,
     request: row,

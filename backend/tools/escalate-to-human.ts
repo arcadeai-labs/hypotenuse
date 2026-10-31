@@ -46,7 +46,8 @@ const output = z.object({
 /**
  * `escalate_to_human` — ask the project's people, outside the channel. The
  * channel hears only that a person was asked. A blocking request ends the
- * turn on `waiting` / `answer`; a non-blocking one lets it go on.
+ * turn on `waiting` / `help`, which only the request's answer, withdrawal,
+ * or expiry ends; a non-blocking one lets the turn go on.
  */
 export const escalateToHuman: ToolDefinition<
   z.infer<typeof input>,
@@ -59,16 +60,12 @@ export const escalateToHuman: ToolDefinition<
   outputSchema: output,
   replay: "unsafe",
   parallelSafe: false,
-  terminal: (_out, args, ctx) =>
+  terminal: (out, args) =>
     args.blocking === false
       ? { to: "working" }
       : {
           to: "waiting",
-          waitingOn: {
-            kind: "answer",
-            questionEntryId: ctx.intentEntryId,
-            timeoutAt: null,
-          },
+          waitingOn: { kind: "help", helpRequestId: out.helpRequestId },
         },
   available: () => true,
   async run(args, ctx) {

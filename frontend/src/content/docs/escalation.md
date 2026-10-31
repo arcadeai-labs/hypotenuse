@@ -12,8 +12,10 @@ When a bot asks for help:
 
 1. The request lands in the **Help inbox** (`g i`), and the people it asks are notified.
 2. The bot says in the channel only that it has asked a person on the team.
-3. A **blocking** request — the default — pauses the conversation until someone answers. A non-blocking one lets the
-   bot carry on; the answer arrives later as a message.
+3. A **blocking** request — the default — pauses the conversation until someone on the team answers, withdraws the
+   request, or it expires; the conversation shows *Waiting for the team*. Messages written in the channel meanwhile do
+   not unblock it: they wait, and the bot reads them with the answer. A non-blocking one lets the bot carry on; the
+   answer arrives later as a message.
 
 A request names how **urgent** it is (low, normal, or urgent), what the bot needs to know, and the context it found.
 A bot may have at most five requests in one conversation.

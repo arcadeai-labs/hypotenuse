@@ -219,6 +219,12 @@ describe("a person binds", () => {
       confirmAudience: true,
     });
     const id = bound.body.binding.id;
+    const listedOnCreate = await bind({
+      channelId: channel.id,
+      approvalPolicy: "listed",
+      confirmAudience: true,
+    });
+    expect(listedOnCreate.body.error?.key).toBe("approverExternalIds");
     const listedEmpty = await editBinding(stage, id, {
       approvalPolicy: "listed",
     });

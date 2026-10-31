@@ -136,7 +136,7 @@ describe("escalate_to_human", () => {
     const id = await escalated();
     const row = await conversationRow(id);
     expect(row).toMatchObject({ state: "waiting" });
-    expect(row.waitingOn?.kind).toBe("answer");
+    expect(row.waitingOn).toMatchObject({ kind: "help" });
     const said = JSON.stringify(stage.platform.deliveries);
     expect(said).toContain("I've asked a person on the team.");
     expect(said).not.toContain(SECRET_QUESTION);
@@ -195,6 +195,45 @@ describe("escalate_to_human", () => {
       .where(eq(auditLogs.action, "help:answer"));
     expect(audit.userId).toBe(stage.u.peach.userId);
     expect(JSON.stringify(audit)).not.toContain("Yes, refund it.");
+  });
+
+  test("a message in the channel does not end the wait; the answer delivers both", async () => {
+    stage.models.play([
+      escalate(),
+      {
+        toolCalls: [{ name: "reply_and_wait", input: { text: "Done." } }],
+        expect: {
+          anyMessageIncludes: "Just do it!",
+          lastMessageIncludes:
+            "Answer from Peach: No refunds without a receipt.",
+        },
+      },
+    ]);
+    const id = await escalated("T-wait");
+    await stage.platform.send({
+      channel: { id: "C-support", name: "support" },
+      conversation: "T-wait",
+      text: "Just do it!",
+      mentions: true,
+    });
+    await settle();
+    const still = await conversationRow(id);
+    expect(still.state).toBe("waiting");
+    expect(still.waitingOn).toMatchObject({ kind: "help" });
+    const [request] = await api.db.db.select().from(helpRequests);
+    expect(request.status).toBe("pending");
+    expect(stage.models.completions).toHaveLength(1);
+
+    const answered = await call(
+      stage.u.url,
+      stage.u.peach,
+      "POST",
+      `/project/${stage.u.projectId}/help/${request.id}`,
+      { answer: "No refunds without a receipt." },
+    );
+    expect(answered.status).toBe(200);
+    await settle();
+    expect((await conversationRow(id)).state).toBe("hibernating");
   });
 
   test("a non-blocking request lets the turn go on", async () => {

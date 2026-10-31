@@ -551,6 +551,8 @@ export function conversationStateLabel(
           return "Waiting for approval";
         case "sandbox":
           return "Waiting on a sandbox";
+        case "help":
+          return "Waiting for the team";
         default:
           return "Waiting for an answer";
       }

@@ -65,6 +65,17 @@ export class ChannelBindingCreate extends AuditedAction {
     connection: AuditedConnection,
   ) {
     const tags = connection.metadata.callerTags ?? [];
+    if (
+      params.approvalPolicy === "listed" &&
+      (params.approverExternalIds ?? []).length === 0
+    ) {
+      throw new TypedError({
+        message:
+          "The listed policy needs at least one approver: pass approverExternalIds with the platform user ids who may decide.",
+        type: ErrorType.CONNECTION_ACTION_PARAM_VALIDATION,
+        key: "approverExternalIds",
+      });
+    }
     const bot = await loadReadableBot(tx, params.projectId, params.botId, tags);
     assertCanWriteBot(bot, tags);
     const [channel] = await tx

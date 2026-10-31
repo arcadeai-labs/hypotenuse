@@ -35,7 +35,7 @@ import { appendEntries, type EntryDraft } from "./TranscriptOps";
  * | `working` | inbox row; a `steer` row enters at the next step, a `queue` row at the turn's end | a live lease: flag it and wake, the tick finalizes; no live lease: finalize here |
  * | `hibernating` | wake: new turn | finalize |
  * | `waiting` (answer) | the message is the answer: wake, same turn | finalize |
- * | `waiting` (timer, approval, sandbox) | inbox row kept until the wait ends | finalize; its pending approvals expire |
+ * | `waiting` (timer, approval, help, sandbox) | inbox row kept until the wait ends | finalize; its pending approvals expire |
  * | `ended` | wake: new turn, outcome cleared | no-op |
  */
 
@@ -243,6 +243,7 @@ export type WakeReason =
   | "timer"
   | "question_timeout"
   | "approval"
+  | "help"
   | "cancel"
   | "created";
 

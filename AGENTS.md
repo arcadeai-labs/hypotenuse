@@ -306,7 +306,7 @@ bun dev                                          # backend :8080, frontend :3000
 - **Intent before effect.** A tool call is written before it runs. A call with an intent and no result was
   interrupted: it re-runs only if the tool is replay-safe, and otherwise the model is told it was interrupted.
 - **A conversation is `working`, `hibernating`, `waiting`, or `ended`.** `waiting` always names what it waits on
-  (an answer, an approval, a sandbox, a timer). A tick ends in a terminal tool; a model that stops without one is
+  (an answer, an approval, the team via a help request, a sandbox, a timer). A tick ends in a terminal tool; a model that stops without one is
   nudged once, then the turn fails. A tick never ends silently.
 - **Memory has two scopes and decays.** Channel memory belongs to one channel and fades with disuse; project memory
   is shared by every bot and channel in the project and fades slowly. Facts are promoted from channel to project

@@ -683,9 +683,12 @@ by button, and approves a call in-channel under the `participants` policy.
   (`rate-window.lua`). The one notice per window is recorded on the event (`noticeOwed`), and only where the platform
   has ephemeral messages — the webhook platform has none, so nothing is sent yet.
 - **`escalate_to_human` is a terminal tool with a new transition, `{ to: "working" }`**, for a non-blocking request:
-  the turn goes on. A blocking one waits on `answer` (its intent as `questionEntryId`), so any message — the help
-  answer, or a person in the channel — ends the wait. `help:cancel` tells the conversation the request was withdrawn
-  rather than leave it waiting. The question is never posted to the channel.
+  the turn goes on. A blocking one waits on a new kind, `help` (`{kind: "help", helpRequestId}`), which only the
+  request's answer, withdrawal (`help:cancel`), or expiry ends (`HelpOps.settleHelpRequest` wakes it); a message
+  meanwhile — from the channel, or the dashboard — waits in the inbox and is delivered with the answer. Waiting on
+  `answer`, as the plan said, let anyone in the channel unblock an escalation that may be about the channel. The
+  question is never posted to the channel; the dashboard and CLI show the wait as "Waiting for the team", with the
+  answer glyph.
 - **Who may answer help**: the people it would notify (holders of the bot's `helpNotifyTag`, or admins) and the
   bot's writers, among its readers (`HelpOps.canAnswerHelp`).
 - **An in-channel approval can be typed** — `approve 41` / `deny 41` — under a policy other than `dashboard`, for a

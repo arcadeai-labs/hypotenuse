@@ -45,7 +45,7 @@ export interface Conversation {
   channelId: number;
   title: string | null;
   state: "working" | "hibernating" | "waiting" | "ended";
-  waitingOn: { kind: WaitingOn; at?: number } | null;
+  waitingOn: { kind: WaitingOn | "help"; at?: number } | null;
   outcome: ServerOutcome | null;
   epoch: number;
   working: boolean;
@@ -158,9 +158,13 @@ export function statusText(
     case "hibernating":
       return `${conversationGlyph({ state: "hibernating" })} Hibernating`;
     case "waiting": {
-      const on = c.waitingOn?.kind ?? "answer";
+      // A help wait shows the answer glyph: the design's states have no
+      // glyph of their own for it.
+      const kind = c.waitingOn?.kind ?? "answer";
+      const on = (kind === "help" ? "answer" : kind) as WaitingOn;
       const words: Record<WaitingOn, string> = {
-        answer: "Waiting for an answer",
+        answer:
+          kind === "help" ? "Waiting for the team" : "Waiting for an answer",
         approval: "Waiting for approval",
         sandbox: "Waiting on a sandbox",
         timer: "Waiting on a timer",
