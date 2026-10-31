@@ -359,7 +359,7 @@ talk is project RBAC (`canReadBot`), as for the API channel today, and the sende
 |---|---|
 | Installation | none: built in for every bot (`botInstallationId` null) |
 | Inbound | `conversation:create` with `channelType: "web"` and `conversation:message`, audited as today; no `webhooks:web`, no `trigger_events` |
-| Channel | `type: "web"`, `externalId` = the channel key: `dashboard` by default, or `scratch-<8 hex>` when created with `fresh: true` — a memory boundary with nothing in it |
+| Channel | `type: "web"`, `externalId` = `bot:<botId>:<key>` as `api` channels encode it (channels are unique per project, not per bot); the key is `dashboard` by default, or `scratch-<8 hex>` when created with `fresh: true` — a memory boundary with nothing in it |
 | Binding | none: a member's RBAC is the permission, so §5's binding rows do not apply |
 | Capabilities | all true: `threads`, `streaming`, `status`, `plan`, `buttons`, `edits` |
 | `send` | marks the row `sent` at once: the dashboard reads Postgres, so there is nothing to post |
