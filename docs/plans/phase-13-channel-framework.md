@@ -634,7 +634,7 @@ by button, and approves a call in-channel under the `participants` policy.
 | Escalation | `backend/tools/escalate-to-human.ts`, `backend/ops/HelpOps.ts`, `backend/actions/help/`, the `help-requested` notification template |
 | Config | `backend/config/platforms.ts` (`config.platforms`) |
 | The fake-platform base, the webhook fake, the conformance suite | `backend/__tests__/fakes/{base,webhook/server}.ts`, `backend/__tests__/channels/conformance.ts` |
-| The coverage matrix and its test | [`docs/coverage/webhook.md`](../coverage/webhook.md), `backend/__tests__/docs/coverage.test.ts` |
+| The coverage matrix and its test | [`docs/platform-coverage/webhook.md`](../platform-coverage/webhook.md), `backend/__tests__/docs/coverage.test.ts` |
 | CLI 2.8.0 | `cli/src/commands/{installation,channel,help-request,platform-log}.ts`; `conversation create --web [--fresh]`; `conversation follow` streams on a terminal; `bot edit --auto-bind` and the rate limits |
 | Dashboard | the Chat (`pages/bots/ChatPage.tsx`, `/chat`, the fold in `components/chat/model.ts`), the conversation page's Chat / Transcript toggle and participant names, the bot's Channels and Listening sections, the Help inbox (`/help`), Events (`/events`); `web` and `webhook` platform chips in `design/states.ts` |
 | Proof | `backend/__tests__/channels/{processing,conformance-webhook,ingress,binding,outbox,escalation,rate-limit,web}.test.ts`, `__tests__/security/no-installation-secrets.test.ts`, `__tests__/cli/channel-commands.test.ts`, `frontend/src/__tests__/{chat,channels}.test.ts`, `frontend/e2e/chat.spec.ts`; the `chat`, `bot-channels`, and `help` illustrations |
@@ -711,5 +711,10 @@ by button, and approves a call in-channel under the `participants` policy.
 - **`rows.at(-1)` on an unordered select** read the wrong audit row. Every "newest row" read in a test orders.
 - **Playwright needs `PLAYWRIGHT_CHROMIUM_PATH`** in the cloud container (the headless shell under
   `/opt/pw-browsers/`) for the browser suite to find its build.
+- **`.gitignore` ignores every `coverage/` directory**, so the coverage matrices live in `docs/platform-coverage/`;
+  under `docs/coverage/` they passed locally and were missing in CI.
+- **A row's `nextAttemptAt` defaults from Postgres's clock**, so the outbox compares it with `now()` in SQL, never a
+  `Date` from the worker: in CI the database's clock ran ahead, a row just written read as not yet due, and the walk
+  stopped before it.
 - **A fake's request log includes the installation's probe** from `beforeAll`: count `deliveries` (which skip the
   `ping`), not raw requests.

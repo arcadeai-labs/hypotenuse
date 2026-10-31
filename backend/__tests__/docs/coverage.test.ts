@@ -4,12 +4,12 @@ import path from "node:path";
 
 /**
  * Every platform interaction is in its platform's coverage matrix
- * (`docs/coverage/<platform>.md`), and every row's test file exists and
+ * (`docs/platform-coverage/<platform>.md`), and every row's test file exists and
  * mentions the row's id — so a matrix row can never point at a test that
  * does not prove it.
  */
 const root = path.join(import.meta.dir, "..", "..", "..");
-const dir = path.join(root, "docs", "coverage");
+const dir = path.join(root, "docs", "platform-coverage");
 
 /**
  * The rows of a coverage table: id, module, and test.

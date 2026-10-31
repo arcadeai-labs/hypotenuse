@@ -62,11 +62,16 @@ export async function enqueueDelivery(
   }
 }
 
-/** The condition of a row a deliverer may attempt now. */
+/**
+ * The condition of a row a deliverer may attempt now. "Now" is the
+ * database's clock, the one a new row's `nextAttemptAt` defaults from: a
+ * worker whose clock runs behind Postgres's would otherwise find a row just
+ * written not yet due, and stop the walk.
+ */
 function dueCondition() {
   return and(
     inArray(outboxMessages.status, ["pending", "failed", "sending"]),
-    lte(outboxMessages.nextAttemptAt, new Date()),
+    lte(outboxMessages.nextAttemptAt, sql`now()`),
   );
 }
 
@@ -143,7 +148,7 @@ async function claimRow(id: number): Promise<OutboxMessage | null> {
           inArray(outboxMessages.status, ["pending", "failed"]),
           eq(outboxMessages.status, "sending"),
         ),
-        lte(outboxMessages.nextAttemptAt, new Date()),
+        lte(outboxMessages.nextAttemptAt, sql`now()`),
       ),
     )
     .returning();

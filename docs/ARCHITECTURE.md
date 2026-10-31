@@ -269,7 +269,7 @@ the dashboard reads Postgres), and the generic signed `webhook` platform; Slack,
 - **Escalation**: `escalate_to_human` writes a `help_requests` row and notifies the bot's help tag (else admins); the
   answer (`help:answer`) resumes the conversation.
 
-Each platform has a coverage matrix in [`docs/coverage/`](./coverage/webhook.md) and an in-process fake built on
+Each platform has a coverage matrix in [`docs/platform-coverage/`](./platform-coverage/webhook.md) and an in-process fake built on
 `backend/__tests__/fakes/base.ts`, held to the shared conformance suite.
 
 ## Sandboxes
