@@ -941,7 +941,11 @@ async function step(
       inputTokens: answer.usage.inputTokens ?? null,
       outputTokens: answer.usage.outputTokens ?? null,
       durationMs: answer.durationMs,
-      content: { text: answer.text, model: model.modelId },
+      content: {
+        text: answer.text,
+        model: model.modelId,
+        alias: bot.modelAlias,
+      },
     });
     for (const call of answer.calls) {
       const def = getTool(call.toolName);

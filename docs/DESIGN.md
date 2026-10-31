@@ -152,7 +152,7 @@ for screen readers with what it waits on. `hibernating` is the normal rest state
   it whenever `bot` is set and has no prop to hide it; nothing outside the kit draws an avatar. A bot without an
   uploaded image is a monogram on `--accent-subtle` in a rounded square — never a person-like default, and never
   the circle a person gets.
-- **Platform chips.** `Slack`, `Linear`, `Pylon`, and `API`, as text in a neutral chip. No logos: text is legible in
+- **Platform chips.** `Slack`, `Linear`, `Pylon`, `API`, `Webhook`, and `Dashboard` (the `web` chat), as text in a neutral chip. No logos: text is legible in
   both themes and carries no trademark to get wrong.
 - **Social card.** A shared link unfurls with `frontend/public/social.png`, named by `index.html`'s Open Graph and
   Twitter tags: the mark, the home page's headline and the tagline, and its triangle, on the dark theme so it holds
@@ -253,6 +253,12 @@ A **log, not a chat**. Its source is `conversation_entries`: every message, mode
   platform's own permissions decide who may answer. The dashboard never offers a button that would bypass them.
 - **Errors** are tinted `--status-error` and say what to do next.
 - **It follows.** The view sticks to the bottom while the reader is at the bottom, and stays put when they scroll up.
+- **The chat view** is a second fold of the same entries (`components/chat/model.ts`): people's messages as bubbles
+  on the right (`--accent-subtle`), the bot's on the left with its avatar and badge, and every tool call, model step,
+  prompt change, and thought between them folded into one *Worked through N steps* line that opens the transcript
+  there. On the dashboard's own platform (`web`), the question and approval cards carry live buttons — the dashboard
+  *is* where that conversation lives — gated by the conversation's `standing`. The live surface (status line,
+  dashed provisional bubble, plan) sits under the last line.
 
 ### 2. The bot page
 

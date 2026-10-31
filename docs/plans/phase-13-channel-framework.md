@@ -636,8 +636,8 @@ by button, and approves a call in-channel under the `participants` policy.
 | The fake-platform base, the webhook fake, the conformance suite | `backend/__tests__/fakes/{base,webhook/server}.ts`, `backend/__tests__/channels/conformance.ts` |
 | The coverage matrix and its test | [`docs/coverage/webhook.md`](../coverage/webhook.md), `backend/__tests__/docs/coverage.test.ts` |
 | CLI 2.8.0 | `cli/src/commands/{installation,channel,help-request,platform-log}.ts`; `conversation create --web [--fresh]`; `conversation follow` streams on a terminal; `bot edit --auto-bind` and the rate limits |
-| Dashboard | FRONTEND_ROW |
-| Proof | `backend/__tests__/channels/{processing,conformance-webhook,ingress,binding,outbox,escalation,rate-limit,web}.test.ts`, `__tests__/security/no-installation-secrets.test.ts`, `__tests__/cli/channel-commands.test.ts`, FRONTEND_TESTS |
+| Dashboard | the Chat (`pages/bots/ChatPage.tsx`, `/chat`, the fold in `components/chat/model.ts`), the conversation page's Chat / Transcript toggle and participant names, the bot's Channels and Listening sections, the Help inbox (`/help`), Events (`/events`); `web` and `webhook` platform chips in `design/states.ts` |
+| Proof | `backend/__tests__/channels/{processing,conformance-webhook,ingress,binding,outbox,escalation,rate-limit,web}.test.ts`, `__tests__/security/no-installation-secrets.test.ts`, `__tests__/cli/channel-commands.test.ts`, `frontend/src/__tests__/{chat,channels}.test.ts`, `frontend/e2e/chat.spec.ts`; the `chat`, `bot-channels`, and `help` illustrations |
 
 ### Decisions the plan left open, and where the build differs
 
@@ -697,11 +697,19 @@ by button, and approves a call in-channel under the `participants` policy.
   prompt), and the help inbox is `hypotenuse help-request …`, keeping `help` meaning help. The CLI's client stopped
   reading a string `error` field on a 2xx answer (a failed probe) as an error envelope.
 
+- **Each assistant step records its model alias** (`content.alias`) beside the model id, for the Chat's
+  diagnostics; `conversation:list` gained `channelType` and `mine`, so the Chat finds a member's newest dashboard
+  chat on the server.
+- **A turn's plan spans a question.** Answering a question resumes the same turn (same epoch), so the plan shown
+  while it then waits on an approval still lists the `ask_question` step. That is the turn as it happened.
+
 ### Traps found while building
 
 - **Concurrent suites share `hypotenuse_test`.** Two agents running tests at once truncated each other's tables and
   produced unrelated failures. Point one at its own database and Redis index (`DATABASE_URL_TEST`,
   `REDIS_URL_TEST`), or use `bun run workspace:setup` in a worktree.
 - **`rows.at(-1)` on an unordered select** read the wrong audit row. Every "newest row" read in a test orders.
+- **Playwright needs `PLAYWRIGHT_CHROMIUM_PATH`** in the cloud container (the headless shell under
+  `/opt/pw-browsers/`) for the browser suite to find its build.
 - **A fake's request log includes the installation's probe** from `beforeAll`: count `deliveries` (which skip the
   `ping`), not raw requests.

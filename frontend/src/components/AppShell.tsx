@@ -13,6 +13,7 @@ import {
   COMMANDS,
   type Command,
   type CommandContext,
+  chatCommands,
   commandDeniedReason,
 } from "../commands/registry";
 import { useAuth } from "../context/AuthContext";
@@ -98,17 +99,19 @@ function usePendingInviteCount(
 }
 
 /**
- * How many tool calls wait for approval in the active project, among the
- * bots the person may read — `approval:list`'s total for one row. Re-read when
- * the project or the page changes, and when a notification arrives, since a
- * new approval notifies whoever may decide it.
+ * How many of something wait on a person in the active project — tool calls
+ * for approval, requests for help — among the bots the person may read: a
+ * list's `total` for one row. Re-read when the project or the page changes,
+ * and when a notification arrives, since a new one notifies whoever may act.
  * @param projectId - The active project, or null.
- * @param pathname - The current route, so deciding one and leaving re-reads.
+ * @param route - The list beneath the project, e.g. `approvals`.
+ * @param pathname - The current route, so acting on one and leaving re-reads.
  * @param unread - The unread notification count, as a re-read trigger.
  * @returns The count, zero while unknown.
  */
-function usePendingApprovalCount(
+function usePendingCount(
   projectId: number | null,
+  route: "approvals" | "help",
   pathname: string,
   unread: number,
 ): number {
@@ -121,7 +124,7 @@ function usePendingApprovalCount(
     }
     let cancelled = false;
     apiFetch<{ pagination: { total: number } }>(
-      `/project/${projectId}/approvals?status=pending&limit=1`,
+      `/project/${projectId}/${route}?status=pending&limit=1`,
     )
       .then((res) => {
         if (!cancelled) setCount(res.pagination.total);
@@ -132,8 +135,37 @@ function usePendingApprovalCount(
     return () => {
       cancelled = true;
     };
-  }, [projectId, pathname, unread]);
+  }, [projectId, route, pathname, unread]);
   return count;
+}
+
+/**
+ * The active project's bots, for the palette's "Chat with …" commands: read
+ * when the palette opens, so a closed palette costs nothing.
+ * @param projectId - The project, or null while there is nothing to read.
+ * @returns The bots, empty while unknown.
+ */
+function useChatBots(
+  projectId: number | null,
+): { id: number; name: string; slug: string }[] {
+  const [bots, setBots] = useState<
+    { id: number; name: string; slug: string }[]
+  >([]);
+  useEffect(() => {
+    if (projectId === null) return;
+    let cancelled = false;
+    apiFetch<{ bots: { id: number; name: string; slug: string }[] }>(
+      `/project/${projectId}/bots?limit=100`,
+    )
+      .then((res) => {
+        if (!cancelled) setBots(res.bots);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId]);
+  return bots;
 }
 
 /**
@@ -153,14 +185,21 @@ export function AppShell() {
   const { may, reason } = useMay();
   const pendingInvites = usePendingInviteCount(auth.user?.id ?? null, pathname);
   const { unreadCount } = useNotifications();
-  const pendingApprovals = usePendingApprovalCount(
+  const pendingApprovals = usePendingCount(
     auth.user ? auth.activeProjectId : null,
+    "approvals",
+    pathname,
+    unreadCount,
+  );
+  const pendingHelp = usePendingCount(
+    auth.user ? auth.activeProjectId : null,
+    "help",
     pathname,
     unreadCount,
   );
   const counts = useMemo(
-    () => ({ approvals: pendingApprovals }),
-    [pendingApprovals],
+    () => ({ approvals: pendingApprovals, help: pendingHelp }),
+    [pendingApprovals, pendingHelp],
   );
 
   const data: ShellData = useMemo(
@@ -194,6 +233,7 @@ export function AppShell() {
       // Anyone signed in may start an organization.
       newOrganizationDenied: auth.user ? undefined : NOT_SIGNED_IN,
       auditLogDenied: reason("audit:list"),
+      eventsDenied: reason("trigger-event:list"),
       organizationAuditDenied: reason("organization:audit-list"),
       pendingInvites,
     }),
@@ -242,6 +282,14 @@ export function AppShell() {
     [navigate, setPreference, toggleSidebar, may, reason, pathname],
   );
   const commands = useMemo(() => availableCommands(COMMANDS, ctx), [ctx]);
+  const chatBots = useChatBots(
+    auth.user && paletteOpen ? auth.activeProjectId : null,
+  );
+  // The palette also offers a chat with each bot; the keymap never does.
+  const paletteCommands = useMemo(
+    () => [...commands, ...chatCommands(chatBots)],
+    [commands, chatBots],
+  );
   const deniedReason = useCallback(
     (command: Command) => commandDeniedReason(command, ctx),
     [ctx],
@@ -341,7 +389,7 @@ export function AppShell() {
       <CommandPalette
         open={paletteOpen}
         onOpenChange={setPaletteOpen}
-        commands={commands}
+        commands={paletteCommands}
         onRun={run}
         deniedReason={deniedReason}
       />

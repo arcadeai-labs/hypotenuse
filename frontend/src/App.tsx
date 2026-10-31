@@ -24,6 +24,8 @@ import { ApprovalsPage } from "./pages/approvals/ApprovalsPage";
 import { BotPage } from "./pages/bots/BotPage";
 import { BotPromptPage } from "./pages/bots/BotPromptPage";
 import { BotsPage } from "./pages/bots/BotsPage";
+import { ChatIndexPage } from "./pages/bots/ChatIndexPage";
+import { ChatPage } from "./pages/bots/ChatPage";
 import { ConversationPage } from "./pages/bots/ConversationPage";
 import { ConversationsPage } from "./pages/bots/ConversationsPage";
 import { NewBotPage } from "./pages/bots/NewBotPage";
@@ -31,6 +33,9 @@ import { CliActivatePage } from "./pages/cli/CliActivatePage";
 import { CliAuthorizePage } from "./pages/cli/CliAuthorizePage";
 import { DocsLayout } from "./pages/docs/DocsLayout";
 import { DocsPage } from "./pages/docs/DocsPage";
+import { EventsPage } from "./pages/EventsPage";
+import { HelpInboxPage } from "./pages/help/HelpInboxPage";
+import { HelpRequestPage } from "./pages/help/HelpRequestPage";
 import { InvitesPage } from "./pages/InvitesPage";
 import { HomePage } from "./pages/marketing/HomePage";
 import { MemoryDocumentPage } from "./pages/memory/MemoryDocumentPage";
@@ -102,6 +107,13 @@ export function App() {
                     path="/approvals/:approvalId"
                     element={<ApprovalPage />}
                   />
+                  <Route path="/events" element={<EventsPage />} />
+                  <Route path="/help" element={<HelpInboxPage />} />
+                  <Route
+                    path="/help/:helpRequestId"
+                    element={<HelpRequestPage />}
+                  />
+                  <Route path="/chat" element={<ChatIndexPage />} />
                   <Route path="/bots" element={<BotsPage />} />
                   <Route path="/bots/new" element={<NewBotPage />} />
                   <Route path="/bots/:botId" element={<BotPage />} />
@@ -109,6 +121,7 @@ export function App() {
                     path="/bots/:botId/prompt"
                     element={<BotPromptPage />}
                   />
+                  <Route path="/bots/:botId/chat" element={<ChatPage />} />
                   <Route
                     path="/bots/:botId/conversations"
                     element={<ConversationsPage />}

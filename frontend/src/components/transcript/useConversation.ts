@@ -4,6 +4,7 @@ import {
   useLiveReconnect,
 } from "../../context/LiveSocketContext";
 import { apiFetch } from "../../utils/client";
+import type { LiveSurface } from "../chat/model";
 import {
   type ConversationViewResponse,
   type Entry,
@@ -20,6 +21,12 @@ export interface ConversationState {
   view: ConversationViewResponse | null;
   /** Every entry read so far, in seq order. */
   entries: Entry[];
+  /**
+   * What the bot is showing while it works — its status line, the text it is
+   * writing, and its plan — read with the entries, or `null` before the
+   * first read (or when it could not be read).
+   */
+  live: LiveSurface | null;
   /** Why the conversation could not be read, or `null`. */
   error: string | null;
   /** Whether the first read has finished, either way. */
@@ -39,7 +46,8 @@ interface EntriesPage {
  * transcript over HTTP, then follows the content-free
  * `project:<id>:conversation:<id>` channel: every frame means "something
  * changed", so the page re-reads the view and the entries `since` the newest
- * seq it holds. A reconnect re-reads the same way, so a frame missed while
+ * seq it holds, and `conversation:live` with them, so streamed text and the
+ * status line arrive on the same pings. A reconnect re-reads the same way, so a frame missed while
  * the socket was down costs nothing. Reads never overlap: a frame that
  * arrives mid-read asks for one more read after it.
  * @param projectId - The project, or `null`.
@@ -52,6 +60,7 @@ export function useConversation(
 ): ConversationState {
   const [view, setView] = useState<ConversationViewResponse | null>(null);
   const [entries, setEntries] = useState<Entry[]>([]);
+  const [live, setLive] = useState<LiveSurface | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
   const held = useRef<Entry[]>([]);
@@ -87,9 +96,14 @@ export function useConversation(
           if (page.entries.length < ENTRY_PAGE) break;
           since = lastSeqOf(page.entries, since);
         }
+        // The live surface is progress: a failure to read it never fails the page.
+        const surface = await apiFetch<{ live: LiveSurface }>(`${base}/live`)
+          .then((res) => res.live)
+          .catch(() => null);
         if (target.current !== key) return;
         held.current = mergeEntries(held.current, incoming);
         setEntries(held.current);
+        setLive(surface);
         setView(next);
         setError(null);
       } while (again.current);
@@ -109,6 +123,7 @@ export function useConversation(
     busy.current = false;
     again.current = false;
     setEntries([]);
+    setLive(null);
     setView(null);
     setError(null);
     setLoaded(false);
@@ -125,5 +140,5 @@ export function useConversation(
     read();
   });
 
-  return { view, entries, error, loaded, refresh: read };
+  return { view, entries, live, error, loaded, refresh: read };
 }

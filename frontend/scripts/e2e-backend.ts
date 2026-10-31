@@ -22,7 +22,8 @@
  * likewise: a spec connects one through the settings page by the address its
  * control port answers. A second scripted model, on `MCP_MODEL_CONTROL_PORT`,
  * is that spec's own, so its bot's answers never meet the conversations
- * spec's on the shared queue.
+ * spec's on the shared queue; a third, on `CHAT_MODEL_CONTROL_PORT`, is the
+ * chat spec's.
  */
 import { join } from "node:path";
 import { SQL } from "bun";
@@ -84,6 +85,19 @@ const mcpModel = Bun.spawn(
   },
 );
 
+const chatModel = Bun.spawn(
+  ["bun", "__tests__/fixtures/model-server-process.ts"],
+  {
+    cwd: backendDir,
+    env: {
+      ...process.env,
+      MODEL_SERVER_CONTROL_PORT: process.env.CHAT_MODEL_CONTROL_PORT,
+    },
+    stdout: "inherit",
+    stderr: "inherit",
+  },
+);
+
 const mcp = Bun.spawn(["bun", "__tests__/fixtures/mcp-server-process.ts"], {
   cwd: backendDir,
   env: process.env,
@@ -103,6 +117,7 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
     model.kill(signal);
     mcp.kill(signal);
     mcpModel.kill(signal);
+    chatModel.kill(signal);
     server.kill(signal);
   });
 }
@@ -111,4 +126,5 @@ mail.kill();
 model.kill();
 mcp.kill();
 mcpModel.kill();
+chatModel.kill();
 process.exit(code);

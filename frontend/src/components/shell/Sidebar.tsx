@@ -128,6 +128,7 @@ export function Sidebar({
         activeProjectId={data.activeProjectId}
         onSelect={actions.selectProject}
         auditLogDenied={actions.auditLogDenied}
+        eventsDenied={actions.eventsDenied}
         onNavigate={onNavigate}
       />
       <div className="shell-nav">{main.map(link)}</div>

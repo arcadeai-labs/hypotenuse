@@ -323,3 +323,35 @@ const driver = (): ConformanceDriver => ({
 describe("the web platform conforms", () => {
   conformance("web", driver);
 });
+
+describe("finding a member's chats", () => {
+  test("conversation:list filters by channel type and by who started it", async () => {
+    stage.models.script("ok");
+    const mine = await startConversation(stage, "Mine.", {
+      channelType: "web",
+    });
+    await startConversation(
+      stage,
+      "Theirs.",
+      { channelType: "web" },
+      stage.u.mario,
+    );
+    await startConversation(stage, "Over the API.");
+    const res = await call<{
+      conversations: { id: number; createdByUserId: number }[];
+    }>(
+      stage.u.url,
+      stage.u.peach,
+      "GET",
+      `/project/${stage.u.projectId}/conversations?channelType=web&mine=true&limit=100`,
+    );
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    const ids = res.body.conversations.map((c) => c.id);
+    expect(ids).toContain(mine.body.conversation.id);
+    expect(
+      res.body.conversations.every(
+        (c) => c.createdByUserId === stage.u.peach.userId,
+      ),
+    ).toBe(true);
+  });
+});

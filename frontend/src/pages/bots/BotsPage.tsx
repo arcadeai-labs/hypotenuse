@@ -1,6 +1,6 @@
 import type { BotList } from "@backend/actions/bot/bot-list";
 import type { ActionResponse } from "keryx";
-import { Plus } from "lucide-react";
+import { MessageCircle, Plus } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { useModelAliases, useRead } from "../../components/bots/data";
 import { MissingAliasesBanner } from "../../components/bots/MissingAliasesBanner";
@@ -16,8 +16,9 @@ import { API_URL } from "../../utils/client";
 /**
  * `/bots` — the active project's bots that the person may read: each with its
  * avatar and bot badge, what it is for, the model names it uses, and whether
- * it is enabled. A bot whose read list leaves the person out is not here at
- * all; the server leaves it out of the answer.
+ * it is enabled, with a Chat link beside each row. A bot whose read list
+ * leaves the person out is not here at all; the server leaves it out of the
+ * answer.
  *
  * While the project lacks a required model name, a banner says no bot can
  * run yet.
@@ -34,6 +35,7 @@ export function BotsPage() {
   );
   const aliases = useModelAliases(activeProjectId);
   const createDenied = reason("bot:create");
+  const chatDenied = reason("conversation:create");
 
   return (
     <ListLayout
@@ -99,43 +101,57 @@ export function BotsPage() {
                 data-testid="bot-list"
               >
                 {bots.data.bots.map((bot) => (
-                  <ListRow
-                    key={bot.id}
-                    as={Link}
-                    to={`/bots/${bot.id}`}
-                    data-testid={`bot-row-${bot.slug}`}
-                    title={
-                      <span className="bot-row-title">
-                        <Avatar
-                          name={bot.name}
-                          src={botAvatarSrc(API_URL, bot.avatarUrl)}
-                          bot
-                          size={20}
-                        />
-                        {bot.description && (
-                          <span className="bot-row-description">
-                            {bot.description}
-                          </span>
-                        )}
-                      </span>
-                    }
-                    trailing={
-                      <>
-                        <Chip title="Main model name">
-                          <span className="mono">{bot.modelAlias}</span>
-                        </Chip>
-                        <Chip title="Fast model name">
-                          <span className="mono">{bot.fastModelAlias}</span>
-                        </Chip>
-                        <Chip
-                          tone={bot.enabled ? "accent" : "subtle"}
-                          data-testid={`bot-enabled-${bot.slug}`}
-                        >
-                          {bot.enabled ? "Enabled" : "Disabled"}
-                        </Chip>
-                      </>
-                    }
-                  />
+                  <div key={bot.id} className="bot-row-with-action">
+                    <ListRow
+                      as={Link}
+                      to={`/bots/${bot.id}`}
+                      data-testid={`bot-row-${bot.slug}`}
+                      title={
+                        <span className="bot-row-title">
+                          <Avatar
+                            name={bot.name}
+                            src={botAvatarSrc(API_URL, bot.avatarUrl)}
+                            bot
+                            size={20}
+                          />
+                          {bot.description && (
+                            <span className="bot-row-description">
+                              {bot.description}
+                            </span>
+                          )}
+                        </span>
+                      }
+                      trailing={
+                        <>
+                          <Chip title="Main model name">
+                            <span className="mono">{bot.modelAlias}</span>
+                          </Chip>
+                          <Chip title="Fast model name">
+                            <span className="mono">{bot.fastModelAlias}</span>
+                          </Chip>
+                          <Chip
+                            tone={bot.enabled ? "accent" : "subtle"}
+                            data-testid={`bot-enabled-${bot.slug}`}
+                          >
+                            {bot.enabled ? "Enabled" : "Disabled"}
+                          </Chip>
+                        </>
+                      }
+                    />
+                    <Link
+                      to={`/bots/${bot.id}/chat`}
+                      className="bot-row-chat"
+                      aria-label={`Chat with ${bot.name}`}
+                      title={chatDenied ?? `Chat with ${bot.name}`}
+                      aria-disabled={chatDenied ? true : undefined}
+                      onClick={(e) => {
+                        if (chatDenied) e.preventDefault();
+                      }}
+                      data-testid={`bot-chat-${bot.slug}`}
+                    >
+                      <MessageCircle size={14} aria-hidden="true" /> Chat
+                    </Link>
+                  </div>
                 ))}
               </ListGroup>
             )}

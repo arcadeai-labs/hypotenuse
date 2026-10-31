@@ -1,4 +1,4 @@
-import { PLATFORM_LABELS, PLATFORMS } from "../../../../design/states";
+import { HEADLINE_PLATFORMS, PLATFORM_LABELS } from "../../../../design/states";
 import {
   Avatar,
   Card,
@@ -40,7 +40,7 @@ export function BotSummary({ bot }: { bot: BotProfile }) {
 
       <section className="bot-section">
         <h3 className="bot-section-title">Where it listens</h3>
-        {PLATFORMS.map((platform) => {
+        {HEADLINE_PLATFORMS.map((platform) => {
           const here = bot.bindings.filter((b) => b.platform === platform);
           return (
             <div key={platform} className="bot-binding-row">

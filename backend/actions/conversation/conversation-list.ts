@@ -1,4 +1,4 @@
-import { and, count, desc, eq, inArray } from "drizzle-orm";
+import { and, count, desc, eq, inArray, sql } from "drizzle-orm";
 import {
   type Action,
   type ActionParams,
@@ -30,7 +30,7 @@ import { CONVERSATION_STATES, conversations } from "../../schema/conversations";
 export class ConversationList implements Action {
   name = "conversation:list";
   description =
-    "List a project's conversations, most recently active first, with each one's bot, channel, state (working, hibernating, waiting, ended), and outcome. Only conversations with bots you may read are listed. Filter by botId or state. Requires membership. Paginated.";
+    "List a project's conversations, most recently active first, with each one's bot, channel, state (working, hibernating, waiting, ended), and outcome. Only conversations with bots you may read are listed. Filter by botId, state, channelType, or mine (conversations you started). Requires membership. Paginated.";
   middleware = [ProjectMemberMiddleware()];
   web = { route: "/project/:projectId/conversations", method: HTTP_METHOD.GET };
   inputs = paginationInputs({ defaultLimit: 25 }).extend({
@@ -40,6 +40,15 @@ export class ConversationList implements Action {
       .enum(CONVERSATION_STATES)
       .optional()
       .describe("Only conversations in this state"),
+    channelType: z
+      .string()
+      .trim()
+      .max(40)
+      .optional()
+      .describe(
+        "Only conversations in channels of this type, e.g. web (the dashboard chat), api, webhook",
+      ),
+    mine: z.stringbool().optional().describe("Only conversations you started"),
   });
 
   /**
@@ -63,6 +72,15 @@ export class ConversationList implements Action {
       inArray(conversations.botId, botIds),
       params.botId ? eq(conversations.botId, params.botId) : undefined,
       params.state ? eq(conversations.state, params.state) : undefined,
+      params.channelType
+        ? sql`exists (select 1 from channels c where c.id = ${conversations.channelId} and c.type = ${params.channelType})`
+        : undefined,
+      params.mine
+        ? eq(
+            conversations.createdByUserId,
+            connection.session?.data.userId ?? -1,
+          )
+        : undefined,
     );
     const result = await paginate(
       api.db.db

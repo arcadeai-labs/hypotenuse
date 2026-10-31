@@ -1,9 +1,11 @@
 import type { BotView } from "@backend/actions/bot/bot-view";
-import type { MembershipList } from "@backend/actions/membership/membership-list";
 import type { ActionResponse } from "keryx";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { useRead } from "../../components/bots/data";
+import { ChatPanel } from "../../components/chat/ChatPanel";
+import { conversationViewOf } from "../../components/chat/model";
+import { usePeople } from "../../components/chat/usePeople";
 import { GatedButton } from "../../components/GatedButton";
 import { LoadingLabel } from "../../components/LoadingLabel";
 import { DetailLayout } from "../../components/layouts/DetailLayout";
@@ -50,14 +52,14 @@ const ENDED = "This conversation has ended. Writing to it starts a new turn.";
  */
 export function ConversationPage() {
   const { conversationId } = useParams();
-  const { activeProjectId, user } = useAuth();
+  const { activeProjectId } = useAuth();
   const { reason } = useMay();
   const id = Number(conversationId);
-  const { view, entries, error, loaded, refresh } = useConversation(
+  const { view, entries, live, error, loaded, refresh } = useConversation(
     activeProjectId,
     Number.isSafeInteger(id) && id > 0 ? id : null,
   );
-  const [search] = useSearchParams();
+  const [search, setSearch] = useSearchParams();
   const seqsParam = search.get("seqs");
   const highlight = useMemo(() => parseSeqs(seqsParam), [seqsParam]);
   const scrolledTo = useRef<string | null>(null);
@@ -69,21 +71,7 @@ export function ConversationPage() {
       ? `/project/${activeProjectId}/bot/${view.bot.id}`
       : null,
   );
-  const members = useRead<ActionResponse<MembershipList>>(
-    activeProjectId ? `/project/${activeProjectId}/members?limit=100` : null,
-  );
-
-  const personName = useCallback(
-    (userId: number | null) => {
-      if (userId === null) return "Someone";
-      if (userId === user?.id) return user.name;
-      return (
-        members.data?.memberships.find((m) => m.user.id === userId)?.user
-          .name ?? "A member"
-      );
-    },
-    [members.data, user],
-  );
+  const people = usePeople(activeProjectId, entries);
 
   const conversation = view?.conversation;
   const items = useMemo(
@@ -166,6 +154,7 @@ export function ConversationPage() {
   }
 
   const platform = platformOf(view.channel.type);
+  const shown = conversationViewOf(search.get("view"), view.channel.type);
   const status = conversationStatus(conversation);
   const stateLabel = conversationStateLabel(conversation);
   const cancelDenied =
@@ -261,7 +250,10 @@ export function ConversationPage() {
             </Property>
             <Property label="Channel">
               <span className="conversation-channel">
-                <PlatformChip platform={platform} />
+                <PlatformChip
+                  platform={platform}
+                  data-testid="conversation-channel-platform"
+                />
                 <span>{view.channel.name}</span>
               </span>
             </Property>
@@ -293,6 +285,29 @@ export function ConversationPage() {
         }
       >
         <div className="conversation-main">
+          <div
+            className="conversation-filters conversation-views"
+            role="group"
+            aria-label="View"
+          >
+            {(["chat", "transcript"] as const).map((v) => (
+              <button
+                key={v}
+                type="button"
+                className="conversation-filter"
+                aria-pressed={shown === v}
+                onClick={() => {
+                  const next = new URLSearchParams(search);
+                  next.set("view", v);
+                  if (v === "chat") next.delete("seqs");
+                  setSearch(next, { replace: true });
+                }}
+                data-testid={`conversation-view-${v}`}
+              >
+                {v === "chat" ? "Chat" : "Transcript"}
+              </button>
+            ))}
+          </div>
           {actionError && (
             <Alert
               variant="danger"
@@ -308,42 +323,55 @@ export function ConversationPage() {
               Could not refresh: {error}
             </Alert>
           )}
-          <TranscriptView
-            items={items}
-            speakers={{
-              botName: view.bot.name,
-              botAvatar,
-              platform,
-              personName,
-            }}
-            waitingOnAnswer={
-              conversation.state === "waiting" &&
-              conversation.waitingOn?.kind === "answer"
-            }
-            highlight={highlight}
-            codeRuns={codeRuns}
-          />
-          {conversation.state === "waiting" &&
-            conversation.waitingOn?.kind === "approval" && (
-              <ApprovalWait
-                projectId={activeProjectId}
-                approvalIds={conversation.waitingOn.approvalIds}
+          {shown === "chat" ? (
+            <ChatPanel
+              projectId={activeProjectId}
+              view={view}
+              entries={entries}
+              live={live}
+              refresh={refresh}
+              botAvatar={botAvatar}
+            />
+          ) : (
+            <>
+              <TranscriptView
+                items={items}
+                speakers={{
+                  botName: view.bot.name,
+                  botAvatar,
+                  platform,
+                  speakerName: people.speakerName,
+                }}
+                waitingOnAnswer={
+                  conversation.state === "waiting" &&
+                  conversation.waitingOn?.kind === "answer"
+                }
+                highlight={highlight}
+                codeRuns={codeRuns}
               />
-            )}
-          <Composer
-            onSend={onSend}
-            label="Send"
-            placeholder={`Write to ${view.bot.name}`}
-            deniedReason={messageDenied}
-            testId="conversation-composer"
-            hint={
-              conversation.state === "working"
-                ? `${view.bot.name} is working; it reads this before its next step.`
-                : conversation.state === "ended"
-                  ? "This conversation has ended; writing starts a new turn."
-                  : undefined
-            }
-          />
+              {conversation.state === "waiting" &&
+                conversation.waitingOn?.kind === "approval" && (
+                  <ApprovalWait
+                    projectId={activeProjectId}
+                    approvalIds={conversation.waitingOn.approvalIds}
+                  />
+                )}
+              <Composer
+                onSend={onSend}
+                label="Send"
+                placeholder={`Write to ${view.bot.name}`}
+                deniedReason={messageDenied}
+                testId="conversation-composer"
+                hint={
+                  conversation.state === "working"
+                    ? `${view.bot.name} is working; it reads this before its next step.`
+                    : conversation.state === "ended"
+                      ? "This conversation has ended; writing starts a new turn."
+                      : undefined
+                }
+              />
+            </>
+          )}
         </div>
       </DetailLayout>
     </div>

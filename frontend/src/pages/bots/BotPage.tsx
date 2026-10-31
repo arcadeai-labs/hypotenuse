@@ -1,12 +1,13 @@
 import type { BotView } from "@backend/actions/bot/bot-view";
 import type { ActionResponse } from "keryx";
-import { Brain, FileText, MessagesSquare } from "lucide-react";
+import { Brain, FileText, MessageCircle, MessagesSquare } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { AccessSection } from "../../components/bots/AccessSection";
 import { ApprovalSettingsSection } from "../../components/bots/ApprovalSettingsSection";
 import { BudgetSection } from "../../components/bots/BudgetSection";
 import { CallbackSecretSection } from "../../components/bots/CallbackSecretSection";
+import { ChannelsSection } from "../../components/bots/ChannelsSection";
 import { CodeSection } from "../../components/bots/CodeSection";
 import {
   type Bot,
@@ -16,6 +17,7 @@ import {
 } from "../../components/bots/data";
 import { GoalsSection } from "../../components/bots/GoalsSection";
 import { IdentitySection } from "../../components/bots/IdentitySection";
+import { ListeningSection } from "../../components/bots/ListeningSection";
 import { MemorySection } from "../../components/bots/MemorySection";
 import { MissingAliasesBanner } from "../../components/bots/MissingAliasesBanner";
 import { ModelSection } from "../../components/bots/ModelSection";
@@ -52,9 +54,10 @@ type Loaded =
  * `/bots/:botId` — one bot: who it is, which models it uses, who may read
  * and change it, its budget, the size of its prompt, its goals, its skills,
  * how fast its memory fades, its MCP servers and what runs without asking,
- * and who decides what waits, each section saving on its own; then the parts
- * of a bot this page does not configure yet, disabled. The properties panel
- * says the same at a glance, and the header links to its prompt, its
+ * who decides what waits, where it listens on platforms and how much it
+ * takes there, each section saving on its own; then the parts of a bot this
+ * page does not configure yet, disabled. The properties panel says the same
+ * at a glance, and the header opens its chat and links to its prompt, its
  * conversations, and its memory.
  *
  * Every control is gated twice, both by the server's word: `can()` on the
@@ -187,6 +190,15 @@ export function BotPage() {
         }
         actions={
           <>
+            <GatedButton
+              onClick={() => navigate(`/bots/${bot.id}/chat`)}
+              size="sm"
+              variant="primary"
+              deniedReason={reason("conversation:create")}
+              data-testid="bot-chat"
+            >
+              <MessageCircle size={14} aria-hidden="true" /> Chat
+            </GatedButton>
             <Button
               onClick={() => navigate(`/bots/${bot.id}/prompt`)}
               size="sm"
@@ -343,6 +355,12 @@ export function BotPage() {
           />
           <CodeSection {...sectionProps} />
           <ApprovalSettingsSection {...sectionProps} tags={tags} />
+          <ChannelsSection
+            projectId={activeProjectId}
+            bot={bot}
+            denied={botWriteDenied(reason("channel-binding:create"), standing)}
+          />
+          <ListeningSection {...sectionProps} />
           <CallbackSecretSection
             {...sectionProps}
             denied={botWriteDenied(

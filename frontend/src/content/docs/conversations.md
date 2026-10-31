@@ -1,7 +1,8 @@
 # Conversations
 
-A conversation is one thread of work between a bot and the people talking to it — today, a conversation started over
-the [HTTP API](/docs/talking-to-a-bot-over-the-api); later, a Slack thread, a Linear agent session, or a Pylon issue.
+A conversation is one thread of work between a bot and the people talking to it — a [chat](/docs/chat) in the
+dashboard, a thread on a [connected platform](/docs/channels), or a conversation started over the
+[HTTP API](/docs/talking-to-a-bot-over-the-api).
 Everything in it is kept: every message, everything the bot thought it should do, every tool it called and what came
 back. A bot holds nothing in memory between steps, so a conversation survives deploys and restarts mid-thought.
 
@@ -27,6 +28,18 @@ by replying, asking, pausing, completing, or failing. If it stops without doing 
 if it does it again, the turn fails with that reason rather than leaving you waiting on silence. A turn also fails
 when it takes more model steps than the bot allows (50 unless changed on the bot), and a bot whose monthly budget is
 spent takes no more steps that month.
+
+## Chat and transcript
+
+Every conversation's page has two views, switched at the top:
+
+- **Chat** — what people and the bot said, as bubbles: the bot's questions and approvals as cards you answer in
+  place, and the work between messages folded into one *Worked through N steps* line. See [Chat](/docs/chat).
+- **Transcript** — everything, in order: every tool call, model step, and change of state.
+
+A dashboard chat opens as a chat; any other conversation opens as its transcript. The panel beside both names the
+platform the conversation lives on and its channel. A message from a platform carries the name the person has
+there.
 
 ## Reading a transcript
 

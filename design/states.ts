@@ -142,9 +142,28 @@ export const CONVERSATION_STATUS_ORDER: readonly ConversationStatusKey[] = [
   "ended:complete",
 ];
 
-/** The platforms a conversation can live on. `api` is the HTTP API channel. */
-export const PLATFORMS = ["slack", "linear", "pylon", "api"] as const;
+/**
+ * The platforms a conversation can live on. `api` is the HTTP API channel,
+ * `webhook` the generic signed-JSON platform, and `web` the dashboard's own
+ * chat.
+ */
+export const PLATFORMS = [
+  "slack",
+  "linear",
+  "pylon",
+  "api",
+  "webhook",
+  "web",
+] as const;
 export type Platform = (typeof PLATFORMS)[number];
+
+/** The platforms the public pages name: where a team already works, and the API. */
+export const HEADLINE_PLATFORMS: readonly Platform[] = [
+  "slack",
+  "linear",
+  "pylon",
+  "api",
+];
 
 /** How each platform is written in a chip: as text, never a logo. */
 export const PLATFORM_LABELS: Record<Platform, string> = {
@@ -152,4 +171,6 @@ export const PLATFORM_LABELS: Record<Platform, string> = {
   linear: "Linear",
   pylon: "Pylon",
   api: "API",
+  webhook: "Webhook",
+  web: "Dashboard",
 };

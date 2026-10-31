@@ -37,6 +37,8 @@ export type TranscriptItem =
       seq: number;
       text: string;
       userId: number | null;
+      /** The platform participant who wrote it, when it came from a platform. */
+      participantId: number | null;
       createdAt: number;
     }
   | {
@@ -384,6 +386,7 @@ export function buildTranscript(
             seq: entry.seq,
             text: body,
             userId: entry.userId,
+            participantId: entry.participantId,
             createdAt: entry.createdAt,
           });
         } else if (body.trim()) {
@@ -561,8 +564,9 @@ export function conversationStateLabel(
 }
 
 /**
- * The platform chip for a channel type. A type the kit does not draw yet is
- * shown as the API, which is the only channel that exists today.
+ * The platform chip for a channel type: `web` is the dashboard chat and
+ * `webhook` the generic signed-JSON platform. A type the kit does not draw
+ * yet is shown as the API.
  * @param type - The channel's `type`.
  * @returns The platform.
  */
