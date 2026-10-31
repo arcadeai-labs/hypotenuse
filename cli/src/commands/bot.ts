@@ -55,6 +55,9 @@ interface Bot {
   };
   enabled: boolean;
   hasCallbackSecret?: boolean;
+  autoBind?: { public: boolean; private: boolean; dm: boolean };
+  participantRateLimit?: number;
+  channelRateLimit?: number;
   createdAt: number;
   updatedAt: number;
   standing?: { canWrite: boolean };
@@ -104,6 +107,40 @@ export interface BotFlags {
   codeLimits?: boolean;
   enable?: boolean;
   disable?: boolean;
+  /** `bot edit` only: the kinds of channel it binds itself in, comma-separated. */
+  autoBind?: string;
+  /** `bot edit` only: messages a minute one platform person may send it. */
+  participantRateLimit?: string;
+  /** `bot edit` only: messages a minute one channel may send it. */
+  channelRateLimit?: string;
+}
+
+/** The kinds of channel a bot may bind itself in when invited. */
+export const AUTO_BIND_KINDS = ["public", "private", "dm"] as const;
+
+/**
+ * Parse `--auto-bind`: the kinds of channel a bot binds itself in, from
+ * {@link AUTO_BIND_KINDS}; `""` or `none` is none of them.
+ * @param raw - What the person typed, e.g. `public,dm`.
+ * @returns A value for every kind.
+ * @throws {Error} For a kind that is not one of them.
+ */
+export function parseAutoBind(
+  raw: string,
+): Record<(typeof AUTO_BIND_KINDS)[number], boolean> {
+  const kinds = raw.trim() === "none" ? [] : parseList(raw);
+  for (const kind of kinds) {
+    if (!(AUTO_BIND_KINDS as readonly string[]).includes(kind)) {
+      throw new Error(
+        `--auto-bind takes ${AUTO_BIND_KINDS.join(", ")} (comma-separated), or none; got "${kind}".`,
+      );
+    }
+  }
+  return {
+    public: kinds.includes("public"),
+    private: kinds.includes("private"),
+    dm: kinds.includes("dm"),
+  };
 }
 
 /**
@@ -310,6 +347,21 @@ export function botBody(flags: BotFlags): Record<string, unknown> {
   }
   if (flags.enable) body.enabled = true;
   if (flags.disable) body.enabled = false;
+  if (flags.autoBind !== undefined) {
+    body.autoBind = parseAutoBind(flags.autoBind);
+  }
+  if (flags.participantRateLimit !== undefined) {
+    body.participantRateLimit = parseNumber(
+      flags.participantRateLimit,
+      "--participant-rate-limit",
+    );
+  }
+  if (flags.channelRateLimit !== undefined) {
+    body.channelRateLimit = parseNumber(
+      flags.channelRateLimit,
+      "--channel-rate-limit",
+    );
+  }
   return body;
 }
 
@@ -378,6 +430,11 @@ function botDetail(bot: Bot, canWrite: boolean): string {
     `code          ${codeText(bot)}`,
     `half-life     ${bot.memoryChannelHalfLifeDays ?? 30} days channel memory, ${bot.memoryProjectHalfLifeDays ?? 180} days project memory`,
     `callbacks     ${bot.hasCallbackSecret ? "signed (secret set)" : "no secret yet"}`,
+    ...(bot.autoBind
+      ? [
+          `auto-binds    ${AUTO_BIND_KINDS.filter((k) => bot.autoBind?.[k]).join(", ") || "nowhere"}; at most ${bot.participantRateLimit ?? "-"} messages a minute a person, ${bot.channelRateLimit ?? "-"} a channel`,
+        ]
+      : []),
     `avatar        ${bot.avatarUrl ? "yes" : "-"}`,
     `you can       ${canWrite ? "read and change it" : "read it"}`,
     `created       ${when(bot.createdAt)}`,
@@ -483,7 +540,19 @@ export function registerBotCommands(program: Command): void {
       .description("Change a bot; only the flags given change")
       .argument("<bot>", "id or slug")
       .option("--name <name>", "a new name")
-      .option("--no-avatar", "remove the avatar"),
+      .option("--no-avatar", "remove the avatar")
+      .option(
+        "--auto-bind <kinds>",
+        `the channels it starts listening in by itself when invited: ${AUTO_BIND_KINDS.join(", ")} (comma-separated), or none`,
+      )
+      .option(
+        "--participant-rate-limit <n>",
+        "the most messages a minute one platform person may send it",
+      )
+      .option(
+        "--channel-rate-limit <n>",
+        "the most messages a minute one channel may send it",
+      ),
   ).action(async function (this: Command, selector: string) {
     await runCommand(this, async (ctx) => {
       const body = botBody(this.opts() as BotFlags);

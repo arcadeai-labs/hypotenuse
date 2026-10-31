@@ -2,12 +2,13 @@ import { type Action, config } from "keryx";
 import { z } from "zod";
 // Type-only, purely for the `declare module "keryx"` augmentation inside.
 import type {} from "../../config/agents";
-import { deliverOutboxMessage, dueOutboxIds } from "../../ops/OutboxOps";
+import type {} from "../../config/platforms";
+import { deliverConversation, dueConversationIds } from "../../ops/OutboxOps";
 
 /**
- * `outbox:deliver-due` — attempt every outbox row that is due: never tried,
- * backed off long enough, or stuck past its claim. A clock: task-only, never
- * an HTTP route, and not audited.
+ * `outbox:deliver-due` — deliver every conversation with a due outbox row,
+ * a few conversations at a time, each in order under its own lease. A clock:
+ * task-only, never an HTTP route, and not audited.
  */
 export class OutboxDeliverDue implements Action {
   name = "outbox:deliver-due";
@@ -19,12 +20,21 @@ export class OutboxDeliverDue implements Action {
 
   /** @returns How many rows were attempted, by outcome. */
   async run() {
-    const ids = await dueOutboxIds(config.agents.sweepBatchSize);
+    const ids = await dueConversationIds(config.agents.sweepBatchSize);
     const outcomes: Record<string, number> = {};
-    for (const id of ids) {
-      const outcome = await deliverOutboxMessage(id);
-      outcomes[outcome] = (outcomes[outcome] ?? 0) + 1;
+    let attempted = 0;
+    const width = Math.max(1, config.platforms.deliverConcurrency);
+    for (let i = 0; i < ids.length; i += width) {
+      const batch = await Promise.all(
+        ids.slice(i, i + width).map((id) => deliverConversation(id)),
+      );
+      for (const b of batch) {
+        for (const o of b.outcomes) {
+          attempted++;
+          outcomes[o] = (outcomes[o] ?? 0) + 1;
+        }
+      }
     }
-    return { attempted: ids.length, outcomes };
+    return { conversations: ids.length, attempted, outcomes };
   }
 }

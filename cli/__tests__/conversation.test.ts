@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   type Entry,
   formatEntry,
+  LiveBlock,
   statusText,
 } from "../src/commands/conversation";
 
@@ -185,5 +186,32 @@ describe("statusText", () => {
         statusText({ state: "ended", waitingOn: null, outcome: "cancelled" }),
       ),
     ).toContain("Cancelled");
+  });
+});
+
+describe("LiveBlock", () => {
+  test("draws text, redraws it in place as it grows, and erases it", () => {
+    const block = new LiveBlock();
+    expect(block.draw("bot: Hel", 80)).toBe("bot: Hel");
+    // The same text again writes nothing.
+    expect(block.draw("bot: Hel", 80)).toBe("");
+    // One row: back to its start and clear, then the longer text.
+    expect(block.draw("bot: Hello", 80)).toBe("\r\x1b[Jbot: Hello");
+    expect(block.clear()).toBe("\r\x1b[J");
+    // Nothing drawn, nothing to erase.
+    expect(block.clear()).toBe("");
+  });
+
+  test("a block of several rows moves up over all of them, wrapped lines included", () => {
+    const block = new LiveBlock();
+    // Two lines, the second wrapping onto a third row at width 10.
+    block.draw("first\n0123456789abc", 10);
+    expect(block.clear()).toBe("\x1b[2A\r\x1b[J");
+  });
+
+  test("color does not count toward a row's width", () => {
+    const block = new LiveBlock();
+    block.draw("\x1b[2m0123456789\x1b[0m", 10);
+    expect(block.clear()).toBe("\r\x1b[J");
   });
 });

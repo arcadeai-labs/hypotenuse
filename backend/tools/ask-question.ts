@@ -57,6 +57,7 @@ export const askQuestion: ToolDefinition<
       kind: "question",
       text: args.question,
       ...(args.options?.length ? { options: args.options } : {}),
+      questionEntryId: ctx.intentEntryId,
     },
   }),
   available: () => true,

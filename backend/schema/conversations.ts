@@ -129,7 +129,10 @@ export const conversations = pgTable(
       .$onUpdateFn(() => new Date()),
   },
   (t) => [
-    uniqueIndex("conversations_channel_external_idx").on(
+    // Two bots bound to one channel each hold their own conversation for
+    // the same thread.
+    uniqueIndex("conversations_bot_channel_external_idx").on(
+      t.botId,
       t.channelId,
       t.externalConversationKey,
     ),

@@ -98,6 +98,7 @@ export function serializeConversation(c: Conversation) {
     cancelRequested: c.cancelRequestedAt !== null,
     lastSeq: c.lastSeq,
     hasCallback: c.callbackUrl !== null,
+    externalConversationKey: c.externalConversationKey,
     requestId: c.requestId,
     createdByUserId: c.createdByUserId,
     lastActivityAt: c.lastActivityAt.getTime(),
@@ -118,6 +119,8 @@ export function serializeChannel(ch: Channel) {
     type: ch.type,
     name: ch.name,
     botId: ch.botId,
+    externalId: ch.externalId,
+    isPrivate: ch.isPrivate,
     createdAt: ch.createdAt.getTime(),
   };
 }
@@ -379,6 +382,8 @@ export async function receiveMessage(
     deliveryKey?: string;
     source: InboxSource;
     userId?: number | null;
+    participantId?: number | null;
+    metadata?: Record<string, unknown>;
   },
 ): Promise<InboundResult> {
   const deliveryKey = message.deliveryKey ?? randomUUID();
@@ -390,7 +395,9 @@ export async function receiveMessage(
       delivery: message.delivery,
       source: message.source,
       userId: message.userId ?? null,
+      participantId: message.participantId ?? null,
       text: message.text,
+      metadata: message.metadata ?? {},
     })
     .onConflictDoNothing()
     .returning();
@@ -429,7 +436,7 @@ export async function receiveMessage(
 }
 
 /** Outbox kinds that are progress, not a final message: a cancel supersedes them. */
-export const NON_FINAL_OUTBOX_KINDS = ["status", "stream"];
+export const NON_FINAL_OUTBOX_KINDS = ["status", "stream", "plan"];
 
 /** What a cancel request did. */
 export type CancelResult =

@@ -145,6 +145,15 @@ one approval per interruption, the continuation sealed and signed with the proje
 and a resume that replays the same program and runs each approved call once; crash recovery reporting the journal;
 the three primer tiers; `code-run:list` / `view`, the transcript's program rows, the bot's Code card,
 `hypotenuse code-run`; and a self-test the production image runs at build.
+**[Phase 13](./phase-13-channel-framework.md) is built**: the platform contract and registry (`backend/platforms/`)
+with three surfaces — the API's signed callback, the dashboard's `web` chat, and the generic signed `webhook`
+platform; `bot_installations` (routing keys hashed, credentials sealed), platform `channels`, `channel_bindings` with
+`autoBind` and approval policies, `participants`, and `trigger_events`; byte-identical ingress, the processing rules,
+interactions, and in-channel approvals audited as a participant; the interactive surface (status, streamed text,
+plan, questions, approvals) on a generalized outbox delivered in order per conversation; `conversation:live`;
+`escalate_to_human` and the help inbox; rate limits per participant and channel; the fake-platform base, the
+conformance suite, and the first coverage matrix; the Chat, the Channels section, the Help inbox, and Events; and the
+`installation`, `channel`, `binding`, `help-request`, `participant`, and `event` commands.
 No other phase is built; every later plan's **Learnings from the
 build** section reads "Not built yet." until its phase lands.
 
@@ -171,7 +180,8 @@ build** section reads "Not built yet." until its phase lands.
 | Models | A bot names aliases, never keys or model ids; `default` and `fast` are required; `ModelOps.languageModel` is the only way to a model, and every provider fetches through the SSRF guard |
 | Bot access | Member-level CRUD gated per bot by `accessRead` / `accessWrite`; an unreadable bot is the same 404 as a missing one; a non-admin cannot save a list that locks them out |
 | Talking to a bot | `canReadBot` is enough to start, write in, read, and cancel its conversations over the API, as a platform channel asks no more |
-| Testing a bot | The dashboard is a platform (planned in [13](./phase-13-channel-framework.md#11-the-web-platform-the-dashboard-chat)): members chat with a bot in its `web` channels and see the interactive surface with every capability |
+| Testing a bot | The dashboard is a platform ([13](./phase-13-channel-framework.md#11-the-web-platform-the-dashboard-chat)): members chat with a bot in its `web` channels — a shared `dashboard` one, or a fresh scratch one — and see the interactive surface with every capability |
+| Platforms | Adapters in `backend/platforms/` behind one contract; one app per bot per workspace; a binding is where a bot listens and the audience decision; `autoBind` on for public channels only; in-channel approvals only under a binding's `participants` or `listed` policy |
 | The loop | Rows are the orchestration state; ticks claim a 90 s lease by conditional update and re-check it under the row lock on every write; intents commit before tools run; a terminal tool's effect commits with its result; 8 steps or 60 s per tick, 50 steps per turn by default |
 | API callbacks | Signed with a per-bot secret shown once (`t=…,v1=` HMAC-SHA256), retried for a day with the outbox row id as the delivery id |
 | Memory scopes | Channel memory is per bot per channel; project memory is shared. A bot never changes project memory: a person promotes into it (`canWriteBot` + admin), audited |

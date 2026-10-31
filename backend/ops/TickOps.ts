@@ -8,10 +8,22 @@ import {
   type ToolSet,
   tool,
 } from "ai";
-import { and, asc, desc, eq, isNotNull, isNull, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  inArray,
+  isNotNull,
+  isNull,
+  sql,
+} from "drizzle-orm";
 import { api, config } from "keryx";
 // Type-only, purely for the `declare module "keryx"` augmentation inside.
 import type {} from "../config/agents";
+import type {} from "../config/platforms";
+import { surfaceAdapter } from "../platforms/registry";
+import { approvals } from "../schema/approvals";
 import type { Bot } from "../schema/bots";
 import { channels } from "../schema/channels";
 import { conversationEntries } from "../schema/conversation_entries";
@@ -21,6 +33,7 @@ import {
   conversations,
   type WaitingOn,
 } from "../schema/conversations";
+import { outboxMessages } from "../schema/outbox_messages";
 import { availableTools, getTool } from "../tools/registry";
 import {
   isSuspension,
@@ -55,7 +68,7 @@ import { budgetExceeded, recordStepCost, reportedCostUsd } from "./CostOps";
 import type { TxHandle } from "./DbOps";
 import { languageModel, type ResolvedLanguageModel } from "./ModelOps";
 import { HostRefused } from "./NetworkGuardOps";
-import { enqueueDeliveries, queueOutbound } from "./OutboxOps";
+import { enqueueDelivery } from "./OutboxOps";
 import {
   type AssembledPrompt,
   assemblePrompt,
@@ -64,6 +77,13 @@ import {
   type SectionRef,
 } from "./PromptOps";
 import { expandInvocation } from "./SkillOps";
+import {
+  emitApprovals,
+  emitOutbound,
+  emitPlan,
+  emitStatus,
+  emitStream,
+} from "./SurfaceOps";
 import {
   appendEntries,
   type EntryDraft,
@@ -184,7 +204,7 @@ export async function runTick(conversationId: number): Promise<TickResult> {
     throw error;
   } finally {
     clearInterval(heartbeat);
-    await enqueueDeliveries(state.outbox);
+    if (state.outbox.length > 0) await enqueueDelivery([conversationId]);
     await pingConversation(state.projectId, conversationId);
     await consolidateIfOwed(conversationId);
   }
@@ -393,6 +413,7 @@ async function loop(state: TickState): Promise<TickResult["ended"]> {
     }
 
     const prepared = await asHolder(state, async (tx, conversation, bot) => {
+      const startingTurn = conversation.turnBoundary;
       await deliverInbox(tx, conversation);
       const [fresh] = await tx
         .select()
@@ -406,6 +427,10 @@ async function loop(state: TickState): Promise<TickResult["ended"]> {
           `The turn took ${fresh.stepsThisTurn} model steps without ending, the most this bot allows (${bot.maxStepsPerTurn}). Ask again, more narrowly, or raise the bot's step limit.`,
         );
         return null;
+      }
+      if (startingTurn) {
+        const row = await emitStatus(tx, fresh, "Thinking…");
+        if (row) state.outbox.push(row.id);
       }
       return { conversation: fresh, bot };
     });
@@ -672,6 +697,15 @@ async function parkForApprovals(
       ),
     ]);
     for (const p of parked) await p.suspension?.onPark?.(tx);
+    if (fresh.length > 0) {
+      const rows = await tx
+        .select()
+        .from(approvals)
+        .where(inArray(approvals.id, fresh))
+        .orderBy(asc(approvals.id));
+      const written = await emitApprovals(tx, conversation, rows);
+      state.outbox.push(...written.map((r) => r.id));
+    }
     const approvalIds = [
       ...parked.flatMap((p) => (p.approvalId ? [p.approvalId] : [])),
       ...parked.flatMap((p) => p.suspension?.approvalIds ?? []),
@@ -853,7 +887,17 @@ async function step(
     state.lastSections = last.sections;
   }
 
-  const answer = await callModel(state, model, prompt, messages, tools);
+  const streaming = Boolean(
+    channel && surfaceAdapter(channel.type)?.capabilities.streaming,
+  );
+  const answer = await callModel(
+    state,
+    model,
+    prompt,
+    messages,
+    tools,
+    streaming ? conversation : null,
+  );
   if (typeof answer === "string") {
     await asHolder(state, (tx, conv) => failTurn(tx, state, conv, answer));
     return "released";
@@ -932,6 +976,19 @@ async function step(
       })
       .where(eq(conversations.id, conv.id))
       .returning();
+    // The committed message replaces the step's partial text.
+    await tx
+      .update(outboxMessages)
+      .set({ status: "superseded" })
+      .where(
+        and(
+          eq(outboxMessages.conversationId, conv.id),
+          eq(outboxMessages.kind, "stream"),
+          sql`${outboxMessages.status} in ('pending', 'failed')`,
+        ),
+      );
+    const plan = await emitPlan(tx, updated);
+    if (plan) state.outbox.push(plan.id);
     return {
       conversation: updated,
       intents: written.filter((e) => e.kind === "tool_call_intent"),
@@ -1031,6 +1088,8 @@ export function contextUpdateContent(
  * @param prompt - The system prompt.
  * @param messages - The hydrated messages.
  * @param tools - The tools offered.
+ * @param streamTo - The conversation to write `stream` rows for, when its
+ *   surface shows partial text; `null` otherwise.
  * @returns The answer, or a sentence saying why the turn must fail.
  */
 async function callModel(
@@ -1039,6 +1098,7 @@ async function callModel(
   prompt: string,
   messages: ReturnType<typeof hydrate>,
   tools: ToolDefinition[],
+  streamTo: Conversation | null,
 ): Promise<ModelAnswer | string> {
   const toolSet: ToolSet = {};
   for (const t of tools) {
@@ -1049,9 +1109,22 @@ async function callModel(
   }
   const attempts = Math.max(1, config.agents.modelAttempts);
   let lastError: unknown;
+  // Stream rows are written in order, off the model's hot path.
+  let streamed = false;
+  let writes: Promise<unknown> = Promise.resolve();
+  const writeStream = (text: string) => {
+    if (!streamTo) return;
+    streamed = true;
+    writes = writes.then(async () => {
+      const row = await emitStream(streamTo, text);
+      if (row) state.outbox.push(row.id);
+    });
+  };
   for (let attempt = 1; attempt <= attempts; attempt++) {
     throwIfStopped(state);
     const started = Date.now();
+    // A dropped attempt's partial text is replaced by the retry's.
+    if (attempt > 1 && streamed) writeStream("");
     try {
       const result = streamText({
         model: model.model,
@@ -1075,15 +1148,27 @@ async function callModel(
           : {}),
       });
       let lastPing = 0;
+      let soFar = "";
+      let written = "";
       for await (const part of result.fullStream) {
         if (part.type === "error") throw part.error;
         if (part.type === "abort") throwIfStopped(state);
-        if (part.type === "text-delta" && Date.now() - lastPing > 250) {
-          // The stream sink: a content-free ping. The stored entry is the reply.
-          lastPing = Date.now();
-          void pingConversation(state.projectId, state.conversationId);
+        if (part.type === "text-delta") {
+          soFar += part.text;
+          if (Date.now() - lastPing > config.platforms.streamCoalesceMs) {
+            // The stream sink: the text so far in a `stream` row, then a
+            // content-free ping. The stored entry is the reply.
+            lastPing = Date.now();
+            written = soFar;
+            writeStream(soFar);
+            void writes.then(() =>
+              pingConversation(state.projectId, state.conversationId),
+            );
+          }
         }
       }
+      if (soFar && soFar !== written) writeStream(soFar);
+      await writes;
       throwIfStopped(state);
       const [text, reasoning, toolCalls, usage, providerMetadata] =
         await Promise.all([
@@ -1266,6 +1351,11 @@ async function runCalls(
     const input = (intent.content as { input?: unknown }).input;
     const { conversation, bot } = await readConversation(state);
     if (conversation.cancelRequestedAt) throw new CancelRequested();
+    const label = def ? toolStatus(def.name, input) : null;
+    if (label) {
+      const row = await emitStatus(api.db.db, conversation, label);
+      if (row) state.outbox.push(row.id);
+    }
     const output = def
       ? await invoke(def, input, toolContext(state, conversation, bot, intent))
       : toolErrorEnvelope(
@@ -1439,6 +1529,7 @@ async function applyTransition(
   transition: Transition,
   seq: number,
 ): Promise<"continue" | "released"> {
+  if (transition.to === "working") return "continue";
   if (transition.outbound) {
     await post(tx, state, conversation, seq, transition.outbound);
   }
@@ -1584,7 +1675,7 @@ async function post(
   seq: number,
   outbound: Outbound,
 ): Promise<void> {
-  const row = await queueOutbound(tx, conversation, seq, outbound);
+  const row = await emitOutbound(tx, conversation, seq, outbound);
   if (row) state.outbox.push(row.id);
 }
 
@@ -1670,4 +1761,27 @@ async function cancelNow(state: TickState): Promise<void> {
   } catch (error) {
     if (!(error instanceof LeaseLost)) throw error;
   }
+}
+
+/**
+ * The status line a tool call shows while it runs, for the tools slow
+ * enough to be worth one; `null` for the rest.
+ * @param name - The tool.
+ * @param input - Its input.
+ * @returns The line, or `null`.
+ */
+export function toolStatus(name: string, input: unknown): string | null {
+  const i = (input ?? {}) as Record<string, unknown>;
+  if (name.startsWith("memory_")) return "Searching memory…";
+  if (name === "search_history") return "Reading the history…";
+  if (name === "mcp_search" || name === "mcp_list_tools" || name === "mcp_info")
+    return "Looking for tools…";
+  if (name === "mcp_exec") {
+    return typeof i.server === "string" && typeof i.tool === "string"
+      ? `Running ${i.server}/${i.tool}…`
+      : "Running a tool…";
+  }
+  if (name === "run_code") return "Running code…";
+  if (name === "escalate_to_human") return "Asking a person on the team…";
+  return null;
 }

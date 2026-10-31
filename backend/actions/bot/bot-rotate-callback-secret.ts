@@ -15,8 +15,8 @@ import {
 } from "../../ops/BotOps";
 import { encryptSecret } from "../../ops/CryptoOps";
 import { idInput } from "../../ops/InputOps";
-import { generateCallbackSecret } from "../../ops/OutboxOps";
 import { botPersona } from "../../ops/PromptSectionOps";
+import { generateCallbackSecret } from "../../ops/SignatureOps";
 import { bots } from "../../schema/bots";
 
 /**

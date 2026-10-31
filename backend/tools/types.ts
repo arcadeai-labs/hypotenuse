@@ -41,6 +41,8 @@ export interface Outbound {
   text: string;
   /** Choices offered with a question. */
   options?: string[];
+  /** A question's intent entry, which an answer button targets. */
+  questionEntryId?: number;
 }
 
 /**
@@ -59,7 +61,9 @@ export type Transition =
       to: "waiting";
       waitingOn: WaitingOn;
       outbound?: Outbound;
-    };
+    }
+  /** The call does not end the turn after all (a non-blocking escalation). */
+  | { to: "working" };
 
 /**
  * One tool. `inputSchema` is what the model is shown and what every call is

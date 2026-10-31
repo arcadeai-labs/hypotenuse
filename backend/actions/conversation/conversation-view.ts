@@ -12,6 +12,7 @@ import {
   type RbacConnectionMeta,
 } from "../../middleware/rbac";
 import type { SessionImpl } from "../../middleware/session";
+import { canDecide } from "../../ops/ApprovalOps";
 import {
   loadReadableConversation,
   serializeChannel,
@@ -28,7 +29,7 @@ import { channels } from "../../schema/channels";
 export class ConversationView implements Action {
   name = "conversation:view";
   description =
-    "Get one conversation: its state (working, hibernating, waiting — with what it waits on — or ended, with its outcome), its bot and channel, and lastSeq, the newest transcript entry. Read the transcript with conversation:entries. Requires membership and read access to the bot.";
+    "Get one conversation: its state (working, hibernating, waiting — with what it waits on — or ended, with its outcome), its bot and channel, and lastSeq, the newest transcript entry. Its standing says whether you may answer its question (canAnswer) and decide its approvals (canDecideApprovals). Read the transcript with conversation:entries. Requires membership and read access to the bot.";
   middleware = [ProjectMemberMiddleware()];
   web = {
     route: "/project/:projectId/conversation/:conversationId",
@@ -69,10 +70,14 @@ export class ConversationView implements Action {
         displayName: bot.displayName,
       },
       channel: serializeChannel(channel),
-      // Anyone who may talk to the bot may also stop it.
+      // Anyone who may talk to the bot may also stop it, and answer it.
       standing: {
         canMessage: true,
         canCancel: conversation.state !== "ended",
+        canAnswer:
+          conversation.state === "waiting" &&
+          conversation.waitingOn?.kind === "answer",
+        canDecideApprovals: canDecide(bot, callerTags),
       },
     };
   }

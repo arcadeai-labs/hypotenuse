@@ -88,9 +88,15 @@ invites), and `audit list`.
 | `hypotenuse goal list --bot`, `goal view <goal>`, `goal add --bot --title`, `goal edit <goal>`, `goal remove <goal> --yes` | A bot's [goals](/docs/goals): what it works toward, at what priority, and how often it reviews them |
 | `hypotenuse skill list [--bot]`, `skill view <skill>`, `skill versions <skill>`, `skill add <name>`, `skill edit <skill>`, `skill remove <skill> --yes` | The project's [skills](/docs/skills), or with `--bot` the ones a bot has |
 | `hypotenuse skill attach <skill> --bot [--pin]`, `skill detach <skill> --bot` | Let a bot use a skill — at its latest version, or pinned to one — or take it away |
+| `hypotenuse installation manifest --bot`, `installation connect --bot --delivery-url`, `installation test <id>`, `installation list --bot`, `installation view <id>`, `installation disconnect <id> --yes` | A bot's platform apps: get the events URL the platform delivers to, connect its credentials, check it works, and disconnect it. See **Platforms and channels from the command line** below |
+| `hypotenuse channel list [--bot]`, `channel view <id>` | The platform channels the project's bots hear from, and how each bot is bound there |
+| `hypotenuse binding list --bot`, `binding create --bot --channel`, `binding edit <id>`, `binding delete <id> --yes` | Where a bot listens: bind it to a channel, change how it listens, or unbind it. Changing needs write access to the bot |
+| `hypotenuse help-request list`, `help-request view <id>`, `help-request answer <id> --text`, `help-request cancel <id>` | The help inbox: questions bots escalated to the team, and your answers. See **The help inbox from the command line** below |
+| `hypotenuse participant list`, `participant view <id>` | The people on platforms who have written to the project's bots (`--type`, `--query` narrow the list) |
+| `hypotenuse event list`, `event view <id>` | Every platform delivery the bots received and what became of it — answered, ignored because the channel is unbound, rate-limited (`--status`, `--outcome`, `--installation` narrow the list). Admins only |
 | `hypotenuse approval list`, `approval view <id>`, `approval approve <id>`, `approval deny <id>` | Tool calls bots are waiting on ([approvals](/docs/approvals)): list them (`--status pending`, `--bot`, `--conversation` narrow it), read one, and decide it. See **Approvals from the command line** below |
 | `hypotenuse large-result view <lr_id>` | A tool result too long to show in a transcript, which the transcript names `lr_<id>`: a page at a time (`--offset`, `--limit`) or `--all` |
-| `hypotenuse conversation create --bot --text`, `conversation message <id> --text` | Start a conversation with a bot, or send one a message. See **Talking to a bot** below |
+| `hypotenuse conversation create --bot --text [--web [--fresh]]`, `conversation message <id> --text` | Start a conversation with a bot — over the API, or with `--web` in its dashboard chat — or send one a message. See **Talking to a bot** below |
 | `hypotenuse conversation list`, `conversation view <id>`, `conversation follow <id>`, `conversation cancel <id>` | The conversations with bots you can read (`--bot`, `--state` narrow the list); one conversation's state; its transcript as the bot works; stopping it |
 | `hypotenuse memory search <query>`, `memory list`, `memory view <path>`, `memory versions <path>`, `memory channels --bot` | Search what bots [remember](/docs/memory) the way a bot does, list documents with how much each has faded, read one (`--version-id` for an earlier version) and its history, and list the channels a bot remembers. See **Memory from the command line** below |
 | `hypotenuse memory write <path> --text`, `memory forget <path>`, `memory pin <path>`, `memory promote <path> --bot --channel`, `memory reindex` | Correct or add a memory, forget one, pin one so it never fades (`--unpin` to undo), copy a bot's channel memory into project memory, and re-embed after the embedding model changes |
@@ -101,11 +107,11 @@ invites), and `audit list`.
 milliseconds, or a span back from now (`7d`, `12h`, `30m`); `--action tag:edit`, `--actor-type user`, and
 `--target-type tag` narrow it further.
 
-Deleting an organization, a project, a bot, an MCP server, a prompt section, a goal, or a skill asks for `--yes`
-before it runs.
+Deleting an organization, a project, a bot, an MCP server, a prompt section, a goal, a skill, or a binding, and
+disconnecting an installation, asks for `--yes` before it runs.
 
 A model connection or an MCP server is named by its id or its name, a bot by its id or its slug, an alias by its
-name, a channel and an approval by their ids.
+name, and a channel, an installation, a binding, a help request, and an approval by their ids.
 
 ### API keys
 
@@ -162,6 +168,11 @@ hypotenuse bot edit ada --disable
   only be lower than the deployment's; together they replace the bot's limits, and `--no-code-limits` goes back to
   the deployment's.
 - `--enable` and `--disable` decide whether the bot accepts new conversations.
+- `bot edit --auto-bind <kinds>` sets where the bot starts listening by itself when it is invited to a platform
+  channel: any of `public`, `private`, and `dm`, comma-separated, or `none`. A private channel or a DM it does not
+  bind itself in waits for a person to bind it.
+- `bot edit --participant-rate-limit <n>` and `--channel-rate-limit <n>` cap the messages a minute one platform
+  person, or one channel, may send the bot; past that it ignores them for the rest of the minute.
 
 `bot edit` changes only what its flags name.
 
@@ -197,6 +208,66 @@ hypotenuse bot tools list ada
   `server/*`, `*/tool`, a bare tool name, or `/regex/`) names calls that run without asking and replaces the list;
   `--no-allow` clears it, so every call asks. `--auto-allow-read-only` lets tools the server marks read-only run
   without asking.
+
+### Platforms and channels from the command line
+
+A bot reaches a platform through its own app there — an installation. Get the manifest, create the app on the
+platform with it, then connect the credentials the platform shows:
+
+```bash
+hypotenuse installation manifest --bot ada
+echo "$WEBHOOK_SECRET" | hypotenuse installation connect --bot ada --delivery-url https://hooks.example.com/ada --signing-secret-stdin
+hypotenuse installation test 3
+hypotenuse channel list --bot ada
+hypotenuse binding create --bot ada --channel 17
+hypotenuse binding create --bot ada --channel 18 --confirm-audience
+hypotenuse binding edit 5 --mode all --approval-policy participants
+```
+
+- `installation manifest` prints the **events URL** the platform delivers to. It is shown once: copy it then.
+  Asking for the manifest again before connecting mints a new URL, and the old one stops working. `--type` names the
+  platform (`webhook` unless you say otherwise) and `--workspace` the platform workspace the app is for.
+- `installation connect` makes the installation active. The signing secret comes from `--signing-secret-stdin`,
+  `--signing-secret-env <NAME>`, or a hidden prompt on a terminal — never from the command line — and is never
+  shown again. `--delivery-url` is where the bot's messages are sent; `--bot-user-id` is the bot's own id on the
+  platform, so it never answers itself.
+- `installation test` checks the platform answers with those credentials and exits non-zero when it does not.
+  `installation disconnect --yes` forgets the credentials and stops the platform's deliveries; the bot's channels,
+  bindings, and conversations stay.
+- A channel appears once the bot hears from it. `channel list --bot` shows each one with the bot's binding, or
+  `unbound`.
+- `binding create` lets the bot listen in a channel. Everyone who can read the bot in Hypotenuse can then read that
+  channel's conversations with it and its memory, so a **private** channel is refused without `--confirm-audience`,
+  and a channel shared with another organization without `--allow-shared`.
+- A binding's settings, on `create` and `edit`: `--mode mentions|all|dm` (only messages that address the bot, every
+  message, or a direct message); `--delivery steer|queue` (a message reaches a working bot before its next step, or
+  after its turn); `--approval-policy dashboard|participants|listed` (who may decide the bot's approvals from inside
+  the channel: nobody, anyone there, or the platform users named with `--approver <id>`, repeatable);
+  `--allow-promotion` (facts from the channel may be promoted to project memory). `edit` also takes
+  `--no-approvers`, `--no-allow-promotion`, `--no-allow-shared`, and `--enable` / `--disable`, and changes only what
+  its flags name.
+
+`participant list` shows who on each platform has written to the bots, and `event list` (admins) every delivery
+with what became of it; `event view <id>` prints one as it was received.
+
+### The help inbox from the command line
+
+When nobody in a conversation can answer a bot, it asks the team. Read and answer those questions:
+
+```bash
+hypotenuse help-request list --status pending
+hypotenuse help-request view 4
+hypotenuse help-request answer 4 --text "Yes — refund it, the customer was double-charged"
+hypotenuse help-request cancel 5
+```
+
+- `answer` sends the bot a message, "Answer from <your name>: …", and it carries on. `--text -` reads the answer
+  from standard input. The people the bot asks (holders of its help tag, or the admins) and anyone who can change
+  the bot may answer; `list` and `view` say whether you can.
+- `cancel` withdraws a request nobody needs to answer, and the bot carries on without it. It needs write access to
+  the bot.
+- The command is `help-request`, so that `help` keeps meaning help: `hypotenuse <command> --help` shows any
+  command's options.
 
 ### Approvals from the command line
 
@@ -257,20 +328,25 @@ skill's name. Someone in a conversation runs it with `/release-notes v2.1`.
 
 ### Talking to a bot
 
-A conversation started from the command line lives in the bot's API channel. Start one, and follow the bot as it
-works:
+A conversation started from the command line lives in the bot's API channel, or with `--web` in its dashboard
+chat. Start one, and follow the bot as it works:
 
 ```bash
 hypotenuse conversation create --bot ada --text "Why did invoice 1042 go out twice?" --follow
 hypotenuse conversation message 12 --text "It was the March run" --follow
 git diff | hypotenuse conversation create --bot ada --text - --title "Review this diff"
+hypotenuse conversation create --bot ada --web --fresh --text "Try this without what you remember" --follow
 ```
 
 - `--follow` (or `conversation follow <id>` later) prints the transcript — what you and the bot said, one line per
   tool call, and each change of state — and keeps polling until the bot stops working. Then it prints where the
   conversation rests: hibernating until someone writes, waiting for an answer, or ended. It exits non-zero when the
-  conversation failed. `follow --since <seq>` skips what you have read.
+  conversation failed. `follow --since <seq>` skips what you have read. On a terminal it also shows the bot's text as
+  it is written, replaced by the finished message; piped or `--json` output has only the finished lines.
 - `--text -` reads the message from standard input.
+- `--web` starts the conversation in the bot's dashboard chat, where it shows in the dashboard as it streams;
+  `--web --fresh` starts it in a new scratch channel whose memory is empty. A dashboard chat takes no `--channel`
+  and no `--callback-url`.
 - `--channel <key>` picks one of the bot's API channels; a channel is the boundary of what the bot remembers, and the
   default is `default`.
 - `--request-id <id>` makes a retry safe: the same id again returns the first result instead of acting twice.

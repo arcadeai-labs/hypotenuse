@@ -18,6 +18,10 @@ const server = Bun.serve({
         return Response.json({ thing: { id: 1 } });
       case "/api/error-on-200":
         return Response.json({ error: { message: "nope", type: "X" } });
+      case "/api/probe-failed":
+        return Response.json({ ok: false, error: "HTTP 500" });
+      case "/api/string-error":
+        return Response.json({ error: "gone" }, { status: 410 });
       case "/api/forbidden":
         return Response.json(
           { error: { message: "not a member", type: "Y" } },
@@ -37,6 +41,26 @@ afterAll(() => {
 });
 
 describe("ApiClient", () => {
+  test("a 200 whose own `error` field is a string is an answer, not an error", async () => {
+    const body = await new ApiClient(origin).request<{
+      ok: boolean;
+      error: string;
+    }>("GET", "/probe-failed");
+    expect(body).toEqual({ ok: false, error: "HTTP 500" });
+  });
+
+  test("a string error on a failed status is still an error", async () => {
+    const error = await new ApiClient(origin)
+      .request("GET", "/string-error")
+      .then(
+        () => {
+          throw new Error("expected a failure");
+        },
+        (e: ApiError) => e,
+      );
+    expect(error).toMatchObject({ message: "gone", status: 410 });
+  });
+
   test("a 200 carrying an error envelope is an error", async () => {
     const client = new ApiClient(origin);
     const error = await client.request("GET", "/error-on-200").then(
