@@ -1,7 +1,9 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { sql } from "drizzle-orm";
 import { api } from "keryx";
+import { openContinuation } from "../../ops/code/continuation";
 import { runTicks, startConversation } from "../agent/harness";
+import { codeRunsOf, codeStep } from "../code/harness";
 import {
   addServer,
   bindServer,
@@ -16,7 +18,8 @@ import { call, cookieHeader, HOOK_TIMEOUT } from "../setup";
 /**
  * No MCP credential leaves the server: not in any answer, not in the
  * transcript, not in an audit row, an approval, a notification, or a stored
- * result — even when a tool echoes the request's headers back.
+ * result — even when a tool echoes the request's headers back. Nor does a
+ * code-mode continuation, which carries a program's settled results.
  */
 const HEADER_SECRET = "hdr-secret-9f8e7d6c5b4a";
 const BEARER_SECRET = "bearer-secret-1a2b3c4d5e";
@@ -124,5 +127,64 @@ describe("no MCP credential leaves the server", () => {
       sql.raw("select row_to_json(t)::text as j from mcp_servers t"),
     );
     clean("mcp_servers (sealed)", JSON.stringify(servers.rows));
+  });
+});
+
+describe("no code-mode continuation leaves the server", () => {
+  test("a paused program's continuation is in no answer, entry, or row but its own sealed column", async () => {
+    stage.models.reset();
+    stage.models.play([
+      codeStep(
+        'await mcp.info("gateway", "echo_headers"); await mcp.info("gateway", "send_email"); const h = await mcp.exec("gateway", "echo_headers"); await mcp.exec("gateway", "send_email", { to: "toad", subject: "x" }); return h;',
+      ),
+    ]);
+    const id = (await startConversation(stage, "Program")).body.conversation.id;
+    await runTicks();
+    const [run] = await codeRunsOf(id);
+    expect(run.status).toBe("interrupted");
+    const token = openContinuation(
+      run.continuation as NonNullable<typeof run.continuation>,
+    ) as string;
+    // The token's payload (base64 of the source and the echoed headers) and
+    // its signature are what must not leak.
+    const [payload, signature] = token.split(".");
+    expect(payload.length).toBeGreaterThan(100);
+    const leaks = (label: string, text: string) => {
+      expect(text.includes(signature), label).toBe(false);
+      expect(text.includes(payload.slice(0, 64)), label).toBe(false);
+      clean(label, text);
+    };
+    const p = `/project/${stage.u.projectId}`;
+    for (const path of [
+      `${p}/conversation/${id}/entries?limit=100`,
+      `${p}/conversation/${id}/code-runs`,
+      `${p}/code-run/${run.id}`,
+      `${p}/approvals`,
+      `${p}/audit`,
+    ]) {
+      const res = await fetch(`${stage.u.url}/api${path}`, {
+        headers: cookieHeader(stage.u.peach.sessionId),
+      });
+      expect(res.status, path).toBe(200);
+      const body = await res.text();
+      expect(body.includes('"continuation"'), path).toBe(false);
+      leaks(path, body);
+    }
+    for (const table of [
+      "conversation_entries",
+      "audit_logs",
+      "approvals",
+      "notifications",
+    ]) {
+      const rows = await api.db.db.execute(
+        sql.raw(`select row_to_json(t)::text as j from ${table} t`),
+      );
+      leaks(table, JSON.stringify(rows.rows));
+    }
+    // The run's journal carries sizes, never payloads.
+    const runs = await api.db.db.execute(
+      sql.raw("select host_calls::text as j, output::text as o from code_runs"),
+    );
+    leaks("code_runs journal", JSON.stringify(runs.rows));
   });
 });

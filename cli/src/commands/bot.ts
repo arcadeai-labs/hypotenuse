@@ -47,6 +47,12 @@ interface Bot {
   memoryProjectHalfLifeDays?: number;
   promptBudgetTokens?: number;
   maxAgentSections?: number;
+  codeModeEnabled?: boolean;
+  codeLimits?: {
+    timeoutMs?: number;
+    memoryBytes?: number;
+    bridgeRequests?: number;
+  };
   enabled: boolean;
   hasCallbackSecret?: boolean;
   createdAt: number;
@@ -86,6 +92,16 @@ export interface BotFlags {
   promptBudget?: string;
   /** How many prompt sections the bot may create itself. */
   maxAgentSections?: string;
+  /** `true` from `--code`, `false` from `--no-code`. */
+  code?: boolean;
+  /** Seconds one program may take. */
+  codeTimeout?: string;
+  /** MiB of memory one program may use. */
+  codeMemory?: string;
+  /** Host calls one program may make. */
+  codeHostCalls?: string;
+  /** `false` from `--no-code-limits`: the deployment's limits again. */
+  codeLimits?: boolean;
   enable?: boolean;
   disable?: boolean;
 }
@@ -165,6 +181,24 @@ function withBotFlags(command: Command): Command {
     .option(
       "--max-agent-sections <n>",
       "how many prompt sections the bot may create itself (0-50, default 10)",
+    )
+    .option("--code", "let the bot run programs (run_code; the default)")
+    .option("--no-code", "do not offer the bot run_code")
+    .option(
+      "--code-timeout <seconds>",
+      "seconds one program may take; may only lower the deployment's",
+    )
+    .option(
+      "--code-memory <MiB>",
+      "MiB of memory one program may use; may only lower the deployment's",
+    )
+    .option(
+      "--code-host-calls <n>",
+      "host calls one program may make; may only lower the deployment's",
+    )
+    .option(
+      "--no-code-limits",
+      "use the deployment's code limits again (the --code-* limit flags replace the bot's limits whole)",
     )
     .option("--enable", "accept new conversations")
     .option("--disable", "accept no new conversations");
@@ -247,9 +281,56 @@ export function botBody(flags: BotFlags): Record<string, unknown> {
       "--max-agent-sections",
     );
   }
+  if (flags.code !== undefined) body.codeModeEnabled = flags.code;
+  const limitFlags =
+    flags.codeTimeout !== undefined ||
+    flags.codeMemory !== undefined ||
+    flags.codeHostCalls !== undefined;
+  if (flags.codeLimits === false && limitFlags) {
+    throw new Error("Pass --no-code-limits or --code-* limits, not both.");
+  }
+  if (flags.codeLimits === false) body.codeLimits = {};
+  if (limitFlags) {
+    const limits: Record<string, number> = {};
+    if (flags.codeTimeout !== undefined) {
+      limits.timeoutMs =
+        parseNumber(flags.codeTimeout, "--code-timeout") * 1000;
+    }
+    if (flags.codeMemory !== undefined) {
+      limits.memoryBytes =
+        parseNumber(flags.codeMemory, "--code-memory") * 1024 * 1024;
+    }
+    if (flags.codeHostCalls !== undefined) {
+      limits.bridgeRequests = parseNumber(
+        flags.codeHostCalls,
+        "--code-host-calls",
+      );
+    }
+    body.codeLimits = limits;
+  }
   if (flags.enable) body.enabled = true;
   if (flags.disable) body.enabled = false;
   return body;
+}
+
+/**
+ * A bot's code mode as a person reads it.
+ * @param bot - The bot.
+ * @returns "off", or "on" with any limits of its own.
+ */
+export function codeText(
+  bot: Pick<Bot, "codeModeEnabled" | "codeLimits">,
+): string {
+  if (bot.codeModeEnabled === false) return "off";
+  const l = bot.codeLimits ?? {};
+  const own = [
+    l.timeoutMs !== undefined ? `${l.timeoutMs / 1000}s` : null,
+    l.memoryBytes !== undefined ? `${l.memoryBytes / (1024 * 1024)} MiB` : null,
+    l.bridgeRequests !== undefined ? `${l.bridgeRequests} host calls` : null,
+  ].filter(Boolean);
+  return own.length
+    ? `on (${own.join(", ")} per program)`
+    : "on (the deployment's limits)";
 }
 
 /**
@@ -294,6 +375,7 @@ function botDetail(bot: Bot, canWrite: boolean): string {
     `budget        ${bot.monthlyBudgetUsd == null ? "-" : `$${bot.monthlyBudgetUsd}/month`}`,
     `steps/turn    ${bot.maxStepsPerTurn ?? 50}`,
     `prompt        about ${bot.promptBudgetTokens ?? 8_000} tokens; it may add ${bot.maxAgentSections ?? 10} sections itself (\`hypotenuse prompt list --bot ${bot.slug}\`)`,
+    `code          ${codeText(bot)}`,
     `half-life     ${bot.memoryChannelHalfLifeDays ?? 30} days channel memory, ${bot.memoryProjectHalfLifeDays ?? 180} days project memory`,
     `callbacks     ${bot.hasCallbackSecret ? "signed (secret set)" : "no secret yet"}`,
     `avatar        ${bot.avatarUrl ? "yes" : "-"}`,

@@ -23,8 +23,10 @@ import {
 } from "../schema/conversations";
 import { availableTools, getTool } from "../tools/registry";
 import {
+  isSuspension,
   isToolErrorEnvelope,
   type Outbound,
+  type Suspension,
   type ToolContext,
   type ToolDefinition,
   ToolError,
@@ -87,6 +89,7 @@ import {
  * | `maxStepsPerTick` steps or `tickBudgetMs` used | yield: owe a tick, release, enqueue it |
  * | the turn used `bots.maxStepsPerTurn` steps | the turn fails, saying how many |
  * | a gated call waits for a person | the other calls' results written, then park on `approval` |
+ * | a program (`run_code`) paused on gated calls | the same: park on every approval of its batch |
  */
 
 /** This tick lost its lease: another tick owns the conversation now. */
@@ -431,11 +434,14 @@ async function recover(state: TickState): Promise<"continue" | "released"> {
   if (open.length === 0) return "continue";
   const rerun: typeof open = [];
   const gated: typeof open = [];
+  const resumable: typeof open = [];
   await asHolder(state, async (tx, conversation) => {
     const drafts: EntryDraft[] = [];
     for (const intent of open) {
       const tool = intent.toolName ? getTool(intent.toolName) : undefined;
-      if (tool?.gate) {
+      if (tool?.resume) {
+        resumable.push(intent);
+      } else if (tool?.gate) {
         gated.push(intent);
       } else if (tool && tool.replay === "safe" && intent.replay === "safe") {
         rerun.push(intent);
@@ -453,6 +459,27 @@ async function recover(state: TickState): Promise<"continue" | "released"> {
     const outcome = await decideGate(state, def, intent);
     const waiting = await settleGated(state, def, intent, outcome, true);
     if (waiting) parked.push(waiting);
+  }
+  // A call that paused partway (a program waiting on approvals) decides
+  // itself whether it goes on, waits again, or was interrupted.
+  for (const intent of resumable) {
+    const def = getTool(String(intent.toolName)) as ToolDefinition;
+    const input = (intent.content as { input?: unknown }).input;
+    const { conversation, bot } = await readConversation(state);
+    const output = await invoke(
+      def,
+      input,
+      toolContext(state, conversation, bot, intent),
+      "resume",
+    );
+    throwIfStopped(state);
+    if (isSuspension(output)) {
+      parked.push({ intent, suspension: output });
+      continue;
+    }
+    await asHolder(state, (tx, conv) =>
+      appendEntries(tx, conv.id, conv.epoch, [resultDraft(intent, output)]),
+    );
   }
   // As in `runCalls`: a step's terminal call runs after its other calls, so
   // a transition never parks the conversation with a call still open.
@@ -492,11 +519,15 @@ async function recover(state: TickState): Promise<"continue" | "released"> {
 /** Stands for "write an interrupted result" in {@link settleGated}. */
 const INTERRUPTED = Symbol("interrupted");
 
-/** A gated call waiting for a person: an approval on record, or one to write. */
+/**
+ * A call waiting for people: a gated call's approval on record or one to
+ * write, or a paused program's {@link Suspension} with its whole batch.
+ */
 interface Parked {
   intent: Awaited<ReturnType<typeof openIntents>>[number];
   approvalId?: number;
   draft?: ApprovalDraft;
+  suspension?: Suspension;
 }
 
 /**
@@ -629,16 +660,21 @@ async function parkForApprovals(
   parked: Parked[],
 ): Promise<void> {
   await asHolder(state, async (tx, conversation, bot) => {
-    const fresh = await insertApprovals(
-      tx,
-      conversation,
-      bot,
-      parked
+    const fresh = await insertApprovals(tx, conversation, bot, [
+      ...parked
         .filter((p) => p.draft)
         .map((p) => ({ draft: p.draft as ApprovalDraft, intent: p.intent })),
-    );
+      ...parked.flatMap((p) =>
+        (p.suspension?.drafts ?? []).map((draft) => ({
+          draft,
+          intent: p.intent,
+        })),
+      ),
+    ]);
+    for (const p of parked) await p.suspension?.onPark?.(tx);
     const approvalIds = [
       ...parked.flatMap((p) => (p.approvalId ? [p.approvalId] : [])),
+      ...parked.flatMap((p) => p.suspension?.approvalIds ?? []),
       ...fresh,
     ];
     await park(tx, state, conversation, { kind: "approval", approvalIds });
@@ -1172,9 +1208,10 @@ async function nudgeOrFail(state: TickState): Promise<"continue" | "released"> {
  * **Run the calls** of a step, each result written the moment it settles.
  * Parallel-safe calls run together, the rest in order, and the step's one
  * terminal call last; a second terminal call in the same step is refused.
- * A gated call (`mcp_exec`) asks its gate first; when any call waits for a
- * person, the step's terminal call is not run and the conversation parks on
- * the approvals.
+ * A gated call (`mcp_exec`) asks its gate first, and a program (`run_code`)
+ * may pause on gated calls of its own; when any call waits for a person, the
+ * step's terminal call is not run and the conversation parks on the
+ * approvals.
  * @param state - The tick.
  * @param intents - The step's intent entries.
  * @returns What the loop does next.
@@ -1237,6 +1274,10 @@ async function runCalls(
           "Call one of the tools you were offered.",
         );
     throwIfStopped(state);
+    if (isSuspension(output)) {
+      parked.push({ intent, suspension: output });
+      return;
+    }
     await asHolder(state, (tx, conv) =>
       appendEntries(tx, conv.id, conv.epoch, [resultDraft(intent, output)]),
     );
@@ -1320,12 +1361,14 @@ function toolContext(
  * @param def - The tool.
  * @param input - What the model sent.
  * @param ctx - Where it runs.
- * @returns The output, or an error envelope.
+ * @param hook - `run` for a call's first run; `resume` when recovery goes on with a paused one.
+ * @returns The output, an error envelope, or a {@link Suspension}.
  */
 async function invoke(
   def: ToolDefinition,
   input: unknown,
   ctx: ToolContext,
+  hook: "run" | "resume" = "run",
 ): Promise<unknown> {
   const parsed = def.inputSchema.safeParse(input ?? {});
   if (!parsed.success) {
@@ -1338,6 +1381,9 @@ async function invoke(
     );
   }
   try {
+    if (hook === "resume" && def.resume) {
+      return await def.resume(parsed.data, ctx);
+    }
     return await def.run(parsed.data, ctx);
   } catch (error) {
     if (ctx.signal.aborted) throw ctx.signal.reason;

@@ -58,6 +58,8 @@ interface Seeded {
   memoryChannelId: number;
   /** The MCP server whose catalog the MCP servers illustration opens. */
   mcpServerId: number;
+  /** The conversation whose program the code-mode illustration opens. */
+  codeConversationId: number;
 }
 
 /** One illustration: a route, and optionally the element to crop to (`{theme}` is replaced). */
@@ -159,6 +161,22 @@ const ILLUSTRATIONS: Illustration[] = [
     width: 1280,
     height: 4000,
     signedIn: true,
+  },
+  {
+    name: "bot-code",
+    path: ({ botId }) => `/bots/${botId}`,
+    selector: "[data-testid=bot-bot-code]",
+    width: 1280,
+    height: 5200,
+    signedIn: true,
+  },
+  {
+    name: "code-run",
+    path: ({ codeConversationId }) => `/conversations/${codeConversationId}`,
+    width: 1280,
+    height: 1100,
+    signedIn: true,
+    open: ["[data-testid=tx-code-run] > summary"],
   },
   {
     name: "approvals",
@@ -398,6 +416,11 @@ async function seed(request: APIRequestContext): Promise<Seeded> {
   const mcpServerId = await seedMcp(request, support.id, botId);
   const conversationId = await seedConversations(request, support.id);
   await seedPrompt(request, support.id, botId);
+  const { conversations } = await call<{
+    conversations: { id: number; title: string | null }[];
+  }>(request, "GET", `/project/${support.id}/conversations?limit=100`);
+  const coded = conversations.find((c) => c.title === CODE_TITLE);
+  if (!coded) throw new Error(`the ${CODE_TITLE} conversation is missing`);
   return {
     organizationId: organization.id,
     projectId: support.id,
@@ -405,6 +428,7 @@ async function seed(request: APIRequestContext): Promise<Seeded> {
     conversationId,
     memoryChannelId: await seedMemory(request, support.id, botId),
     mcpServerId,
+    codeConversationId: coded.id,
   };
 }
 
@@ -477,8 +501,44 @@ interface Turn {
   cancel?: boolean;
 }
 
+/** The title of the conversation whose program the code-mode illustration opens. */
+const CODE_TITLE = "Billing mail this week";
+
+/** The program Ada runs there: read the inbox once, keep the billing messages. */
+const CODE_PROGRAM = `// Read the inbox once, keep only what is about billing.
+await mcp.info("mail", "read_inbox");
+const inbox = String(await mcp.exec("mail", "read_inbox", { limit: 50 }));
+const lines = inbox.split("\\n").filter((l) => l.trim());
+const billing = lines.filter((l) => /billing|charge|invoice/i.test(l));
+console.log(\`\${billing.length} of \${lines.length} messages are about billing\`);
+return billing.map((l) => l.replace(/^\\d+\\. /, ""));`;
+
 /** The conversations the conversation illustrations show, oldest first. */
 const CONVERSATIONS: { bot: string; title: string; turns: Turn[] }[] = [
+  {
+    bot: "Ada",
+    title: CODE_TITLE,
+    turns: [
+      {
+        text: "Who wrote in about billing this week?",
+        responses: [
+          {
+            toolCalls: [{ name: "run_code", input: { source: CODE_PROGRAM } }],
+          },
+          {
+            toolCalls: [
+              {
+                name: "reply_and_wait",
+                input: {
+                  text: "One billing message this week: Globex reported a duplicate charge on INV-2291.",
+                },
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  },
   {
     bot: "Kit",
     title: "Summarize this week's incidents",

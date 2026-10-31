@@ -78,6 +78,7 @@ describe("a turn", () => {
             "prompt_list",
             "prompt_read",
             "reply_and_wait",
+            "run_code",
             "search_history",
             "skill_list",
             "use_skill",

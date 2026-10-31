@@ -47,7 +47,7 @@ describe("the bot page's sections not built yet", () => {
   test("are the two the page will configure, and name no plan", () => {
     expect(UNAVAILABLE_BOT_SECTIONS.map((s) => s.title)).toEqual([
       "Channels",
-      "Code",
+      "Sandboxes",
     ]);
     for (const section of UNAVAILABLE_BOT_SECTIONS) {
       expect(section.purpose).not.toMatch(/phase/i);

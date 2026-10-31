@@ -68,6 +68,8 @@ export type TranscriptItem =
       kind: "tool";
       key: string;
       seq: number;
+      /** The intent entry's id: what a code run names as its `entryId`. */
+      entryId: number;
       toolName: string;
       input: unknown;
       output: unknown;
@@ -442,6 +444,7 @@ export function buildTranscript(
           kind: "tool",
           key,
           seq: entry.seq,
+          entryId: entry.id,
           toolName,
           input,
           output,

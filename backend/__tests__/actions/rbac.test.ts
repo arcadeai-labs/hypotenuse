@@ -73,6 +73,8 @@ const EXPECTED_LEVELS: Record<string, RbacLevel> = {
   "approval:view": "member",
   "approval:decide": "member",
   "large-result:view": "member",
+  "code-run:list": "member",
+  "code-run:view": "member",
   // Prompts, goals, and skills are member-level. A bot's sections and goals
   // follow the bot's access lists; a project section needs admin standing to
   // change; a skill's own lists decide who sees and changes it — all inside
@@ -266,6 +268,8 @@ const EXPECTED_MCP_TOOLS = [
   "membership:delete",
   "membership:list",
   "large-result:view",
+  "code-run:list",
+  "code-run:view",
   "prompt-section:create",
   "prompt-section:edit",
   "prompt-section:revert",

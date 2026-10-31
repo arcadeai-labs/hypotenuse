@@ -64,9 +64,13 @@ export type ApprovalDecidedVia = (typeof APPROVAL_DECIDED_VIA)[number];
  * call's result.
  *
  * `args` is stored scrubbed of `SENSITIVE_KEYS`, for the person deciding;
- * the call itself runs with the intent's own input. `codeRunId` and
- * `interruptionId` are reserved for a gated call inside a code-mode program,
- * which nothing writes yet.
+ * the call itself runs with the intent's own input.
+ *
+ * A gated call inside a code-mode program carries `codeRunId` and the Run
+ * SDK's `interruptionId` as well; its `entryId` is the `run_code` intent,
+ * which may wait on several approvals at once, so uniqueness is per intent for
+ * a direct call and per `(codeRunId, interruptionId)` for a program's call.
+ * The resumed program consumes its own approval and never another's.
  */
 export const approvals = pgTable(
   "approvals",
@@ -112,7 +116,10 @@ export const approvals = pgTable(
       .defaultNow(),
   },
   (t) => [
-    uniqueIndex("approvals_entry_idx").on(t.entryId),
+    uniqueIndex("approvals_entry_idx")
+      .on(t.entryId)
+      .where(sql`${t.interruptionId} is null`),
+    uniqueIndex("approvals_interruption_idx").on(t.codeRunId, t.interruptionId),
     index("approvals_project_status_idx").on(t.projectId, t.status, t.id),
     index("approvals_conversation_idx").on(t.conversationId),
     index("approvals_pending_expiry_idx")

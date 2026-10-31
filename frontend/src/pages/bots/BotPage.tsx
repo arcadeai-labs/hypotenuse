@@ -7,6 +7,7 @@ import { AccessSection } from "../../components/bots/AccessSection";
 import { ApprovalSettingsSection } from "../../components/bots/ApprovalSettingsSection";
 import { BudgetSection } from "../../components/bots/BudgetSection";
 import { CallbackSecretSection } from "../../components/bots/CallbackSecretSection";
+import { CodeSection } from "../../components/bots/CodeSection";
 import {
   type Bot,
   type BotStanding,
@@ -340,6 +341,7 @@ export function BotPage() {
             bot={bot}
             denied={botWriteDenied(reason("bot-mcp-server:set"), standing)}
           />
+          <CodeSection {...sectionProps} />
           <ApprovalSettingsSection {...sectionProps} tags={tags} />
           <CallbackSecretSection
             {...sectionProps}

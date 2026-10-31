@@ -629,6 +629,77 @@
   font-size: var(--text-xs);
 }
 
+// A program a bot ran (`run_code`). Syntax is told apart by weight and tone,
+// never colour: comments recede, keywords and the host API weigh more.
+.code-source {
+  white-space: pre;
+}
+
+.code-tok-comment {
+  color: var(--text-tertiary);
+  font-style: italic;
+}
+
+.code-tok-string {
+  color: var(--text-secondary);
+}
+
+.code-tok-keyword {
+  font-weight: 600;
+}
+
+.code-tok-global {
+  font-weight: 600;
+  text-decoration: underline;
+  text-decoration-color: var(--border-strong);
+  text-underline-offset: 2px;
+}
+
+.code-tok-number {
+  font-variant-numeric: tabular-nums;
+}
+
+.code-host-calls {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+
+  td {
+    padding: var(--space-1) var(--space-2);
+    border-top: 1px solid var(--border-subtle);
+    color: var(--text-secondary);
+    vertical-align: baseline;
+  }
+
+  tr:first-child td {
+    border-top: none;
+  }
+
+  tr[data-ok="false"] .code-host-result {
+    color: var(--status-error);
+  }
+}
+
+.code-host-fn {
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.code-host-ms {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.code-run-approvals {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  list-style: none;
+  border-left: 2px solid var(--status-waiting);
+  background: var(--bg-sunken);
+  font-size: var(--text-sm);
+}
+
 // A state change: a small system line, centred in the log's own voice.
 .tx-status {
   display: flex;

@@ -10,6 +10,7 @@ import { DetailLayout } from "../../components/layouts/DetailLayout";
 import { parseSeqs } from "../../components/memory/model";
 import { relativeTime } from "../../components/shell/NotificationBell";
 import { ApprovalWait } from "../../components/transcript/ApprovalWait";
+import type { CodeRunDetail } from "../../components/transcript/CodeRun";
 import { Composer } from "../../components/transcript/Composer";
 import {
   buildTranscript,
@@ -89,6 +90,38 @@ export function ConversationPage() {
     () => buildTranscript(entries, conversation?.state === "working"),
     [entries, conversation?.state],
   );
+
+  // A program's journal and approvals live on its code run: read them again
+  // whenever the transcript moves, if it has a program in it.
+  const hasCode = items.some(
+    (item) => item.kind === "tool" && item.toolName === "run_code",
+  );
+  const lastSeq = conversation?.lastSeq ?? 0;
+  const [codeRuns, setCodeRuns] = useState<Map<number, CodeRunDetail>>(
+    () => new Map(),
+  );
+  useEffect(() => {
+    if (!hasCode || !activeProjectId || !conversation) return;
+    let cancelled = false;
+    apiFetch<{ codeRuns: CodeRunDetail[] }>(
+      `/project/${activeProjectId}/conversation/${conversation.id}/code-runs?limit=100`,
+    )
+      .then((res) => {
+        if (!cancelled) {
+          setCodeRuns(new Map(res.codeRuns.map((r) => [r.entryId, r])));
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    hasCode,
+    activeProjectId,
+    conversation?.id,
+    lastSeq,
+    conversation?.state,
+  ]);
 
   // A link from a memory marks the entries it was learned from: bring the
   // first into view once it has been drawn, and only once per link.
@@ -288,6 +321,7 @@ export function ConversationPage() {
               conversation.waitingOn?.kind === "answer"
             }
             highlight={highlight}
+            codeRuns={codeRuns}
           />
           {conversation.state === "waiting" &&
             conversation.waitingOn?.kind === "approval" && (

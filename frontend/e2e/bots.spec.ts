@@ -48,11 +48,13 @@ test("a member makes a bot, gives it an avatar and a persona; restricting who ma
     page.locator(".ui-bot-badge[data-bot='Kit']").first(),
   ).toBeVisible();
   // What the page does not configure yet is there, disabled, and says so.
-  for (const slug of ["channels", "code"]) {
+  for (const slug of ["channels", "sandboxes"]) {
     const section = page.getByTestId(`bot-section-${slug}`);
     await expect(section).toHaveAttribute("aria-disabled", "true");
     await expect(section).toContainText("Not available yet");
   }
+  // Code mode is configured here, and on by default.
+  await expect(page.getByTestId("bot-code-enabled")).toBeChecked();
 
   // Upload an avatar: it goes up at once and is drawn from the API.
   await page.getByTestId("bot-avatar-file").setInputFiles({

@@ -1,6 +1,6 @@
 import type { z } from "zod";
-import type { GateOutcome } from "../ops/ApprovalOps";
-import type { DbHandle } from "../ops/DbOps";
+import type { ApprovalDraft, GateOutcome } from "../ops/ApprovalOps";
+import type { DbHandle, TxHandle } from "../ops/DbOps";
 import type { Bot } from "../schema/bots";
 import type { Conversation, WaitingOn } from "../schema/conversations";
 
@@ -102,11 +102,51 @@ export interface ToolDefinition<I = unknown, O = unknown> {
   gate?: (input: I, ctx: ToolContext) => Promise<GateOutcome>;
   /**
    * Do the work. Throw a {@link ToolError} for a failure the model should read;
-   * anything else thrown is reported as `tool_failed`.
+   * anything else thrown is reported as `tool_failed`. A tool with a
+   * {@link ToolDefinition.resume} hook may instead return a
+   * {@link Suspension}: the call waits for people, with no result yet.
    * @param input - The validated input.
    * @param ctx - Where it runs.
    */
-  run(input: I, ctx: ToolContext): Promise<O>;
+  run(input: I, ctx: ToolContext): Promise<O | Suspension>;
+  /**
+   * Present on a tool whose call can stop partway for approvals and go on
+   * later (`run_code`). Recovery calls it for the call's open intent instead
+   * of reporting the call interrupted; it decides from its own records whether
+   * to go on, wait again, or report the call interrupted.
+   * @param input - The validated input.
+   * @param ctx - Where it runs.
+   */
+  resume?: (input: I, ctx: ToolContext) => Promise<O | Suspension>;
+}
+
+/**
+ * A call that stopped before its effect to wait for people: the approvals
+ * it waits on, and those to write. The tick writes them and parks the
+ * conversation on all of them in one transaction, with `onPark`'s writes in
+ * it too; the call's intent stays open, with no result, until it goes on.
+ */
+export interface Suspension {
+  suspended: true;
+  /** Approvals already written that it still waits on. */
+  approvalIds: number[];
+  /** New approvals to write, bound to the call's intent. */
+  drafts: ApprovalDraft[];
+  /** The tool's own writes, in the parking transaction. */
+  onPark?: (tx: TxHandle) => Promise<void>;
+}
+
+/**
+ * Whether a tool's answer is a {@link Suspension}.
+ * @param output - What `run` or `resume` returned.
+ * @returns `true` for one.
+ */
+export function isSuspension(output: unknown): output is Suspension {
+  return (
+    typeof output === "object" &&
+    output !== null &&
+    (output as { suspended?: unknown }).suspended === true
+  );
 }
 
 /** The error a model reads: data, never an exception. */

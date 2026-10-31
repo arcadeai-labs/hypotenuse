@@ -54,6 +54,7 @@ const BUILT_IN = [
   "goal_update",
   "skill_list",
   "use_skill",
+  "run_code",
 ];
 const MCP_TOOLS = [
   "mcp_exec",

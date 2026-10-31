@@ -230,9 +230,16 @@ MCP capabilities, the channel, fixed tool primers, and style rules — without c
   intent — marked `executingAt` and committed before it is sent, consumed with its result — or refuses a denied
   one. Nothing earlier is replayed. Decided in the dashboard, the API, the CLI, and MCP today; in the channel from
   [13](./plans/phase-13-channel-framework.md).
-- **Code mode.** `run_code` runs TypeScript in QuickJS compiled to WebAssembly, with a host API of `memory.*` and
-  `mcp.*` and hard limits on time, memory, and calls. A gated call inside a program suspends it; approval resumes
-  the same program from its recorded host calls.
+- **Code mode.** Built ([phase 12](./plans/phase-12-code-mode.md)). `run_code` runs a TypeScript program in Vercel's
+  Run SDK (`run`, pinned; QuickJS compiled to WebAssembly in a worker thread, imported only by
+  `ops/code/runtime.ts`), with a host API of `memory.*`, `mcp.*`, `largeResult.read`, and a captured `console`
+  (`ops/code/`), each going through the same ops, read set, allowlist, and gate as the top-level tools, and limits
+  no program can raise (`config/code.ts`, lowered per bot). Each call is a `code_runs` row journaling its host calls.
+  A gated call interrupts the program before its effect; the tick writes one approval per interruption (bound by
+  `codeRunId` and `interruptionId`), stores the continuation sealed with `CryptoOps` and signed with the project's
+  own key in the same transaction, and parks. Recovery's `resume` hook replays the same program from it once
+  every approval is decided — settled calls answered from the record, each approved call run once — or reports a
+  crashed run interrupted with its journal. `code-run:list` / `view` read runs, never a continuation.
 - **Large results** go to memory (`saveTo`) or `large_results` (a preview and an `lr_<id>` the bot pages), not into
   the context window; `large-results:sweep` deletes them 30 days after their conversation ends.
 

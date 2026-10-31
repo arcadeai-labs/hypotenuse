@@ -21,6 +21,7 @@ import {
 import { outboxMessages } from "../schema/outbox_messages";
 import type { Tag } from "../schema/tags";
 import { canReadBot } from "./BotOps";
+import { abandonCodeRuns } from "./CodeRunOps";
 import type { DbHandle } from "./DbOps";
 import { appendEntries, type EntryDraft } from "./TranscriptOps";
 
@@ -492,6 +493,8 @@ export async function finalizeCancel(
       text: "The conversation was cancelled.",
     }),
   ]);
+  // A paused program can no longer resume.
+  await abandonCodeRuns(tx, conversation.id);
   // An approval nobody decided can no longer run anything.
   await tx
     .update(approvals)

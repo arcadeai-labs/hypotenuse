@@ -157,6 +157,10 @@ hypotenuse bot edit ada --disable
   can change the bot; `--no-approver-tag` goes back to only them.
 - `--approval-ttl <duration>` sets how long an approval waits before it expires and counts as denied: seconds, or
   `30m`, `24h`, `7d` (one minute to 30 days; a day unless you say otherwise).
+- `--no-code` stops the bot running programs ([code mode](/docs/code-mode)); `--code` turns it back on.
+  `--code-timeout <seconds>`, `--code-memory <MiB>`, and `--code-host-calls <n>` set the bot's own limits, which may
+  only be lower than the deployment's; together they replace the bot's limits, and `--no-code-limits` goes back to
+  the deployment's.
 - `--enable` and `--disable` decide whether the bot accepts new conversations.
 
 `bot edit` changes only what its flags name.
@@ -211,6 +215,19 @@ hypotenuse approval deny 14 --note "Draft it in the thread instead of sending it
 - `deny` tells the bot not to retry; `--note` is what the bot reads about what to do instead.
 - Deciding needs write access to the bot or its approver tag; `list` and `view` say whether you can. The decision
   is recorded as made from the CLI, in the project's audit log.
+
+### Programs from the command line
+
+What a bot ran in [code mode](/docs/code-mode), with what it called:
+
+```bash
+hypotenuse code-run list --conversation 42
+hypotenuse code-run view 7
+```
+
+- `list` shows each program's status, first line, how many host calls it made, and how it ended, newest first.
+- `view` prints the program, its result or error, what it logged, every host call with how the gate let it through,
+  and the approvals a paused program waits on. A paused program's saved state is never shown.
 
 ### Prompts, goals, and skills from the command line
 
