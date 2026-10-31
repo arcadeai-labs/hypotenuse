@@ -387,6 +387,14 @@ a small result, and the model's input tokens stay flat.
 - **An approved call inside a program** is marked `executing_at` (committed) before it is sent and consumed right
   after, in its own transaction — not with the run's result, which may be many calls later. A worker that dies
   between the two leaves the run `running`, which recovery reports interrupted.
+- **A resumed call is decided by its approval, never the allowlist.** A call that paused was gated; if its bot's
+  allowlist widens while it waits, a denial still stands, as an approval on record decides a direct `mcp_exec`
+  before the allowlist does (`deny.test.ts`).
+- **An oversized `mcp.capture` keeps what the call answered.** The call has run by the time its size is known, so
+  the answer is stored as a large result and the refusal names it and says not to call again — as `mcp_exec`'s
+  `saveTo` does.
+- **A failed run reports its journal** (`hostCalls`), as a crashed one does, so the model sees which effects
+  already happened before it retries.
 - **A run that finished but whose result was never written** (the worker died between the two) keeps its answer in
   `code_runs.output`, and recovery writes that once, so a finished program is never reported interrupted or run
   again. The plan's schema had only `resultBytes`.

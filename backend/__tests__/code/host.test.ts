@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { and, eq } from "drizzle-orm";
-import { api } from "keryx";
+import { api, config } from "keryx";
 import { approvals } from "../../schema/approvals";
 import { botMcpServers } from "../../schema/bot_mcp_servers";
 import { bots } from "../../schema/bots";
@@ -173,6 +173,28 @@ test("mcp.capture writes the whole result to channel memory and returns no paylo
   ]);
   expect(out.length).toBe(50_000);
   expect(JSON.stringify(result).length).toBeLessThan(2_000);
+});
+
+test("an oversized capture keeps the answer as a large result and says the call ran", async () => {
+  await bindServer(stage, serverId, { allowedTools: ["mail/*"] });
+  const { result } = await runOnce(`
+    await mcp.info("mail", "huge_report");
+    try {
+      await mcp.capture("mail", "huge_report", { chars: ${config.memory.maxDocumentChars + 10} }, "exports/too-big.md");
+      return "saved";
+    } catch (e) {
+      const ref = /lr_\\d+/.exec(e.message)[0];
+      const page = await largeResult.read(ref, { limit: 100 });
+      return { reason: e.code, ref, total: page.totalChars };
+    }
+  `);
+  expect(result.result).toMatchObject({
+    reason: "mcp:too_large",
+    total: config.memory.maxDocumentChars + 10,
+  });
+  expect(
+    stage.fixture.calls.filter((c) => c.tool === "huge_report"),
+  ).toHaveLength(1);
 });
 
 test("saveTo writes the result as JSON instead of returning it", async () => {

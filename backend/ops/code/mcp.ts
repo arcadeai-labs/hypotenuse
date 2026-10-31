@@ -17,6 +17,7 @@ import {
   outcomeOfApproval,
 } from "../ApprovalOps";
 import { allowance, callKey } from "../ApprovalPatternOps";
+import { previewOf, storeLargeResult } from "../LargeResultOps";
 import { botServers } from "../McpCatalogOps";
 import { callServerTool, McpUnauthorized } from "../McpClientOps";
 import { credentialValues } from "../McpServerOps";
@@ -116,8 +117,11 @@ async function gatedCall(
   }
   const key = callKey(server.name, tool.name, args);
   let approvalId: number | undefined;
-  if (!allowance(binding, server.name, tool).allowed) {
-    const resume = hostContext().resume;
+  const resume = hostContext().resume;
+  // A resumed call was gated when it paused: its approval decides it, even if
+  // the allowlist has changed since — as an approval on record decides a
+  // direct `mcp_exec` before the allowlist does.
+  if (resume || !allowance(binding, server.name, tool).allowed) {
     if (!resume) {
       return {
         interrupt: {
@@ -312,10 +316,20 @@ export const mcpHost: Record<string, HostFunctionDef> = {
           ? `\`\`\`json\n${JSON.stringify(out.structured, null, 2)}\n\`\`\``
           : out.text;
       if (content.length > config.memory.maxDocumentChars) {
+        // The call already ran: keep its answer, and say so, so a program
+        // does not send it again to get it.
+        const stored = await storeLargeResult(scope.ctx.db, {
+          projectId: scope.ctx.bot.projectId,
+          conversationId: scope.ctx.conversation.id,
+          entryId: scope.ctx.intentEntryId,
+          content,
+          mimeType: "text/plain",
+        });
+        const ref = previewOf(stored).id;
         throw refusal(
           "too_large",
-          `${out.name} answered ${content.length} characters, more than one memory document holds (${config.memory.maxDocumentChars}). Nothing was saved.`,
-          "Call mcp.exec instead and reduce the result in the program before writing it.",
+          `${out.name} ran and answered ${content.length} characters, more than one memory document holds (${config.memory.maxDocumentChars}), so it was stored as ${ref} instead of at ${String(path)}.`,
+          `Do not call it again: read it with largeResult.read("${ref}") and write the part you need with memory.write.`,
           { name: out.name, gate: out.gate },
         );
       }

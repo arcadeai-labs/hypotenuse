@@ -249,12 +249,18 @@ async function settle(
   }
   const logs = outcome.logs.length > 0 ? { console: outcome.logs } : {};
   if (outcome.status === "failed") {
+    // What already ran, so the model does not ask for the same effects again.
+    const [journaled] = await api.db.db
+      .select({ hostCalls: codeRuns.hostCalls })
+      .from(codeRuns)
+      .where(eq(codeRuns.id, run.id));
     const output = failure(
       outcome.errorType,
       outcome.message,
       HINTS[outcome.errorType] ?? HINTS.internal_error,
       {
         codeRunId: run.id,
+        hostCalls: journaled?.hostCalls ?? [],
         ...(outcome.hostErrorType
           ? { hostErrorType: outcome.hostErrorType }
           : {}),

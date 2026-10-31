@@ -101,5 +101,37 @@ test("left uncaught, the denial fails the program as approval_denied, with the s
     error_type: "approval_denied",
   });
   expect(String(result.next_action_hint)).toContain("run_code primer");
+  // A failure says what had already run, as a crash report does.
+  expect(
+    (result.hostCalls as { fn: string; ok: boolean }[]).map((h) => [
+      h.fn,
+      h.ok,
+    ]),
+  ).toEqual([
+    ["mcp.info", true],
+    ["mcp.exec", false],
+  ]);
   expect((await codeRunsOf(id))[0].status).toBe("failed");
+});
+
+test("a denial stands even if the allowlist is widened while the program waits", async () => {
+  await bindServer(stage, serverId);
+  stage.models.play([
+    codeStep(`
+      await mcp.info("mail", "send_email");
+      return await mcp.exec("mail", "send_email", { to: "toad", subject: "hi" });
+    `),
+  ]);
+  const id = (await startConversation(stage, "Email Toad")).body.conversation
+    .id;
+  await runTicks();
+  const [approval] = await approvalsOf(id);
+  // Someone allowlists the tool, and someone else denies this call.
+  await bindServer(stage, serverId, { allowedTools: ["mail/*"] });
+  stage.models.play([replyStep("Not sent.")]);
+  await decide(stage, approval.id, "deny");
+  await runTicks();
+  expect(stage.fixture.calls).toEqual([]);
+  const [result] = await resultsOf(id, "run_code");
+  expect(result).toMatchObject({ error_type: "approval_denied" });
 });
