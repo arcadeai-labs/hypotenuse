@@ -29,7 +29,12 @@ reports back into the conversation it came from.
 > can revert it. Bots **run code**: `run_code` runs a short TypeScript program in Run's QuickJS-WebAssembly sandbox
 against the bot's memory and MCP tools, under the same scope, allowlist, and approval gate; a gated call pauses the
 program before its effect, and approval resumes the same program from a sealed, signed continuation, running each
-approved call exactly once. No chat platform is connected yet. The build order and every
+approved call exactly once. Bots **live in channels**: platform adapters behind one contract (`backend/platforms/`),
+one app per bot (`bot_installations`), byte-identical signed ingress into `trigger_events`, bindings that decide where
+a bot listens and who may approve in the channel, platform `participants`, an interactive surface (status, streamed
+text, plan, questions, approvals) on an outbox delivered in order per conversation, escalation to the help inbox, and
+per-participant and per-channel rate limits. The generic signed `webhook` platform and the dashboard's own Chat
+(`web`) are its first platforms; Slack, Linear, and Pylon are not connected yet. The build order and every
 > plan are in
 > [`docs/plans/README.md`](./docs/plans/README.md); the system on one page is
 > [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md). Hypotenuse **v1** — local coding agents answering
@@ -84,7 +89,7 @@ These bind from the first line of code. A rule that names a thing not built yet 
    [`phase-05-audit-logging.md`](./docs/plans/phase-05-audit-logging.md), and this list and that table change
    together: reads and `actions:permissions`; `session:create` / `session:destroy`; `notification:mark-read`;
    clocks and sweeps; the CLI's sign-in ingress (`cli-auth:device` / `cli-auth:exchange`, a token's sliding
-   expiry); machine ingress (`webhooks:*`, recorded in `trigger_events`) and its processing
+   expiry); machine ingress (`webhooks:*` — `webhooks:webhook` so far — recorded in `trigger_events`) and its processing
    (`triggers:process-event`, `triggers:process-pending`, recorded in `trigger_events` and `conversation_inbox`);
    `agent:tick`, `conversation:compact`, and every tool a bot runs (recorded in `conversation_entries`, and a
    prompt or goal edit also in `prompt_section_versions` and `goals`, a program in `code_runs`); memory's
@@ -301,7 +306,7 @@ bun dev                                          # backend :8080, frontend :3000
 - **Intent before effect.** A tool call is written before it runs. A call with an intent and no result was
   interrupted: it re-runs only if the tool is replay-safe, and otherwise the model is told it was interrupted.
 - **A conversation is `working`, `hibernating`, `waiting`, or `ended`.** `waiting` always names what it waits on
-  (an answer, an approval, a sandbox, a timer). A tick ends in a terminal tool; a model that stops without one is
+  (an answer, an approval, the team via a help request, a sandbox, a timer). A tick ends in a terminal tool; a model that stops without one is
   nudged once, then the turn fails. A tick never ends silently.
 - **Memory has two scopes and decays.** Channel memory belongs to one channel and fades with disuse; project memory
   is shared by every bot and channel in the project and fades slowly. Facts are promoted from channel to project

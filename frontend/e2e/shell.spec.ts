@@ -33,7 +33,9 @@ test("the sidebar lists 2.0's destinations in order, each disabled until its pag
   expect(ids).toEqual([
     "nav-home",
     "nav-conversations",
+    "nav-chat",
     "nav-approvals",
+    "nav-help",
     "nav-bots",
     "nav-memory",
     "nav-sandboxes",
@@ -64,6 +66,8 @@ test("the sidebar lists 2.0's destinations in order, each disabled until its pag
     "href",
     "/memory",
   );
+  await expect(page.getByTestId("nav-chat")).toHaveAttribute("href", "/chat");
+  await expect(page.getByTestId("nav-help")).toHaveAttribute("href", "/help");
   await page.getByTestId("nav-docs").click();
   await expect(page).toHaveURL(/\/docs\/getting-started$/);
 });

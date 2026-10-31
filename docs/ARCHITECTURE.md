@@ -84,6 +84,8 @@ What a **channel** and a **conversation** are on each platform:
 | Linear | a Linear project (the issue's team when it has none) | an agent session on an issue |
 | Pylon | a customer account | an issue |
 | HTTP API | a caller-named channel | a caller-created conversation |
+| Dashboard chat (`web`) | the bot's shared `dashboard` channel, or a fresh scratch one | a chat a member started |
+| Webhook | the sender's channel id, in its workspace | the sender's conversation key |
 
 ## Who may do what
 
@@ -228,8 +230,8 @@ MCP capabilities, the channel, fixed tool primers, and style rules — without c
   its `callKey`, and the tick parks the step on `waiting` / `approval` after the step's other calls run. A decision
   (`approval:decide`, or `approvals:expire`) wakes the conversation when none is pending; recovery runs the approved
   intent — marked `executingAt` and committed before it is sent, consumed with its result — or refuses a denied
-  one. Nothing earlier is replayed. Decided in the dashboard, the API, the CLI, and MCP today; in the channel from
-  [13](./plans/phase-13-channel-framework.md).
+  one. Nothing earlier is replayed. Decided in the dashboard (the approvals inbox, or the Chat's card), the API, the
+  CLI, and MCP, and in a platform channel under its binding's approval policy.
 - **Code mode.** Built ([phase 12](./plans/phase-12-code-mode.md)). `run_code` runs a TypeScript program in Vercel's
   Run SDK (`run`, pinned; QuickJS compiled to WebAssembly in a worker thread, imported only by
   `ops/code/runtime.ts`), with a host API of `memory.*`, `mcp.*`, `largeResult.read`, and a captured `console`
@@ -245,11 +247,30 @@ MCP capabilities, the channel, fixed tool primers, and style rules — without c
 
 ## Platforms
 
-Each platform is an adapter in `backend/channels/`: verify an inbound delivery, parse it, send, declare
-capabilities, and render the **interactive surface** — status, streamed text, plan steps, questions, approvals, and
-escalation — with the richest elements the platform has (Slack's streaming and Block Kit, Linear's agent activities
-and elicitations, Pylon's internal notes). Ingress answers fast and works later; everything outbound goes through
-`outbox_messages` with an idempotency key. Each platform has its own coverage matrix and an in-process fake.
+Built ([phase 13](./plans/phase-13-channel-framework.md)). Each place a bot talks is an adapter in
+`backend/platforms/` behind one contract (`platforms/types.ts`): it declares capabilities and delivers outbox rows,
+and a platform people reach the bot from also defines the per-bot app (`bot_installations`, one per bot per
+workspace, its routing key hashed and its credentials sealed), verifies and parses deliveries, and names the channel.
+The first three are the API's signed callback, the dashboard's Chat (`web`, whose rows are settled at enqueue because
+the dashboard reads Postgres), and the generic signed `webhook` platform; Slack, Linear, and Pylon are next.
+
+- **Ingress** (`webhooks:<type>`) reads the routing key from the raw path, verifies the signature over the raw bytes,
+  records a `trigger_events` row deduped on the platform's delivery id, answers, and enqueues; every routing or
+  signature failure is one byte-identical 404.
+- **Processing** (`triggers:process-event`, swept by `triggers:process-pending`) applies an ordered rules table —
+  loops, lifecycle, shared channels, bindings (`autoBind`), mentions, signals, interactions, rate limits — and
+  delivers a message into the conversation's inbox keyed by the message, with an acknowledgement. An approval
+  decided in the channel, under the binding's `participants` or `listed` policy, is audited as the participant.
+- **The interactive surface** (`ops/SurfaceOps.ts`) turns a tick into `status`, `stream` (coalesced every 250 ms),
+  `plan`, `message`, `question`, and `approval` rows, with fallbacks for a surface that lacks a capability. Ephemeral
+  rows supersede each other; nothing is written after a question. `conversation:live` reads the current ones.
+- **Delivery** (`outbox:deliver`, `outbox:deliver-due`) walks a conversation's rows in order under a Redis lease;
+  a row that must wait holds the rows behind it.
+- **Escalation**: `escalate_to_human` writes a `help_requests` row and notifies the bot's help tag (else admins); the
+  answer (`help:answer`) resumes the conversation.
+
+Each platform has a coverage matrix in [`docs/platform-coverage/`](./platform-coverage/webhook.md) and an in-process fake built on
+`backend/__tests__/fakes/base.ts`, held to the shared conformance suite.
 
 ## Sandboxes
 

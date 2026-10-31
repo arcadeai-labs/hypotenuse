@@ -12,10 +12,16 @@ import { registerApprovalCommands } from "./commands/approval";
 import { registerAuditCommands } from "./commands/audit";
 import { registerAuthCommands } from "./commands/auth";
 import { registerBotCommands } from "./commands/bot";
+import {
+  registerBindingCommands,
+  registerChannelCommands,
+} from "./commands/channel";
 import { registerCheckUpdateCommand } from "./commands/check-update";
 import { registerCodeRunCommands } from "./commands/code-run";
 import { registerConversationCommands } from "./commands/conversation";
 import { registerGoalCommands } from "./commands/goal";
+import { registerHelpRequestCommands } from "./commands/help-request";
+import { registerInstallationCommands } from "./commands/installation";
 import { registerInviteCommands } from "./commands/invite";
 import { registerLargeResultCommands } from "./commands/large-result";
 import { registerMcpServerCommands } from "./commands/mcp-server";
@@ -23,6 +29,10 @@ import { registerMemberCommands } from "./commands/member";
 import { registerMemoryCommands } from "./commands/memory";
 import { registerModelCommands } from "./commands/model";
 import { registerOrgCommands } from "./commands/org";
+import {
+  registerEventCommands,
+  registerParticipantCommands,
+} from "./commands/platform-log";
 import { registerProjectCommands } from "./commands/project";
 import { registerPromptCommands } from "./commands/prompt";
 import { registerSkillCommands } from "./commands/skill";
@@ -79,11 +89,17 @@ export function buildProgram(): Command {
   registerPromptCommands(program);
   registerGoalCommands(program);
   registerSkillCommands(program);
+  registerInstallationCommands(program);
+  registerChannelCommands(program);
+  registerBindingCommands(program);
   registerConversationCommands(program);
   registerApprovalCommands(program);
+  registerHelpRequestCommands(program);
   registerLargeResultCommands(program);
   registerCodeRunCommands(program);
   registerMemoryCommands(program);
+  registerParticipantCommands(program);
+  registerEventCommands(program);
   registerAuditCommands(program);
   registerCheckUpdateCommand(program);
   registerUpgradeCommand(program);

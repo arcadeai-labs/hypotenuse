@@ -1,4 +1,5 @@
 import { approvalRequested } from "./approval-requested";
+import { helpRequested } from "./help-requested";
 import type { NotificationTemplate } from "./types";
 
 export type {
@@ -19,6 +20,7 @@ export { escapeHtml, layout } from "./types";
  */
 export const NOTIFICATION_TEMPLATES: Record<string, NotificationTemplate> = {
   "approval-requested": approvalRequested,
+  "help-requested": helpRequested,
 };
 
 /** The template names, for the tests that assert every one is registered. */

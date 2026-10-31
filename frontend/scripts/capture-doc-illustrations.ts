@@ -32,6 +32,12 @@
  *
  *   NETWORK_ALLOW_PRIVATE_HOSTS=true MCP_GENERATE_CAPABILITIES=false bun dev
  *
+ * The chat illustration is a seeded dashboard chat (`channelType: "web"`)
+ * that ends parked on an approval; the help inbox shows a seeded conversation
+ * in which Ada asks a person for help. The Channels illustration reads what
+ * {@link seedChannels} makes: Ada's webhook app, connected, and a signed
+ * message from each of three channels, delivered to its events URL.
+ *
  * The prompt, goal, and skill illustrations read what {@link seedPrompt}
  * writes over the API — two people's edits to Ada's *How I work*, a
  * contextual section, two sections every bot includes, three goals, and two
@@ -42,6 +48,7 @@
  *   cd frontend && bun run docs:illustrations
  *   ILLUSTRATIONS=bot,memory bun run docs:illustrations   # only those
  */
+import { createHmac } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { type APIRequestContext, chromium } from "@playwright/test";
@@ -60,6 +67,8 @@ interface Seeded {
   mcpServerId: number;
   /** The conversation whose program the code-mode illustration opens. */
   codeConversationId: number;
+  /** The dashboard chat the chat illustration opens. */
+  chatConversationId: number;
 }
 
 /** One illustration: a route, and optionally the element to crop to (`{theme}` is replaced). */
@@ -220,6 +229,29 @@ const ILLUSTRATIONS: Illustration[] = [
       `/bots/${botId}/memory/${memoryChannelId}/document?path=customers/globex.md`,
     width: 1280,
     height: 760,
+    signedIn: true,
+  },
+  {
+    name: "chat",
+    path: ({ botId, chatConversationId }) =>
+      `/bots/${botId}/chat?c=${chatConversationId}`,
+    width: 1280,
+    height: 1300,
+    signedIn: true,
+  },
+  {
+    name: "bot-channels",
+    path: ({ botId }) => `/bots/${botId}`,
+    selector: "[data-testid=bot-bot-channels]",
+    width: 1280,
+    height: 6400,
+    signedIn: true,
+  },
+  {
+    name: "help",
+    path: "/help",
+    width: 1280,
+    height: 440,
     signedIn: true,
   },
   {
@@ -421,6 +453,9 @@ async function seed(request: APIRequestContext): Promise<Seeded> {
   }>(request, "GET", `/project/${support.id}/conversations?limit=100`);
   const coded = conversations.find((c) => c.title === CODE_TITLE);
   if (!coded) throw new Error(`the ${CODE_TITLE} conversation is missing`);
+  const chatted = conversations.find((c) => c.title === CHAT_TITLE);
+  if (!chatted) throw new Error(`the ${CHAT_TITLE} conversation is missing`);
+  await seedChannels(request, support.id, botId);
   return {
     organizationId: organization.id,
     projectId: support.id,
@@ -429,6 +464,7 @@ async function seed(request: APIRequestContext): Promise<Seeded> {
     memoryChannelId: await seedMemory(request, support.id, botId),
     mcpServerId,
     codeConversationId: coded.id,
+    chatConversationId: chatted.id,
   };
 }
 
@@ -501,6 +537,12 @@ interface Turn {
   cancel?: boolean;
 }
 
+/** The title of the dashboard chat the chat illustration opens. */
+const CHAT_TITLE = "Globex refund";
+
+/** The title of the conversation that asks a person for help. */
+const HELP_TITLE = "Late fee for Initech";
+
 /** The title of the conversation whose program the code-mode illustration opens. */
 const CODE_TITLE = "Billing mail this week";
 
@@ -514,7 +556,13 @@ console.log(\`\${billing.length} of \${lines.length} messages are about billing\
 return billing.map((l) => l.replace(/^\\d+\\. /, ""));`;
 
 /** The conversations the conversation illustrations show, oldest first. */
-const CONVERSATIONS: { bot: string; title: string; turns: Turn[] }[] = [
+const CONVERSATIONS: {
+  bot: string;
+  title: string;
+  turns: Turn[];
+  /** `web` for a dashboard chat; the API channel otherwise. */
+  channelType?: "web";
+}[] = [
   {
     bot: "Ada",
     title: CODE_TITLE,
@@ -774,6 +822,98 @@ const CONVERSATIONS: { bot: string; title: string; turns: Turn[] }[] = [
       },
     ],
   },
+  {
+    bot: "Ada",
+    title: HELP_TITLE,
+    turns: [
+      {
+        text: "Initech asks us to waive their $40 late fee. Can we?",
+        responses: [
+          {
+            toolCalls: [
+              {
+                name: "escalate_to_human",
+                input: {
+                  question:
+                    "May I waive Initech's $40 late fee on INV-2304? Their payment was late because our card processor was down.",
+                  context:
+                    "INV-2304 failed on 3 March during the processor outage and was paid on 5 March. Nothing in memory says who may waive fees.",
+                  urgency: "high",
+                },
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  },
+  {
+    bot: "Ada",
+    title: CHAT_TITLE,
+    channelType: "web",
+    turns: [
+      {
+        text: "How long does a refund to Globex take?",
+        responses: [
+          {
+            toolCalls: [
+              { name: "memory_search", input: { query: "Globex refund" } },
+            ],
+          },
+          {
+            toolCalls: [
+              {
+                name: "reply_and_wait",
+                input: {
+                  text: "Refunds reach Globex in **five business days** once billing confirms them. Want me to email their billing team?",
+                },
+              },
+            ],
+          },
+        ],
+      },
+      {
+        text: "Yes, please.",
+        responses: [
+          {
+            toolCalls: [
+              {
+                name: "ask_question",
+                input: {
+                  question: "Which of Globex's billing teams should I email?",
+                  options: ["EU billing", "US billing"],
+                },
+              },
+            ],
+          },
+        ],
+      },
+      {
+        text: "EU billing",
+        responses: [
+          {
+            toolCalls: [
+              { name: "mcp_info", input: { name: "mail/send_email" } },
+            ],
+          },
+          {
+            toolCalls: [
+              {
+                name: "mcp_exec",
+                input: {
+                  name: "mail/send_email",
+                  args: {
+                    to: "billing-eu@globex.example",
+                    subject: "Your refund for INV-2291",
+                  },
+                },
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  },
 ];
 
 /**
@@ -891,7 +1031,11 @@ async function seedConversations(
               request,
               "PUT",
               `/project/${projectId}/bot/${bot.id}/conversation`,
-              { text: turn.text, title: plan.title },
+              {
+                text: turn.text,
+                title: plan.title,
+                ...(plan.channelType ? { channelType: plan.channelType } : {}),
+              },
             );
             if (created.error)
               throw new Error(`conversation: ${created.error.message}`);
@@ -1411,6 +1555,102 @@ async function seedPrompt(
     });
     if (attached.error) throw new Error(`bot skill: ${attached.error.message}`);
   }
+}
+
+/** The webhook app's delivery address: never called, since nobody mentions Ada in these channels. */
+const WEBHOOK_DELIVERY_URL = "https://hooks.acme.example/hypotenuse";
+
+/** The webhook app's signing secret. Not a secret: it opens nothing real. */
+const WEBHOOK_SECRET = "illustration-signing-secret-0000";
+
+/** The channels the webhook app delivers a message from, which the Channels illustration lists. */
+const WEBHOOK_CHANNELS = [
+  { id: "C-support", name: "support" },
+  { id: "C-escalations", name: "escalations" },
+  { id: "C-billing-leads", name: "billing-leads", private: true },
+];
+
+/**
+ * Give Ada what the Channels illustration shows: a connected webhook app, and
+ * a message from each of three channels, delivered signed to its events URL
+ * as the platform would. Nobody mentions Ada, so no conversation starts: the
+ * two public channels bind themselves, the private one waits to be bound,
+ * and one binding lets anyone in the channel decide approvals. Made only
+ * when Ada has no connected app.
+ * @param request - The browser context's request client.
+ * @param projectId - The Support project.
+ * @param botId - Ada.
+ */
+async function seedChannels(
+  request: APIRequestContext,
+  projectId: number,
+  botId: number,
+): Promise<void> {
+  const { installations } = await call<{
+    installations: { type: string; status: string }[];
+  }>(request, "GET", `/project/${projectId}/bot/${botId}/installations`);
+  if (installations.some((i) => i.type === "webhook" && i.status === "active"))
+    return;
+  const manifest = await call<{ urls: { events: string } }>(
+    request,
+    "POST",
+    `/project/${projectId}/bot/${botId}/installation/webhook/manifest`,
+  );
+  if (manifest.error) throw new Error(`manifest: ${manifest.error.message}`);
+  const connected = await call(
+    request,
+    "PUT",
+    `/project/${projectId}/bot/${botId}/installation`,
+    {
+      type: "webhook",
+      config: { deliveryUrl: WEBHOOK_DELIVERY_URL },
+      credentials: { signingSecret: WEBHOOK_SECRET },
+      botUserId: "U-ada",
+    },
+  );
+  if (connected.error) throw new Error(`connect: ${connected.error.message}`);
+  for (const [i, channel] of WEBHOOK_CHANNELS.entries()) {
+    const body = JSON.stringify({
+      messageId: `illustration-${channel.id}`,
+      channel,
+      conversation: `thread-${i}`,
+      sender: { id: `U-${i}`, name: ["Grace", "Alan", "Edsger"][i] },
+      text: "Morning, all.",
+    });
+    const t = Math.floor(Date.now() / 1000);
+    const v1 = createHmac("sha256", WEBHOOK_SECRET)
+      .update(`${t}.${body}`)
+      .digest("hex");
+    const res = await fetch(manifest.urls.events, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "hypotenuse-signature": `t=${t},v1=${v1}`,
+      },
+      body,
+    });
+    if (!res.ok) throw new Error(`webhook delivery: ${res.status}`);
+  }
+  // Processing is queued: wait for the channels to arrive.
+  for (let i = 0; i < 100; i++) {
+    const { channels } = await call<{
+      channels: { name: string; binding: { id: number } | null }[];
+    }>(request, "GET", `/project/${projectId}/channels?botId=${botId}`);
+    const escalations = channels.find((c) => c.name === "escalations");
+    if (channels.length >= WEBHOOK_CHANNELS.length && escalations?.binding) {
+      await call(
+        request,
+        "POST",
+        `/project/${projectId}/channel-binding/${escalations.binding.id}`,
+        { approvalPolicy: "participants", mode: "all" },
+      );
+      return;
+    }
+    await Bun.sleep(100);
+  }
+  throw new Error(
+    "the webhook channels never arrived; is a queue worker running?",
+  );
 }
 
 const OUT = join(

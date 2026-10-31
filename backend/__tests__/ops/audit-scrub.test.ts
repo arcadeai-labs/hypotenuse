@@ -32,6 +32,8 @@ const EXPECTED_SENSITIVE_KEYS = [
   "tokenHash",
   "continuationSecret",
   "callbackSecret",
+  "credentials",
+  "routingKey",
   "headers",
   "authorization",
   "bearerToken",

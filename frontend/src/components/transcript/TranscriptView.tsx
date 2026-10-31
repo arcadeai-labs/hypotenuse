@@ -15,8 +15,11 @@ export interface TranscriptSpeakers {
   botAvatar?: string;
   /** Where the conversation lives, for the chip on a person's message. */
   platform: Platform;
-  /** A person's display name from their user id. */
-  personName: (userId: number | null) => string;
+  /** A person's display name: a platform participant's, else a member's. */
+  speakerName: (who: {
+    userId: number | null;
+    participantId: number | null;
+  }) => string;
 }
 
 /** What the end of a bot's turn adds beside its badge. */
@@ -46,7 +49,7 @@ function TranscriptItemLine({
 }) {
   switch (item.kind) {
     case "person": {
-      const name = speakers.personName(item.userId);
+      const name = speakers.speakerName(item);
       return (
         <div className="tx-message" data-testid="tx-person">
           <Avatar name={name} size={20} />

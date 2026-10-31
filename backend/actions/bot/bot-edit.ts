@@ -18,6 +18,7 @@ import {
   assertHelpTag,
   assertNotLockedOut,
   assertSlugFree,
+  autoBindInput,
   avatarInput,
   botDescriptionInput,
   botDisplayNameInput,
@@ -38,6 +39,7 @@ import {
   maxStepsPerTurnInput,
   monthlyBudgetInput,
   promptBudgetInput,
+  rateLimitInput,
   serializeBot,
   summarizeAvatar,
 } from "../../ops/BotOps";
@@ -49,6 +51,7 @@ import {
   overBudgetMessage,
   writeSectionVersion,
 } from "../../ops/PromptSectionOps";
+import { botInstallations } from "../../schema/bot_installations";
 import { bots, type NewBot } from "../../schema/bots";
 
 /**
@@ -90,6 +93,9 @@ export class BotEdit extends AuditedAction {
       .optional()
       .describe("Whether the bot accepts new conversations"),
     avatar: avatarInput.optional(),
+    autoBind: autoBindInput.optional(),
+    participantRateLimit: rateLimitInput("one platform person").optional(),
+    channelRateLimit: rateLimitInput("one channel").optional(),
   });
 
   /**
@@ -153,6 +159,19 @@ export class BotEdit extends AuditedAction {
     });
     if (params.slug !== undefined && params.slug !== bot.slug) {
       await assertSlugFree(tx, params.projectId, params.slug, bot.id);
+      // Every platform app generated for the bot embeds its slug.
+      const [installed] = await tx
+        .select({ id: botInstallations.id })
+        .from(botInstallations)
+        .where(eq(botInstallations.botId, bot.id))
+        .limit(1);
+      if (installed) {
+        throw new TypedError({
+          message: `"${bot.name}" has platform apps whose manifests embed its slug, so the slug cannot change. Disconnect them first.`,
+          type: ErrorType.CONNECTION_ACTION_PARAM_VALIDATION,
+          key: "slug",
+        });
+      }
     }
     if (params.codeLimits !== undefined) assertCodeLimits(params.codeLimits);
     const avatar = params.avatar ? decodeAvatar(params.avatar) : null;
@@ -178,6 +197,9 @@ export class BotEdit extends AuditedAction {
       "codeLimits",
       "memoryChannelHalfLifeDays",
       "memoryProjectHalfLifeDays",
+      "autoBind",
+      "participantRateLimit",
+      "channelRateLimit",
     ] as const) {
       if (params[key] !== undefined) {
         (changes as Record<string, unknown>)[key] = params[key];

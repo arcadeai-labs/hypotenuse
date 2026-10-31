@@ -118,6 +118,9 @@ export function serializeBot(bot: Bot, persona: string) {
     codeModeEnabled: bot.codeModeEnabled,
     codeLimits: bot.codeLimits,
     capabilities: bot.capabilities,
+    autoBind: bot.autoBind,
+    participantRateLimit: bot.participantRateLimit,
+    channelRateLimit: bot.channelRateLimit,
     createdByUserId: bot.createdByUserId,
     createdAt: bot.createdAt.getTime(),
     updatedAt: bot.updatedAt.getTime(),
@@ -653,3 +656,30 @@ export const maxAgentSectionsInput = z
   .min(0)
   .max(50)
   .describe("How many prompt sections the bot may create itself (0 stops it)");
+
+/** The Zod input for where a bot binds itself when invited. */
+export const autoBindInput = z
+  .object({
+    public: z.boolean().describe("Public channels"),
+    private: z.boolean().describe("Private channels"),
+    dm: z.boolean().describe("Direct messages"),
+  })
+  .describe(
+    "Whether the bot starts listening by itself in a channel it is invited to, per kind. Private channels and DMs default to off: a person binds them, which records who may read them",
+  );
+
+/**
+ * The Zod input for a per-minute message limit.
+ * @param who - Whose messages it counts.
+ * @returns The input.
+ */
+export function rateLimitInput(who: string) {
+  return z
+    .number()
+    .int()
+    .min(1)
+    .max(10_000)
+    .describe(
+      `The most messages a minute ${who} may send the bot before it ignores them for the rest of the minute`,
+    );
+}

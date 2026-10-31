@@ -119,6 +119,14 @@ export const COMMANDS: Command[] = [
     run: (c) => c.navigate("/audit"),
   },
   {
+    id: "open-events",
+    title: "Open platform events",
+    group: "Project",
+    keywords: ["webhook", "deliveries", "trigger", "slack", "inbound"],
+    requires: ["trigger-event:list"],
+    run: (c) => c.navigate("/events"),
+  },
+  {
     id: "open-organization-audit-log",
     title: "Open organization audit log",
     group: "Project",
@@ -183,6 +191,26 @@ export const COMMANDS: Command[] = [
     run: (c) => c.showShortcuts(),
   },
 ];
+
+/**
+ * One "Chat with …" command per bot the person may read, for the palette:
+ * each opens that bot's chat. Starting a conversation is what it takes, so a
+ * person refused `conversation:create` sees them disabled with the reason.
+ * @param bots - The active project's bots, as `bot:list` answers them.
+ * @returns The commands, in the order given.
+ */
+export function chatCommands(
+  bots: readonly { id: number; name: string; slug: string }[],
+): Command[] {
+  return bots.map((bot) => ({
+    id: `chat-with-${bot.slug}`,
+    title: `Chat with ${bot.name}`,
+    group: "Project",
+    keywords: ["chat", "talk", "message", "ask", bot.slug],
+    requires: ["conversation:create"],
+    run: (c) => c.navigate(`/bots/${bot.id}/chat`),
+  }));
+}
 
 /**
  * The commands that apply right now.

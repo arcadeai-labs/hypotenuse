@@ -3,7 +3,9 @@ import {
   Box,
   Brain,
   House,
+  LifeBuoy,
   type LucideIcon,
+  MessageCircle,
   MessagesSquare,
   Settings,
   ShieldCheck,
@@ -14,7 +16,9 @@ export interface Destination {
   id:
     | "home"
     | "conversations"
+    | "chat"
     | "approvals"
+    | "help"
     | "bots"
     | "memory"
     | "sandboxes"
@@ -54,11 +58,27 @@ export const DESTINATIONS: readonly Destination[] = [
     available: true,
   },
   {
+    id: "chat",
+    to: "/chat",
+    label: "Chat",
+    Icon: MessageCircle,
+    shortcut: "g t",
+    available: true,
+  },
+  {
     id: "approvals",
     to: "/approvals",
     label: "Approvals",
     Icon: ShieldCheck,
     shortcut: "g a",
+    available: true,
+  },
+  {
+    id: "help",
+    to: "/help",
+    label: "Help inbox",
+    Icon: LifeBuoy,
+    shortcut: "g i",
     available: true,
   },
   {

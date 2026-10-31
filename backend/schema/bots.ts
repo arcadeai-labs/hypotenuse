@@ -65,7 +65,20 @@ const bytea = customType<{ data: Buffer; driverData: Buffer }>({
  *   `codeLimits` lowers the deployment's code-mode limits for this bot
  *   (`timeoutMs`, `memoryBytes`, `bridgeRequests`); a value above the
  *   deployment's is refused when saved, so a bot can never raise one.
+ * - `autoBind` — whether the bot starts listening, by itself, in a platform
+ *   channel it was invited to, per kind of channel: on for public channels,
+ *   off for private channels and DMs (a person binds those, which records
+ *   the audience decision).
+ * - `participantRateLimit` / `channelRateLimit` — the most messages a minute
+ *   one platform person, or one channel, may send the bot before it ignores
+ *   them for the rest of the minute.
  */
+/** Per kind of channel, whether a bot binds itself when invited. */
+export interface BotAutoBind {
+  public: boolean;
+  private: boolean;
+  dm: boolean;
+}
 /** A bot's own, lower, code-mode limits; an absent key means the deployment's. */
 export interface BotCodeLimits {
   timeoutMs?: number;
@@ -123,6 +136,14 @@ export const bots = pgTable(
       .$type<BotCodeLimits>()
       .notNull()
       .default({}),
+    autoBind: jsonb("auto_bind")
+      .$type<BotAutoBind>()
+      .notNull()
+      .default({ public: true, private: false, dm: false }),
+    participantRateLimit: integer("participant_rate_limit")
+      .notNull()
+      .default(20),
+    channelRateLimit: integer("channel_rate_limit").notNull().default(60),
     createdByUserId: integer("created_by_user_id").references(() => users.id, {
       onDelete: "set null",
     }),

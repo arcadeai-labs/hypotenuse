@@ -45,6 +45,10 @@ export type ConversationOutcome = (typeof CONVERSATION_OUTCOMES)[number];
  * - `timer`: `wait_for` asked to sleep until `at` (epoch ms).
  * - `approval`: a step's tool calls wait for a person; `approvalIds` are the
  *   approvals the gate wrote (`ApprovalOps`). Woken when none is pending.
+ * - `help`: `escalate_to_human` asked the project's people; only that request
+ *   being answered, withdrawn, or expired (`HelpOps.settleHelpRequest`) ends
+ *   the wait. A message meanwhile is kept in the inbox, so nobody in the
+ *   channel can unblock an escalation that may be about the channel.
  * - `sandbox`: reserved for sandbox jobs, which do not exist yet; nothing
  *   writes it.
  */
@@ -52,6 +56,7 @@ export type WaitingOn =
   | { kind: "answer"; questionEntryId: number; timeoutAt: number | null }
   | { kind: "timer"; at: number }
   | { kind: "approval"; approvalIds: number[] }
+  | { kind: "help"; helpRequestId: number }
   | { kind: "sandbox"; sandboxJobId: number };
 
 /**
@@ -129,7 +134,10 @@ export const conversations = pgTable(
       .$onUpdateFn(() => new Date()),
   },
   (t) => [
-    uniqueIndex("conversations_channel_external_idx").on(
+    // Two bots bound to one channel each hold their own conversation for
+    // the same thread.
+    uniqueIndex("conversations_bot_channel_external_idx").on(
+      t.botId,
       t.channelId,
       t.externalConversationKey,
     ),

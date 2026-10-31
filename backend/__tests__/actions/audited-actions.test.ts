@@ -65,6 +65,18 @@ const READS = new Set([
   "skill:view",
   "skill:versions",
   "bot-skill:list",
+  "bot-installation:list",
+  "bot-installation:view",
+  "channel:list",
+  "channel:view",
+  "channel-binding:list",
+  "participant:list",
+  "participant:view",
+  "trigger-event:list",
+  "trigger-event:view",
+  "help:list",
+  "help:view",
+  "conversation:live",
 ]);
 
 /**
@@ -88,6 +100,11 @@ const UNAUDITED_WRITERS = new Set([
   "agent:tick",
   "conversation:compact",
   "outbox:deliver",
+  // Machine ingress and its processing: the trigger event, the inbox row,
+  // and the participant are the record (an approval a participant decides
+  // is audited inside, as a participant row).
+  "webhooks:webhook",
+  "triggers:process-event",
   // Memory's machine work: each version's source and provenance, and each
   // chunk's embedding revision, are the record.
   "memory:embed",
@@ -110,6 +127,8 @@ const UNAUDITED_WRITERS = new Set([
   "mcp-servers:refresh",
   "approvals:expire",
   "large-results:sweep",
+  "triggers:process-pending",
+  "help:expire",
 ]);
 
 /**

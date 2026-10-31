@@ -1,7 +1,9 @@
 /**
  * `hypotenuse conversation` — talk to the selected project's bots over the API
- * channel (`conversation:*`): start a conversation, send it messages, list and
- * read conversations, cancel one, and follow a transcript as the bot works.
+ * channel or in a dashboard chat (`conversation:*`): start a conversation,
+ * send it messages, list and read conversations, cancel one, and follow a
+ * transcript as the bot works — on a terminal, with the bot's text shown as it
+ * is written (`conversation:live`).
  */
 import type { Command } from "commander";
 import {
@@ -29,6 +31,7 @@ import {
   glyph,
   table,
   truncateMiddle,
+  visibleWidth,
 } from "../output/theme";
 
 /** How a conversation ended, as the server names it. */
@@ -42,7 +45,7 @@ export interface Conversation {
   channelId: number;
   title: string | null;
   state: "working" | "hibernating" | "waiting" | "ended";
-  waitingOn: { kind: WaitingOn; at?: number } | null;
+  waitingOn: { kind: WaitingOn | "help"; at?: number } | null;
   outcome: ServerOutcome | null;
   epoch: number;
   working: boolean;
@@ -95,6 +98,18 @@ export interface Entry {
   createdAt: number;
 }
 
+/** What `conversation:live` answers: what a working conversation shows right now. */
+interface LiveResult {
+  live: {
+    conversationId: number;
+    state: Conversation["state"];
+    lastSeq: number;
+    status: { id: number; text?: string; at: number } | null;
+    stream: { id: number; text?: string; at: number } | null;
+    plan: unknown;
+  };
+}
+
 /** What `conversation:entries` answers. */
 type EntriesResult = Paginated<"entries", Entry> & {
   conversation: Conversation;
@@ -143,9 +158,13 @@ export function statusText(
     case "hibernating":
       return `${conversationGlyph({ state: "hibernating" })} Hibernating`;
     case "waiting": {
-      const on = c.waitingOn?.kind ?? "answer";
+      // A help wait shows the answer glyph: the design's states have no
+      // glyph of their own for it.
+      const kind = c.waitingOn?.kind ?? "answer";
+      const on = (kind === "help" ? "answer" : kind) as WaitingOn;
       const words: Record<WaitingOn, string> = {
-        answer: "Waiting for an answer",
+        answer:
+          kind === "help" ? "Waiting for the team" : "Waiting for an answer",
         approval: "Waiting for approval",
         sandbox: "Waiting on a sandbox",
         timer: "Waiting on a timer",
@@ -288,6 +307,50 @@ function conversationId(raw: string): number {
   return Number(raw);
 }
 
+/**
+ * The bot's text as it is being written, drawn below the transcript on a
+ * terminal and redrawn in place as it grows. Each draw erases the block it
+ * drew before (moving the cursor up over its rows), so when the step commits
+ * and its entry is printed, the streamed text is replaced rather than
+ * repeated. Pure: it returns the bytes to write, and the caller writes them.
+ */
+export class LiveBlock {
+  private rows = 0;
+  private shown = "";
+
+  /**
+   * The bytes that replace what is drawn with `text`.
+   * @param text - What to show (may be colored, may span lines).
+   * @param columns - The terminal's width.
+   * @returns The bytes to write; empty when `text` is already shown.
+   */
+  draw(text: string, columns: number): string {
+    if (text === this.shown) return "";
+    const erase = this.clear();
+    const width = Math.max(1, columns);
+    this.rows = text
+      .split("\n")
+      .reduce(
+        (n, line) => n + Math.max(1, Math.ceil(visibleWidth(line) / width)),
+        0,
+      );
+    this.shown = text;
+    return `${erase}${text}`;
+  }
+
+  /**
+   * The bytes that erase what is drawn, leaving the cursor where it began.
+   * @returns The bytes to write; empty when nothing is drawn.
+   */
+  clear(): string {
+    if (this.rows === 0) return "";
+    const up = this.rows > 1 ? `\x1b[${this.rows - 1}A` : "";
+    this.rows = 0;
+    this.shown = "";
+    return `${up}\r\x1b[J`;
+  }
+}
+
 /** How `follow` paces itself. */
 interface FollowOptions {
   /** Print entries after this seq. */
@@ -318,11 +381,18 @@ async function follow(
   const base = `/project/${projectId}/conversation/${id}`;
   const view = await client.request<ConversationViewResult>("GET", base);
   const botName = view.bot.displayName || view.bot.name;
+  // Only a person at a terminal sees the text as it is written; piped and
+  // --json output stay one finished line per entry.
+  let streaming = !ctx.json && Boolean(process.stdout.isTTY);
+  const block = new LiveBlock();
   let since = options.since;
   for (;;) {
     const page = await client.request<EntriesResult>("GET", `${base}/entries`, {
       query: { since, limit: ENTRIES_PAGE },
     });
+    if (streaming && page.entries.length > 0) {
+      process.stdout.write(block.clear());
+    }
     for (const entry of page.entries) {
       since = entry.seq;
       if (ctx.json) {
@@ -337,6 +407,7 @@ async function follow(
     // The state is read before the entries, so every entry written before it
     // stopped working is on this page: nothing is lost by stopping here.
     if (page.conversation.state !== "working") {
+      if (streaming) process.stdout.write(block.clear());
       const rest = page.conversation;
       if (ctx.json) {
         console.log(JSON.stringify({ conversation: rest }));
@@ -347,6 +418,30 @@ async function follow(
         process.exitCode = 1;
       }
       return rest;
+    }
+    if (streaming) {
+      try {
+        const { live } = await client.request<LiveResult>(
+          "GET",
+          `${base}/live`,
+        );
+        const text = live.stream?.text ?? "";
+        process.stdout.write(
+          text
+            ? block.draw(
+                `${color("accent", `${botName} (bot)`)}: ${dim(hang(text))}`,
+                process.stdout.columns ?? 80,
+              )
+            : block.clear(),
+        );
+      } catch (error) {
+        // A server without the live read still has the transcript.
+        logger.debug(
+          `not streaming: ${error instanceof Error ? error.message : String(error)}`,
+        );
+        process.stdout.write(block.clear());
+        streaming = false;
+      }
     }
     await Bun.sleep(options.intervalMs);
   }
@@ -404,7 +499,9 @@ function emitThen(
 export function registerConversationCommands(program: Command): void {
   const conversation = program
     .command("conversation")
-    .description("Talk to the selected project's bots over the API");
+    .description(
+      "Talk to the selected project's bots over the API or in a dashboard chat",
+    );
 
   withInterval(
     conversation
@@ -431,6 +528,14 @@ export function registerConversationCommands(program: Command): void {
       )
       .option("--title <title>", "a title shown in lists (default: none)")
       .option(
+        "--web",
+        "start a dashboard chat (the bot's dashboard channel) instead of an API conversation",
+      )
+      .option(
+        "--fresh",
+        "with --web: start in a new scratch channel, whose memory is empty",
+      )
+      .option(
         "--follow",
         "print the transcript as the bot works, until it stops",
       ),
@@ -443,8 +548,18 @@ export function registerConversationCommands(program: Command): void {
         callbackUrl?: string;
         requestId?: string;
         title?: string;
+        web?: boolean;
+        fresh?: boolean;
         follow?: boolean;
       };
+      if (flags.fresh && !flags.web) {
+        throw new Error("--fresh goes with --web.");
+      }
+      if (flags.web && flags.channel !== undefined) {
+        throw new Error(
+          "--channel names an API channel; a dashboard chat (--web) uses the bot's dashboard channel, or a new one with --fresh.",
+        );
+      }
       const pace = intervalMs(this);
       const text = await messageText(flags.text);
       const client = ctx.signedInClient();
@@ -461,6 +576,9 @@ export function registerConversationCommands(program: Command): void {
           callbackUrl: flags.callbackUrl,
           requestId: flags.requestId,
           title: flags.title,
+          ...(flags.web
+            ? { channelType: "web", fresh: flags.fresh || undefined }
+            : {}),
         },
       });
       const c = result.conversation;

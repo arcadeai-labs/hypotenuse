@@ -48,6 +48,8 @@ export interface ShellActions {
   newOrganizationDenied?: string;
   /** Why the active project's audit log is refused, from `can("audit:list")`. */
   auditLogDenied?: string;
+  /** Why the active project's platform events are refused, from `can("trigger-event:list")`. */
+  eventsDenied?: string;
   /** Why the organization's audit log is refused, from `can("organization:audit-list")`. */
   organizationAuditDenied?: string;
   /** How many invitations are waiting for the person, for the account menu. */

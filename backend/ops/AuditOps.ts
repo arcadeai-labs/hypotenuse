@@ -59,6 +59,9 @@ export const SENSITIVE_KEYS = [
   "continuationSecret",
   // the API channel's callback signing secret
   "callbackSecret",
+  // a platform installation's sealed credentials, and its routing key
+  "credentials",
+  "routingKey",
   // MCP server and telemetry exporter headers, where credentials hide
   "headers",
   "authorization",

@@ -31,9 +31,13 @@ read and change it, and whether you may change it.
 | **Tools** | which MCP servers it may use, which of their tools run without asking, and what its tools can do |
 | **Code** | whether it may run programs ([code mode](/docs/code-mode)), and its own, lower limits for them |
 | **Approvals** | who may decide its tool calls, and how long a waiting call lasts |
+| **Channels** | its apps on platforms, the channels it is bound in and their settings, and channels that messaged it unbound — see [Channels](/docs/channels) |
+| **Listening** | where it binds itself when invited, and how many messages a minute one person, and one channel, may send it |
 
-The page also shows **Channels** and **Sandboxes**, each reading *Not available yet*. They will hold where the bot
-listens and the sandboxes it hands repository work to.
+The page also shows **Sandboxes**, reading *Not available yet*. It will hold the sandboxes the bot hands repository
+work to.
+
+**Chat** at the top of the page opens the bot's [chat](/docs/chat), where you talk to it in the dashboard.
 
 **Prompt** at the top of the page opens the bot's [prompt](/docs/prompts): every section of what it is told before
 each step, their versions, and a preview of the whole.
@@ -81,8 +85,8 @@ the project passes; check tags and only members holding at least one of them do.
   of the bot they were editing.
 
 These lists govern the dashboard and the CLI. Who may *talk* to a bot is decided by the platform it is bound in:
-anyone who can write in a Slack channel, comment on a Linear issue, or reply on a Pylon ticket where the bot is
-bound may address it there.
+anyone who can write in a channel where the bot is bound may address it there. Everyone who may read the bot may read
+those conversations — see [Channels: who talks, who reads, who binds](/docs/tags#channels-who-talks-who-reads-who-binds).
 
 **Who it asks for help** is the tag whose holders the bot will notify when it needs a person and nobody in the
 channel has answered. It defaults to the project's admins.
@@ -156,6 +160,7 @@ a day unless you change it.
 
 ## Talking to it
 
-Anyone who may read a bot may [talk to it over the API](/docs/talking-to-a-bot-over-the-api), and its page lists its
+Anyone who may read a bot may [chat with it](/docs/chat) in the dashboard and
+[talk to it over the API](/docs/talking-to-a-bot-over-the-api), and its page lists its
 [conversations](/docs/conversations). **Callback secret** creates the secret its API callbacks are signed with; it is
 shown once.

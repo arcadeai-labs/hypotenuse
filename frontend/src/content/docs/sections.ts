@@ -4,9 +4,13 @@ import accounts from "./accounts.md?raw";
 import approvals from "./approvals.md?raw";
 import audit from "./audit.md?raw";
 import bots from "./bots.md?raw";
+import channels from "./channels.md?raw";
+import chat from "./chat.md?raw";
 import cli from "./cli.md?raw";
 import codeMode from "./code-mode.md?raw";
+import connectingAPlatform from "./connecting-a-platform.md?raw";
 import conversations from "./conversations.md?raw";
+import escalation from "./escalation.md?raw";
 import gettingStarted from "./getting-started.md?raw";
 import goals from "./goals.md?raw";
 import mcpServers from "./mcp-servers.md?raw";
@@ -20,6 +24,7 @@ import skills from "./skills.md?raw";
 import styleGuide from "./style-guide.md?raw";
 import tags from "./tags.md?raw";
 import talkingToABotOverTheApi from "./talking-to-a-bot-over-the-api.md?raw";
+import webhookPlatform from "./webhook-platform.md?raw";
 
 /** One page of the public docs. */
 export interface DocsSection {
@@ -48,12 +53,29 @@ export const DOCS_SECTIONS: DocsSection[] = [
   { slug: "models", title: "Models", markdown: models },
   { slug: "bots", title: "Bots", markdown: bots },
   { slug: "conversations", title: "Conversations", markdown: conversations },
+  { slug: "chat", title: "Chat", markdown: chat },
   { slug: "prompts", title: "Prompts", markdown: prompts },
   { slug: "goals", title: "Goals", markdown: goals },
   { slug: "skills", title: "Skills", markdown: skills },
   { slug: "memory", title: "Memory", markdown: memory },
   { slug: "mcp-servers", title: "MCP servers", markdown: mcpServers },
   { slug: "approvals", title: "Approvals", markdown: approvals },
+  { slug: "channels", title: "Channels", markdown: channels },
+  {
+    slug: "connecting-a-platform",
+    title: "Connecting a platform",
+    markdown: connectingAPlatform,
+  },
+  {
+    slug: "webhook-platform",
+    title: "The webhook platform",
+    markdown: webhookPlatform,
+  },
+  {
+    slug: "escalation",
+    title: "Asking a person for help",
+    markdown: escalation,
+  },
   { slug: "code-mode", title: "Code mode", markdown: codeMode },
   {
     slug: "talking-to-a-bot-over-the-api",

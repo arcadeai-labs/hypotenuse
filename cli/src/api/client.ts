@@ -144,7 +144,10 @@ export class ApiClient {
       error?: { message?: string; type?: string } | string;
     } | null;
     const retryAfter = parseRetryAfter(response.headers.get("retry-after"));
-    if (envelope?.error) {
+    // A string `error` on a 2xx is the action's own field — a probe's reason
+    // (`{ ok: false, error }`) — not an error envelope, which is an object.
+    const actionField = response.ok && typeof envelope?.error === "string";
+    if (envelope?.error && !actionField) {
       const error = envelope.error;
       throw typeof error === "string"
         ? new ApiError(error, response.status, undefined, {}, retryAfter)

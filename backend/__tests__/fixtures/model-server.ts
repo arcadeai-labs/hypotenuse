@@ -141,6 +141,10 @@ export interface ScriptedResponse {
   hang?: boolean;
   /** Stream this many events, then cut the connection. */
   dropAfter?: number;
+  /** Split the text into this many deltas (default two). Anthropic only. */
+  textPieces?: number;
+  /** Wait this long between streamed events, to watch text arrive. */
+  streamDelayMs?: number;
 }
 
 /** A completion request, parsed. */
@@ -305,9 +309,14 @@ function anthropicEvents(
         content_block: { type: "text", text: "" },
       },
     ]);
-    // Two deltas, so a stream that is cut can be cut mid-text.
-    const half = Math.ceil(r.text.length / 2);
-    for (const piece of [r.text.slice(0, half), r.text.slice(half)]) {
+    // Two deltas by default, so a stream that is cut can be cut mid-text.
+    const n = Math.max(1, r.textPieces ?? 2);
+    const size = Math.ceil(r.text.length / n);
+    const pieces: string[] = [];
+    for (let i = 0; i < r.text.length; i += size) {
+      pieces.push(r.text.slice(i, i + size));
+    }
+    for (const piece of pieces) {
       if (!piece) continue;
       events.push([
         "content_block_delta",
@@ -795,7 +804,7 @@ export function startModelServer(options: { apiKey: string }): ModelServer {
           return;
         }
         controller.enqueue(encoder.encode(line));
-        await Bun.sleep(1);
+        await Bun.sleep(r.streamDelayMs ?? 1);
       },
       cancel() {
         disconnects++;

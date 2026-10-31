@@ -38,6 +38,10 @@ twice on its own.
 A call nobody decides **expires** after a day (each bot can change this) and counts as denied. Cancelling the
 conversation expires its waiting approvals too.
 
+In a [chat](/docs/chat), a call waiting for approval is a card in the conversation, with **Approve** and **Deny**.
+On a platform, the channel's binding says whether it may be decided there — see
+[Who decides in a channel](/docs/tags#who-decides-in-a-channel).
+
 ## Who decides
 
 Anyone who may **change** the bot may decide its approvals. A bot may also name an **approver tag**: people with

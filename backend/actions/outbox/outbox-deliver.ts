@@ -1,27 +1,39 @@
-import { type Action, type ActionParams } from "keryx";
+import type { Action, ActionParams } from "keryx";
 import { z } from "zod";
 import { idInput } from "../../ops/InputOps";
-import { deliverOutboxMessage } from "../../ops/OutboxOps";
+import { deliverConversation, deliverOutboxMessage } from "../../ops/OutboxOps";
 
 /**
- * `outbox:deliver` — attempt one outbox row: POST a signed callback. Enqueued
- * after the step that wrote the row commits. Not audited: the machine half of
- * a reply, recorded on `outbox_messages`.
+ * `outbox:deliver` — deliver one conversation's due outbox rows, in order,
+ * under its delivery lease (or, given `outboxMessageId`, attempt that row).
+ * Enqueued after the commit that writes rows. Not audited: the machine half
+ * of a reply, recorded on `outbox_messages`.
  */
 export class OutboxDeliver implements Action {
   name = "outbox:deliver";
   description =
-    "Deliver one queued outbound message. Enqueued by the server; not exposed over HTTP.";
+    "Deliver a conversation's queued outbound messages. Enqueued by the server; not exposed over HTTP.";
   mcp = { tool: false };
   task = { queue: "outbox" };
-  inputs = z.object({ outboxMessageId: idInput("The outbox row") });
+  inputs = z.object({
+    conversationId: idInput("The conversation").optional(),
+    outboxMessageId: idInput("One outbox row").optional(),
+  });
 
   /**
-   * @param params - The row.
-   * @returns What the attempt did.
+   * @param params - The conversation, or one row.
+   * @returns What was attempted.
    */
   async run(params: ActionParams<OutboxDeliver>) {
-    const outcome = await deliverOutboxMessage(params.outboxMessageId);
-    return { outcome };
+    if (params.conversationId) {
+      return deliverConversation(params.conversationId);
+    }
+    if (params.outboxMessageId) {
+      return {
+        leased: false,
+        outcomes: [await deliverOutboxMessage(params.outboxMessageId)],
+      };
+    }
+    return { leased: false, outcomes: [] };
   }
 }

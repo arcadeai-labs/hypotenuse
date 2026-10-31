@@ -9,6 +9,7 @@ import {
 import { ProjectMemberMiddleware } from "../../middleware/rbac";
 import { scrubParams } from "../../ops/AuditOps";
 import { loadReadableBot } from "../../ops/BotOps";
+import { upsertWebChannel } from "../../ops/ChannelOps";
 import {
   enqueueTick,
   lockConversation,
@@ -37,7 +38,7 @@ import { type Conversation, conversations } from "../../schema/conversations";
 export class ConversationCreate extends AuditedAction {
   name = "conversation:create";
   description =
-    "Start a conversation with a bot and send it the first message. The bot answers in the background: poll conversation:entries (since a seq), or pass callbackUrl to have each reply POSTed there, signed with the bot's callback secret. Pass requestId to make retries safe. Requires membership and read access to the bot.";
+    "Start a conversation with a bot and send it the first message. channelType web starts a dashboard chat (fresh: true for an empty scratch channel). The bot answers in the background: poll conversation:entries (since a seq), or pass callbackUrl to have each reply POSTed there, signed with the bot's callback secret. Pass requestId to make retries safe. Requires membership and read access to the bot.";
   middleware = [ProjectMemberMiddleware()];
   web = {
     route: "/project/:projectId/bot/:botId/conversation",
@@ -67,6 +68,18 @@ export class ConversationCreate extends AuditedAction {
         "A public https URL to POST each of the bot's messages to, signed with Hypotenuse-Signature",
       ),
     requestId: requestIdInput.optional(),
+    channelType: z
+      .enum(["api", "web"])
+      .optional()
+      .describe(
+        "api (the default): one of the bot's API channels, chosen by channelKey; web: the dashboard chat, where streamed text, the status line, and the plan are shown live",
+      ),
+    fresh: z
+      .boolean()
+      .optional()
+      .describe(
+        "With channelType web: start in a new scratch channel, whose memory is empty, instead of the bot's shared dashboard channel",
+      ),
     title: z
       .string()
       .trim()
@@ -119,6 +132,30 @@ export class ConversationCreate extends AuditedAction {
       if (existing) return this.answer(tx, existing, true, connection);
     }
 
+    const web = params.channelType === "web";
+    if (web && params.callbackUrl) {
+      throw new TypedError({
+        message:
+          "A dashboard chat (channelType web) is read in the dashboard, so it takes no callbackUrl. Use the API channel for callbacks.",
+        type: ErrorType.CONNECTION_ACTION_PARAM_VALIDATION,
+        key: "callbackUrl",
+      });
+    }
+    if (web && params.channelKey) {
+      throw new TypedError({
+        message:
+          "A dashboard chat (channelType web) uses the bot's dashboard channel, or a fresh one with fresh: true; channelKey is for API channels.",
+        type: ErrorType.CONNECTION_ACTION_PARAM_VALIDATION,
+        key: "channelKey",
+      });
+    }
+    if (!web && params.fresh) {
+      throw new TypedError({
+        message: "fresh goes with channelType web.",
+        type: ErrorType.CONNECTION_ACTION_PARAM_VALIDATION,
+        key: "fresh",
+      });
+    }
     if (!bot.enabled) {
       throw new TypedError({
         message: `"${bot.name}" is disabled, so it takes no new conversations. Someone with write access can enable it on its page.`,
@@ -152,11 +189,9 @@ export class ConversationCreate extends AuditedAction {
       }
     }
 
-    const channel = await upsertApiChannel(
-      tx,
-      bot,
-      params.channelKey ?? "default",
-    );
+    const channel = web
+      ? await upsertWebChannel(tx, bot, params.fresh === true)
+      : await upsertApiChannel(tx, bot, params.channelKey ?? "default");
     const [inserted] = await tx
       .insert(conversations)
       .values({

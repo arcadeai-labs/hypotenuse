@@ -64,6 +64,7 @@ describe("a turn", () => {
           toolsOffered: [
             "ask_question",
             "complete",
+            "escalate_to_human",
             "fail",
             "goal_list",
             "goal_update",

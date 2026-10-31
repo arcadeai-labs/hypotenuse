@@ -36,6 +36,7 @@ let mcpConfig: typeof config.mcp;
 const BUILT_IN = [
   "ask_question",
   "complete",
+  "escalate_to_human",
   "fail",
   "memory_edit",
   "memory_forget",

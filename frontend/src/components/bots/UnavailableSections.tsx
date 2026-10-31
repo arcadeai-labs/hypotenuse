@@ -15,11 +15,6 @@ interface UnavailableSection {
  */
 export const UNAVAILABLE_BOT_SECTIONS: readonly UnavailableSection[] = [
   {
-    slug: "channels",
-    title: "Channels",
-    purpose: "Where it listens: Slack channels, Linear teams, Pylon accounts.",
-  },
-  {
     slug: "sandboxes",
     title: "Sandboxes",
     purpose:

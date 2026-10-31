@@ -12,6 +12,7 @@ import { configMemory } from "./memory";
 import { configNetwork } from "./network";
 import { configNotifications } from "./notifications";
 import { configObservability } from "./observability";
+import { configPlatforms } from "./platforms";
 import { configPlugins } from "./plugins";
 import { configProcess } from "./process";
 import { configRateLimit } from "./rateLimit";
@@ -46,6 +47,7 @@ export default {
   memory: configMemory,
   mcp: configMcp,
   code: configCode,
+  platforms: configPlatforms,
 };
 
 /**

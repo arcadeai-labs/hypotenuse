@@ -1,5 +1,6 @@
 import { askQuestion } from "./ask-question";
 import { complete } from "./complete";
+import { escalateToHuman } from "./escalate-to-human";
 import { fail } from "./fail";
 import { goalList } from "./goal-list";
 import { goalUpdate } from "./goal-update";
@@ -42,6 +43,7 @@ export const TERMINAL_TOOL_NAMES = [
   "fail",
   "wait_for",
   "ask_question",
+  "escalate_to_human",
 ] as const;
 
 /**
@@ -119,6 +121,7 @@ for (const tool of [
   skillList,
   useSkill,
   runCode,
+  escalateToHuman,
 ] as ToolDefinition[]) {
   registerTool(tool);
 }

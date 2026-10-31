@@ -1,144 +1,61 @@
-import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { and, asc, eq, inArray, lte, or, sql } from "drizzle-orm";
 import { api, config } from "keryx";
 // Type-only, purely for the `declare module "keryx"` augmentation inside.
 import type {} from "../config/agents";
-import { bots } from "../schema/bots";
-import type { Conversation } from "../schema/conversations";
+import type {} from "../config/platforms";
+import { surfaceAdapter } from "../platforms/registry";
+import type { SendResult, SurfaceContext } from "../platforms/types";
+import { botInstallations } from "../schema/bot_installations";
+import { channels } from "../schema/channels";
 import { conversations } from "../schema/conversations";
 import { type OutboxMessage, outboxMessages } from "../schema/outbox_messages";
-import type { Outbound } from "../tools/types";
-import { decryptSecret } from "./CryptoOps";
-import type { DbHandle } from "./DbOps";
-import { guardedFetch, HostRefused } from "./NetworkGuardOps";
+import { acquireLease, releaseLease } from "./LockOps";
+
+export {
+  CALLBACK_SECRET_PREFIX,
+  generateCallbackSecret,
+  signCallback,
+  verifyCallbackSignature,
+} from "./SignatureOps";
 
 /**
- * The outbox: everything a bot writes to the world, recorded in the step's
- * transaction and delivered after commit. Here it serves only the API
- * channel's signed callback.
+ * **The outbox**: everything a bot writes to the world, recorded in the
+ * transaction that decided it (`SurfaceOps.emit`) and delivered after commit
+ * through the conversation's surface adapter. The row id is the delivery id
+ * a receiver dedupes on, so a retry after a lost response is harmless.
  *
- * A callback is `POST`ed as JSON `{conversationId, entrySeq, kind, text,
- * options?}` with two headers:
+ * Delivery is per conversation, in `id` order, by one deliverer at a time:
  *
- * - `Hypotenuse-Signature: t=<unix seconds>,v1=<hex HMAC-SHA256(secret, t + "." + body)>`
- * - `Hypotenuse-Delivery: <outbox row id>`, the same on every retry, so a
- *   receiver drops a duplicate.
+ * 1. `outbox:deliver` (enqueued after the commit that wrote rows) takes the
+ *    Redis lease `outbox:deliver:<conversationId>`, released only by its holder.
+ * 2. It sends the conversation's due rows oldest first, skipping superseded
+ *    ones. A row that must wait (backed off, or claimed by a deliverer that
+ *    died) stops the walk, so nothing overtakes it.
+ * 3. It records `externalMessageId` with `sent`, in one write.
+ * 4. It releases the lease. `outbox:deliver-due` fans out over conversations
+ *    with due rows, a few at a time, for whatever an accelerant missed.
  *
- * | Answer | Then |
+ * | Send result | Then |
  * |---|---|
- * | 2xx | `sent` |
- * | 408, 429, 5xx, a network error, a lost response | `failed`, retried with back-off until the window (24 h) ends, then `undeliverable` |
- * | any other 4xx, a refused host, no secret | `undeliverable` |
+ * | `sent` | `sent`, with the platform's message id |
+ * | `retry` | `failed`, retried after back-off (or the platform's `Retry-After`) until the window (24 h) ends, then `undeliverable` |
+ * | `undeliverable` | `undeliverable`, with the reason |
  */
 
-/** The prefix every callback secret carries, so one is recognizable in a leak. */
-export const CALLBACK_SECRET_PREFIX = "hyp_cbs_";
-
 /**
- * A fresh callback secret.
- * @returns The plaintext secret.
- */
-export function generateCallbackSecret(): string {
-  return `${CALLBACK_SECRET_PREFIX}${randomBytes(32).toString("base64url")}`;
-}
-
-/**
- * Sign a callback body.
- * @param secret - The bot's callback secret.
- * @param body - The exact body bytes, as text.
- * @param timestamp - Unix seconds.
- * @returns The `Hypotenuse-Signature` header value.
- */
-export function signCallback(
-  secret: string,
-  body: string,
-  timestamp: number,
-): string {
-  const mac = createHmac("sha256", secret)
-    .update(`${timestamp}.${body}`)
-    .digest("hex");
-  return `t=${timestamp},v1=${mac}`;
-}
-
-/**
- * Verify a callback signature the way a receiver should: recompute the HMAC
- * over the raw body, compare in constant time, and refuse an old timestamp.
- * @param secret - The bot's callback secret.
- * @param header - The `Hypotenuse-Signature` header.
- * @param body - The raw body, as text.
- * @param toleranceSeconds - How old a signature may be.
- * @returns Whether it is genuine and fresh.
- */
-export function verifyCallbackSignature(
-  secret: string,
-  header: string,
-  body: string,
-  toleranceSeconds = 300,
-): boolean {
-  const parts = Object.fromEntries(
-    header.split(",").map((p) => p.trim().split("=", 2) as [string, string]),
-  );
-  const t = Number(parts.t);
-  if (!Number.isFinite(t) || !parts.v1) return false;
-  if (Math.abs(Date.now() / 1000 - t) > toleranceSeconds) return false;
-  const expected = Buffer.from(signCallback(secret, body, t).split("v1=")[1]);
-  const given = Buffer.from(parts.v1);
-  return expected.length === given.length && timingSafeEqual(expected, given);
-}
-
-/**
- * Record an outbound message for delivery, in the step's transaction. Only a
- * conversation with a callback URL has anywhere to deliver to; without one,
- * the transcript entry is the message and a poller reads it.
- * @param tx - An open transaction.
- * @param conversation - The conversation.
- * @param seq - The transcript entry the message came from.
- * @param outbound - What to send.
- * @returns The row, or `null` when there is no callback.
- */
-export async function queueOutbound(
-  tx: DbHandle,
-  conversation: Conversation,
-  seq: number,
-  outbound: Outbound,
-): Promise<OutboxMessage | null> {
-  if (!conversation.callbackUrl) return null;
-  const [row] = await tx
-    .insert(outboxMessages)
-    .values({
-      projectId: conversation.projectId,
-      conversationId: conversation.id,
-      seq,
-      kind: outbound.kind,
-      payload: {
-        conversationId: conversation.id,
-        entrySeq: seq,
-        kind: outbound.kind,
-        text: outbound.text,
-        ...(outbound.options ? { options: outbound.options } : {}),
-      },
-      target: { type: "api-callback", url: conversation.callbackUrl },
-    })
-    .returning();
-  return row;
-}
-
-/**
- * Enqueue delivery of outbox rows after their transaction committed. An
+ * Enqueue delivery for conversations whose rows just committed. An
  * accelerant: `outbox:deliver-due` finds anything this loses.
- * @param ids - The rows.
+ * @param conversationIds - The conversations.
  */
-export async function enqueueDeliveries(ids: number[]): Promise<void> {
-  for (const outboxMessageId of ids) {
+export async function enqueueDelivery(
+  conversationIds: number[],
+): Promise<void> {
+  for (const conversationId of new Set(conversationIds)) {
     try {
-      await api.actions.enqueue(
-        "outbox:deliver",
-        { outboxMessageId },
-        "outbox",
-      );
+      await api.actions.enqueue("outbox:deliver", { conversationId }, "outbox");
     } catch (e) {
       api.logger.warn("could not enqueue an outbox delivery", {
-        outboxMessageId,
+        conversationId,
         error: e instanceof Error ? e.message : String(e),
       });
     }
@@ -146,40 +63,76 @@ export async function enqueueDeliveries(ids: number[]): Promise<void> {
 }
 
 /**
- * Rows due for an attempt: never tried, failed and backed off long enough, or
- * stuck in `sending` past their claim (a deliverer that died).
- * @param limit - The most to return.
- * @returns Their ids, oldest due first.
+ * The condition of a row a deliverer may attempt now. "Now" is the
+ * database's clock, the one a new row's `nextAttemptAt` defaults from: a
+ * worker whose clock runs behind Postgres's would otherwise find a row just
+ * written not yet due, and stop the walk.
  */
-export async function dueOutboxIds(limit: number): Promise<number[]> {
+function dueCondition() {
+  return and(
+    inArray(outboxMessages.status, ["pending", "failed", "sending"]),
+    lte(outboxMessages.nextAttemptAt, sql`now()`),
+  );
+}
+
+/**
+ * Conversations with a row due: never tried, backed off long enough, or
+ * stuck past its claim.
+ * @param limit - The most to return.
+ * @returns Their ids, the longest-waiting first.
+ */
+export async function dueConversationIds(limit: number): Promise<number[]> {
   const rows = await api.db.db
-    .select({ id: outboxMessages.id })
+    .select({
+      conversationId: outboxMessages.conversationId,
+      due: sql<Date>`min(${outboxMessages.nextAttemptAt})`,
+    })
     .from(outboxMessages)
-    .where(
-      and(
-        inArray(outboxMessages.status, ["pending", "failed", "sending"]),
-        lte(outboxMessages.nextAttemptAt, new Date()),
-      ),
-    )
-    .orderBy(asc(outboxMessages.nextAttemptAt))
+    .where(dueCondition())
+    .groupBy(outboxMessages.conversationId)
+    .orderBy(sql`min(${outboxMessages.nextAttemptAt})`)
     .limit(limit);
-  return rows.map((r) => r.id);
+  return rows.map((r) => r.conversationId);
 }
 
 /** What one delivery attempt did. */
 export type DeliveryOutcome = "sent" | "retry" | "undeliverable" | "skipped";
 
 /**
- * Attempt one row. The claim is a conditional `UPDATE` into `sending`, so two
- * deliverers never post the same row at once; the claim also pushes
- * `nextAttemptAt` past the request's timeout, which is how a row whose
- * deliverer died becomes due again. **Never throws.**
- * @param id - The outbox row.
- * @returns What happened.
+ * The context a row is sent with.
+ * @param conversationId - The conversation.
+ * @param installationId - The row's installation, if any.
+ * @returns The context, or `null` if the conversation is gone.
  */
-export async function deliverOutboxMessage(
-  id: number,
-): Promise<DeliveryOutcome> {
+async function sendContext(
+  conversationId: number,
+  installationId: number | null,
+): Promise<SurfaceContext | null> {
+  const [row] = await api.db.db
+    .select({ conversation: conversations, channel: channels })
+    .from(conversations)
+    .innerJoin(channels, eq(channels.id, conversations.channelId))
+    .where(eq(conversations.id, conversationId))
+    .limit(1);
+  if (!row) return null;
+  const [installation] = installationId
+    ? await api.db.db
+        .select()
+        .from(botInstallations)
+        .where(eq(botInstallations.id, installationId))
+        .limit(1)
+    : [];
+  return { ...row, installation: installation ?? null };
+}
+
+/**
+ * Claim one row into `sending`. The claim pushes `nextAttemptAt` past the
+ * request's timeout, which is how a row whose deliverer died becomes due
+ * again.
+ * @param id - The row.
+ * @returns The claimed row, or `null` if it is not due or someone else has it.
+ */
+async function claimRow(id: number): Promise<OutboxMessage | null> {
   const timeout = config.agents.callbackTimeoutMs;
   const [row] = await api.db.db
     .update(outboxMessages)
@@ -193,96 +146,162 @@ export async function deliverOutboxMessage(
         eq(outboxMessages.id, id),
         or(
           inArray(outboxMessages.status, ["pending", "failed"]),
-          and(
-            eq(outboxMessages.status, "sending"),
-            lte(outboxMessages.nextAttemptAt, new Date()),
-          ),
+          eq(outboxMessages.status, "sending"),
         ),
+        lte(outboxMessages.nextAttemptAt, sql`now()`),
       ),
     )
     .returning();
-  if (!row) return "skipped";
+  return row ?? null;
+}
 
-  try {
-    const [owner] = await api.db.db
-      .select({ secret: bots.apiCallbackSecret })
-      .from(conversations)
-      .innerJoin(bots, eq(bots.id, conversations.botId))
-      .where(eq(conversations.id, row.conversationId))
-      .limit(1);
-    if (!owner?.secret) {
-      return await settle(
-        row,
-        "undeliverable",
-        "The bot has no callback secret.",
-      );
-    }
-    const secret = decryptSecret(owner.secret);
-    const body = JSON.stringify(row.payload);
-    const res = await guardedFetch(row.target.url, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "user-agent": "Hypotenuse-Callback/1",
-        "hypotenuse-signature": signCallback(
-          secret,
-          body,
-          Math.floor(Date.now() / 1000),
-        ),
-        "hypotenuse-delivery": String(row.id),
-      },
-      body,
-      signal: AbortSignal.timeout(timeout),
+/**
+ * Send a claimed row through its adapter and record the outcome. **Never
+ * throws.**
+ * @param row - The claimed row.
+ * @param ctx - Where it goes.
+ * @returns The outcome recorded.
+ */
+async function sendRow(
+  row: OutboxMessage,
+  ctx: SurfaceContext | null,
+): Promise<DeliveryOutcome> {
+  if (!ctx) {
+    return settle(row, {
+      outcome: "undeliverable",
+      error: "The conversation is gone.",
     });
-    await res.body?.cancel().catch(() => {});
-    if (res.status >= 200 && res.status < 300) {
-      return await settle(row, "sent", null);
-    }
-    const retryable =
-      res.status === 408 || res.status === 429 || res.status >= 500;
-    return await settle(
-      row,
-      retryable ? "retry" : "undeliverable",
-      `The receiver answered HTTP ${res.status}.`,
-    );
-  } catch (e) {
-    if (e instanceof HostRefused) {
-      return settle(row, "undeliverable", e.message);
-    }
-    return settle(row, "retry", e instanceof Error ? e.message : String(e));
   }
+  const adapter = surfaceAdapter(ctx.channel.type);
+  if (!adapter) {
+    return settle(row, {
+      outcome: "undeliverable",
+      error: `There is no "${ctx.channel.type}" surface.`,
+    });
+  }
+  let result: SendResult;
+  try {
+    result = await adapter.send(row, ctx);
+  } catch (e) {
+    result = {
+      outcome: "retry",
+      error: e instanceof Error ? e.message : String(e),
+    };
+  }
+  return settle(row, result);
+}
+
+/**
+ * Attempt one row on its own, outside the per-conversation walk. **Never
+ * throws.**
+ * @param id - The outbox row.
+ * @returns What happened.
+ */
+export async function deliverOutboxMessage(
+  id: number,
+): Promise<DeliveryOutcome> {
+  const row = await claimRow(id);
+  if (!row) return "skipped";
+  return sendRow(
+    row,
+    await sendContext(row.conversationId, row.botInstallationId),
+  );
+}
+
+/** What one walk of a conversation's outbox did. */
+export interface ConversationDelivery {
+  /** Another deliverer held the conversation's lease. */
+  leased: boolean;
+  outcomes: DeliveryOutcome[];
+}
+
+/**
+ * **Deliver a conversation's due rows, in order**, under its lease. A row that
+ * must wait stops the walk, so a later row never overtakes an earlier one.
+ * @param conversationId - The conversation.
+ * @returns What was attempted.
+ */
+export async function deliverConversation(
+  conversationId: number,
+): Promise<ConversationDelivery> {
+  const lease = await acquireLease(
+    `outbox:deliver:${conversationId}`,
+    config.platforms.deliverLeaseMs,
+  );
+  if (!lease) return { leased: true, outcomes: [] };
+  const outcomes: DeliveryOutcome[] = [];
+  try {
+    const rows = await api.db.db
+      .select()
+      .from(outboxMessages)
+      .where(
+        and(
+          eq(outboxMessages.conversationId, conversationId),
+          inArray(outboxMessages.status, ["pending", "failed", "sending"]),
+        ),
+      )
+      .orderBy(asc(outboxMessages.id));
+    let ctx: SurfaceContext | null | undefined;
+    for (const pending of rows) {
+      const row = await claimRow(pending.id);
+      // Superseded meanwhile, or not due: in either case it is not ours to
+      // overtake. A superseded row no longer blocks.
+      if (!row) {
+        const [now] = await api.db.db
+          .select({ status: outboxMessages.status })
+          .from(outboxMessages)
+          .where(eq(outboxMessages.id, pending.id));
+        if (now?.status === "superseded" || now?.status === "sent") continue;
+        break;
+      }
+      ctx ??= await sendContext(conversationId, row.botInstallationId);
+      const outcome = await sendRow(row, ctx);
+      outcomes.push(outcome);
+      if (outcome === "retry") break;
+    }
+  } finally {
+    await releaseLease(lease).catch(() => false);
+  }
+  return { leased: false, outcomes };
 }
 
 /**
  * Record an attempt's outcome. A retry past the window is undeliverable.
  * @param row - The row as claimed.
- * @param outcome - What the attempt decided.
- * @param error - Why, when it did not send.
+ * @param result - What the adapter said.
  * @returns The outcome recorded.
  */
 async function settle(
   row: OutboxMessage,
-  outcome: "sent" | "retry" | "undeliverable",
-  error: string | null,
+  result: SendResult,
 ): Promise<DeliveryOutcome> {
   const now = Date.now();
-  let final = outcome;
+  let final: DeliveryOutcome = result.outcome;
   if (
-    outcome === "retry" &&
+    final === "retry" &&
     now - row.createdAt.getTime() > config.agents.outboxRetryWindowMs
   ) {
     final = "undeliverable";
   }
-  const backoff = Math.min(
-    config.agents.outboxRetryBaseMs * 2 ** Math.max(0, row.attempts - 1),
-    60 * 60 * 1000,
+  const backoff = Math.max(
+    Math.min(
+      config.agents.outboxRetryBaseMs * 2 ** Math.max(0, row.attempts - 1),
+      60 * 60 * 1000,
+    ),
+    result.retryAfterMs ?? 0,
   );
+  const error = result.error ?? null;
   try {
     await api.db.db
       .update(outboxMessages)
       .set(
         final === "sent"
-          ? { status: "sent", sentAt: new Date(), error: null }
+          ? {
+              status: "sent",
+              sentAt: new Date(),
+              error: null,
+              externalMessageId: result.externalMessageId ?? null,
+            }
           : final === "retry"
             ? {
                 status: "failed",
@@ -291,7 +310,12 @@ async function settle(
               }
             : { status: "undeliverable", error },
       )
-      .where(eq(outboxMessages.id, row.id));
+      .where(
+        and(
+          eq(outboxMessages.id, row.id),
+          eq(outboxMessages.status, "sending"),
+        ),
+      );
   } catch (e) {
     api.logger.error("could not record an outbox attempt", {
       outboxMessageId: row.id,

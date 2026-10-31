@@ -8,7 +8,7 @@
 > bot can escalate to the project's people. The dashboard is a platform too: a member can chat with a bot there and
 > see exactly what a teammate on a platform would, which is how a bot is tested before any platform is connected.
 
-> **Status: planned, not built.** Builds on the [durable agent loop](./phase-08-durable-agent-loop.md) (the
+> **Status: built.** Builds on the [durable agent loop](./phase-08-durable-agent-loop.md) (the
 > inbox, the wake operation, the first cut of `channels` and `outbox_messages`),
 > [memory](./phase-09-memory.md) (channel scope), and [shared MCP servers](./phase-10-shared-mcp-servers.md)
 > (approvals). Its first two adapters are a generic signed **webhook** platform and the dashboard's own **`web`**
@@ -590,22 +590,22 @@ by button, and approves a call in-channel under the `participants` policy.
 
 ## Definition of done
 
-- [ ] The adapter contract and registry exist, and the webhook adapter passes the conformance suite.
-- [ ] Installations, channels, bindings, participants, trigger events, and help requests are migrated; every
+- [x] The adapter contract and registry exist, and the webhook adapter passes the conformance suite.
+- [x] Installations, channels, bindings, participants, trigger events, and help requests are migrated; every
       timestamp column has a time zone.
-- [ ] Ingress verifies first, answers within the deadline, dedupes on the message, and refuses byte-identically.
-- [ ] Processing implements every row of §5, one test each.
-- [ ] The outbox delivers in order per conversation, with supersession, refuse-at-enqueue, and the
+- [x] Ingress verifies first, answers within the deadline, dedupes on the message, and refuses byte-identically.
+- [x] Processing implements every row of §5, one test each.
+- [x] The outbox delivers in order per conversation, with supersession, refuse-at-enqueue, and the
       nothing-after-a-question rule.
-- [ ] Questions and approvals round-trip through interactions; `approvalPolicy` is enforced.
-- [ ] Escalation notifies the right people and resumes the conversation.
-- [ ] Rate limits per participant and channel.
-- [ ] The fake-platform base and conformance suite are documented for [14](./phase-14-slack.md) through
+- [x] Questions and approvals round-trip through interactions; `approvalPolicy` is enforced.
+- [x] Escalation notifies the right people and resumes the conversation.
+- [x] Rate limits per participant and channel.
+- [x] The fake-platform base and conformance suite are documented for [14](./phase-14-slack.md) through
       [16](./phase-16-pylon.md).
-- [ ] A member chats with a bot in the dashboard, in its `dashboard` channel or a fresh one: replies stream, the
+- [x] A member chats with a bot in the dashboard, in its `dashboard` channel or a fresh one: replies stream, the
       status line and plan come from the surface rows, questions and approvals are answered in place, and the chat
       and transcript are two views of one conversation.
-- [ ] The Channels tab, Help inbox, Events log, Chat, CLI, and docs ship; both themes are checked.
+- [x] The Channels tab, Help inbox, Events log, Chat, CLI, and docs ship; both themes are checked.
 
 ## Open questions
 
@@ -620,4 +620,104 @@ by button, and approves a call in-channel under the `participants` policy.
 
 ## Learnings from the build
 
-Not built yet.
+### What is built
+
+| Piece | Where |
+|---|---|
+| `bot_installations`, `channel_bindings`, `participants`, `trigger_events`, `help_requests`; `channels` (installation, parent, private, shared, archived), `outbox_messages` (installation, priority, supersession key), `bots` (`auto_bind`, the two rate limits); conversations unique per `(bot, channel, thread)` (migration `0012`) | `backend/schema/`, `backend/drizzle/0012_*.sql` |
+| The contract, the registry, the surface fallbacks, and three adapters: `api` (the signed callback, moved out of `OutboxOps`), `web` (the dashboard), `webhook` | `backend/platforms/{types,registry,surface}.ts`, `backend/platforms/{api,web,webhook}/adapter.ts` |
+| Installations: routing keys (hashed), sealed credentials, URLs, manifests | `backend/ops/InstallationOps.ts`, `backend/actions/bot-installation/` |
+| Ingress and processing (the rules table, interactions, in-channel approvals audited as a participant) | `backend/ops/{IngressOps,TriggerEventOps}.ts`, `backend/actions/webhooks/`, `backend/actions/triggers/` |
+| The interactive surface — status, stream, plan, message, question, approval — and the live read | `backend/ops/SurfaceOps.ts`, wired into `backend/ops/TickOps.ts`; `conversation:live` |
+| The outbox: per-conversation delivery in order under a Redis lease, supersession, `Retry-After` | `backend/ops/{OutboxOps,LockOps}.ts`, `backend/lua/release-lock.lua` |
+| Channels, participants, bindings; rate limits | `backend/ops/{ChannelOps,ChannelBindingOps,ChannelRateOps}.ts`, `backend/lua/rate-window.lua`, `backend/actions/{channel,channel-binding,participant,trigger-event}/` |
+| Escalation | `backend/tools/escalate-to-human.ts`, `backend/ops/HelpOps.ts`, `backend/actions/help/`, the `help-requested` notification template |
+| Config | `backend/config/platforms.ts` (`config.platforms`) |
+| The fake-platform base, the webhook fake, the conformance suite | `backend/__tests__/fakes/{base,webhook/server}.ts`, `backend/__tests__/channels/conformance.ts` |
+| The coverage matrix and its test | [`docs/platform-coverage/webhook.md`](../platform-coverage/webhook.md), `backend/__tests__/docs/coverage.test.ts` |
+| CLI 2.8.0 | `cli/src/commands/{installation,channel,help-request,platform-log}.ts`; `conversation create --web [--fresh]`; `conversation follow` streams on a terminal; `bot edit --auto-bind` and the rate limits |
+| Dashboard | the Chat (`pages/bots/ChatPage.tsx`, `/chat`, the fold in `components/chat/model.ts`), the conversation page's Chat / Transcript toggle and participant names, the bot's Channels and Listening sections, the Help inbox (`/help`), Events (`/events`); `web` and `webhook` platform chips in `design/states.ts` |
+| Proof | `backend/__tests__/channels/{processing,conformance-webhook,ingress,binding,outbox,escalation,rate-limit,web}.test.ts`, `__tests__/security/no-installation-secrets.test.ts`, `__tests__/cli/channel-commands.test.ts`, `frontend/src/__tests__/{chat,channels}.test.ts`, `frontend/e2e/chat.spec.ts`; the `chat`, `bot-channels`, and `help` illustrations |
+
+### Decisions the plan left open, and where the build differs
+
+- **Adapters live in `backend/platforms/`, not `backend/channels/`.** Keryx globs `channels/` recursively and
+  instantiates every exported class there as a WebSocket channel. Later platform plans that say `backend/channels/`
+  mean `backend/platforms/<type>/`.
+- **`bot-installation:manifest` answers `POST`.** It mints the routing key, so it is an audited write, and audited
+  writers never answer `GET`. Asking again for a pending installation mints a new key (the old URL becomes the 404);
+  an active one must be disconnected first.
+- **`bot-installation:test` is audited.** It writes the installation's status, `lastError`, and the bot's platform
+  id, which a person reads.
+- **The OAuth hops are not built.** No adapter installs by OAuth yet; `bot-installation:oauth-start` and
+  `oauth-callback` arrive with the first platform that does, and join `NEVER_MCP_ACTION_NAMES` then.
+- **The webhook platform has one shared secret** (`signingSecret`), chosen by the person, signing both directions.
+  The bot's own platform id is `botUserId` at connect (default `bot:<slug>`), or whatever the probe's answer names.
+- **A platform channel's `externalId` is `<externalWorkspaceId>/<the platform's id>`**, so two workspaces never
+  collide within a project. A bot speaks in a channel through *its own* installation in that workspace
+  (`SurfaceOps.installationFor`), not the one that first saw the channel.
+- **Conversations are unique per `(bot, channel, thread)`**, not `(channel, thread)`: two bots bound to one channel
+  each hold their own conversation for a thread.
+- **Lifecycle is rule 2, not rule 8.** An uninstall is about the installation; applied after the channel rules it
+  would be ignored when sent from an unbound channel. The table in `TriggerEventOps.ts` is the order as built.
+- **`autoBind` binds on any message in a public channel**, addressed or not, because inviting the bot is the
+  permission; rule 7 then ignores the unaddressed message. Deleting a binding the bot would re-create is pointless:
+  disable it instead (the action's description says so).
+- **Ingress verifies over the bytes** (`SignatureOps.verifySignatureBytes`), and its refusal is a plain `Response`,
+  never a `TypedError`, whose envelope carries a timestamp. A body past `PLATFORM_MAX_BODY_BYTES` is a 413.
+- **Outbox rows deliver in `id` order, not `seq` order.** A `stream` row has no entry of its own, and ids are
+  monotonic; `seq` stays the citation. `outbox:deliver` takes a `conversationId`; a row that must wait (backed off,
+  or claimed by a deliverer that died) stops the walk, so nothing overtakes it.
+- **Supersession**: an ephemeral row supersedes the undelivered rows of its key (`status`, `stream`, `plan:<epoch>`);
+  a `message` or `question` supersedes every undelivered ephemeral row; an `approval` supersedes nothing. A committed
+  step supersedes undelivered `stream` rows.
+- **The live read** (`SurfaceOps.liveSurface`): nothing while resting or ended; per kind, the newest unsuperseded row
+  newer than the newest `message` / `question` row; a `stream` row only while no entry has been written since it
+  began (its `seq` equals the conversation's `lastSeq`). A retried model call writes an empty `stream` row first, so
+  a dropped attempt's partial text disappears at once.
+- **A `message` row's payload names its `messageKind`** (`reply`, `complete`, `fail`, `error`); `kind` is the
+  surface kind. The API channel's callback body keeps `kind: reply` and the rest, as before.
+- **The per-installation token bucket is not built.** The webhook platform publishes no rate-limit headers; its
+  `Retry-After` is honoured per row. The bucket, with its reserve for `ack` rows, lands with Slack's tiered limits.
+- **Rate limits are a fixed one-minute window** per bot and participant, and per bot and channel
+  (`rate-window.lua`). The one notice per window is recorded on the event (`noticeOwed`), and only where the platform
+  has ephemeral messages — the webhook platform has none, so nothing is sent yet.
+- **`escalate_to_human` is a terminal tool with a new transition, `{ to: "working" }`**, for a non-blocking request:
+  the turn goes on. A blocking one waits on a new kind, `help` (`{kind: "help", helpRequestId}`), which only the
+  request's answer, withdrawal (`help:cancel`), or expiry ends (`HelpOps.settleHelpRequest` wakes it); a message
+  meanwhile — from the channel, or the dashboard — waits in the inbox and is delivered with the answer. Waiting on
+  `answer`, as the plan said, let anyone in the channel unblock an escalation that may be about the channel. The
+  question is never posted to the channel; the dashboard and CLI show the wait as "Waiting for the team", with the
+  answer glyph.
+- **Who may answer help**: the people it would notify (holders of the bot's `helpNotifyTag`, or admins) and the
+  bot's writers, among its readers (`HelpOps.canAnswerHelp`).
+- **An in-channel approval can be typed** — `approve 41` / `deny 41` — under a policy other than `dashboard`, for a
+  platform without buttons.
+- **The plan's `approval-policy.test.ts` is the conformance suite's policy cases**: each policy through a button
+  press on the fake, with the approval's participant and the `participant` audit row checked.
+- **A bot's slug is now immutable once it has an installation**, as the bots schema promised.
+- **The CLI's signing secret is never a flag value** (`--signing-secret-stdin`, `--signing-secret-env`, or a hidden
+  prompt), and the help inbox is `hypotenuse help-request …`, keeping `help` meaning help. The CLI's client stopped
+  reading a string `error` field on a 2xx answer (a failed probe) as an error envelope.
+
+- **Each assistant step records its model alias** (`content.alias`) beside the model id, for the Chat's
+  diagnostics; `conversation:list` gained `channelType` and `mine`, so the Chat finds a member's newest dashboard
+  chat on the server.
+- **A turn's plan spans a question.** Answering a question resumes the same turn (same epoch), so the plan shown
+  while it then waits on an approval still lists the `ask_question` step. That is the turn as it happened.
+
+### Traps found while building
+
+- **Concurrent suites share `hypotenuse_test`.** Two agents running tests at once truncated each other's tables and
+  produced unrelated failures. Point one at its own database and Redis index (`DATABASE_URL_TEST`,
+  `REDIS_URL_TEST`), or use `bun run workspace:setup` in a worktree.
+- **`rows.at(-1)` on an unordered select** read the wrong audit row. Every "newest row" read in a test orders.
+- **Playwright needs `PLAYWRIGHT_CHROMIUM_PATH`** in the cloud container (the headless shell under
+  `/opt/pw-browsers/`) for the browser suite to find its build.
+- **`.gitignore` ignores every `coverage/` directory**, so the coverage matrices live in `docs/platform-coverage/`;
+  under `docs/coverage/` they passed locally and were missing in CI.
+- **A row's `nextAttemptAt` defaults from Postgres's clock**, so the outbox compares it with `now()` in SQL, never a
+  `Date` from the worker: in CI the database's clock ran ahead, a row just written read as not yet due, and the walk
+  stopped before it.
+- **A fake's request log includes the installation's probe** from `beforeAll`: count `deliveries` (which skip the
+  `ping`), not raw requests.

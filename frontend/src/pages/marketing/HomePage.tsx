@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { PLATFORM_LABELS, PLATFORMS } from "../../../../design/states";
+import { HEADLINE_PLATFORMS, PLATFORM_LABELS } from "../../../../design/states";
 import { Chip } from "../../ui";
 
 /** The one-line description, verbatim wherever one appears (docs/DESIGN.md#writing). */
@@ -103,7 +103,9 @@ export function HomePage() {
       <section className="home-section">
         <h2>Where it answers</h2>
         <p className="home-platforms" data-testid="home-platforms">
-          {PLATFORMS.map((platform) => PLATFORM_LABELS[platform]).join(" · ")}
+          {HEADLINE_PLATFORMS.map((platform) => PLATFORM_LABELS[platform]).join(
+            " · ",
+          )}
           {" — "}a Slack thread, a Linear agent session, a Pylon issue, or a
           plain HTTP call. The platform's own permissions decide who may talk to
           a bot; your project decides who may configure it.

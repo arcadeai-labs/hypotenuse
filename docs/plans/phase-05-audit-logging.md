@@ -343,6 +343,16 @@ Edit a project name in the browser, then open Audit log: one row, actor you, bef
   program, journal of host calls, and answer are a `code_runs` row, and the approvals a paused program writes are
   `approvals` rows bound to the run. Turning code mode on or off and lowering its limits is `bot:edit`, audited;
   `code-run:list` and `code-run:view` are reads.
+- **The channel framework added two unaudited writers** that are not clocks: `webhooks:webhook` (signed machine
+  ingress for the generic webhook platform, recorded as a `trigger_events` row; later platforms add their own
+  `webhooks:<type>`) and `triggers:process-event` (applying the processing rules to one event, recorded on the event's
+  `outcome` and `detail` and in `conversation_inbox`, `participants`, and an auto-created binding's `auto_bound`).
+  `triggers:process-pending` and `help:expire` are clocks; `escalate_to_human` is a tool a bot runs, covered by the
+  `agent:tick` row. An approval a platform participant decides inside processing **is** audited, as
+  `actorType: "participant"` with the `participantId`, in the processing transaction. Every decision a person makes —
+  minting an installation's manifest (it mints a routing key, so it answers `POST`), connecting, testing, and
+  disconnecting it; creating, editing, and deleting a channel binding (its approval policy included); answering and
+  cancelling a help request; a bot's `autoBind` and rate limits through `bot:edit` — is audited.
 - **Rule 13: no CLI command wraps `audit:list` or `organization:audit-list` yet** — deferred, not out of scope, as
   with phase 04's actions: [phase 06](./phase-06-operator-cli.md) is the CLI's sign-in.
 

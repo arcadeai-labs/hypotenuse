@@ -36,9 +36,10 @@ export const APPROVAL_STATUSES = [
 /** One of {@link APPROVAL_STATUSES}. */
 export type ApprovalStatus = (typeof APPROVAL_STATUSES)[number];
 
-/** Where a person decided. The platform surfaces arrive with their channels. */
+/** Where a person decided: a dashboard, a client, or a platform's channel. */
 export const APPROVAL_DECIDED_VIA = [
   "dashboard",
+  "webhook",
   "api",
   "cli",
   "mcp",

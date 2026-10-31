@@ -1,4 +1,5 @@
 import {
+  boolean,
   integer,
   pgTable,
   serial,
@@ -6,26 +7,34 @@ import {
   timestamp,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
+import { botInstallations } from "./bot_installations";
 import { bots } from "./bots";
 import { projects } from "./projects";
 
-/** The kinds of channel a conversation can belong to. Only `api` exists yet. */
-export const CHANNEL_TYPES = ["api"] as const;
+/**
+ * The kinds of channel a conversation can belong to: the HTTP API, the
+ * dashboard chat (`web`), and each platform with an adapter.
+ */
+export const CHANNEL_TYPES = ["api", "web", "webhook"] as const;
 
 /** One of {@link CHANNEL_TYPES}. */
 export type ChannelType = (typeof CHANNEL_TYPES)[number];
 
 /**
  * A `channel` is a place a bot works in, and the memory boundary of
- * everything said there. For now there is one kind: the **API channel**, one
- * per bot and caller-chosen key (`externalId` is `bot:<botId>:<key>`), which
- * holds the conversations created over HTTP. Platform channels (a Slack
- * channel, a Linear project, a Pylon account) arrive with the channel
- * framework and share this table, keyed by `(projectId, type, externalId)`
- * so a replayed event is an upsert.
+ * everything said there, keyed by `(projectId, type, externalId)` so a
+ * replayed event is an upsert.
  *
- * `botId` is set for an API channel, which belongs to one bot; a platform
- * channel is shared by every bot bound to it and leaves it null.
+ * | Type | `externalId` | `botId` | `botInstallationId` |
+ * |---|---|---|---|
+ * | `api` | `bot:<botId>:<key>` | the bot | null |
+ * | `web` (the dashboard chat) | `bot:<botId>:dashboard` or `bot:<botId>:scratch-<8 hex>` | the bot | null |
+ * | a platform (`webhook`, …) | `<externalWorkspaceId>/<the platform's channel id>` | null: shared by every bot bound to it | the installation that first saw it |
+ *
+ * `parentExternalId` is a platform's grouping (a Linear team above a
+ * project). `isPrivate` and `isShared` (externally shared, Slack Connect)
+ * decide `autoBind` and the shared-channel rule; `archived` is set when the
+ * platform archives it.
  */
 export const channels = pgTable(
   "channels",
@@ -39,7 +48,15 @@ export const channels = pgTable(
     botId: integer("bot_id").references(() => bots.id, {
       onDelete: "cascade",
     }),
+    botInstallationId: integer("bot_installation_id").references(
+      () => botInstallations.id,
+      { onDelete: "set null" },
+    ),
+    parentExternalId: text("parent_external_id"),
     name: text("name").notNull(),
+    isPrivate: boolean("is_private").notNull().default(false),
+    isShared: boolean("is_shared").notNull().default(false),
+    archived: boolean("archived").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
