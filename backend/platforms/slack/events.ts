@@ -85,12 +85,15 @@ function channelRef(
   channelType: string | undefined,
   shared: boolean,
 ): ChannelRef {
-  // `C…` public (or a private channel made after 2021), `G…` private or a
-  // group DM, `D…` a DM — when the event carries no `channel_type`.
+  // `member_joined_channel` says `C` (public) or `G` (private); message
+  // events say `channel`, `group`, `im`, or `mpim`. With neither, the id's
+  // prefix: `C…` public (or a private channel made after 2021), `G…` private
+  // or a group DM, `D…` a DM.
   const isDm = channelType === "im" || (!channelType && id.startsWith("D"));
   const isPrivate =
     isDm ||
     channelType === "group" ||
+    channelType === "G" ||
     channelType === "mpim" ||
     (!channelType && id.startsWith("G"));
   return { externalId: id, name: id, isPrivate, isShared: shared, isDm };

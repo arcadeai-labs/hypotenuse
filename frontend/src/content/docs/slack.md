@@ -61,7 +61,7 @@ ends its conversations there.
 Cancel the conversation from its page in Hypotenuse (see [Stopping a bot](/docs/conversations#stopping-a-bot)), or
 press **Stop** where Slack's AI surface offers it in the bot's thread.
 Removing the bot from the channel stops all of its conversations there; uninstalling the app (or revoking its token)
-stops everything, and its events URL stops working.
+stops everything, and its events URL stops working until **Install to Slack** installs it again.
 
 ## What is refused
 

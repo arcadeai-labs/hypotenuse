@@ -14,6 +14,7 @@ import { botInstallations } from "../../schema/bot_installations";
 import { channelBindings } from "../../schema/channel_bindings";
 import { conversationInbox } from "../../schema/conversation_inbox";
 import { outboxMessages } from "../../schema/outbox_messages";
+import { triggerEvents } from "../../schema/trigger_events";
 import {
   clearLoopQueues,
   conversationRow,
@@ -26,6 +27,7 @@ import { type McpFixture, startMcpFixture } from "../fixtures/mcp-server";
 import { call, HOOK_TIMEOUT } from "../setup";
 import {
   buildSlackStage,
+  completeInstall,
   conversationForThread,
   resetSlack,
   type SlackStage,
@@ -578,6 +580,110 @@ describe("stop, disengagement, refusals", () => {
     });
     await settle();
     expect((await lastEvent()).outcome).toBe("loop");
+  });
+});
+
+describe("found in review", () => {
+  // Coverage: `slack.oauth.install`.
+  test("an uninstalled app is installed again by OAuth, without a new app", async () => {
+    await stage.slack.deliver({ type: "app_uninstalled" });
+    await settle();
+    const [gone] = await api.db.db
+      .select()
+      .from(botInstallations)
+      .where(eq(botInstallations.id, stage.installationId));
+    expect(gone.status).toBe("uninstalled");
+    const location = await completeInstall(
+      stage,
+      stage.slack,
+      stage.installationId,
+    );
+    expect(location).toContain("installed=slack");
+    const [back] = await api.db.db
+      .select()
+      .from(botInstallations)
+      .where(eq(botInstallations.id, stage.installationId));
+    expect(back).toMatchObject({
+      status: "active",
+      externalWorkspaceId: stage.slack.team.id,
+    });
+  });
+
+  // Coverage: `slack.in.member-joined`.
+  test("invited to a private channel (channel_type G), the bot is not bound by the public auto-bind", async () => {
+    await stage.slack.deliver({
+      type: "member_joined_channel",
+      user: stage.slack.botUserId,
+      channel: "C0SECRET",
+      channel_type: "G",
+      team: stage.slack.team.id,
+    });
+    await settle();
+    expect((await lastEvent()).detail).not.toHaveProperty("autoBound");
+    const bindings = await api.db.db
+      .select()
+      .from(channelBindings)
+      .where(eq(channelBindings.botId, stage.botId));
+    expect(bindings).toHaveLength(0);
+  });
+
+  // Coverage: `slack.out.stream`.
+  test("a stream whose text is sanitized is still extended, not restarted", async () => {
+    stage.models.play([reply("Ok.")]);
+    const said = await stage.slack.say({
+      channel: CHANNEL,
+      text: "Hi",
+      mention: true,
+    });
+    await settle();
+    const conversation = await conversationRow(
+      (await conversationForThread(said.ts)).id,
+    );
+    for (const text of ["<!here> one", "<!here> one, two"]) {
+      await emitStream(conversation, text);
+      await deliverNow(conversation.id);
+    }
+    expect(stage.slack.calls("chat.startStream")).toHaveLength(1);
+    expect(
+      stage.slack.calls("chat.appendStream").map((c) => c.args.markdown_text),
+    ).toEqual([", two"]);
+  });
+
+  // Coverage: `slack.in.dedupe`.
+  test("a mention carried by two events counts once against the person's rate limit", async () => {
+    await call(
+      stage.u.url,
+      stage.u.peach,
+      "POST",
+      `/project/${stage.u.projectId}/bot/${stage.botId}`,
+      {
+        participantRateLimit: 1,
+      },
+    );
+    try {
+      stage.models.play([reply("Once.")]);
+      const said = await stage.slack.say({
+        channel: CHANNEL,
+        text: "Hi",
+        mention: true,
+      });
+      await settle();
+      const outcomes = (await api.db.db.select().from(triggerEvents)).map(
+        (e) => e.outcome,
+      );
+      expect(outcomes).not.toContain("rate-limited");
+      expect(botTexts(said.ts)).toEqual(["Once."]);
+    } finally {
+      await call(
+        stage.u.url,
+        stage.u.peach,
+        "POST",
+        `/project/${stage.u.projectId}/bot/${stage.botId}`,
+        {
+          participantRateLimit: 20,
+        },
+      );
+    }
   });
 });
 

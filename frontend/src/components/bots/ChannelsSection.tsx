@@ -689,9 +689,17 @@ export function ChannelsSection({
             <Block
               key={platform.type}
               platform={platform}
-              installation={installations.data?.installations.find(
-                (i) => i.type === platform.type && i.status !== "uninstalled",
-              )}
+              installation={
+                installations.data?.installations.find(
+                  (i) => i.type === platform.type && i.status !== "uninstalled",
+                ) ??
+                // An uninstalled Slack app keeps its credentials: offer to install it again.
+                (platform.type === "slack"
+                  ? installations.data?.installations.find(
+                      (i) => i.type === "slack",
+                    )
+                  : undefined)
+              }
               projectId={projectId}
               bot={bot}
               denied={denied}

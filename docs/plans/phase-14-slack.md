@@ -383,6 +383,11 @@ Then by hand against a real workspace:
 - **`bot-installation:oauth-start` is a read**: it writes no row, only a ten-minute `state` in Redis bound to the
   installation and the person. The callback is audited as that person, like `mcp-server:oauth-callback`, and both
   are never MCP tools.
+- **A message carried by two events counts once** against the rate limits: processing skips the count when the
+  message is already in the conversation's inbox (Slack sends a channel mention as `app_mention` and `message`).
+- **An uninstalled app is installed again** by `bot-installation:oauth-start` on the same installation, which kept
+  its client credentials; the dashboard offers it. `member_joined_channel` names its channel `C` or `G`, not
+  `channel` / `group`: `G` is private, so the public auto-bind leaves it alone.
 - **The token bucket** (`slack-bucket.lua`) is per installation, 20 deep and refilling one call a second by default.
   An empty bucket and an HTTP 429 are the same thing to the outbox: `retry` with the wait. There is no reserve for
   `ack` rows yet.

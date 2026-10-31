@@ -81,7 +81,9 @@ export class BotInstallationOauthStart implements Action {
         key: "installationId",
       });
     }
-    if (!row.credentials || row.status === "uninstalled") {
+    // An uninstalled app keeps its client credentials: installing it again is
+    // how a workspace that removed it (or revoked its token) gets it back.
+    if (!row.credentials) {
       throw new TypedError({
         message: `Connect the app's client credentials first (bot-installation:connect, or slack:app-create), then install it.`,
         type: ErrorType.CONNECTION_ACTION_PARAM_VALIDATION,

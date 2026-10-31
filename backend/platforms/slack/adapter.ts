@@ -261,7 +261,11 @@ async function sendStream(
     String((row.payload as { text?: string }).text ?? ""),
     self,
   );
-  const open = await openStream(row);
+  const found = await openStream(row);
+  // Both sides sanitized: the open stream holds what was sent, not the raw row.
+  const open = found
+    ? { ts: found.ts, text: sanitizeMarkdown(found.text, self) }
+    : null;
   const stale =
     open !== null &&
     (!text.startsWith(open.text) ||

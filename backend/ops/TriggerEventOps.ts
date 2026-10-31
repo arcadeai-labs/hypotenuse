@@ -19,6 +19,7 @@ import {
   channelBindings,
 } from "../schema/channel_bindings";
 import { type Channel, channels } from "../schema/channels";
+import { conversationInbox } from "../schema/conversation_inbox";
 import { type Conversation, conversations } from "../schema/conversations";
 import { type TriggerEvent, triggerEvents } from "../schema/trigger_events";
 import { decideApproval, serializeApproval } from "./ApprovalOps";
@@ -430,9 +431,25 @@ async function applyOne(
     });
   }
 
-  // 10. Rate limits.
+  // 10. Rate limits — counted once per message: a message carried by two
+  // events (Slack's `app_mention` and `message`) is already in the inbox.
   const participantKey = `${installation.type}:${installation.externalWorkspaceId}:${inbound.sender.externalUserId}`;
-  const rate = await countMessage(bot, channel.id, participantKey);
+  const seen = existing
+    ? await tx
+        .select({ id: conversationInbox.id })
+        .from(conversationInbox)
+        .where(
+          and(
+            eq(conversationInbox.conversationId, existing.id),
+            eq(conversationInbox.deliveryKey, inbound.messageKey),
+          ),
+        )
+        .limit(1)
+    : [];
+  const rate =
+    seen.length > 0
+      ? { limited: false as const }
+      : await countMessage(bot, channel.id, participantKey);
   if (rate.limited) {
     return ignored("rate-limited", {
       ...detail,
