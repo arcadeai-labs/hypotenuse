@@ -137,6 +137,14 @@ versions and diff in its `context_update` and `replayPrompt` and `prompt:preview
 person revert; `goals` with `goal_list` / `goal_update` and reviews; a project skills library with versions, pins,
 `skill_list` / `use_skill`, and `/name` expansion at delivery; the Prompt, Goals, and Skills surfaces; and the
 `prompt`, `goal`, and `skill` commands.
+**[Phase 12](./phase-12-code-mode.md) is built**: `run_code` on Vercel's Run SDK (QuickJS-WASM in a worker thread,
+pinned and imported by one module) with a host API of `memory.*`, `mcp.*`, `largeResult.read`, and a captured
+`console`, each through the same ops, read set, allowlist, and gate as the top-level tools; policy limits a bot may
+only lower; `code_runs` journaling every host call; a gated call that interrupts the program before its effect,
+one approval per interruption, the continuation sealed and signed with the project's own key and bound to its run,
+and a resume that replays the same program and runs each approved call once; crash recovery reporting the journal;
+the three primer tiers; `code-run:list` / `view`, the transcript's program rows, the bot's Code card,
+`hypotenuse code-run`; and a self-test the production image runs at build.
 No other phase is built; every later plan's **Learnings from the
 build** section reads "Not built yet." until its phase lands.
 
@@ -153,7 +161,7 @@ build** section reads "Not built yet." until its phase lands.
 | Memory store | Postgres with pgvector and full text, hybrid rank fusion as in membot; decay and promotion are new |
 | Who may talk to a bot | The platform's own permissions; no identity linking. Project RBAC governs configuration, transcripts, and memory |
 | Sandboxes | ToolExec's provider interface; Docker first (development, CI), Vercel next (production) |
-| Code mode | QuickJS compiled to WebAssembly inside the worker; no network, filesystem, or timers; host API of memory and MCP |
+| Code mode | Vercel's Run SDK (QuickJS compiled to WebAssembly in a worker thread); no network, filesystem, or timers; host API of memory and MCP through the same gate; on per bot, limits a bot may only lower; continuations sealed and signed per project |
 | Agent loop | Durable Keryx tasks; every message, intent, and result in Postgres; one tick at a time per conversation |
 | Organization owners | Admin standing in every project of the organization without joining it, flagged `viaOrganizationOwner` and in audit metadata; only owners create projects |
 | Audit actors | `user`, `participant` (a person on a platform, from the channel framework on), or `system` (sign-up's bootstrap rows); sign-up's own row is the new account's |

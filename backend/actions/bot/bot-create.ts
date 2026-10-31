@@ -12,6 +12,7 @@ import {
   approvalTtlInput,
   approverTagInput,
   assertAliasesExist,
+  assertCodeLimits,
   assertHelpTag,
   assertNotLockedOut,
   assertSlugFree,
@@ -26,6 +27,8 @@ import {
   botSlugs,
   botStanding,
   budgetColumn,
+  codeLimitsInput,
+  codeModeEnabledInput,
   decodeAvatar,
   halfLifeInput,
   helpNotifyTagInput,
@@ -80,6 +83,8 @@ export class BotCreate extends AuditedAction {
     maxStepsPerTurn: maxStepsPerTurnInput.default(50),
     promptBudgetTokens: promptBudgetInput.default(8_000),
     maxAgentSections: maxAgentSectionsInput.default(10),
+    codeModeEnabled: codeModeEnabledInput.default(true),
+    codeLimits: codeLimitsInput.default({}),
     memoryChannelHalfLifeDays: halfLifeInput("channel").default(30),
     memoryProjectHalfLifeDays: halfLifeInput("project").default(180),
     enabled: z
@@ -128,6 +133,7 @@ export class BotCreate extends AuditedAction {
       modelAlias: params.modelAlias,
       fastModelAlias: params.fastModelAlias,
     });
+    assertCodeLimits(params.codeLimits);
     const avatar = params.avatar ? decodeAvatar(params.avatar) : null;
 
     let slug = params.slug;
@@ -160,6 +166,8 @@ export class BotCreate extends AuditedAction {
         maxStepsPerTurn: params.maxStepsPerTurn,
         promptBudgetTokens: params.promptBudgetTokens,
         maxAgentSections: params.maxAgentSections,
+        codeModeEnabled: params.codeModeEnabled,
+        codeLimits: params.codeLimits,
         memoryChannelHalfLifeDays: params.memoryChannelHalfLifeDays,
         memoryProjectHalfLifeDays: params.memoryProjectHalfLifeDays,
         avatar: avatar?.bytes ?? null,

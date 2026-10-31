@@ -13,6 +13,7 @@ import { registerAuditCommands } from "./commands/audit";
 import { registerAuthCommands } from "./commands/auth";
 import { registerBotCommands } from "./commands/bot";
 import { registerCheckUpdateCommand } from "./commands/check-update";
+import { registerCodeRunCommands } from "./commands/code-run";
 import { registerConversationCommands } from "./commands/conversation";
 import { registerGoalCommands } from "./commands/goal";
 import { registerInviteCommands } from "./commands/invite";
@@ -81,6 +82,7 @@ export function buildProgram(): Command {
   registerConversationCommands(program);
   registerApprovalCommands(program);
   registerLargeResultCommands(program);
+  registerCodeRunCommands(program);
   registerMemoryCommands(program);
   registerAuditCommands(program);
   registerCheckUpdateCommand(program);

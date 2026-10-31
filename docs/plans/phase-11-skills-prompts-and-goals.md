@@ -383,7 +383,7 @@ bun run --cwd cli hypotenuse prompt preview --bot 1 --message "how do we deploy?
   `/project/:projectId/bot/:botId/{goal,goals,skill,skills,prompt-preview}`, `/project/:projectId/goal/:goalId`,
   `/project/:projectId/skill(s)…`. `bot-skill:list` was added so the attachment CRUD has its paginated list.
 - **The prompt's fixed text** gained a primer for the bot's own instructions and a style section; capabilities moved
-  under their own heading, after the skills index, as the plan's table orders them.
+  under their own heading, after the skills index, as the plan's table orders them. Code mode later added a one-line *Code* primer after the MCP one, for a bot with code mode on.
 
 ### Traps found while building
 

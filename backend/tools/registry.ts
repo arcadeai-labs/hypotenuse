@@ -19,6 +19,7 @@ import { promptList } from "./prompt-list";
 import { promptRead } from "./prompt-read";
 import { readLargeResult } from "./read-large-result";
 import { replyAndWait } from "./reply-and-wait";
+import { runCode } from "./run-code";
 import { searchHistory } from "./search-history";
 import { skillList } from "./skill-list";
 import type { ToolContext, ToolDefinition } from "./types";
@@ -27,9 +28,8 @@ import { waitFor } from "./wait-for";
 
 /**
  * The tool registry: every tool a bot may be offered, by name. The built-in
- * tools, the memory tools, the MCP meta-tools, and the prompt, goal, and skill
- * tools register here; code mode adds its own through
- * {@link registerTool}.
+ * tools, the memory tools, the MCP meta-tools, the prompt, goal, and skill
+ * tools, and code mode's `run_code` register here.
  */
 
 /** Every registered tool. */
@@ -118,6 +118,7 @@ for (const tool of [
   goalUpdate,
   skillList,
   useSkill,
+  runCode,
 ] as ToolDefinition[]) {
   registerTool(tool);
 }

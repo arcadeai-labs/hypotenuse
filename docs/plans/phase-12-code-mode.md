@@ -5,7 +5,7 @@
 > back, and return a small answer, so large intermediate data never passes through the model's context. A
 > program that reaches a call needing approval pauses before the call and resumes exactly where it stopped.
 
-> **Status: planned, not built.** Builds on the [durable agent loop](./phase-08-durable-agent-loop.md) (tools,
+> **Status: built.** Builds on the [durable agent loop](./phase-08-durable-agent-loop.md) (tools,
 > intents, waiting on approval), [memory](./phase-09-memory.md) (the operations behind `memory.*`), and
 > [shared MCP servers](./phase-10-shared-mcp-servers.md) (the client, the catalog, and the approval gate behind
 > `mcp.*`). Code that needs a filesystem, a shell, git, or packages runs in a sandbox: [17](./phase-17-sandboxes.md).
@@ -315,13 +315,13 @@ a small result, and the model's input tokens stay flat.
 
 ## Definition of done
 
-- [ ] `run_code` runs TypeScript in Run's QuickJS sandbox with the policy limits, in tests and in the production
+- [x] `run_code` runs TypeScript in Run's QuickJS sandbox with the policy limits, in tests and in the production
       image.
-- [ ] The host API covers memory and MCP through the same ops and gate as the top-level tools.
-- [ ] Gated calls interrupt before effect; continuations are encrypted, signed, and audience-bound; resume
+- [x] The host API covers memory and MCP through the same ops and gate as the top-level tools.
+- [x] Gated calls interrupt before effect; continuations are encrypted, signed, and audience-bound; resume
       replays the same program and runs each approved call exactly once.
-- [ ] Crash recovery reports an interrupted run with its journal.
-- [ ] The primer tiers, transcript rendering, docs, and CLI ship.
+- [x] Crash recovery reports an interrupted run with its journal.
+- [x] The primer tiers, transcript rendering, docs, and CLI ship.
 
 ## Open questions
 
@@ -332,4 +332,130 @@ a small result, and the model's input tokens stay flat.
 
 ## Learnings from the build
 
-Not built yet.
+### What is built
+
+| Piece | Where |
+|---|---|
+| `code_runs`; `projects.code_continuation_key`; `bots.code_mode_enabled`, `code_limits`; approvals unique per direct intent or per `(code_run_id, interruption_id)` (migration `0011`) | `backend/schema/code_runs.ts`, `backend/drizzle/0011_*.sql` |
+| The runtime — the only importer of `run` (2.1.11, pinned exactly): limits, the guest shim, error mapping, the per-process semaphore, the self-test | `backend/ops/code/runtime.ts`, `backend/config/code.ts` |
+| The host API: the journaling wrapper and the memory, MCP (with the gate), and large-result adapters | `backend/ops/code/{host,host-shared,memory,mcp,large-result}.ts` |
+| The project key, sealing, audience, and context | `backend/ops/code/continuation.ts` |
+| Start, resume, settle, the crash report, cancel, serialization | `backend/ops/CodeRunOps.ts` |
+| The primer's three tiers | `backend/ops/code/primer.ts`; tier 1 in `tools/run-code.ts`; the prompt's *Code* line in `ops/PromptOps.ts` |
+| The tool and the tick's suspension contract (`Suspension`, `ToolDefinition.resume`) | `backend/tools/{run-code,types}.ts`, `backend/ops/TickOps.ts` (`runCalls`, `recover`, `parkForApprovals`) |
+| Actions | `backend/actions/code-run/`; `bot:create` / `bot:edit` gained `codeModeEnabled` and `codeLimits` |
+| The container proof | `backend/scripts/code-self-test.ts`, run by `backend/Dockerfile` in the production image |
+| Dashboard | `frontend/src/components/transcript/CodeRun.tsx`, `frontend/src/components/bots/CodeSection.tsx`, `ConversationPage.tsx` reads `code-run:list` |
+| CLI | `cli/src/commands/code-run.ts`; `bot` gained `--code`, `--no-code`, `--code-timeout`, `--code-memory`, `--code-host-calls`, `--no-code-limits`; 2.7.0 |
+| User docs and illustrations | `frontend/src/content/docs/code-mode.md`; `bots.md`, `cli.md`; the `code-run` and `bot-code` illustrations |
+| Proof | `backend/__tests__/code/{runtime,host,approval,deny,continuation,crash,actions}.test.ts`, `__tests__/security/no-secrets.test.ts` (extended), `__tests__/cli/code-run-commands.test.ts`, `frontend/src/__tests__/code-mode.test.ts` |
+
+### Decisions the plan left open
+
+- **The tick learned one new thing: a call can suspend.** A tool's `run` may return a `Suspension` — approvals it
+  still waits on, approvals to write, and its own writes for the parking transaction (`onPark`). The tick parks
+  on all of them exactly as it parks a gated `mcp_exec`, in one transaction with the approvals and their
+  notifications, so a step with a gated direct call and a paused program waits on both. A tool with a `resume`
+  hook is asked by recovery what an open intent means instead of being reported interrupted. `run_code` has no
+  `gate`: the gate runs inside the program, per host call.
+- **Errors cross as data, through a guest shim.** Run redacts every host function's exception to "Host function
+  failed." with `RUN_HOST_FUNCTION_ERROR`, so host functions never throw: they answer `{ok, value}` or
+  `{ok: false, error: {type, message, hint}}`, and a one-line shim in front of the program defines `memory`, `mcp`,
+  `largeResult`, and `console` over one host group (`__hyp`), turns a refusal into a thrown `HostError` whose
+  `code` is the type, and catches whatever the program throws so it comes back as data with the console so far.
+  The program's own throw is `program_error` — a type the plan's list did not have; `invalid_source` is kept for
+  what never ran (a syntax error escapes the shim). An MCP refusal's `code` is `mcp:<type>`, so one left uncaught
+  fails the run as `mcp_error` while `hostErrorType` keeps the original.
+- **Out of memory is the one mapping read from text.** QuickJS raises a catchable `InternalError: out of memory`
+  with no code; the shim catches it like any throw, and the runtime maps exactly that name and message to
+  `sandbox_memory`. Everything else maps from Run's codes (table in `runtime.ts`).
+- **Console output is captured by the shim, not by Run.** Run's `console` writes to the worker's stdout; the shim
+  shadows it, keeps up to the policy's bytes, and marks the cut. It is part of the run's value, so it is replayed
+  deterministically and counts toward the result limit (raised by the console's size to make room).
+- **Continuations: Run's signed codec, per project, sealed.** Each invocation builds a runner with the project's key
+  (`projects.code_continuation_key`, 32 random bytes sealed with `CryptoOps`, installed by a conditional update that
+  only fills an empty column — the column form of `INSERT … ON CONFLICT DO NOTHING`), the audience
+  `hypotenuse-run-v1:<project>:<conversation>:<intent>:<run>`, and the same four ids and the bot's as Run's
+  `continuationContext`. The token is sealed with `CryptoOps` in `code_runs.continuation`, written in the parking
+  transaction, and cleared when the run ends. Resume checks the source digest first, then lets Run check the
+  signature, audience, context, source, and host-function names; any failure is `continuation_invalid` and nothing
+  more runs. Run's stored codec was not needed: the row is the store.
+- **Resolutions carry nothing.** Every interruption of the batch is resolved with `{decided: true}`; the resumed host
+  function finds its own approval by `(codeRunId, interruptionId)` and reads the decision there, so a resolution
+  can never grant anything. Run's interruption ids are `interrupt-<requestIndex>`, deterministic within a logical
+  run, so they are unique per run across resumes.
+- **An approved call inside a program** is marked `executing_at` (committed) before it is sent and consumed right
+  after, in its own transaction — not with the run's result, which may be many calls later. A worker that dies
+  between the two leaves the run `running`, which recovery reports interrupted.
+- **A run that finished but whose result was never written** (the worker died between the two) keeps its answer in
+  `code_runs.output`, and recovery writes that once, so a finished program is never reported interrupted or run
+  again. The plan's schema had only `resultBytes`.
+- **`mcp.info` from a program counts for the conversation.** `infoWasRead` also looks for an `mcp.info` of the tool
+  in any of the conversation's journals, so a program may read a schema and call the tool, and a later direct
+  `mcp_exec` sees it too.
+- **What a program's host calls return.** `mcp.exec` answers parsed JSON when the tool's text is JSON, its structured
+  content when it has no text, and otherwise the text — whole, up to the host output limit, never a large-result
+  preview (the point of code is to reduce it). `memory.read` answers the raw text, or parsed JSON for a `.json`
+  path, not `memory_read`'s numbered lines. A memory write from a program uses a call id of
+  `<toolCallId>:code:<requestIndex>`, so two writes in one program are two versions, not a retry dedupe.
+- **`memory.write` takes an options object** (`changeNote`, `description`, `scope`) rather than the plan's
+  `{scope, changeNote}` as required; channel is the default, and project is refused as for the direct tool.
+  `mcp.exec` also accepts one `server/tool` argument.
+- **Limits.** The plan's table is `config/code.ts`, each an env var, plus Run's CPU budget (10 s of computing inside
+  the 30 s wall clock). A bot may lower three — time, memory, host calls — in `bots.code_limits`; `bot:create` and
+  `bot:edit` refuse a value above the deployment's, naming it. `CODE_RUNS_PER_WORKER` (4) is both our semaphore and
+  Run's process-wide worker cap (`setMaxWorkers`), so Run never refuses with `RUN_CONCURRENCY_LIMIT`.
+- **The open questions.** Continuations stay in the row (sizes not yet measured on staging). `memory.write` counts
+  only toward the bridge cap. Code mode is per bot, on by default; there is no project-wide switch.
+- **Cancel** marks a conversation's `running` or `interrupted` runs failed (`cancelled`) and drops their
+  continuations, beside expiring their approvals.
+- **The prompt** carries a two-line *Code* section after the MCP primer when code mode is on — the plan's one line
+  pointing at `run_code`. The full primer is `run_code` with `source: "?"`, which starts no sandbox and writes no run.
+- **Routes** are under the project: `GET /project/:projectId/conversation/:conversationId/code-runs` and
+  `GET /project/:projectId/code-run/:codeRunId`, both member-level, filtered by `canReadBot`, published as MCP
+  tools, and unaudited reads. A run serializes its source, status, journal, approvals, and output — never its
+  continuation.
+
+### Traps found while building
+
+- **`code` is a sensitive key.** `scrubToolOutput` drops keys in `SENSITIVE_KEYS` at any depth (an OAuth `code`), so
+  a program that returns `{ code: … }` loses that key in the transcript. The `HostError`'s `code` property is
+  fine inside the program; a test that returned it under that name read `{}`.
+- **Run's `require` is a stub that throws**, so `typeof require` is `"function"` inside a program though nothing
+  can be loaded; `globalThis.require` is undefined. `runtime.test.ts` asserts a call throws.
+- **Tests that pin the offered tool list** (`tick.test.ts`, `meta-tools.test.ts`) gained `run_code`.
+- **A container build here cannot reach npm** without the session proxy's CA and host network; the image was built
+  with an uncommitted copy of the Dockerfile that trusts it, and CI's **Backend Docker** builds the committed one.
+
+### The frontend
+
+- **The transcript** draws a `run_code` call as its own row: the program's first line and how it ended (or "waiting
+  for approval"), opening to the program, the result or error, the console, the journal of host calls with each
+  gate decision (an approved or denied call links to its approval), and the approvals a paused program waits on.
+  `source: "?"` stays an ordinary tool row. The page reads `code-run:list` whenever the transcript moves and it has
+  a program in it.
+- **Syntax is told apart by weight and tone, not colour** — comments tertiary and italic, strings secondary,
+  keywords and the host API's globals heavier — since the tokens have no syntax palette and colour is spent only
+  where a person is needed.
+- **The bot page** gained **Code** (the switch and three limits; blank means the deployment's). The *Not available
+  yet* card that read "Code" now reads **Sandboxes**.
+
+### The CLI
+
+`hypotenuse` 2.7.0. Rule 13 decisions:
+
+| Routed action | Command |
+|---|---|
+| `code-run:list` | `code-run list --conversation <id>`, paging |
+| `code-run:view` | `code-run view <id>` |
+| `bot:create` / `bot:edit` new fields | `--code`, `--no-code`, `--code-timeout <s>`, `--code-memory <MiB>`, `--code-host-calls <n>`, `--no-code-limits` |
+
+- The three limit flags replace the bot's limits whole, since `codeLimits` is one field; `--no-code-limits` clears
+  them.
+
+### Not verified here
+
+- No real model wrote a program: every `run_code` is the scripted model server calling it. Whether a real model
+  reaches for code at the right moments, and writes programs that fit the limits, needs staging use; so does the
+  plan's verification (a count from a gateway tool, with flat input tokens).
+- Continuation sizes on real tool results are unmeasured.

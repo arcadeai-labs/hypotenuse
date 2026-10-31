@@ -14,6 +14,7 @@ import {
   approverTagInput,
   assertAliasesExist,
   assertCanWriteBot,
+  assertCodeLimits,
   assertHelpTag,
   assertNotLockedOut,
   assertSlugFree,
@@ -27,6 +28,8 @@ import {
   botSlugInput,
   botStanding,
   budgetColumn,
+  codeLimitsInput,
+  codeModeEnabledInput,
   decodeAvatar,
   halfLifeInput,
   helpNotifyTagInput,
@@ -56,7 +59,7 @@ import { bots, type NewBot } from "../../schema/bots";
 export class BotEdit extends AuditedAction {
   name = "bot:edit";
   description =
-    "Edit a bot: any of its name, slug, description, display name, persona (its Identity prompt section; a change is a new version), model aliases, access lists, help tag, approver tag, approval expiry, monthly budget, prompt budget, how many sections it may create itself, enabled flag, or avatar (a square PNG or JPEG, base64, at most 512 KB; null removes it). Only the fields sent change. Requires membership and the bot's write access; you cannot save access lists that would lock you out unless you are an admin.";
+    "Edit a bot: any of its name, slug, description, display name, persona (its Identity prompt section; a change is a new version), model aliases, access lists, help tag, approver tag, approval expiry, monthly budget, prompt budget, how many sections it may create itself, code mode and its limits (which may only lower the deployment's), enabled flag, or avatar (a square PNG or JPEG, base64, at most 512 KB; null removes it). Only the fields sent change. Requires membership and the bot's write access; you cannot save access lists that would lock you out unless you are an admin.";
   middleware = [ProjectMemberMiddleware()];
   web = { route: "/project/:projectId/bot/:botId", method: HTTP_METHOD.POST };
   inputs = z.object({
@@ -78,6 +81,8 @@ export class BotEdit extends AuditedAction {
     maxStepsPerTurn: maxStepsPerTurnInput.optional(),
     promptBudgetTokens: promptBudgetInput.optional(),
     maxAgentSections: maxAgentSectionsInput.optional(),
+    codeModeEnabled: codeModeEnabledInput.optional(),
+    codeLimits: codeLimitsInput.optional(),
     memoryChannelHalfLifeDays: halfLifeInput("channel").optional(),
     memoryProjectHalfLifeDays: halfLifeInput("project").optional(),
     enabled: z
@@ -149,6 +154,7 @@ export class BotEdit extends AuditedAction {
     if (params.slug !== undefined && params.slug !== bot.slug) {
       await assertSlugFree(tx, params.projectId, params.slug, bot.id);
     }
+    if (params.codeLimits !== undefined) assertCodeLimits(params.codeLimits);
     const avatar = params.avatar ? decodeAvatar(params.avatar) : null;
 
     const changes: Partial<NewBot> = {};
@@ -168,6 +174,8 @@ export class BotEdit extends AuditedAction {
       "maxStepsPerTurn",
       "promptBudgetTokens",
       "maxAgentSections",
+      "codeModeEnabled",
+      "codeLimits",
       "memoryChannelHalfLifeDays",
       "memoryProjectHalfLifeDays",
     ] as const) {

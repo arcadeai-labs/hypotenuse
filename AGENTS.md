@@ -26,7 +26,10 @@ reports back into the conversation it came from.
 > system prompt assembled from versioned sections (always or contextual on keywords, within a token budget, its hash
 > and section versions in every transcript), goals they review and update, and a project library of skills they run
 > with `use_skill` or a person runs with `/<name>`; a bot edits only sections a person marked editable, and a person
-> can revert it. No chat platform is connected yet. The build order and every
+> can revert it. Bots **run code**: `run_code` runs a short TypeScript program in Run's QuickJS-WebAssembly sandbox
+against the bot's memory and MCP tools, under the same scope, allowlist, and approval gate; a gated call pauses the
+program before its effect, and approval resumes the same program from a sealed, signed continuation, running each
+approved call exactly once. No chat platform is connected yet. The build order and every
 > plan are in
 > [`docs/plans/README.md`](./docs/plans/README.md); the system on one page is
 > [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md). Hypotenuse **v1** — local coding agents answering
@@ -84,7 +87,7 @@ These bind from the first line of code. A rule that names a thing not built yet 
    expiry); machine ingress (`webhooks:*`, recorded in `trigger_events`) and its processing
    (`triggers:process-event`, `triggers:process-pending`, recorded in `trigger_events` and `conversation_inbox`);
    `agent:tick`, `conversation:compact`, and every tool a bot runs (recorded in `conversation_entries`, and a
-   prompt or goal edit also in `prompt_section_versions` and `goals`); memory's
+   prompt or goal edit also in `prompt_section_versions` and `goals`, a program in `code_runs`); memory's
    machine work (`memory:embed`, `memory:consolidate`, `memory:decay-project`, recorded in `memory_documents` and
    `memory_chunks`); the MCP catalog's machine work (`mcp-server:refresh-catalog`, `bot:capabilities`, recorded on
    `mcp_servers` and `bots`); outbox delivery (`outbox:deliver`, recorded in `outbox_messages`); the sandbox's machine half (`sandbox:events` / `heartbeat` / `complete` and the in-sandbox tools, recorded in

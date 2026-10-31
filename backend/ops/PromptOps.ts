@@ -33,7 +33,7 @@ import type { DbHandle } from "./DbOps";
  * | 6 | Skills index | the attached skills' names and descriptions |
  * | 7 | Capabilities | the bot's generated MCP summary, when it has servers |
  * | 8 | Channel context | where the conversation is, and its title |
- * | 9 | Tool primers | ending a turn, memory, MCP, the bot's own prompt |
+ * | 9 | Tool primers | ending a turn, memory, MCP, code mode (one line), the bot's own prompt |
  * | 10 | Style rules | fixed |
  *
  * **Budget.** Text is estimated at four characters a token. When the prompt is
@@ -70,6 +70,8 @@ export interface SkillIndexInput {
 /** Everything one assembly reads. */
 export interface PromptInputs {
   bot: Pick<Bot, "name" | "displayName" | "description" | "capabilities"> & {
+    /** Whether the code-mode line is included. */
+    codeModeEnabled?: boolean;
     promptBudgetTokens: number;
   };
   channel: Pick<Channel, "type" | "name">;
@@ -155,6 +157,10 @@ const MCP_RULES = [
   "",
   "Some calls wait for a person to approve them; the conversation pauses until they decide. If a call is denied, do not retry it — try another way, or ask. A result too long to show comes back as a preview with an id for `read_large_result`.",
 ].join("\n");
+
+/** Code mode, in one line: the full API is one `run_code` call away. */
+const CODE_RULES =
+  '## Code\n\nWhen a task means fetching, filtering, joining, or counting more data than you need to see, use `run_code`: one short program that calls your memory and MCP tools and returns a small answer. Call it with source "?" for its API.';
 
 /** How a bot keeps its own prompt. */
 const PROMPT_RULES = [
@@ -439,6 +445,7 @@ export function assemblePrompt(
     textPart(LOOP_RULES),
     textPart(MEMORY_RULES),
     ...(inputs.mcp ? [textPart(MCP_RULES)] : []),
+    ...(inputs.bot.codeModeEnabled ? [textPart(CODE_RULES)] : []),
     textPart(PROMPT_RULES),
     textPart(STYLE_RULES),
   ];

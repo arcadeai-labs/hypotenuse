@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import type { Platform } from "../../../../design/states";
 import { Avatar, Button, PlatformChip, StatusGlyph } from "../../ui";
 import { MarkdownBlock } from "../MarkdownBlock";
+import { CodeRunCall, type CodeRunDetail } from "./CodeRun";
 import { PromptChangeLine, SkillRunLine } from "./ContextUpdate";
 import type { TranscriptItem } from "./model";
 import { ToolCall } from "./ToolCall";
@@ -29,16 +30,19 @@ const TOOL_NOTES: Record<string, string | undefined> = {
  * @param props.item - The item.
  * @param props.speakers - Who is speaking.
  * @param props.questionOpen - Whether this is the question the bot waits on.
+ * @param props.codeRuns - The conversation's code runs, by intent entry id.
  * @returns The line.
  */
 function TranscriptItemLine({
   item,
   speakers,
   questionOpen,
+  codeRuns,
 }: {
   item: TranscriptItem;
   speakers: TranscriptSpeakers;
   questionOpen: boolean;
+  codeRuns?: ReadonlyMap<number, CodeRunDetail>;
 }) {
   switch (item.kind) {
     case "person": {
@@ -116,6 +120,12 @@ function TranscriptItemLine({
         </details>
       );
     case "tool":
+      if (
+        item.toolName === "run_code" &&
+        (item.input as { source?: unknown }).source !== "?"
+      ) {
+        return <CodeRunCall item={item} run={codeRuns?.get(item.entryId)} />;
+      }
       return <ToolCall item={item} />;
     case "status":
       return (
@@ -154,7 +164,8 @@ function TranscriptItemLine({
  * People's messages carry their name and the platform; the bot's carry its
  * avatar and badge; tool calls are collapsed rows; state changes, a prompt
  * that changed between steps, and a `/skill` expanded are small system lines
- * that open; a compaction is a divider.
+ * that open; a compaction is a divider. A `run_code` call opens to its
+ * program, result, console, and host calls.
  *
  * It follows: while the reader is at the bottom, new lines keep the bottom
  * in view; once they scroll up, it stays put.
@@ -162,6 +173,7 @@ function TranscriptItemLine({
  * @param props.speakers - Who is speaking.
  * @param props.waitingOnAnswer - Whether the conversation waits on an answer, so its last question is open.
  * @param props.highlight - Entries to mark, such as those a memory was learned from.
+ * @param props.codeRuns - The conversation's code runs, by intent entry id, for `run_code` calls.
  * @returns The log.
  */
 export function TranscriptView({
@@ -169,11 +181,13 @@ export function TranscriptView({
   speakers,
   waitingOnAnswer,
   highlight,
+  codeRuns,
 }: {
   items: TranscriptItem[];
   speakers: TranscriptSpeakers;
   waitingOnAnswer: boolean;
   highlight?: ReadonlySet<number>;
+  codeRuns?: ReadonlyMap<number, CodeRunDetail>;
 }) {
   const end = useRef<HTMLDivElement>(null);
   const atBottom = useRef(true);
@@ -212,6 +226,7 @@ export function TranscriptView({
             item={item}
             speakers={speakers}
             questionOpen={waitingOnAnswer && i === lastQuestion}
+            codeRuns={codeRuns}
           />
         );
         return highlight?.has(item.seq) ? (

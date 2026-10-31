@@ -5,6 +5,7 @@ import approvals from "./approvals.md?raw";
 import audit from "./audit.md?raw";
 import bots from "./bots.md?raw";
 import cli from "./cli.md?raw";
+import codeMode from "./code-mode.md?raw";
 import conversations from "./conversations.md?raw";
 import gettingStarted from "./getting-started.md?raw";
 import goals from "./goals.md?raw";
@@ -53,6 +54,7 @@ export const DOCS_SECTIONS: DocsSection[] = [
   { slug: "memory", title: "Memory", markdown: memory },
   { slug: "mcp-servers", title: "MCP servers", markdown: mcpServers },
   { slug: "approvals", title: "Approvals", markdown: approvals },
+  { slug: "code-mode", title: "Code mode", markdown: codeMode },
   {
     slug: "talking-to-a-bot-over-the-api",
     title: "Talking to a bot over the API",

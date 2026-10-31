@@ -462,7 +462,7 @@ see exactly one email sent.
   re-read on navigation and on every notification frame.
 - **The bot page** gained **Tools** (servers, a per-server pattern editor previewed live through
   `mcp-server:match-tools`, the read-only switch with its warning, the capabilities text) and **Approvals** (approver
-  tag, expiry). The unavailable placeholder that read "Tools" is now "Code".
+  tag, expiry). The unavailable placeholder that read "Tools" became "Code", and since code mode "Sandboxes".
 - **A conversation waiting on approval** says "Waiting for approval to run `server/tool`" and links each approval.
 - **Colour is spent only where a person is needed**: "Waits for approval" chips and pending approvals use the
   waiting colour; a destructive annotation is heavier type, not a colour.

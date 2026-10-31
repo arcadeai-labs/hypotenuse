@@ -29,10 +29,11 @@ read and change it, and whether you may change it.
 | **Skills** | which of the project's [skills](/docs/skills) it may use, and which version of each |
 | **Memory** | how fast its memories fade when unused, and a link to what it remembers |
 | **Tools** | which MCP servers it may use, which of their tools run without asking, and what its tools can do |
+| **Code** | whether it may run programs ([code mode](/docs/code-mode)), and its own, lower limits for them |
 | **Approvals** | who may decide its tool calls, and how long a waiting call lasts |
 
-The page also shows **Channels** and **Code**, each reading *Not available yet*. They will hold where the bot
-listens and the code it runs.
+The page also shows **Channels** and **Sandboxes**, each reading *Not available yet*. They will hold where the bot
+listens and the sandboxes it hands repository work to.
 
 **Prompt** at the top of the page opens the bot's [prompt](/docs/prompts): every section of what it is told before
 each step, their versions, and a preview of the whole.

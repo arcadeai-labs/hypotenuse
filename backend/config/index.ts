@@ -3,6 +3,7 @@ import { configAgents } from "./agents";
 import { configAudit } from "./audit";
 import { configChannels } from "./channels";
 import { configCliAuth } from "./cliAuth";
+import { configCode } from "./code";
 import { configDatabase } from "./database";
 import { configFrontend } from "./frontend";
 import { configLogger } from "./logger";
@@ -44,6 +45,7 @@ export default {
   agents: configAgents,
   memory: configMemory,
   mcp: configMcp,
+  code: configCode,
 };
 
 /**

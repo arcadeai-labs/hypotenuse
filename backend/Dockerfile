@@ -31,6 +31,11 @@ WORKDIR /app/backend
 COPY --from=build /app/backend /app/backend
 COPY --from=build /app/node_modules /app/node_modules
 
+# Code mode runs programs in Run's QuickJS sandbox, in a worker thread with its
+# WebAssembly loaded at run time. Prove it works in this exact image, or fail
+# the build: a missing asset would otherwise surface on a bot's first program.
+RUN bun scripts/code-self-test.ts
+
 EXPOSE 10000
 
 CMD ["bun", "keryx.ts", "start"]

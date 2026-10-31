@@ -339,6 +339,10 @@ Edit a project name in the browser, then open Audit log: one row, actor you, bef
   editing, reverting, and deleting a section; a bot's persona (its Identity section, through `bot:edit`); creating,
   editing, and deleting a goal or a skill; attaching and detaching a skill — is audited. Reads are `prompt:preview`
   and the `list` / `view` / `versions` actions.
+- **Code mode added no unaudited action.** `run_code` is a tool a bot runs, covered by the `agent:tick` row: its
+  program, journal of host calls, and answer are a `code_runs` row, and the approvals a paused program writes are
+  `approvals` rows bound to the run. Turning code mode on or off and lowering its limits is `bot:edit`, audited;
+  `code-run:list` and `code-run:view` are reads.
 - **Rule 13: no CLI command wraps `audit:list` or `organization:audit-list` yet** — deferred, not out of scope, as
   with phase 04's actions: [phase 06](./phase-06-operator-cli.md) is the CLI's sign-in.
 

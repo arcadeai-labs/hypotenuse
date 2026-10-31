@@ -53,6 +53,8 @@ const READS = new Set([
   "approval:list",
   "approval:view",
   "large-result:view",
+  "code-run:list",
+  "code-run:view",
   "prompt-section:list",
   "prompt-section:view",
   "prompt-section:versions",

@@ -1,7 +1,9 @@
 import { createHash } from "node:crypto";
 import { and, eq } from "drizzle-orm";
-import { ErrorType, TypedError } from "keryx";
+import { config, ErrorType, TypedError } from "keryx";
 import { z } from "zod";
+// Type-only, purely for the `declare module "keryx"` augmentation inside.
+import type {} from "../config/code";
 import { type Bot, bots } from "../schema/bots";
 import type { Tag } from "../schema/tags";
 import {
@@ -113,6 +115,8 @@ export function serializeBot(bot: Bot, persona: string) {
     approvalTtlSeconds: bot.approvalTtlSeconds,
     promptBudgetTokens: bot.promptBudgetTokens,
     maxAgentSections: bot.maxAgentSections,
+    codeModeEnabled: bot.codeModeEnabled,
+    codeLimits: bot.codeLimits,
     capabilities: bot.capabilities,
     createdByUserId: bot.createdByUserId,
     createdAt: bot.createdAt.getTime(),
@@ -585,6 +589,64 @@ export const promptBudgetInput = z
   );
 
 /** The Zod input for how many sections a bot may create itself. */
+/** Whether a bot is offered `run_code`. */
+export const codeModeEnabledInput = z
+  .boolean()
+  .describe("Whether the bot may run code (run_code)");
+
+/** A bot's own code-mode limits; each may only lower the deployment's. */
+export const codeLimitsInput = z
+  .object({
+    timeoutMs: z
+      .number()
+      .int()
+      .min(1_000)
+      .optional()
+      .describe("Wall-clock milliseconds one program may take"),
+    memoryBytes: z
+      .number()
+      .int()
+      .min(8 * 1024 * 1024)
+      .optional()
+      .describe("Bytes of memory one program may use"),
+    bridgeRequests: z
+      .number()
+      .int()
+      .min(1)
+      .optional()
+      .describe("Host calls (memory, MCP) one program may make"),
+  })
+  .strict()
+  .describe(
+    "Lower this bot's code-mode limits; omit a key for the deployment's. A value above the deployment's is refused",
+  );
+
+/**
+ * Refuse a bot limit above the deployment's: a bot can lower a limit, never
+ * raise one.
+ * @param limits - The limits sent.
+ * @throws {TypedError} `CONNECTION_ACTION_PARAM_VALIDATION`, naming the ceiling.
+ */
+export function assertCodeLimits(
+  limits: z.infer<typeof codeLimitsInput>,
+): void {
+  const ceilings = {
+    timeoutMs: config.code.timeoutMs,
+    memoryBytes: config.code.memoryBytes,
+    bridgeRequests: config.code.bridgeRequests,
+  };
+  for (const [key, ceiling] of Object.entries(ceilings)) {
+    const value = limits[key as keyof typeof ceilings];
+    if (value !== undefined && value > ceiling) {
+      throw new TypedError({
+        message: `codeLimits.${key} may only lower the deployment's limit of ${ceiling}.`,
+        type: ErrorType.CONNECTION_ACTION_PARAM_VALIDATION,
+        key: "codeLimits",
+      });
+    }
+  }
+}
+
 export const maxAgentSectionsInput = z
   .number()
   .int()

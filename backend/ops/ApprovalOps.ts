@@ -1,4 +1,13 @@
-import { and, desc, eq, inArray, isNotNull, lt, sql } from "drizzle-orm";
+import {
+  and,
+  desc,
+  eq,
+  inArray,
+  isNotNull,
+  isNull,
+  lt,
+  sql,
+} from "drizzle-orm";
 import { api, ErrorType, TypedError } from "keryx";
 import {
   type Approval,
@@ -7,6 +16,7 @@ import {
   type NewApproval,
 } from "../schema/approvals";
 import type { Bot } from "../schema/bots";
+import { codeRuns } from "../schema/code_runs";
 import { conversationEntries } from "../schema/conversation_entries";
 import type { Conversation } from "../schema/conversations";
 import type { Tag } from "../schema/tags";
@@ -57,10 +67,13 @@ export type GateOutcome =
 export type ApprovalDraft = Pick<
   NewApproval,
   "callKey" | "server" | "tool" | "args" | "reason"
->;
+> &
+  Partial<Pick<NewApproval, "codeRunId" | "interruptionId">>;
 
 /**
- * The approval written for an intent, if any.
+ * The approval written for a direct call's intent, if any. A code-mode
+ * program's approvals name the `run_code` intent too, and are found by
+ * {@link approvalForInterruption} instead.
  * @param db - A database handle.
  * @param entryId - The intent's entry id.
  * @returns The row, or `undefined`.
@@ -72,7 +85,35 @@ export async function approvalForIntent(
   const [row] = await db
     .select()
     .from(approvals)
-    .where(eq(approvals.entryId, entryId))
+    .where(
+      and(eq(approvals.entryId, entryId), isNull(approvals.interruptionId)),
+    )
+    .limit(1);
+  return row;
+}
+
+/**
+ * The approval written for one interruption of a code-mode program, if any:
+ * the resumed program consumes its own grant and never another's.
+ * @param db - A database handle.
+ * @param codeRunId - The program's run.
+ * @param interruptionId - Run's id for the interrupted call.
+ * @returns The row, or `undefined`.
+ */
+export async function approvalForInterruption(
+  db: DbHandle,
+  codeRunId: number,
+  interruptionId: string,
+): Promise<Approval | undefined> {
+  const [row] = await db
+    .select()
+    .from(approvals)
+    .where(
+      and(
+        eq(approvals.codeRunId, codeRunId),
+        eq(approvals.interruptionId, interruptionId),
+      ),
+    )
     .limit(1);
   return row;
 }
@@ -483,8 +524,9 @@ export function serializeApproval(row: Approval) {
 
 /**
  * Whether a conversation's `mcp_info` for a tool was read: a result of it,
- * not an error, names the tool. Compaction keeps the rows, so a read before a
- * compaction still counts.
+ * not an error, names the tool, or a code-mode program's journal records an
+ * `mcp.info` of it that answered. Compaction keeps the rows, so a read before
+ * a compaction still counts.
  * @param db - A database handle.
  * @param conversationId - The conversation.
  * @param name - `server/tool`.
@@ -508,5 +550,16 @@ export async function infoWasRead(
       ),
     )
     .limit(1);
-  return Boolean(row);
+  if (row) return true;
+  const [fromCode] = await db
+    .select({ id: codeRuns.id })
+    .from(codeRuns)
+    .where(
+      and(
+        eq(codeRuns.conversationId, conversationId),
+        sql`${codeRuns.hostCalls} @> ${JSON.stringify([{ fn: "mcp.info", name, ok: true }])}::jsonb`,
+      ),
+    )
+    .limit(1);
+  return Boolean(fromCode);
 }
