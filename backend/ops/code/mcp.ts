@@ -8,7 +8,7 @@ import { mcpListTools } from "../../tools/mcp-list-tools";
 import { mcpSearch } from "../../tools/mcp-search";
 import { resolveTool } from "../../tools/mcp-shared";
 import { botWrite } from "../../tools/memory-shared";
-import { ToolError } from "../../tools/types";
+import { type Suspension, ToolError } from "../../tools/types";
 import {
   approvalForInterruption,
   consumeApproval,
@@ -18,7 +18,6 @@ import {
 } from "../ApprovalOps";
 import { allowance, callKey } from "../ApprovalPatternOps";
 import { previewOf, storeLargeResult } from "../LargeResultOps";
-import { botServers } from "../McpCatalogOps";
 import { callServerTool, McpUnauthorized } from "../McpClientOps";
 import { credentialValues } from "../McpServerOps";
 import { memoryPathInput } from "../MemoryChunkOps";
@@ -232,28 +231,33 @@ export const mcpHost: Record<string, HostFunctionDef> = {
     mcp: true,
     args: z.tuple([z.string().optional()]),
     body: async (scope, [server]) => {
-      if (server !== undefined) {
-        const input = parseWith(
-          mcpListTools.inputSchema,
-          { server, limit: 100 },
-          "mcp.listTools",
-        );
-        return {
-          name: String(server),
-          value: await mcpListTools.run(input, scope.ctx),
-        };
+      const input = parseWith(
+        mcpListTools.inputSchema,
+        { ...(server === undefined ? {} : { server }), limit: 100 },
+        "mcp.listTools",
+      );
+      // A program sees every tool at once: gather the pages the direct
+      // tool hands out one at a time.
+      // `mcp_list_tools` never suspends.
+      type Page = Exclude<
+        Awaited<ReturnType<typeof mcpListTools.run>>,
+        Suspension
+      >;
+      const first = (await mcpListTools.run(input, scope.ctx)) as Page;
+      const tools = [...first.tools];
+      let next = first.nextOffset;
+      while (next !== null) {
+        const page = (await mcpListTools.run(
+          { ...input, offset: next },
+          scope.ctx,
+        )) as Page;
+        tools.push(...page.tools);
+        next = page.nextOffset;
       }
-      const servers = await botServers(scope.ctx.db, scope.ctx.bot.id);
-      const all: unknown[] = [];
-      for (const s of servers) {
-        all.push(
-          await mcpListTools.run(
-            { server: s.server.name, limit: 100 },
-            scope.ctx,
-          ),
-        );
-      }
-      return { value: all };
+      return {
+        ...(server === undefined ? {} : { name: String(server) }),
+        value: { ...first, tools, nextOffset: null },
+      };
     },
   },
   mcp_search: {

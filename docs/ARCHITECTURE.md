@@ -224,7 +224,8 @@ MCP capabilities, the channel, fixed tool primers, and style rules — without c
   per-process client pool (`ops/McpClientOps.ts`) connects through the SSRF guard's fetch, keyed by server,
   credential version, and headers. A bot sees `mcp_search` (keyword fused with the memory embedder over the cached
   catalog), `mcp_list_tools`, `mcp_info`, `mcp_exec`, and `read_large_result`, not every tool of every server, and a
-  generated *capabilities* summary in its prompt. `mcp_exec` needs `mcp_info` first in the conversation.
+  generated *capabilities* summary in its prompt. `mcp_list_tools` is offered to every bot — with no server it lists
+  every server's tools, and for a bot with none it says so — so "what tools do you have?" is one call. `mcp_exec` needs `mcp_info` first in the conversation.
 - **The approval gate** (`ops/ApprovalOps.ts`) decides each `mcp_exec` before anything is sent: an allowlist pattern
   or a read-only tool with `autoAllowReadOnly` runs; anything else writes an `approvals` row bound to the intent and
   its `callKey`, and the tick parks the step on `waiting` / `approval` after the step's other calls run. A decision

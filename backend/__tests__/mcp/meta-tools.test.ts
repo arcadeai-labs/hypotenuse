@@ -56,14 +56,9 @@ const BUILT_IN = [
   "skill_list",
   "use_skill",
   "run_code",
-];
-const MCP_TOOLS = [
-  "mcp_exec",
-  "mcp_info",
   "mcp_list_tools",
-  "mcp_search",
-  "read_large_result",
 ];
+const MCP_TOOLS = ["mcp_exec", "mcp_info", "mcp_search", "read_large_result"];
 
 beforeAll(async () => {
   stage = await buildMcpStage();
@@ -103,8 +98,26 @@ async function run(steps: unknown[]): Promise<number> {
 }
 
 describe("who sees the meta-tools", () => {
-  test("a bot with no MCP server is not offered them", async () => {
+  test("a bot with no MCP server is offered only mcp_list_tools", async () => {
     await run([{ ...replyStep(), expect: { toolsOffered: BUILT_IN } }]);
+  });
+
+  test("mcp_list_tools tells a bot with no MCP server it has none", async () => {
+    const id = await run([
+      { toolCalls: [{ name: "mcp_list_tools", input: {} }] },
+      { toolCalls: [{ name: "mcp_list_tools", input: { server: "mail" } }] },
+      replyStep(),
+    ]);
+    const [all, one] = await resultsOf(id, "mcp_list_tools");
+    expect(all).toMatchObject({
+      server: null,
+      servers: [],
+      total: 0,
+      tools: [],
+      nextOffset: null,
+    });
+    expect((all as { note: string }).note).toContain("no MCP servers");
+    expect(one).toMatchObject({ is_error: true, error_type: "not_found" });
   });
 
   test("a bot with a server is, with the tools section in its prompt", async () => {
@@ -215,6 +228,29 @@ describe("search, list, info", () => {
     }
     expect(stage.fixture.calls).toEqual([]);
     expect(githubId).toBeGreaterThan(0);
+  });
+
+  test("list with no server lists every server's tools in one call", async () => {
+    await bindServer(stage, mailId);
+    await bindServer(stage, githubId);
+    const id = await run([
+      { toolCalls: [{ name: "mcp_list_tools", input: {} }] },
+      replyStep(),
+    ]);
+    const [all] = (await resultsOf(id, "mcp_list_tools")) as {
+      server: string | null;
+      servers: { name: string; tools: number }[];
+      total: number;
+      tools: { name: string }[];
+      note?: string;
+    }[];
+    expect(all.server).toBeNull();
+    expect(all.servers.map((s) => s.name).sort()).toEqual(["github", "mail"]);
+    expect(all.total).toBe(all.servers.reduce((n, s) => n + s.tools, 0));
+    expect(all.tools.length).toBe(all.total);
+    const prefixes = new Set(all.tools.map((t) => t.name.split("/")[0]));
+    expect([...prefixes].sort()).toEqual(["github", "mail"]);
+    expect(all.note).toBeUndefined();
   });
 
   test("list pages one server's tools", async () => {

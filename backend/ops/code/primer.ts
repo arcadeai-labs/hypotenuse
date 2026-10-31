@@ -32,8 +32,8 @@ const DECLARATIONS = `declare const memory: {
 };
 
 declare const mcp: {
-  /** Your MCP tools, of one server or of all. */
-  listTools(server?: string): Promise<unknown>;
+  /** Your MCP tools, of one server or of all; servers lists every server you have. */
+  listTools(server?: string): Promise<{ servers: { name: string; tools: number }[]; total: number; tools: { name: string; description: string; needsApproval: boolean }[] }>;
   /** Find tools by what they do. */
   search(query: string): Promise<{ tools: { name: string; description: string; needsApproval: boolean }[] }>;
   /** A tool's input schema. Required once per tool per conversation before exec or capture. */

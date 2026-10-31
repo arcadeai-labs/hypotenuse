@@ -151,7 +151,7 @@ const MCP_RULES = [
   "",
   "You can use tools on MCP servers your project connected. You do not see them all at once:",
   "",
-  "1. `mcp_search` for what you want to do (or `mcp_list_tools` for one server).",
+  "1. `mcp_search` for what you want to do, or `mcp_list_tools` to see them all.",
   "2. `mcp_info` on the tool you choose — required before you call it, once per conversation.",
   "3. `mcp_exec` it with arguments that match its input schema.",
   "",

@@ -413,7 +413,11 @@ see exactly one email sent.
   `_` or `-` it writes anyway is replaced. A model failure stores the plain list (each server and its tool count)
   and a hash that makes the next run try again. `MCP_GENERATE_CAPABILITIES=false` (the browser suite) always stores
   the plain list. The prompt carries a "Your tools" section and the summary only for a bot with servers, and the MCP
-  tools are offered only then (`ToolDefinition.available` may now be async).
+  tools are offered only then (`ToolDefinition.available` may now be async) — except `mcp_list_tools`, offered to
+  every bot. Hiding it too left a bot with no server unable to answer "list your tools" except by writing a
+  `run_code` program to find `mcp.listTools()` returned `[]`. Its `server` is optional: left out, it pages every
+  server's tools and names each server with its tool count (`servers`); for a bot with none it answers an empty
+  list and a `note` saying so. `mcp.listTools()` in code mode returns the same shape, every page gathered.
 - **A tool result reaches the model as text.** `mcp_exec` answers `{name, text}` — the result's text parts joined —
   plus `structuredContent` only when there is no text, and a description of non-text parts. A result whose
   `isError` is set becomes a `tool_error` envelope. Keeping the result a string matters because
