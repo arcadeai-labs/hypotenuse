@@ -649,8 +649,9 @@ by button, and approves a call in-channel under the `participants` policy.
   an active one must be disconnected first.
 - **`bot-installation:test` is audited.** It writes the installation's status, `lastError`, and the bot's platform
   id, which a person reads.
-- **The OAuth hops are not built.** No adapter installs by OAuth yet; `bot-installation:oauth-start` and
-  `oauth-callback` arrive with the first platform that does, and join `NEVER_MCP_ACTION_NAMES` then.
+- **The OAuth hops** arrived with Slack ([phase 14](./phase-14-slack.md)): `bot-installation:oauth-start` (a read: a
+  Redis `state`, no row) and `bot-installation:oauth-callback` (audited), both in `NEVER_MCP_ACTION_NAMES`, driven by
+  an adapter's `oauth` hooks.
 - **The webhook platform has one shared secret** (`signingSecret`), chosen by the person, signing both directions.
   The bot's own platform id is `botUserId` at connect (default `bot:<slug>`), or whatever the probe's answer names.
 - **A platform channel's `externalId` is `<externalWorkspaceId>/<the platform's id>`**, so two workspaces never
@@ -677,8 +678,8 @@ by button, and approves a call in-channel under the `participants` policy.
   a dropped attempt's partial text disappears at once.
 - **A `message` row's payload names its `messageKind`** (`reply`, `complete`, `fail`, `error`); `kind` is the
   surface kind. The API channel's callback body keeps `kind: reply` and the rest, as before.
-- **The per-installation token bucket is not built.** The webhook platform publishes no rate-limit headers; its
-  `Retry-After` is honoured per row. The bucket, with its reserve for `ack` rows, lands with Slack's tiered limits.
+- **The per-installation token bucket** arrived with Slack (`slack-bucket.lua`, phase 14), without a reserve for
+  `ack` rows. The webhook platform publishes no rate-limit headers; its `Retry-After` is honoured per row.
 - **Rate limits are a fixed one-minute window** per bot and participant, and per bot and channel
   (`rate-window.lua`). The one notice per window is recorded on the event (`noticeOwed`), and only where the platform
   has ephemeral messages — the webhook platform has none, so nothing is sent yet.

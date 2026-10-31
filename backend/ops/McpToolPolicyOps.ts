@@ -74,6 +74,8 @@ export const NEVER_MCP_ACTION_NAMES: ReadonlySet<string> = new Set([
   "email-verification:confirm",
   "mcp-server:oauth-start",
   "mcp-server:oauth-callback",
+  "bot-installation:oauth-start",
+  "bot-installation:oauth-callback",
   "bot:avatar",
 ]);
 

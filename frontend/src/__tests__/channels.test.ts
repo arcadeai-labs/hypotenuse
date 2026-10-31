@@ -59,8 +59,11 @@ describe("a bot's channels", () => {
     expect(parseExternalIds("")).toEqual([]);
   });
 
-  test("the webhook platform is installable, and every status has words", () => {
-    expect(INSTALLABLE_PLATFORMS.map((p) => p.type)).toEqual(["webhook"]);
+  test("Slack and the webhook platform are installable, and every status has words", () => {
+    expect(INSTALLABLE_PLATFORMS.map((p) => p.type)).toEqual([
+      "slack",
+      "webhook",
+    ]);
     expect(
       ["active", "pending", "error", "uninstalled"].map(
         installationStatusLabel,

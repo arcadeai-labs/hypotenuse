@@ -89,6 +89,7 @@ invites), and `audit list`.
 | `hypotenuse skill list [--bot]`, `skill view <skill>`, `skill versions <skill>`, `skill add <name>`, `skill edit <skill>`, `skill remove <skill> --yes` | The project's [skills](/docs/skills), or with `--bot` the ones a bot has |
 | `hypotenuse skill attach <skill> --bot [--pin]`, `skill detach <skill> --bot` | Let a bot use a skill — at its latest version, or pinned to one — or take it away |
 | `hypotenuse installation manifest --bot`, `installation connect --bot --delivery-url`, `installation test <id>`, `installation list --bot`, `installation view <id>`, `installation disconnect <id> --yes` | A bot's platform apps: get the events URL the platform delivers to, connect its credentials, check it works, and disconnect it. See **Platforms and channels from the command line** below |
+| `hypotenuse slack create --bot`, `slack connect --bot --client-id`, `slack install <id>` | A bot's own [Slack](/docs/slack) app: create it with a configuration token, or connect one made from the manifest; then print the link that installs it into the workspace |
 | `hypotenuse channel list [--bot]`, `channel view <id>` | The platform channels the project's bots hear from, and how each bot is bound there |
 | `hypotenuse binding list --bot`, `binding create --bot --channel`, `binding edit <id>`, `binding delete <id> --yes` | Where a bot listens: bind it to a channel, change how it listens, or unbind it. Changing needs write access to the bot |
 | `hypotenuse help-request list`, `help-request view <id>`, `help-request answer <id> --text`, `help-request cancel <id>` | The help inbox: questions bots escalated to the team, and your answers. See **The help inbox from the command line** below |
@@ -234,6 +235,19 @@ hypotenuse binding edit 5 --mode all --approval-policy participants
 - `installation test` checks the platform answers with those credentials and exits non-zero when it does not.
   `installation disconnect --yes` forgets the credentials and stops the platform's deliveries; the bot's channels,
   bindings, and conversations stay.
+- **Slack** has its own commands, because its app is created and installed rather than pointed at a URL:
+
+  ```bash
+  SLACK_CFG=xoxe.xoxp-… hypotenuse slack create --bot ada --config-token-env SLACK_CFG
+  hypotenuse slack install 4          # prints the install link: open it and approve
+  hypotenuse installation test 4
+  ```
+
+  `slack create` uses the configuration token once (`--config-token-stdin`, `--config-token-env`, or a prompt) and
+  never stores it. For an app you created from `installation manifest --type slack`, `slack connect` takes its
+  `--client-id` and `--app-id`, its secrets from `--client-secret-env` and `--signing-secret-env`, and, if you
+  installed it from Slack's own settings, `--bot-token-env`. `slack install` prints a link that works once, for ten
+  minutes.
 - A channel appears once the bot hears from it. `channel list --bot` shows each one with the bot's binding, or
   `unbound`.
 - `binding create` lets the bot listen in a channel. Everyone who can read the bot in Hypotenuse can then read that

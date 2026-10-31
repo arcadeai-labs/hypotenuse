@@ -181,13 +181,64 @@ export interface NormalizedInbound {
     value: string;
   };
   signal?: "stop" | "disengage";
-  lifecycle?: "uninstall" | "channel_archived";
+  /**
+   * `uninstall` — the app was removed or its token revoked; `channel_archived`;
+   * `channel_joined` — the bot was invited to the channel; `channel_left` —
+   * the bot was removed from it.
+   */
+  lifecycle?:
+    | "uninstall"
+    | "channel_archived"
+    | "channel_joined"
+    | "channel_left";
   /** The platform's acknowledgement clock. */
   ackDeadlineMs?: number;
 }
 
 /** What `verifyInbound` decided. */
 export type Verified = { ok: true } | { ok: false; reason: string };
+
+/** What an OAuth install learned and must store. */
+export interface OAuthResult {
+  /** Secrets to merge into the installation's sealed credentials (a bot token). */
+  credentials: Record<string, unknown>;
+  /** Settings to merge into its config (the workspace's name, the scopes granted). */
+  config: Record<string, unknown>;
+  /** The workspace the app was installed into. */
+  externalWorkspaceId: string;
+  /** The bot's own user id there, which loop filtering reads. */
+  externalBotUserId: string;
+  /** The platform's id for the app. */
+  externalAppId: string | null;
+}
+
+/** A platform whose app is installed into a workspace by OAuth. */
+export interface OAuthInstall {
+  /**
+   * Where a person approves the install.
+   * @param inst - The installation, with its client credentials.
+   * @param redirectUri - Where the platform sends the browser back.
+   * @param state - The single-use state that names this install.
+   * @returns The URL.
+   */
+  authorizeUrl(
+    inst: OpenInstallation,
+    redirectUri: string,
+    state: string,
+  ): string;
+  /**
+   * Exchange the code the platform returned for the installation's token.
+   * @param inst - The installation.
+   * @param code - The authorization code.
+   * @param redirectUri - The redirect the code was issued for.
+   * @returns What to store.
+   */
+  exchange(
+    inst: OpenInstallation,
+    code: string,
+    redirectUri: string,
+  ): Promise<OAuthResult>;
+}
 
 /** A platform people reach a bot from: one app per bot. */
 export interface PlatformAdapter extends SurfaceAdapter {
@@ -210,6 +261,30 @@ export interface PlatformAdapter extends SurfaceAdapter {
    * @param inst - The installation the routing key named.
    */
   verifyInbound(req: RawInbound, inst: OpenInstallation): Verified;
+  /**
+   * Read a verified body. JSON by default; Slack posts interactivity as a
+   * form whose `payload` field is JSON.
+   * @param req - The request as it arrived.
+   * @returns The parsed body.
+   * @throws When it cannot be read.
+   */
+  decodeBody?(req: RawInbound): unknown;
+  /**
+   * Whether an installation still waiting to be installed answers the
+   * platform's handshake (Slack verifies a request URL when the app is
+   * created, before anyone installs it). Its other deliveries are dropped.
+   */
+  handshakeWhilePending?: boolean;
+  /** The OAuth install, for platforms whose app is installed that way. */
+  oauth?: OAuthInstall;
+  /**
+   * Whether connected credentials are enough to take deliveries. An OAuth
+   * platform's client credentials are not: the installation stays `pending`
+   * until the install (or a pasted bot token) completes it.
+   * @param credentials - The credentials as connected.
+   * @returns `true` to activate.
+   */
+  readyToActivate?(credentials: Record<string, unknown>): boolean;
   /**
    * A handshake the platform expects answered (Slack's `url_verification`),
    * only ever asked after verification.

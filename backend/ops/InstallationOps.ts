@@ -1,6 +1,8 @@
 import { createHash, randomBytes } from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import { api, config, ErrorType, TypedError } from "keryx";
+// Type-only, purely for the `declare module "keryx"` augmentation inside.
+import type {} from "../config/platforms";
 import { platformAdapter } from "../platforms/registry";
 import type { InstallationUrls, OpenInstallation } from "../platforms/types";
 import {
@@ -85,11 +87,14 @@ export function sealCredentials(credentials: Record<string, unknown>) {
  * The installation a routing key names, if it may take deliveries.
  * @param type - The platform the URL named.
  * @param routingKey - The plaintext key from the path.
- * @returns The active installation, or `null` for unknown, disabled, or uninstalled.
+ * @param handshakeWhilePending - Also answer for an installation that has its
+ *   signing credentials but is not installed yet (Slack verifies the URL then).
+ * @returns The installation, or `null` for unknown, disabled, or uninstalled.
  */
 export async function installationForRoutingKey(
   type: string,
   routingKey: string,
+  handshakeWhilePending = false,
 ): Promise<BotInstallation | null> {
   if (!routingKey.startsWith(ROUTING_KEY_PREFIX)) return null;
   const [row] = await api.db.db
@@ -102,8 +107,16 @@ export async function installationForRoutingKey(
       ),
     )
     .limit(1);
-  if (!row || row.status !== "active") return null;
-  return row;
+  if (!row) return null;
+  if (row.status === "active") return row;
+  if (
+    handshakeWhilePending &&
+    row.credentials !== null &&
+    (row.status === "pending" || row.status === "error")
+  ) {
+    return row;
+  }
+  return null;
 }
 
 /**
@@ -199,4 +212,50 @@ export function manifestFor(bot: Bot, type: string, routingKey: string) {
   const adapter = requirePlatform(type);
   const urls = installationUrls(type, routingKey);
   return { urls, ...adapter.manifest(bot, urls) };
+}
+
+/** An install in progress: who started it, for which installation. */
+export interface PendingInstall {
+  installationId: number;
+  projectId: number;
+  botId: number;
+  userId: number;
+}
+
+/**
+ * The Redis key of an install's state.
+ * @param state - The state.
+ * @returns The key.
+ */
+function installKey(state: string): string {
+  return `installation:oauth:${createHash("sha256").update(state).digest("hex")}`;
+}
+
+/**
+ * Begin an OAuth install: a single-use `state`, bound to the installation
+ * and the person, that lives for `installStateTtlSeconds`.
+ * @param pending - The installation and the person.
+ * @returns The state, for the authorize URL.
+ */
+export async function startInstall(pending: PendingInstall): Promise<string> {
+  const state = randomBytes(24).toString("base64url");
+  await api.redis.redis.set(
+    installKey(state),
+    JSON.stringify(pending),
+    "EX",
+    config.platforms.slack.installStateTtlSeconds,
+  );
+  return state;
+}
+
+/**
+ * Take an install's state: it works once.
+ * @param state - The state the platform returned.
+ * @returns The install, or `null` for an unknown, used, or expired state.
+ */
+export async function takeInstall(
+  state: string,
+): Promise<PendingInstall | null> {
+  const raw = await api.redis.redis.getdel(installKey(state));
+  return raw ? (JSON.parse(raw) as PendingInstall) : null;
 }

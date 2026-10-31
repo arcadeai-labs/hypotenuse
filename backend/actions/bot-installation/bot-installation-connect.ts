@@ -16,6 +16,7 @@ import { ProjectMemberMiddleware } from "../../middleware/rbac";
 import { assertCanWriteBot, loadReadableBot } from "../../ops/BotOps";
 import { idInput } from "../../ops/InputOps";
 import {
+  openInstallation,
   requirePlatform,
   sealCredentials,
   serializeInstallation,
@@ -28,11 +29,17 @@ import { botInstallations } from "../../schema/bot_installations";
  * `bot-installation:connect` — give a pending installation the credentials
  * the platform showed (and its non-secret settings), making it active. The
  * credentials are sealed and never returned. Needs the bot's write access.
+ *
+ * A platform installed by OAuth (Slack) stays `pending` until its install
+ * completes — or until the credentials include a bot token pasted from the
+ * platform. Connecting again keeps what the install stored (the bot token)
+ * unless replaced, and a changed signing secret keeps the old one as
+ * `signingSecretPrevious`, so deliveries signed during the rotation verify.
  */
 export class BotInstallationConnect extends AuditedAction {
   name = "bot-installation:connect";
   description =
-    "Connect a bot's platform app: paste the credentials the platform showed (for webhook: the signing secret both sides share) and its settings (for webhook: the delivery URL the bot's messages are POSTed to). Activates the installation the manifest created. Credentials are stored sealed and never shown again. Needs the bot's write access.";
+    "Connect a bot's platform app: paste the credentials the platform showed (webhook: the signing secret both sides share; slack: clientSecret and signingSecret, and botToken if you installed the app in Slack yourself) and its settings (webhook: the delivery URL the bot's messages are POSTed to; slack: clientId and appId). Activates the installation the manifest created — for slack, once it is installed (bot-installation:oauth-start) or given a bot token. Credentials are stored sealed and never shown again. Needs the bot's write access.";
   middleware = [ProjectMemberMiddleware()];
   web = {
     route: "/project/:projectId/bot/:botId/installation",
@@ -53,9 +60,11 @@ export class BotInstallationConnect extends AuditedAction {
       ),
     config: z
       .record(z.string(), z.unknown())
-      .describe("The platform's settings, e.g. {deliveryUrl} for webhook"),
+      .describe(
+        "The platform's settings: {deliveryUrl} for webhook, {clientId, appId} for slack",
+      ),
     credentials: secret(z.record(z.string(), z.unknown())).describe(
-      "The platform's secrets, e.g. {signingSecret} for webhook",
+      "The platform's secrets: {signingSecret} for webhook, {clientSecret, signingSecret, botToken?} for slack",
     ),
     botUserId: z
       .string()
@@ -110,7 +119,22 @@ export class BotInstallationConnect extends AuditedAction {
         key: "config",
       });
     }
-    const secrets = adapter.credentialSchema.safeParse(params.credentials);
+    // An OAuth platform keeps what its install stored unless it is replaced.
+    const previous =
+      adapter.oauth && existing.credentials
+        ? openInstallation(existing).credentials
+        : {};
+    const merged: Record<string, unknown> = adapter.oauth
+      ? { ...previous, ...params.credentials }
+      : { ...params.credentials };
+    if (
+      adapter.oauth &&
+      typeof previous.signingSecret === "string" &&
+      previous.signingSecret !== merged.signingSecret
+    ) {
+      merged.signingSecretPrevious = previous.signingSecret;
+    }
+    const secrets = adapter.credentialSchema.safeParse(merged);
     if (!secrets.success) {
       throw new TypedError({
         message: `The ${params.type} credentials are not valid: ${secrets.error.issues.map((i) => i.message).join("; ")}`,
@@ -130,16 +154,37 @@ export class BotInstallationConnect extends AuditedAction {
         }
       }
     }
+    const ready = adapter.readyToActivate?.(secrets.data) ?? true;
+    // A pasted bot token is checked at once, and tells us the bot's own id.
+    let botUserId = params.botUserId ?? existing.externalBotUserId;
+    let probeError: string | null = null;
+    if (adapter.oauth && ready && params.credentials.botToken !== undefined) {
+      try {
+        botUserId = (
+          await adapter.probe({
+            installation: existing,
+            credentials: secrets.data,
+          })
+        ).externalBotUserId;
+      } catch (e) {
+        probeError = e instanceof Error ? e.message : String(e);
+      }
+    }
     const [row] = await tx
       .update(botInstallations)
       .set({
-        config: settings.data,
+        config: adapter.oauth
+          ? { ...existing.config, ...settings.data }
+          : settings.data,
         credentials: sealCredentials(secrets.data),
         credentialVersion: existing.credentialVersion + 1,
         externalBotUserId:
-          params.botUserId ?? existing.externalBotUserId ?? `bot:${bot.slug}`,
-        status: "active",
-        lastError: null,
+          botUserId ?? (adapter.oauth ? null : `bot:${bot.slug}`),
+        ...(typeof settings.data.appId === "string"
+          ? { externalAppId: settings.data.appId }
+          : {}),
+        status: probeError ? "error" : ready ? "active" : "pending",
+        lastError: probeError,
       })
       .where(eq(botInstallations.id, existing.id))
       .returning();

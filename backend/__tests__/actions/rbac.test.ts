@@ -199,6 +199,9 @@ const EXPECTED_LEVELS: Record<string, RbacLevel> = {
   "bot-installation:disconnect": "member",
   "bot-installation:list": "member",
   "bot-installation:view": "member",
+  "bot-installation:oauth-start": "member",
+  "bot-installation:oauth-callback": "none",
+  "slack:app-create": "member",
   "channel:list": "member",
   "channel:view": "member",
   "channel-binding:create": "member",
@@ -216,6 +219,7 @@ const EXPECTED_LEVELS: Record<string, RbacLevel> = {
   "trigger-event:view": "admin",
   // Signed machine ingress for a platform: the signature is the caller.
   "webhooks:webhook": "none",
+  "webhooks:slack": "none",
   // Event processing and escalation's machine work: task-only, no caller.
   "triggers:process-event": "none",
   "triggers:process-pending": "none",
@@ -265,6 +269,7 @@ const CLOCKS = [
 
 /** Every action published as an MCP tool for a person's client. */
 const EXPECTED_MCP_TOOLS = [
+  "slack:app-create",
   "bot-installation:manifest",
   "bot-installation:connect",
   "bot-installation:test",
@@ -514,6 +519,8 @@ describe("MCP publish policy", () => {
       [
         "actions:permissions",
         "bot:avatar",
+        "bot-installation:oauth-callback",
+        "bot-installation:oauth-start",
         "cli-auth:activate",
         "cli-auth:approve",
         "cli-auth:device",

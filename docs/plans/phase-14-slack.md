@@ -2,7 +2,7 @@
 
 > **Goal:** A bot is its own Slack app. An admin creates it from a manifest Hypotenuse generates and installs it into a workspace, then invites it to channels. From then on, anyone who can post in one of those channels can mention the bot or reply in its thread. They see it think, plan, call tools, and answer in that thread, with Slack's own status, streaming, and buttons. The bot remembers the channel.
 
-> **Status: planned, not built.** Builds on [the channel framework](./phase-13-channel-framework.md) (adapter registry, `bot_installations`, `channels`, `channel_bindings`, `participants`, ingress, outbox, interactive-surface contract), the [durable agent loop](./phase-08-durable-agent-loop.md) (`conversations`, `agent:tick`), and [memory](./phase-09-memory.md) (channel scope). Linear is [its own phase](./phase-15-linear.md); Pylon is [another](./phase-16-pylon.md).
+> **Status: built.** Builds on [the channel framework](./phase-13-channel-framework.md) (adapter registry, `bot_installations`, `channels`, `channel_bindings`, `participants`, ingress, outbox, interactive-surface contract), the [durable agent loop](./phase-08-durable-agent-loop.md) (`conversations`, `agent:tick`), and [memory](./phase-09-memory.md) (channel scope). Linear is [its own phase](./phase-15-linear.md); Pylon is [another](./phase-16-pylon.md).
 
 Slack is the general company chat, so it is where most people meet the bot. It is also the platform with the least patience. Slack wants a 2xx within **three seconds**, retries a failed delivery three times (almost immediately, then after one minute, then after five), and turns off an app's event subscriptions when more than 95% of deliveries fail in an hour. A bot that thinks for forty seconds has to acknowledge immediately, show that it is working, and answer later through the outbox. That is the shape [the channel framework](./phase-13-channel-framework.md) already gives every platform. This phase fills it in for Slack.
 
@@ -316,15 +316,15 @@ Then by hand against a real workspace:
 
 ## Definition of done
 
-- [ ] A bot's Slack app is created from a generated manifest by either path, and installed by OAuth v2
-- [ ] `webhooks:slack` verifies v0 signatures, answers within three seconds, and dedupes retries and double deliveries
-- [ ] A mention in a bound channel starts a conversation; thread replies continue it; DMs work
-- [ ] Status, streamed text, plan steps, questions, approvals, and the final answer render as Slack-native elements
-- [ ] Stop, removal, uninstall, and token revocation disengage silently
-- [ ] Slack Connect channels are refused; the bot never hears itself or a sibling bot
-- [ ] The Slack fake validates every call against Slack's published spec
-- [ ] `docs/SLACK_COVERAGE.md` exists, every row has a passing test, and its docs test is green
-- [ ] Bot Slack tab, CLI commands, and `slack.md` user docs ship in the same PR
+- [x] A bot's Slack app is created from a generated manifest by either path, and installed by OAuth v2
+- [x] `webhooks:slack` verifies v0 signatures, answers within three seconds, and dedupes retries and double deliveries
+- [x] A mention in a bound channel starts a conversation; thread replies continue it; DMs work
+- [x] Status, streamed text, plan steps, questions, approvals, and the final answer render as Slack-native elements
+- [x] Stop, removal, uninstall, and token revocation disengage silently
+- [x] Slack Connect channels are refused; the bot never hears itself or a sibling bot
+- [x] The Slack fake validates every call against Slack's published spec
+- [x] `docs/SLACK_COVERAGE.md` exists, every row has a passing test, and its docs test is green
+- [x] Bot Slack tab, CLI commands, and `slack.md` user docs ship in the same PR
 
 ## Open questions
 
@@ -336,4 +336,72 @@ Then by hand against a real workspace:
 
 ## Learnings from the build
 
-Not built yet.
+### What is built
+
+| Piece | Where |
+|---|---|
+| The adapter: v0 verification (with the previous secret), the form-encoded interactivity body, `url_verification`, the events table, the OAuth install, and the outbound surface | `backend/platforms/slack/{adapter,events,render}.ts`, registered in `backend/platforms/registry.ts` |
+| The Web API client (the single caller, `ok: false` mapping, `Retry-After`) and the per-installation token bucket | `backend/ops/SlackOps.ts`, `backend/lua/slack-bucket.lua`, `config.platforms.slack` |
+| The manifest, and markdown to `mrkdwn` with sanitizing and truncation | `backend/ops/SlackManifestOps.ts`, `backend/ops/SlackMarkdownOps.ts` |
+| Contract additions every OAuth platform will use: `decodeBody`, `handshakeWhilePending`, `oauth` (`authorizeUrl`, `exchange`), `readyToActivate`; lifecycle `channel_joined` / `channel_left` | `backend/platforms/types.ts`, `backend/ops/{IngressOps,InstallationOps,TriggerEventOps}.ts` |
+| Actions: `slack:app-create`; `bot-installation:oauth-start` and `bot-installation:oauth-callback`; `webhooks:slack`; `bot-installation:connect` taught OAuth platforms | `backend/actions/slack/`, `backend/actions/bot-installation/`, `backend/actions/webhooks/webhooks-slack.ts` |
+| The Slack fake, Slack's pinned Web API spec and manifest schema, and the script that pins them | `backend/__tests__/fakes/slack/`, `backend/scripts/fetch-slack-spec.ts` (`bun run slack:fetch-spec`) |
+| Proof | `backend/__tests__/slack/{install,thread,conformance-slack,secrets}.test.ts`, `backend/__tests__/cli/slack-commands.test.ts`; the coverage matrix [`docs/platform-coverage/slack.md`](../platform-coverage/slack.md) |
+| Dashboard | the Slack block on the bot's Channels section (`frontend/src/components/bots/SlackPlatformBlock.tsx`) |
+| CLI 2.9.0 | `hypotenuse slack create\|connect\|install` (`cli/src/commands/slack.ts`); `installation manifest --type slack`, `test`, `view`, and `disconnect` serve Slack too |
+| User docs | `frontend/src/content/docs/slack.md`; `connecting-a-platform.md` and `cli.md` updated |
+
+### Decisions the plan left open, and where the build differs
+
+| The plan says | As built |
+|---|---|
+| `backend/channels/slack/` | `backend/platforms/slack/` ([channel framework learnings](./phase-13-channel-framework.md#decisions-the-plan-left-open-and-where-the-build-differs)) |
+| `slack:manifest`, `slack:app-register`, `slack:install-url`, `slack:callback`, `slack:uninstall` | the framework's `bot-installation:manifest`, `:connect`, `:disconnect`, and two new generic hops, `bot-installation:oauth-start` and `:oauth-callback` (Linear will use them too). Only `slack:app-create` is Slack's own |
+| `slack:manifest-sync` (`apps.manifest.update` on a rename) | not built: the configuration token is never stored, so there is nothing to call it with. Renaming a bot does not rename its Slack app; create the app again |
+| `agents.sessions.setStatus`, falling back to `assistant.threads.setStatus` | `assistant.threads.setStatus` only — the one documented method the fake can describe. There is no explicit "idle": Slack clears the status when the bot posts in the thread, and every turn ends in a post. A stopped or cancelled turn leaves the status until Slack's own timeout |
+| plan steps as `task_update` stream chunks | one plan message per turn, `chat.postMessage` then `chat.update` per plan row. The chunk shapes are unpinned (open question); this uses only methods in Slack's published spec |
+| streaming | each `stream` row carries the step's whole text; the adapter appends the delta to the open stream (the newest sent `stream` row with a `ts`, when nothing final was sent after it). A row that does not extend the stream (a retried model call) closes it and starts another; so does a stream past `SLACK_STREAM_MAX_AGE_MS` (9 minutes), read from the stream's own `ts`. A final row closes the open stream with `chat.stopStream`, then posts |
+| a DM is always bound (`mode: all`) | DMs follow the bot's `autoBind.dm`, off by default, as every platform's do; `slack.md` says to turn it on |
+| a project binding default `auto` / `manual`, and a once-a-day "not enabled here" reply | the framework's per-bot `autoBind`. `member_joined_channel` for the bot binds a public channel at once under it (a shared channel never auto-binds); nothing is posted in an unbound channel |
+| removal sets the binding to `removed` | `channel_left`: an auto-created binding is deleted, a person's is disabled (re-enable it after inviting the bot back); the bot's conversations in the channel are cancelled. `app_uninstalled` / `tokens_revoked` cancel every conversation of the bot in the workspace |
+| loop filtering on this project's bots | every bot's message is dropped (rule 1 of the processing table), which covers siblings |
+| one notice to admins per refused Slack Connect channel | not built: the refusal is the event's outcome, `shared-channel`, on the Events page |
+| the question message updated to "Answered by @x", an ephemeral "already answered" for a late click | not built: a late click is recorded `stale-interaction` and changes nothing. Approval cards keep their buttons after a decision for the same reason. `feedback_buttons` are not built either |
+| `app_context_changed` entities attached to the next inbox row | not subscribed; `app_home_opened` is recorded and changes nothing |
+| channel and sender names from Slack | events carry ids only: channels are named by id, and a sender is named by id until a `block_actions` payload (which carries `user.name`) refreshes the participant. `conversations.info` and `users.info` are not called yet |
+| the installation is unique on `(botId, type, externalWorkspaceId)` from the start | the workspace is a placeholder (`default`, or the one named) until the **first** install, which rewrites it to the team id; a reinstall into a different team is refused, because channels are keyed by the workspace |
+| `docs/SLACK_COVERAGE.md` | [`docs/platform-coverage/slack.md`](../platform-coverage/slack.md), beside the webhook platform's, read by the same `coverage.test.ts` |
+| the spec pinned by commit | pinned by the SHA-256 of each file (the session that built this could not reach the GitHub API to resolve a commit). `slackapi/slack-api-specs` predates streaming, the assistant status, and app manifests; those methods are in `supplement.ts`, each citing its documentation page |
+
+- **An installation waiting to be installed answers `url_verification`** (`handshakeWhilePending`): Slack verifies the
+  request URL when `apps.manifest.create` (or the manual "From a manifest") saves the app, before anyone installs it.
+  Its other deliveries are acknowledged and dropped.
+- **Connecting an OAuth platform keeps what the install stored.** `bot-installation:connect` merges the new
+  credentials over the sealed ones, keeps the old signing secret as `signingSecretPrevious` when it changes (so a
+  rotation verifies both), and leaves the installation `pending` until it has a bot token. A pasted `xoxb-` token is
+  probed with `auth.test` at once, which also records the bot's user id.
+- **`bot-installation:oauth-start` is a read**: it writes no row, only a ten-minute `state` in Redis bound to the
+  installation and the person. The callback is audited as that person, like `mcp-server:oauth-callback`, and both
+  are never MCP tools.
+- **The token bucket** (`slack-bucket.lua`) is per installation, 20 deep and refilling one call a second by default.
+  An empty bucket and an HTTP 429 are the same thing to the outbox: `retry` with the wait. There is no reserve for
+  `ack` rows yet.
+- **Keryx logs the request URL of every action**, path included, so an installation's routing key reaches the log
+  line of each delivery; `secret()` on the `routingKey` input (now on both `webhooks:*` actions) redacts it only from
+  the logged params. The routing key selects an installation and the signature still gates every delivery, but the
+  key was meant to stay out of logs. This is upstream behavior (rule 4): an issue with a minimal repro is drafted for
+  `actionhero/keryx` and must be filed by a person; no workaround is in place. `secrets.test.ts` asserts the
+  credentials are in no log line and the routing key in no logged params.
+
+### Traps found while building
+
+- **Two suites on one test database** — again: running a single file while the full backend suite ran truncated its
+  tables mid-run and failed unrelated state-machine tests. One run at a time, or `bun run workspace:setup`.
+- **The suites' `settle()` runs ticks before deliveries**, so a turn's `status`, `stream`, and `plan` rows are all
+  superseded by its answer before the outbox walks. Test the progress kinds by writing rows (`emit`, `emitStream`)
+  and enqueueing `outbox:deliver` between them; `emitStream` does not enqueue a delivery itself.
+- **A binding's default approval policy is `dashboard`**: an approval card has no buttons until the binding allows
+  the channel to decide.
+- **The coverage-matrix parser splits on every `|`**, escaped or not: an interaction cell cannot contain one.
+- **`reply_and_wait` takes at most 40,000 characters**, so a truncation test grows the text in conversion (`&` becomes
+  `&amp;`) rather than sending more.

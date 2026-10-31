@@ -21,6 +21,7 @@ import organizations from "./organizations.md?raw";
 import projects from "./projects.md?raw";
 import prompts from "./prompts.md?raw";
 import skills from "./skills.md?raw";
+import slack from "./slack.md?raw";
 import styleGuide from "./style-guide.md?raw";
 import tags from "./tags.md?raw";
 import talkingToABotOverTheApi from "./talking-to-a-bot-over-the-api.md?raw";
@@ -65,6 +66,11 @@ export const DOCS_SECTIONS: DocsSection[] = [
     slug: "connecting-a-platform",
     title: "Connecting a platform",
     markdown: connectingAPlatform,
+  },
+  {
+    slug: "slack",
+    title: "Slack",
+    markdown: slack,
   },
   {
     slug: "webhook-platform",

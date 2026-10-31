@@ -47,6 +47,7 @@ export const SENSITIVE_KEYS = [
   "webhookSecret",
   "botToken",
   "appToken",
+  "configToken",
   "privateKey",
   // OAuth hops, CLI sign-in
   "code",

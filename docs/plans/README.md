@@ -154,6 +154,15 @@ plan, questions, approvals) on a generalized outbox delivered in order per conve
 `escalate_to_human` and the help inbox; rate limits per participant and channel; the fake-platform base, the
 conformance suite, and the first coverage matrix; the Chat, the Channels section, the Help inbox, and Events; and the
 `installation`, `channel`, `binding`, `help-request`, `participant`, and `event` commands.
+
+**[Phase 14](./phase-14-slack.md) is built**: Slack as a platform — one Slack app per bot from a manifest valid against
+Slack's schema, created by hand or with a configuration token (`slack:app-create`), installed by OAuth through
+generic `bot-installation:oauth-start` / `:oauth-callback`; `webhooks:slack` with v0 signing, the handshake before
+install, and form-encoded interactivity; mentions, thread replies, and DMs as conversations; the status line, streamed
+text, a plan message, question and approval buttons, and `mrkdwn` answers that never ping a channel; removal,
+uninstall, and token revocation disengage; Slack Connect refused; a per-installation token bucket; the Slack fake
+validating every call against Slack's pinned spec; the Slack block on the Channels section, `hypotenuse slack`, and
+the Slack user docs.
 No other phase is built; every later plan's **Learnings from the
 build** section reads "Not built yet." until its phase lands.
 

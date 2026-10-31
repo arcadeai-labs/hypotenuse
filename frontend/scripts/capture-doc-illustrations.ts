@@ -248,6 +248,14 @@ const ILLUSTRATIONS: Illustration[] = [
     signedIn: true,
   },
   {
+    name: "bot-slack",
+    path: ({ botId }) => `/bots/${botId}`,
+    selector: "[data-testid=bot-channels-platform-slack]",
+    width: 1280,
+    height: 6400,
+    signedIn: true,
+  },
+  {
     name: "help",
     path: "/help",
     width: 1280,
@@ -456,6 +464,7 @@ async function seed(request: APIRequestContext): Promise<Seeded> {
   const chatted = conversations.find((c) => c.title === CHAT_TITLE);
   if (!chatted) throw new Error(`the ${CHAT_TITLE} conversation is missing`);
   await seedChannels(request, support.id, botId);
+  await seedSlack(request, support.id, botId);
   return {
     organizationId: organization.id,
     projectId: support.id,
@@ -1555,6 +1564,48 @@ async function seedPrompt(
     });
     if (attached.error) throw new Error(`bot skill: ${attached.error.message}`);
   }
+}
+
+/**
+ * Give Ada what the Slack illustration shows: an app created by hand from the
+ * manifest, its credentials connected, waiting to be installed. Nothing here
+ * calls Slack — installing would — so the picture needs no workspace. Made
+ * only when Ada has no Slack app yet.
+ * @param request - The browser context's request client.
+ * @param projectId - The Support project.
+ * @param botId - Ada.
+ */
+async function seedSlack(
+  request: APIRequestContext,
+  projectId: number,
+  botId: number,
+): Promise<void> {
+  const { installations } = await call<{
+    installations: { type: string; status: string }[];
+  }>(request, "GET", `/project/${projectId}/bot/${botId}/installations`);
+  if (installations.some((i) => i.type === "slack")) return;
+  const manifest = await call(
+    request,
+    "POST",
+    `/project/${projectId}/bot/${botId}/installation/slack/manifest`,
+  );
+  if (manifest.error)
+    throw new Error(`slack manifest: ${manifest.error.message}`);
+  const connected = await call(
+    request,
+    "PUT",
+    `/project/${projectId}/bot/${botId}/installation`,
+    {
+      type: "slack",
+      config: { clientId: "1234567890.0987654321", appId: "A0ADALOVELACE" },
+      credentials: {
+        clientSecret: "illustration-client-secret",
+        signingSecret: "illustration-signing-secret",
+      },
+    },
+  );
+  if (connected.error)
+    throw new Error(`slack connect: ${connected.error.message}`);
 }
 
 /** The webhook app's delivery address: never called, since nobody mentions Ada in these channels. */
