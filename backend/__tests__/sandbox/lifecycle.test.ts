@@ -118,11 +118,44 @@ async function startJob(
   });
   if (res.status !== 200) throw new Error(JSON.stringify(res.body));
   const conversationId = res.body.conversation.id;
-  await runTicks();
-  const job = await latestJob(conversationId);
-  if (!job) throw new Error("no job was started");
+  // A tick may be owed after this one (a lease still held by a tick that
+  // just released it), so run them until the job is there.
+  const job = await eventually(
+    "sandbox_start to write a job",
+    async () => {
+      await runTicks();
+      return latestJob(conversationId);
+    },
+    10_000,
+  ).catch(async (e) => {
+    const tail = (await entries(conversationId))
+      .filter((x) => x.kind !== "context_update")
+      .map(
+        (x) =>
+          `${x.kind}:${x.toolName ?? ""} ${JSON.stringify(x.content).slice(0, 300)}`,
+      );
+    throw new Error(`${e.message}\n${tail.join("\n")}`);
+  });
   expect(await runStarts()).toEqual(["sandbox-job:start"]);
   return { conversationId, jobId: job.id };
+}
+
+/**
+ * Run a woken conversation's tick to rest. The wake commits before its tick
+ * is enqueued (after commit), so the tick can land a moment later: keep
+ * draining until the conversation rests, or a later test's scripted step is
+ * answered by this one.
+ * @param conversationId - The conversation.
+ */
+async function settle(conversationId: number): Promise<void> {
+  await eventually(
+    `conversation ${conversationId} to rest`,
+    async () => {
+      await runTicks();
+      return (await conversation(conversationId)).state === "hibernating";
+    },
+    10_000,
+  );
 }
 
 /**
@@ -227,7 +260,7 @@ describeDocker("a job, end to end", () => {
           ],
         },
       ]);
-      await runTicks();
+      await settle(conversationId);
       expect((await conversation(conversationId)).state).toBe("hibernating");
 
       // The job ends, and its result wakes the parent.
@@ -255,7 +288,7 @@ describeDocker("a job, end to end", () => {
         "the parent to wake with the result",
         async () => (await conversation(conversationId)).state === "working",
       );
-      await runTicks();
+      await settle(conversationId);
       expect(stage.models.expectationFailures).toEqual([]);
 
       // The model proxy signed the agent's call with the real key; the
@@ -378,6 +411,17 @@ describeDocker("the only credential in a sandbox is its job token", () => {
       expect(job.exitCode).toBe(143);
       const parent = await conversation(job.parentConversationId);
       expect(parent.state).toBe("working");
+      // Settle the tick its waking owes, so no later test's scripted step is
+      // answered by this conversation.
+      stage.models.play([
+        {
+          toolCalls: [
+            { name: "reply_and_wait", input: { text: "Stopped it." } },
+          ],
+          expect: { lastMessageIncludes: "was cancelled" },
+        },
+      ]);
+      await settle(job.parentConversationId);
       await eventually(
         "the ledger to close",
         async () => (await liveLedger(jobId)).length === 0,
@@ -437,7 +481,7 @@ describeDocker("endings", () => {
         "the parent to wake",
         async () => (await conversation(conversationId)).state === "working",
       );
-      await runTicks();
+      await settle(conversationId);
       expect(stage.models.expectationFailures).toEqual([]);
     },
     JOB_TIMEOUT,
@@ -476,7 +520,7 @@ describeDocker("endings", () => {
           ],
         },
       ]);
-      await runTicks();
+      await settle(conversationId);
       await eventually("the second turn to end", async () => {
         const job = await jobRow(jobId);
         return (

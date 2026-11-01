@@ -11,6 +11,7 @@ import { type AgentStage, startConversation } from "../agent/harness";
 import { HOOK_TIMEOUT, runAction } from "../setup";
 import {
   buildSandboxStage,
+  buildTestImage,
   conversation,
   dockerAvailable,
   jobRow,
@@ -234,6 +235,7 @@ describe("the orphan sweep", () => {
   (dockerAvailable ? test : test.skip)(
     "destroys a container it manages that the ledger never heard of",
     async () => {
+      await buildTestImage();
       const provider = new DockerSandboxProvider();
       const stray = await provider.create({
         image: TEST_IMAGE,
