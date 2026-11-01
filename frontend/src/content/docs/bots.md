@@ -153,6 +153,13 @@ none. For each server, two settings decide which calls run without a person's [a
 tools it can see, in themes and without tool names — so it searches for the right tool rather than guessing one. It
 is rewritten whenever a server's tools change.
 
+A bot with a GitHub repository granted to it under **Repositories** can also read that repository without a
+sandbox, with four tools that need no approval: `github_file_read` (a file as text, or a directory listing; a long
+file is cut and says so), `github_search_code`, `github_pr_view`, and `github_issue_view`. They read only
+repositories granted to this bot — a bot with none is not offered them — each call through a read-only token for
+that one repository, revoked when the call ends. Anything that needs a checkout, a build, or a change goes to a
+[sandbox](/docs/sandboxes).
+
 The **Approvals** section sets two more. **Approver tag** names a tag whose holders may approve or deny this bot's calls besides the people who may change
 it; they are the ones notified. **Approvals expire after** sets how long a call waits before it counts as denied —
 a day unless you change it.

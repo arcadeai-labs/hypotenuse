@@ -2,6 +2,10 @@ import { askQuestion } from "./ask-question";
 import { complete } from "./complete";
 import { escalateToHuman } from "./escalate-to-human";
 import { fail } from "./fail";
+import { githubFileRead } from "./github-file-read";
+import { githubIssueView } from "./github-issue-view";
+import { githubPrView } from "./github-pr-view";
+import { githubSearchCode } from "./github-search-code";
 import { goalList } from "./goal-list";
 import { goalUpdate } from "./goal-update";
 import { linearCommentCreate } from "./linear-comment-create";
@@ -47,7 +51,8 @@ import { waitFor } from "./wait-for";
  * tools, code mode's `run_code`, and — in a Linear session only — the
  * `linear_*` tools, and — on a Pylon issue only — the `pylon_*` tools
  * register here, as do the `sandbox_*` tools (`sandbox_start` when the bot's
- * sandbox policy allows it; the rest once the conversation has a job).
+ * sandbox policy allows it; the rest once the conversation has a job) and
+ * the `github_*` read tools (only when the bot has a repository granted).
  */
 
 /** Every registered tool. */
@@ -153,6 +158,10 @@ for (const tool of [
   sandboxMessage,
   sandboxCancel,
   sandboxWait,
+  githubFileRead,
+  githubSearchCode,
+  githubPrView,
+  githubIssueView,
 ] as ToolDefinition[]) {
   registerTool(tool);
 }
