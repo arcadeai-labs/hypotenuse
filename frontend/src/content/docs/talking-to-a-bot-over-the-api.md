@@ -53,7 +53,7 @@ ended its turn — is `POST`ed to that URL as JSON:
 up. A retry carries the same `Hypotenuse-Delivery` header, so drop one you have already handled.
 
 Callbacks are signed with the bot's **callback secret**. Someone who may change the bot creates it — **Callback
-secret** on the bot, `hypotenuse bot callback-secret <bot>`, or `POST /api/project/:projectId/bot/:botId/callback-secret`
+secret** in the bot's **Callback** section, `hypotenuse bot callback-secret <bot>`, or `POST /api/project/:projectId/bot/:botId/callback-secret`
 — and it is shown **once**; creating a new one retires the old at once. A conversation cannot have a callback until the
 bot has a secret. The callback URL must be public: private and loopback addresses are refused.
 

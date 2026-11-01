@@ -266,9 +266,11 @@ Identity first — the avatar with its badge, the name, the persona — then **w
 one row per platform, with "Not bound in …" where it has none), its **tools** (memory, code mode, and sandboxes as
 on/off chips; MCP servers and skills by name), its **model** (the registry name and the connection behind it), and
 **who may read and change it** (its `accessRead` and `accessWrite` tags). Its goals, attached skills, and prompt
-budget are cards on the same page; the prompt itself has its own page (`/bots/:botId/prompt`): every section in
-assembly order, numbered, with its loading chip, version, and author — a version the bot wrote carries the bot glyph
-and links to its conversation — beside a preview of the exact text sent. A diff is the shared `DiffBlock`.
+budget are cards too. The cards are split into deep-linked sections (`/bots/:botId/<section>`, opening on
+`general`) behind the same `SectionNav` sidebar as project settings, grouped Bot, Behavior, Tools, and Platforms, so no
+page is fifteen cards tall; `frontend/src/components/bots/sections.tsx` is the one list. The prompt itself has its own
+page (`/bots/:botId/prompt`): every section in assembly order, numbered, with its loading chip, version, and author —
+a version the bot wrote carries the bot glyph and links to its conversation — beside a preview of the exact text sent. A diff is the shared `DiffBlock`.
 
 ### 3. The memory explorer
 

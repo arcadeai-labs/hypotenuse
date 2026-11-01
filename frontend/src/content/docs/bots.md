@@ -13,27 +13,32 @@ project has set both of those, the Bots page says no bot can run yet — an admi
 
 ## The bot page
 
-![A bot's page: identity, model, access, budget, prompt, goals, skills, and memory, with its properties beside them](illustration:bot)
+![A bot's page: its sections in a sidebar, the General section's identity and access, and its properties beside them](illustration:bot)
 
-Each section saves on its own. The panel on the right sums the bot up: whether it is enabled, its model, who may
-read and change it, and whether you may change it.
+A bot's settings are split into sections, listed in a sidebar on the left of its page and grouped under **Bot**,
+**Behavior**, **Tools**, and **Platforms**. Each section has its own address — `/bots/<id>/channels`, for one — so a
+link can open the page at the right place; the page itself opens on **General**. On a narrow screen the sidebar folds
+behind a button naming the section you are on. Each card in a section saves on its own. The panel on the right sums
+the bot up wherever you are: whether it is enabled, its model, who may read and change it, and whether you may change
+it.
 
-| Section | What it holds |
-|---|---|
-| **Identity** | its name, the display name platforms show, its slug, a one-line description, whether it is enabled, its avatar, and its persona |
-| **Model** | which of the project's model names it uses: its main model and its fast one |
-| **Access** | who may read it, who may change it, and whom it asks for help |
-| **Budget** | a monthly ceiling in US dollars, and the most model steps one turn may take |
-| **Prompt** | its prompt budget in tokens, how many sections it may add to its own prompt, and a link to its [prompt](/docs/prompts) |
-| **Goals** | what it works toward — see [Goals](/docs/goals) |
-| **Skills** | which of the project's [skills](/docs/skills) it may use, and which version of each |
-| **Memory** | how fast memories fade in its searches, and a link to the memory explorer |
-| **Tools** | which MCP servers it may use, which of their tools run without asking, and what its tools can do |
-| **Code** | whether it may run programs ([code mode](/docs/code-mode)), and its own, lower limits for them |
-| **Sandboxes** | whether it may hand code work to a [sandbox job](/docs/sandboxes) — off, after a person's approval (the default), or at once — and the most model tokens one job may use. Allowing jobs at once, or removing the token cap, takes an admin |
-| **Approvals** | who may decide its tool calls, and how long a waiting call lasts |
-| **Channels** | its apps on platforms, the channels it is bound in and their settings, and channels that messaged it unbound — see [Channels](/docs/channels) |
-| **Listening** | where it binds itself when invited, and how many messages a minute one person, and one channel, may send it |
+| Section | Cards | What they hold |
+|---|---|---|
+| **General** | **Identity** | its name, the display name platforms show, its slug, a one-line description, whether it is enabled, its avatar, and its persona |
+| | **Access** | who may read it, who may change it, and whom it asks for help |
+| **Model & budget** | **Model** | which of the project's model names it uses: its main model and its fast one |
+| | **Prompt** | its prompt budget in tokens, how many sections it may add to its own prompt, and a link to its [prompt](/docs/prompts) |
+| | **Budget** | a monthly ceiling in US dollars, and the most model steps one turn may take |
+| **Goals** | **Goals** | what it works toward — see [Goals](/docs/goals) |
+| **Skills** | **Skills** | which of the project's [skills](/docs/skills) it may use, and which version of each |
+| **Memory** | **Memory** | how fast memories fade in its searches, and a link to the memory explorer |
+| **Tools & code** | **Tools** | which MCP servers it may use, which of their tools run without asking, and what its tools can do |
+| | **Code** | whether it may run programs ([code mode](/docs/code-mode)), and its own, lower limits for them |
+| | **Sandboxes** | whether it may hand code work to a [sandbox job](/docs/sandboxes) — off, after a person's approval (the default), or at once — and the most model tokens one job may use. Allowing jobs at once, or removing the token cap, takes an admin |
+| **Approvals** | **Approvals** | who may decide its tool calls, and how long a waiting call lasts |
+| **Channels** | **Channels** | its apps on platforms, the channels it is bound in and their settings, and channels that messaged it unbound — see [Channels](/docs/channels) |
+| | **Listening** | where it binds itself when invited, and how many messages a minute one person, and one channel, may send it |
+| **Callback** | **Callback secret** | the secret that signs what it sends to your [callback URL](/docs/talking-to-a-bot-over-the-api) |
 
 **Chat** at the top of the page opens the bot's [chat](/docs/chat), where you talk to it in the dashboard.
 

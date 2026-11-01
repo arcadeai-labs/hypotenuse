@@ -368,9 +368,15 @@ bun run --cwd cli hypotenuse model alias list --json | jq '.modelAliases[].name'
   list this mapping yet.
 - **The model picker is always free text**, with `model-connection:models` as `<datalist>` suggestions and its refusal as
   the hint, asked only when the reader may call it.
-- **The bot page is one scrolling page** (`DetailLayout` plus a properties panel); Identity, Model, Access, and Budget
-  each save on their own; Channels, Tools, Skills, Prompts, and Goals are disabled cards reading "Not available yet"
-  with what each will be for. The avatar uploads on its own `bot:edit` as soon as a file is picked.
+- **The bot page is no longer one scrolling page.** Once every later card had landed it was fifteen cards tall, so
+  its cards are now grouped into deep-linked sections (`/bots/:botId/<section>`, the bare address redirecting to
+  `general`) behind the shared `SectionNav` sidebar, inside the `DetailLayout` main column with the properties panel
+  still beside it. `BotPage` is the layout: it loads `bot:view`, keeps the header, the properties, and the banners, and
+  hands each section an outlet context; `frontend/src/components/bots/sections.tsx` (`BOT_SECTIONS`) is the one list
+  of sections and the cards each renders, read by the sidebar and by the `:section` route alike. A slug must not be
+  `prompt`, `chat`, `conversations`, or `memory` — those are sibling pages, and `/bots/:botId/memory` still redirects
+  to the memory explorer — so the Memory card's section is `retention`. Each card still saves on its own; the avatar
+  uploads on its own `bot:edit` as soon as a file is picked.
 - **New bot asks for name, description, and persona**, then lands on the bot page.
 - **Gating** combines the action's `can()` refusal with `standing.canWrite`; a read-only bot page says why in a banner.
 - **Lists read 100 rows**, as in the organizations work; paging past it is left for later.

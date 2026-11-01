@@ -43,7 +43,7 @@ test("a person edits a bot's prompt, reads the diff, reverts it, adds a contextu
   const botId = await makeBot(page.request, admin, "Quill");
 
   // The bot page sizes the prompt, and links to it.
-  await page.goto(`/bots/${botId}`);
+  await page.goto(`/bots/${botId}/model`);
   await expect(page.getByTestId("bot-prompt-budget")).toHaveValue(
     "8000",
     LANDED,
@@ -238,7 +238,7 @@ test("a member writes a skill, a bot is given it pinned to a version, and gets a
   await expect(page.getByTestId("skill-new-problem")).toContainText("hyphens");
 
   // Give it to the bot, then pin it to version 1.
-  await page.goto(`/bots/${botId}`);
+  await page.goto(`/bots/${botId}/skills`);
   await expect(page.getByTestId("bot-skills-empty")).toBeVisible(LANDED);
   await page.getByTestId("bot-skills-add-select").selectOption({
     label: "/release-notes — Drafts release notes for a version",
@@ -265,7 +265,7 @@ test("a member writes a skill, a bot is given it pinned to a version, and gets a
   );
 
   // A goal: added, then achieved with notes.
-  await page.goto(`/bots/${botId}`);
+  await page.goto(`/bots/${botId}/goals`);
   await expect(page.getByTestId("bot-goals-empty")).toBeVisible(LANDED);
   await page
     .getByTestId("goal-new-title")
@@ -300,7 +300,8 @@ test("a member writes a skill, a bot is given it pinned to a version, and gets a
     "0 active goals of 1",
   );
 
-  // Detach the skill.
+  // Detach the skill, from its own section in the sidebar.
+  await page.getByTestId("section-skills").click();
   await page.getByTestId("bot-skill-detach-release-notes").click();
   await expect(page.getByTestId("bot-skills-empty")).toBeVisible();
 });
