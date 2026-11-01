@@ -6,13 +6,16 @@ import { decryptSecret } from "../../ops/CryptoOps";
 import { guardedFetch, HostRefused } from "../../ops/NetworkGuardOps";
 import { signCallback } from "../../ops/SignatureOps";
 import { bots } from "../../schema/bots";
+import { linkProblem } from "../surface";
 import { NO_CAPABILITIES, type SurfaceAdapter } from "../types";
 
 /**
  * **The API channel**: conversations created over HTTP. Its surface is a
  * signed callback, when the caller gave one, carrying final messages only —
  * `{conversationId, entrySeq, kind, text, options?}` with `kind` one of
- * `reply`, `complete`, `fail`, `question`, `error`. Without a callback URL
+ * `reply`, `complete`, `fail`, `question`, `error` — and links, as
+ * `{conversationId, entrySeq, kind: "link", label, url, text?}` (a pull
+ * request a sandbox job opened). Without a callback URL
  * the transcript is the message and a poller reads it, so nothing is
  * written.
  *
@@ -28,8 +31,23 @@ export const apiAdapter: SurfaceAdapter = {
   settlesAtEnqueue: false,
   validateOutbound(draft, { conversation }) {
     if (!conversation.callbackUrl) return null;
-    if (draft.kind !== "message" && draft.kind !== "question") return null;
     const p = draft.payload;
+    if (draft.kind === "link") {
+      const problem = linkProblem(draft);
+      if (problem) return { refused: true, reason: problem };
+      return {
+        ...draft,
+        payload: {
+          conversationId: conversation.id,
+          entrySeq: p.entrySeq,
+          kind: "link",
+          label: p.label,
+          url: p.url,
+          ...(typeof p.text === "string" ? { text: p.text } : {}),
+        },
+      };
+    }
+    if (draft.kind !== "message" && draft.kind !== "question") return null;
     return {
       ...draft,
       payload: {

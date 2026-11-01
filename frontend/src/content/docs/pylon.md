@@ -55,6 +55,7 @@ Everything goes in **one internal thread per issue**, named after the bot:
 
 - **"Looking into this."** as soon as it starts;
 - **its findings** — what it found and a suggested reply — with the steps it took as a checklist, one note per turn;
+- **a pull request** a sandbox job opened, as a note linking it;
 - **a question for the team** when it needs one: answer in a note that mentions the bot;
 - **an approval request** when it wants to run something that needs a person — answer with a note `approve 41` or
   `deny 41`, or decide in Hypotenuse.

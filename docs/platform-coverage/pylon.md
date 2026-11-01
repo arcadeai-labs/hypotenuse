@@ -45,6 +45,7 @@ in the [learnings](../plans/phase-16-pylon.md#learnings-from-the-build); the fir
 | `pylon.in.closed` | an issue `closed` ends its conversations silently | `backend/platforms/pylon/events.ts` | `backend/__tests__/pylon/issue.test.ts` |
 | `pylon.out.ack` | `POST /issues/{id}/note` "Looking into this." opens the conversation's Pylon-only thread (`thread_name`); later acknowledgements post nothing | `backend/platforms/pylon/adapter.ts` | `backend/__tests__/pylon/issue.test.ts` |
 | `pylon.out.note` | every later note joins the thread (`message_id` of the first); a final answer is always a note | `backend/platforms/pylon/adapter.ts` | `backend/__tests__/pylon/issue.test.ts` |
+| `pylon.out.link` | a `link` — a pull request a sandbox job opened — as an internal note in the conversation's thread, never a reply | `backend/platforms/pylon/adapter.ts` | `backend/__tests__/github/pull-requests.test.ts` |
 | `pylon.out.steps` | the turn's finished steps as a checklist in its final note — one note a turn; statuses and plans post nothing on their own | `backend/platforms/pylon/adapter.ts` | `backend/__tests__/pylon/issue.test.ts` |
 | `pylon.out.question` | a question is a note to the team, answered by a note mentioning the bot | `backend/platforms/pylon/adapter.ts` | `backend/__tests__/pylon/issue.test.ts` |
 | `pylon.out.draft` | an approval of a customer reply is a draft reply (`POST /issues/{id}/draft-reply`, the bot's `user_id`) … | `backend/platforms/pylon/adapter.ts` | `backend/__tests__/pylon/issue.test.ts` |

@@ -75,6 +75,7 @@ describe("the App's key", () => {
     expect(githubAppPrivateKeyCanSign("not a key")).toBe(false);
   });
 
+  // Coverage: `github.app.jwt`.
   test("the JWT is RS256, issued by the App, backdated a minute, and under ten minutes long", () => {
     const now = Date.UTC(2030, 0, 1);
     const jwt = signAppJwt(app, now);
@@ -108,6 +109,7 @@ describe("the App's key", () => {
 });
 
 describe("installation tokens", () => {
+  // Coverage: `github.out.access-token`.
   test("a token minted for acme/api reads acme/api and nothing else", async () => {
     const minted = await mintInstallationToken(app, {
       repositories: ["api"],
@@ -129,11 +131,13 @@ describe("installation tokens", () => {
     ).rejects.toThrow(/not accessible to the parent installation/);
   });
 
+  // Coverage: `github.out.installation`.
   test("the installation's live permissions are read with the App's JWT", async () => {
     const permissions = await fetchInstallationPermissions(app);
     expect(permissions?.contents).toBe("write");
   });
 
+  // Coverage: `github.out.revoke`.
   test("revoking presents the token itself, and GitHub records it", async () => {
     const minted = await mintInstallationToken(app, {
       repositories: ["api"],
@@ -147,6 +151,7 @@ describe("installation tokens", () => {
 });
 
 describe("the install's proof", () => {
+  // Coverage: `github.oauth.code`, `github.out.user-installations`.
   test("a person who can see the installation passes; one who cannot is refused", async () => {
     const code = github.authorizeUser("peach", ["7001"]);
     const token = await exchangeGitHubUserCode(code);

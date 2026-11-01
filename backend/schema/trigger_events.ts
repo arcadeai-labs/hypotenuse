@@ -31,6 +31,11 @@ export type TriggerEventStatus = (typeof TRIGGER_EVENT_STATUSES)[number];
  * `processed: message`, …) and `detail` what it decided along the way (an
  * auto-created binding, the conversation it reached). A ledger row: ids are
  * copied, never foreign keys, so it takes part in no lock.
+ *
+ * For `type: "github"` — the deployment's GitHub App, which belongs to no
+ * bot — `botInstallationId` holds the `github_installations` row the event
+ * reached (one row per project that attached the installation), or `0` for
+ * an installation no project attached.
  */
 export const triggerEvents = pgTable(
   "trigger_events",

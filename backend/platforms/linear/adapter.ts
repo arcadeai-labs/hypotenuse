@@ -25,7 +25,7 @@ import {
   type OutboxMessage,
   outboxMessages,
 } from "../../schema/outbox_messages";
-import { applyFallbacks, approvalLink } from "../surface";
+import { applyFallbacks, approvalLink, linkProblem } from "../surface";
 import type {
   OpenInstallation,
   PlatformAdapter,
@@ -67,6 +67,7 @@ import { linearEventId, parseLinearDelivery } from "./events";
  * | `question` | `elicitation`; options as the `select` signal | the next `prompted` is the answer |
  * | `approval` | `elicitation` with the dashboard link; options `Approve #<id>` / `Deny #<id>` as the `select` signal when the binding lets the channel decide | |
  * | `stream` | — | Linear shows activities, not partial text: dropped at enqueue |
+ * | `link` | `agentSessionUpdate(addedExternalUrls: [{ label, url }])` | the session's links ("Pull Request"); not an activity, so it is allowed even after an elicitation |
  *
  * | Linear answers | Then |
  * |---|---|
@@ -167,7 +168,7 @@ const ACTIVITY_EXISTS = `query AgentActivityExists($id: String!) {
   agentActivity(id: $id) { id }
 }`;
 
-/** Update a session: its plan. */
+/** Update a session: its plan, or its external links. */
 const SESSION_UPDATE = `mutation AgentSessionUpdate($id: String!, $input: AgentSessionUpdateInput!) {
   agentSessionUpdate(id: $id, input: $input) { success }
 }`;
@@ -574,6 +575,8 @@ export const linearAdapter: PlatformAdapter = {
     if (draft.kind === "status" && typeof draft.payload.text !== "string") {
       return { refused: true, reason: "A status needs text." };
     }
+    const problem = linkProblem(draft);
+    if (problem) return { refused: true, reason: problem };
     return applyFallbacks(draft, this.capabilities);
   },
 
@@ -672,6 +675,17 @@ export const linearAdapter: PlatformAdapter = {
           return { outcome: "sent", externalMessageId: id };
         }
         case "stream":
+          return { outcome: "sent" };
+        case "link":
+          // Adding a link is idempotent on its URL, so a retry is harmless.
+          await linearCall(inst, SESSION_UPDATE, {
+            id: sessionId,
+            input: {
+              addedExternalUrls: [
+                { label: String(p.label), url: String(p.url) },
+              ],
+            },
+          });
           return { outcome: "sent" };
         default: {
           const failed = p.messageKind === "error" || p.messageKind === "fail";

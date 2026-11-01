@@ -1,3 +1,4 @@
+import { linkProblem } from "../surface";
 import type { SurfaceAdapter } from "../types";
 
 /**
@@ -7,7 +8,8 @@ import type { SurfaceAdapter } from "../types";
  * permission, so there is no installation and no binding), its inbound path
  * is `conversation:create` / `conversation:message`, and `send` has nothing
  * to post: the dashboard reads Postgres (`conversation:live`), so its rows
- * are written `sent`.
+ * are written `sent`. A `link` (a pull request a sandbox job opened) is kept
+ * as its row, with a `status_change` in the transcript beside it.
  */
 export const webAdapter: SurfaceAdapter = {
   type: "web",
@@ -23,6 +25,9 @@ export const webAdapter: SurfaceAdapter = {
     typing: true,
   },
   settlesAtEnqueue: true,
-  validateOutbound: (draft) => draft,
+  validateOutbound(draft) {
+    const problem = linkProblem(draft);
+    return problem ? { refused: true, reason: problem } : draft;
+  },
   send: async () => ({ outcome: "sent" }),
 };

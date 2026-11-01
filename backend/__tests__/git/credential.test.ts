@@ -121,6 +121,7 @@ const withToken = (name: string, token: string) =>
   repoUrl(name).replace("http://", `http://x-access-token:${token}@`);
 
 describe("the endpoint", () => {
+  // github.git.scope
   test("a granted repository on a write job is a write token for that one repository", async () => {
     const { token } = await job("api");
     const res = await ask(token, "acme/api.git");
@@ -346,6 +347,7 @@ describe("the credential helper, against the live endpoint", () => {
     GIT_TERMINAL_PROMPT: "0",
   });
 
+  // github.git.clone, github.git.push
   test("a write grant clones and pushes a branch; the fake has it", async () => {
     const { token } = await job("api");
     const { home } = await stageGitHome(stage.u.url, git.github.url);
@@ -522,6 +524,7 @@ describe("the managed gh, against the live endpoint", () => {
     return { dir, wrapper };
   }
 
+  // github.cli.wrapper
   test("an explicit --repo gets that repository's token, handed only to gh", async () => {
     const { job: j, token } = await job("api");
     const { dir, wrapper } = await stageGh();

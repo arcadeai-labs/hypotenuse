@@ -69,6 +69,15 @@ export const webhookOutboundSchema = z.discriminatedUnion("kind", [
     name: z.string(),
     actions: z.array(z.string()),
   }),
+  z.object({
+    kind: z.literal("link"),
+    deliveryId: z.number(),
+    channel: z.string(),
+    conversation: z.string(),
+    label: z.string().min(1),
+    url: z.string().url(),
+    text: z.string().optional(),
+  }),
 ]);
 
 /** One inbound delivery's fields, as a test writes them. */

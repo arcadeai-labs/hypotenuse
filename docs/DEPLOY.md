@@ -129,6 +129,7 @@ Every platform app Hypotenuse generates for a bot embeds this deployment's webho
 | Slack | `https://api.hypotenuse.cloud/api/webhooks/slack` |
 | Linear | `https://api.hypotenuse.cloud/api/webhooks/linear` |
 | Pylon | `https://api.hypotenuse.cloud/api/webhooks/pylon` |
+| GitHub | `https://api.hypotenuse.cloud/api/webhooks/github` |
 
 Each bot's app gets its own URL beneath its platform's, ending in that installation's routing key
 (`…/webhooks/slack/hyp_rk_…`), and a platform that installs by OAuth returns to
@@ -136,7 +137,10 @@ Each bot's app gets its own URL beneath its platform's, ending in that installat
 app on every platform, so pick the origin once. Linear also wants its **OAuthApp** webhook switched on by hand on each
 bot's app page (the manifest cannot), so that an uninstall in Linear reaches Hypotenuse. Pylon has no app: its admin
 creates the webhook and four Triggers by hand from the manifest, pasting each Trigger's body; the webhook's secret is
-shown once.
+shown once. GitHub is the exception to per-bot URLs: the deployment has one GitHub App, and its **Webhook URL** is
+`https://api.hypotenuse.cloud/api/webhooks/github` exactly — no routing key — with its webhook secret in
+`GITHUB_APP_WEBHOOK_SECRET` (unset, every delivery is refused) and the `Pull request`, `Pull request review`,
+`Pull request review comment`, and `Check suite` events subscribed.
 
 **Developing a platform app locally.** No platform delivers to `localhost`. Run `bun run ngrok`, which opens the
 reserved tunnels in `ngrok.yml` (it merges your own `ngrok config add-authtoken` config in front; the token never
