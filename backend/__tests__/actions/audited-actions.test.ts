@@ -82,6 +82,12 @@ const READS = new Set([
   "sandbox-job:list",
   "sandbox-job:view",
   "sandbox-job:events",
+  // Mints a ten-minute install state in Redis and answers the install URL; no row.
+  "github:install-url",
+  "github:installation-list",
+  "repository-grant:list",
+  "repository-grant:view",
+  "bot:repositories",
 ]);
 
 /**
@@ -112,6 +118,7 @@ const UNAUDITED_WRITERS = new Set([
   "webhooks:slack",
   "webhooks:linear",
   "webhooks:pylon",
+  "webhooks:github",
   "triggers:process-event",
   // Memory's machine work: each version's source and provenance, and each
   // chunk's embedding revision, are the record.
@@ -152,6 +159,9 @@ const UNAUDITED_WRITERS = new Set([
   "sandbox:memory-search",
   "proxy:model",
   "proxy:mcp",
+  // The git credential hop: one ledger row per handout or refusal, in
+  // `sandbox_job_git_tokens`.
+  "sandbox:git-credential",
   // A job's provisioning and the sandbox clocks: recorded on `sandbox_jobs`
   // and the `sandboxes` ledger.
   "sandbox-job:start",
@@ -168,6 +178,7 @@ const AUDITED_BROWSER_HOPS = new Set([
   "mcp-server:oauth-start",
   "mcp-server:oauth-callback",
   "bot-installation:oauth-callback",
+  "github:install-callback",
 ]);
 
 beforeAll(async () => {
