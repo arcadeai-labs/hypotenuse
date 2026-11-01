@@ -4,7 +4,11 @@ import { and, eq, isNull } from "drizzle-orm";
 import { api, config } from "keryx";
 // Type-only, purely for the `declare module "keryx"` augmentation inside.
 import type {} from "../config/sandbox";
-import { assertSandboxProviderAllowed } from "../sandbox/registry";
+import {
+  assertSandboxProviderAllowed,
+  buildSandboxProvider,
+} from "../sandbox/registry";
+import type { Sandbox } from "../sandbox/types";
 import { type Bot, bots } from "../schema/bots";
 import { channels } from "../schema/channels";
 import type { Conversation } from "../schema/conversations";
@@ -14,6 +18,23 @@ import { participants } from "../schema/participants";
 import { type SandboxJob, sandboxJobs } from "../schema/sandbox_jobs";
 import { users } from "../schema/users";
 import type { DbHandle } from "./DbOps";
+import {
+  branchPrefixFor,
+  GIT_CREDENTIAL_HELPER_FILENAME,
+  GITHUB_CLI_REAL_PATH,
+  GITHUB_CLI_WRAPPER_FILENAME,
+  gitCredentialHelperScript,
+  gitCredentialUrl,
+  githubCliWrapperScript,
+  gitSandboxConfigCommands,
+  persistGithubCliPathScript,
+} from "./GitAccessOps";
+import {
+  grantForBot,
+  type JobRepository,
+  jobRepository,
+} from "./GitCredentialOps";
+import { githubWebOrigin } from "./GitHubAppOps";
 import { botServers } from "./McpCatalogOps";
 import {
   effectiveSandboxSettings,
@@ -24,6 +45,7 @@ import {
   generateJobToken,
   loadJob,
   parentOf,
+  redactJobTokens,
   registerJobToken,
   revokeJobToken,
 } from "./SandboxJobOps";
@@ -35,8 +57,9 @@ import { provisionSandbox } from "./SandboxOps";
  * config (every server is ours: `hypotenuse` at `/mcp`, each of the bot's
  * shared servers through the gateway proxy, all authenticated by
  * `${HYPOTENUSE_JOB_TOKEN}`, a reference the CLI expands at run time, never
- * a value on disk), Claude Code's settings, the supervisor's files, and the
- * environment.
+ * a value on disk), Claude Code's settings, the supervisor's files, the
+ * environment, and — for a job started on a repository — git's credential
+ * helper, the managed `gh`, and the clone, none of which holds a GitHub token.
  */
 
 /** The sandbox's working directory. */
@@ -53,6 +76,9 @@ export const SANDBOX_PATHS = {
   runnerDir: `${CONTROL_DIR}/runner`,
   runner: `${CONTROL_DIR}/runner/runner.ts`,
   log: `${CONTROL_DIR}/supervisor.log`,
+  binDir: `${CONTROL_DIR}/bin`,
+  gitCredentialHelper: `${CONTROL_DIR}/bin/${GIT_CREDENTIAL_HELPER_FILENAME}`,
+  githubCli: `${CONTROL_DIR}/bin/${GITHUB_CLI_WRAPPER_FILENAME}`,
 } as const;
 
 /** The environment variable that carries the job token. */
@@ -199,6 +225,26 @@ export function buildClaudeSettings(): string {
   return `${JSON.stringify({ skipWebFetchPreflight: true, permissions: { defaultMode: "bypassPermissions" } }, null, 2)}\n`;
 }
 
+/** What the briefing says about a job's repository. */
+export interface BriefingRepository {
+  /** `owner/name`. */
+  fullName: string;
+  /** Where it is checked out. */
+  dir: string;
+  /** The ref checked out, when the job named one. */
+  ref: string | null;
+  /** Whether the job may push. */
+  mode: "read" | "write";
+  /** The branch namespace it pushes into. */
+  branchPrefix: string;
+  /** Who commits are authored as, `Name <email>`. */
+  identity: string;
+  /** The requester, `Name <email>`, when they are a linked user with an email. */
+  coAuthor: string | null;
+  /** Where repositories are cloned from. */
+  webOrigin: string;
+}
+
 /** What the briefing names, read from the conversation's rows. */
 export interface BriefingContext {
   botName: string;
@@ -206,6 +252,8 @@ export interface BriefingContext {
   channel: string;
   requester: string;
   servers: string[];
+  /** The job's repository, for a job started with one. */
+  repository?: BriefingRepository | null;
 }
 
 /**
@@ -282,10 +330,247 @@ export function renderBriefing(
     title: job.title,
     task: job.task,
     servers,
+    repository: ctx.repository ? repositorySection(ctx.repository) : "",
+    cwd: ctx.repository?.dir ?? SANDBOX_CWD,
   };
   return template
     .replace(/\{\{(\w+)\}\}/g, (_, key: string) => values[key] ?? "")
     .replace(/\n{3,}/g, "\n\n");
+}
+
+/**
+ * The briefing's repository section: what is checked out where, whether the
+ * job may push, the branch convention, and how a pull request is opened and
+ * reported. Plain lines, so `renderBriefing`'s placeholders stay simple.
+ * @param r - The repository.
+ * @returns The section, in markdown.
+ */
+export function repositorySection(r: BriefingRepository): string {
+  const lines = [
+    "## The repository",
+    "",
+    `\`${r.fullName}\` is cloned at \`${r.dir}\`${r.ref ? ` with \`${r.ref}\` checked out` : ""}; it is your working directory.`,
+    "",
+  ];
+  if (r.mode === "write") {
+    lines.push(
+      `- You may push to it. Work on a new branch under \`${r.branchPrefix}\` (for example \`${r.branchPrefix}fix-flaky-test\`) and push it with \`git push -u origin <branch>\`. Never push to the default branch or to a branch you did not create.`,
+      `- To open a pull request, run \`gh pr create --repo ${r.fullName} --head <branch> --title "…" --body "…"\`, saying what changed and why. Then report it with \`sandbox-submit-artifact\`, the name \`pull_request\`, and the pull request's URL as the content. People review and merge it; you do not merge.`,
+      `- Your commits are authored as ${r.identity}.${r.coAuthor ? ` End every commit message with a blank line and \`Co-authored-by: ${r.coAuthor}\`.` : ""}`,
+    );
+  } else {
+    lines.push(
+      "- This checkout is read-only: read it, run it, and answer. Do not commit or push; a push is refused.",
+    );
+  }
+  lines.push(
+    `- \`git\` and \`gh\` authenticate by themselves, one command at a time, for the repositories this bot was granted; there is no token to find or set, and no \`gh auth login\`. Outside a checkout, pass \`gh\` a \`--repo owner/name\`. Another granted repository clones from \`${r.webOrigin}/<owner>/<name>.git\`, read-only.`,
+  );
+  return lines.join("\n");
+}
+
+/**
+ * Where a job's repository is checked out.
+ * @param repo - The job's repository.
+ * @returns The directory, under the sandbox's working directory.
+ */
+export function repositoryDir(repo: Pick<JobRepository, "name">): string {
+  return `${SANDBOX_CWD}/${repo.name}`;
+}
+
+/**
+ * Who a job's commits are authored as: the bot, by name, at an address that
+ * is nobody's mailbox.
+ * @param bot - The bot.
+ * @returns The git `user.name` and `user.email`.
+ */
+export function gitIdentity(bot: Pick<Bot, "displayName" | "slug">): {
+  name: string;
+  email: string;
+} {
+  return {
+    name: `${bot.displayName} (Hypotenuse)`,
+    email: `${bot.slug}@users.noreply.hypotenuse`,
+  };
+}
+
+/**
+ * The hosts a sandbox needs once it is running, for a provider that can hold
+ * it to an allowlist: this API (the model and MCP proxies, the supervisor's
+ * endpoints, the credential handout) and, for a job with a repository,
+ * GitHub's web and API hosts. Ports are not part of a domain allowlist.
+ * @param apiUrl - The URL the sandbox reaches this API at.
+ * @param hasRepository - Whether the job was started on a repository.
+ * @param github - GitHub's origins; `config.github` by default.
+ * @param github.webUrl - Where git clones from.
+ * @param github.apiUrl - Where `gh` calls the REST API.
+ * @returns The hostnames, without duplicates.
+ */
+export function sandboxEgressHosts(
+  apiUrl: string,
+  hasRepository: boolean,
+  github: { webUrl: string; apiUrl: string } = config.github,
+): string[] {
+  const hosts = [apiUrl];
+  if (hasRepository) hosts.push(github.webUrl, github.apiUrl);
+  const names: string[] = [];
+  for (const origin of hosts) {
+    try {
+      const host = new URL(origin).hostname;
+      if (host && !names.includes(host)) names.push(host);
+    } catch {
+      // Not a URL: nothing to allow.
+    }
+  }
+  return names;
+}
+
+/**
+ * The in-sandbox git files: the credential helper and the managed `gh`,
+ * both executable, both naming the job token's variable rather than any
+ * value, so nothing on disk is a credential.
+ * @param apiUrl - The URL the sandbox reaches this API at.
+ * @param webOrigin - Where repositories live.
+ * @returns The writes.
+ */
+export function gitFiles(
+  apiUrl: string,
+  webOrigin: string,
+): { path: string; content: string; mode: number }[] {
+  const credentialUrl = gitCredentialUrl(apiUrl);
+  return [
+    {
+      path: SANDBOX_PATHS.gitCredentialHelper,
+      content: gitCredentialHelperScript(credentialUrl, JOB_TOKEN_ENV),
+      mode: 0o755,
+    },
+    {
+      path: SANDBOX_PATHS.githubCli,
+      content: githubCliWrapperScript(
+        credentialUrl,
+        JOB_TOKEN_ENV,
+        GITHUB_CLI_REAL_PATH,
+        webOrigin,
+      ),
+      mode: 0o755,
+    },
+  ];
+}
+
+/**
+ * Run one command in a sandbox and fail with what it said, redacted.
+ * @param sandbox - The sandbox.
+ * @param what - What the command was for, for the error.
+ * @param argv - The command.
+ * @param cwd - Where to run it.
+ * @returns Its stdout.
+ * @throws {Error} When it exits non-zero.
+ */
+async function mustExec(
+  sandbox: Sandbox,
+  what: string,
+  argv: string[],
+  cwd?: string,
+): Promise<string> {
+  const result = await sandbox.exec(argv[0], argv.slice(1), {
+    ...(cwd ? { cwd } : {}),
+    env: { GIT_TERMINAL_PROMPT: "0" },
+  });
+  if (result.exitCode !== 0) {
+    const said = redactJobTokens(
+      `${result.stderr}${result.stdout}`.trim(),
+    ).slice(0, 2000);
+    throw new Error(`${what} failed: ${said || `exit ${result.exitCode}`}`);
+  }
+  return result.stdout;
+}
+
+/**
+ * **A repository job's prologue**, after the files are written and before
+ * the supervisor starts: point git at the credential helper (for GitHub's
+ * origin only), name the bot as the committer, put the managed `gh` on PATH
+ * for login shells too, and clone. No GitHub token is written anywhere: the
+ * helper and the wrapper ask for one per command, with the job token from
+ * the environment, and the clone is the first such command. A clone git
+ * refuses fails the job with git's own words — which carry the credential
+ * endpoint's sentence when the repository was not granted.
+ * @param sandbox - The sandbox.
+ * @param input - The repository, the bot's identity, and GitHub's origin.
+ * @param input.repo - The job's repository.
+ * @param input.identity - The committer.
+ * @param input.identity.name - `user.name`.
+ * @param input.identity.email - `user.email`.
+ * @param input.webOrigin - Where repositories live.
+ * @returns The checkout's directory.
+ */
+export async function prepareRepository(
+  sandbox: Sandbox,
+  input: {
+    repo: JobRepository;
+    identity: { name: string; email: string };
+    webOrigin: string;
+  },
+): Promise<string> {
+  const { repo, identity, webOrigin } = input;
+  for (const argv of gitSandboxConfigCommands(
+    SANDBOX_PATHS.gitCredentialHelper,
+    webOrigin,
+  )) {
+    await mustExec(sandbox, "configuring git", argv);
+  }
+  await mustExec(sandbox, "configuring git", [
+    "git",
+    "config",
+    "--global",
+    "user.name",
+    identity.name,
+  ]);
+  await mustExec(sandbox, "configuring git", [
+    "git",
+    "config",
+    "--global",
+    "user.email",
+    identity.email,
+  ]);
+  await mustExec(sandbox, "putting the managed gh on PATH", [
+    "/bin/sh",
+    "-c",
+    persistGithubCliPathScript(SANDBOX_PATHS.binDir),
+  ]);
+  const dir = repositoryDir(repo);
+  const origin = webOrigin.replace(/\/+$/, "");
+  await mustExec(sandbox, `cloning ${repo.owner}/${repo.name}`, [
+    "git",
+    "clone",
+    "--quiet",
+    `${origin}/${repo.owner}/${repo.name}.git`,
+    dir,
+  ]);
+  if (repo.ref) {
+    // A branch or tag name checks out directly (a remote branch gets a
+    // tracking branch); anything else — a commit, a pull request's ref — is
+    // fetched and checked out detached.
+    const direct = await sandbox.exec(
+      "git",
+      ["checkout", "--quiet", repo.ref],
+      { cwd: dir, env: { GIT_TERMINAL_PROMPT: "0" } },
+    );
+    if (direct.exitCode !== 0) {
+      await mustExec(
+        sandbox,
+        `fetching ${repo.ref}`,
+        ["git", "fetch", "--quiet", "origin", repo.ref],
+        dir,
+      );
+      await mustExec(
+        sandbox,
+        `checking out ${repo.ref}`,
+        ["git", "checkout", "--quiet", "FETCH_HEAD"],
+        dir,
+      );
+    }
+  }
+  return dir;
 }
 
 /**
@@ -330,8 +615,10 @@ export function claudeCommand(models: JobModels, resume = false): string[] {
 
 /**
  * The sandbox's environment. The job token is the only credential in it:
- * the model proxy and the gateway proxy attach the real keys server-side.
- * @param input - The job, its token, where it reaches us, and its models.
+ * the model proxy and the gateway proxy attach the real keys server-side, and
+ * git's helper trades the job token for a GitHub token one command at a time.
+ * @param input - The job, its token, where it reaches us, its models, and the
+ *   coding CLI's working directory (a repository job's checkout).
  * @returns The variables.
  */
 export function buildSandboxEnv(input: {
@@ -339,12 +626,13 @@ export function buildSandboxEnv(input: {
   token: string;
   apiUrl: string;
   models: JobModels;
+  cwd?: string;
 }): Record<string, string> {
   return {
     [JOB_TOKEN_ENV]: input.token,
     HYPOTENUSE_API_URL: input.apiUrl,
     HYPOTENUSE_JOB_ID: String(input.job.id),
-    HYPOTENUSE_CWD: SANDBOX_CWD,
+    HYPOTENUSE_CWD: input.cwd ?? SANDBOX_CWD,
     HYPOTENUSE_PROMPT_FILE: SANDBOX_PATHS.prompt,
     HYPOTENUSE_LOG_FILE: SANDBOX_PATHS.log,
     HYPOTENUSE_HEARTBEAT_MS: String(config.sandbox.heartbeatMs),
@@ -362,6 +650,55 @@ export function buildSandboxEnv(input: {
       : {}),
     CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
     DISABLE_AUTOUPDATER: "1",
+  };
+}
+
+/**
+ * What the briefing says about a job's repository, read from its grant and
+ * who asked. The grant is re-read here: one revoked since `sandbox_start`
+ * fails the job before a sandbox is created.
+ * @param job - The job.
+ * @param bot - Its bot.
+ * @param repo - Its repository.
+ * @param webOrigin - Where repositories live.
+ * @returns The briefing's repository.
+ * @throws {Error} When the bot no longer holds a grant for it.
+ */
+async function briefingRepository(
+  job: SandboxJob,
+  bot: Bot,
+  repo: JobRepository,
+  webOrigin: string,
+): Promise<BriefingRepository> {
+  const found = await grantForBot(api.db.db, job.projectId, bot.id, {
+    host: repo.host,
+    owner: repo.owner,
+    repo: repo.name,
+  });
+  if (!found) {
+    throw new Error(
+      `${bot.displayName} no longer has access to ${repo.owner}/${repo.name}; a project admin can grant it under Repositories.`,
+    );
+  }
+  let coAuthor: string | null = null;
+  if (job.triggeredByUserId) {
+    const [u] = await api.db.db
+      .select({ name: users.name, email: users.email })
+      .from(users)
+      .where(eq(users.id, job.triggeredByUserId))
+      .limit(1);
+    if (u?.email) coAuthor = `${u.name || u.email} <${u.email}>`;
+  }
+  const identity = gitIdentity(bot);
+  return {
+    fullName: `${repo.owner}/${repo.name}`,
+    dir: repositoryDir(repo),
+    ref: repo.ref ?? null,
+    mode: repo.mode === "write" && found.grant.push ? "write" : "read",
+    branchPrefix: branchPrefixFor(found.grant, bot.slug),
+    identity: `${identity.name} <${identity.email}>`,
+    coAuthor,
+    webOrigin,
   };
 }
 
@@ -440,10 +777,15 @@ export async function startSandboxJob(jobId: number): Promise<StartOutcome> {
     // 2. The briefing, recorded on the job.
     const apiUrl = resolveSandboxApiUrl(provider);
     const servers = await collectMcpServers(api.db.db, bot, apiUrl);
-    const briefing = renderBriefing(
-      job,
-      await briefingContext(api.db.db, job, conversation, bot, servers),
-    );
+    const repo = jobRepository(job);
+    const webOrigin = githubWebOrigin().replace(/\/+$/, "");
+    const repository = repo
+      ? await briefingRepository(job, bot, repo, webOrigin)
+      : null;
+    const briefing = renderBriefing(job, {
+      ...(await briefingContext(api.db.db, job, conversation, bot, servers)),
+      repository,
+    });
     await api.db.db
       .update(sandboxJobs)
       .set({ briefing })
@@ -458,7 +800,13 @@ export async function startSandboxJob(jobId: number): Promise<StartOutcome> {
       options: {
         image: settings.image ?? undefined,
         timeoutMs: job.maxDurationMs + 5 * 60 * 1000,
-        env: buildSandboxEnv({ job, token, apiUrl, models }),
+        env: buildSandboxEnv({
+          job,
+          token,
+          apiUrl,
+          models,
+          cwd: repository?.dir,
+        }),
       },
     });
 
@@ -468,11 +816,44 @@ export async function startSandboxJob(jobId: number): Promise<StartOutcome> {
       { path: SANDBOX_PATHS.mcpConfig, content: buildMcpConfig(servers) },
       { path: SANDBOX_PATHS.settings, content: buildClaudeSettings() },
       ...runnerFiles(),
+      ...(repo ? gitFiles(apiUrl, webOrigin) : []),
     ]);
     if (!(await stillWanted())) return "cancelled";
 
-    // 5. The supervisor, and the job is running.
-    await sandbox.spawn("bun", [SANDBOX_PATHS.runner], { cwd: SANDBOX_CWD });
+    // 5. Narrow egress where the provider can hold a sandbox to a list.
+    if (buildSandboxProvider(provider).capabilities.domainEgressAllowlist) {
+      await sandbox.setEgress({
+        mode: "deny-all",
+        allowDomains: sandboxEgressHosts(apiUrl, repo !== null),
+      });
+    }
+
+    // 6. A repository job's prologue: git configured, the managed gh on
+    //    PATH, the repository cloned.
+    if (repo && repository) {
+      await prepareRepository(sandbox, {
+        repo,
+        identity: gitIdentity(bot),
+        webOrigin,
+      });
+      if (!(await stillWanted())) return "cancelled";
+    }
+
+    // 7. The supervisor, and the job is running. The managed gh's directory
+    //    leads its PATH, which the coding CLI and every command inherit.
+    let env: Record<string, string> | undefined;
+    if (repo) {
+      const path = (
+        await sandbox.exec("/bin/sh", ["-c", 'printf %s "$PATH"'])
+      ).stdout.trim();
+      env = {
+        PATH: `${SANDBOX_PATHS.binDir}:${path || "/usr/local/bin:/usr/bin:/bin"}`,
+      };
+    }
+    await sandbox.spawn("bun", [SANDBOX_PATHS.runner], {
+      cwd: SANDBOX_CWD,
+      ...(env ? { env } : {}),
+    });
     const now = new Date();
     await api.db.db
       .update(sandboxJobs)

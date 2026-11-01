@@ -209,6 +209,8 @@ export interface JobDraft {
   task: string;
   interactive: boolean;
   repository?: Record<string, unknown> | null;
+  /** A shorter limit than the project's (a read-only job's); never a longer one. */
+  maxDurationMs?: number | null;
   intentEntryId?: number | null;
   triggeredByParticipantId?: number | null;
   triggeredByUserId?: number | null;
@@ -246,7 +248,9 @@ export async function createSandboxJob(
       interactive: draft.interactive,
       status: "pending",
       provider: settings.provider,
-      maxDurationMs: settings.maxDurationMs,
+      maxDurationMs: draft.maxDurationMs
+        ? Math.min(draft.maxDurationMs, settings.maxDurationMs)
+        : settings.maxDurationMs,
       idleTimeoutMs: config.sandbox.idleTimeoutMs,
       budgetTokens: bot.sandboxJobTokenBudget,
     })
