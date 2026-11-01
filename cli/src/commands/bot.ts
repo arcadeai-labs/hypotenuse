@@ -60,6 +60,7 @@ interface Bot {
   channelRateLimit?: number;
   sandboxPolicy?: string;
   sandboxJobTokenBudget?: number | null;
+  githubWakeEvents?: string[];
   createdAt: number;
   updatedAt: number;
   standing?: { canWrite: boolean };
@@ -119,6 +120,39 @@ export interface BotFlags {
   sandbox?: string;
   /** `bot edit` only: tokens one sandbox job may use, or `false` from `--no-sandbox-token-budget`. */
   sandboxTokenBudget?: string | false;
+  /** `bot edit` only: which pull-request events wake it, comma-separated, or `none`. */
+  githubWake?: string;
+}
+
+/** What can happen on a pull request a bot's job opened, that may wake it. */
+export const GITHUB_WAKE_EVENTS = [
+  "changes_requested",
+  "approved",
+  "commented",
+  "review_comment",
+  "check_failed",
+  "check_passed",
+  "closed",
+  "merged",
+] as const;
+
+/**
+ * Parse `--github-wake`: events from {@link GITHUB_WAKE_EVENTS}, comma-separated;
+ * `""` or `none` is none of them.
+ * @param raw - What the person typed, e.g. `changes_requested,check_failed`.
+ * @returns The events.
+ * @throws {Error} For an event that is not one of them.
+ */
+export function parseGithubWake(raw: string): string[] {
+  const events = raw.trim() === "none" ? [] : parseList(raw);
+  for (const event of events) {
+    if (!(GITHUB_WAKE_EVENTS as readonly string[]).includes(event)) {
+      throw new Error(
+        `--github-wake takes ${GITHUB_WAKE_EVENTS.join(", ")} (comma-separated), or none; got "${event}".`,
+      );
+    }
+  }
+  return events;
 }
 
 /** Whether a bot may start sandbox jobs, and whether each waits for a person. */
@@ -379,6 +413,9 @@ export function botBody(flags: BotFlags): Record<string, unknown> {
     }
     body.sandboxPolicy = flags.sandbox;
   }
+  if (flags.githubWake !== undefined) {
+    body.githubWakeEvents = parseGithubWake(flags.githubWake);
+  }
   if (flags.sandboxTokenBudget === false) body.sandboxJobTokenBudget = null;
   else if (flags.sandboxTokenBudget !== undefined) {
     body.sandboxJobTokenBudget = parseNumber(
@@ -455,6 +492,11 @@ function botDetail(bot: Bot, canWrite: boolean): string {
     ...(bot.sandboxPolicy
       ? [
           `sandbox jobs  ${bot.sandboxPolicy === "approve" ? "each waits for approval" : bot.sandboxPolicy}${bot.sandboxPolicy !== "off" && bot.sandboxJobTokenBudget ? `; at most ${bot.sandboxJobTokenBudget} tokens a job` : ""}`,
+        ]
+      : []),
+    ...(bot.githubWakeEvents
+      ? [
+          `PR wakes it   ${bot.githubWakeEvents.join(", ") || "never"} (\`hypotenuse bot repos ${bot.slug}\` for its repositories)`,
         ]
       : []),
     `half-life     ${bot.memoryChannelHalfLifeDays ?? 30} days channel memory, ${bot.memoryProjectHalfLifeDays ?? 180} days project memory`,
@@ -590,7 +632,11 @@ export function registerBotCommands(program: Command): void {
         "--sandbox-token-budget <tokens>",
         "the most model tokens one sandbox job may use before it is stopped (at least 1000)",
       )
-      .option("--no-sandbox-token-budget", "no token cap on a sandbox job"),
+      .option("--no-sandbox-token-budget", "no token cap on a sandbox job")
+      .option(
+        "--github-wake <events>",
+        `which events on a pull request its sandbox job opened wake its conversation: ${GITHUB_WAKE_EVENTS.join(", ")} (comma-separated), or none`,
+      ),
   ).action(async function (this: Command, selector: string) {
     await runCommand(this, async (ctx) => {
       const body = botBody(this.opts() as BotFlags);
@@ -671,6 +717,46 @@ export function registerBotCommands(program: Command): void {
         emit(ctx, result, () => result.callbackSecret);
         logger.tell(
           `This is ${result.bot.name}'s callback secret. Store it now: it is never shown again.`,
+        );
+      });
+    });
+
+  bot
+    .command("repos")
+    .description(
+      "The GitHub repositories a bot may reach, and whether it may push to each",
+    )
+    .argument("<bot>", "id or slug")
+    .action(async function (this: Command, selector: string) {
+      await runCommand(this, async (ctx) => {
+        const client = ctx.signedInClient();
+        const projectId = await ctx.projectId();
+        const botId = await resolveBotId(client, projectId, selector);
+        const result = await client.request<{
+          repositories: {
+            grantId: number;
+            fullName: string;
+            access: "read" | "write";
+            branchPrefix: string | null;
+          }[];
+        }>("GET", `/project/${projectId}/bot/${botId}/repositories`);
+        emit(ctx, result, () =>
+          result.repositories.length === 0
+            ? `${selector} can reach no repositories. An admin grants one with \`hypotenuse repo grant\`.`
+            : table(
+                result.repositories.map((r) => ({
+                  repository: r.fullName,
+                  access: r.access === "write" ? "push" : "read",
+                  prefix: r.branchPrefix ?? "-",
+                  grant: r.grantId,
+                })),
+                [
+                  { key: "repository" },
+                  { key: "access" },
+                  { key: "prefix" },
+                  { key: "grant" },
+                ],
+              ),
         );
       });
     });
