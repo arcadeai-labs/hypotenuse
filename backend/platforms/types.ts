@@ -156,6 +156,11 @@ export interface ChannelRef {
   isShared: boolean;
   isDm: boolean;
   parentExternalId?: string | null;
+  /**
+   * What the platform knows about the channel beyond its name, stored on the
+   * channel row (a Pylon account's domains, which promotion checks against).
+   */
+  details?: Record<string, unknown>;
 }
 
 /** One inbound thing a platform sent, in the shape every rule reads. */
@@ -174,6 +179,12 @@ export interface NormalizedInbound {
   };
   /** Mentions the bot, is a DM, or was delegated to it. */
   addressed: boolean;
+  /**
+   * The sender is outside the team the bot works for (a support customer on
+   * Pylon): what they write is a message to the bot and nothing more — it
+   * never decides an approval, whatever it says.
+   */
+  untrusted?: boolean;
   /** An edit or a delete of an earlier message, never a new one. */
   edit?: boolean;
   text?: string;
@@ -345,6 +356,40 @@ export interface PlatformAdapter extends SurfaceAdapter {
   /** The OAuth install, for platforms whose app is installed that way. */
   oauth?: OAuthInstall;
   /**
+   * Whether `bot-installation:connect` checks pasted credentials at once with
+   * {@link PlatformAdapter.probe} (Pylon: `GET /me` names the token's own
+   * user, which loop filtering reads). A failed check leaves the
+   * installation `error` with the platform's reason.
+   */
+  probeOnConnect?: boolean;
+  /**
+   * Settings `bot-installation:connect` may not set: they are kept from the
+   * installation as they were, and only the platform's own admin-only
+   * settings action changes them (Pylon's `customerReplyPolicy`).
+   */
+  protectedSettings?: string[];
+  /**
+   * The approval policy a binding the bot makes for itself starts with, when
+   * the platform's channel is seen only by the team (a Pylon account's
+   * internal notes). `dashboard` when unset.
+   */
+  autoBindApprovalPolicy?: "dashboard" | "participants";
+  /**
+   * Read what a delivery only points at, before it is processed: Pylon's
+   * webhooks carry ids, and the issue, its account, and the message are
+   * fetched here, outside the processing transaction. The answer is stored
+   * on the event as `payload.hydrated`, so a retry reads it again instead of
+   * calling the platform twice. Throwing records the failure and the sweep
+   * retries it.
+   * @param body - The recorded body.
+   * @param inst - The installation.
+   * @returns What to store under `hydrated`.
+   */
+  hydrate?(
+    body: unknown,
+    inst: OpenInstallation,
+  ): Promise<Record<string, unknown>>;
+  /**
    * Whether connected credentials are enough to take deliveries. An OAuth
    * platform's client credentials are not: the installation stays `pending`
    * until the install (or a pasted bot token) completes it.
@@ -378,9 +423,13 @@ export interface PlatformAdapter extends SurfaceAdapter {
   /**
    * Check the credentials work, and learn the bot's own id on the platform.
    * @param inst - The installation.
-   * @returns The bot's platform user id.
+   * @returns The bot's platform user id, and settings learned on the way
+   *   (merged into the installation's config).
    */
-  probe(inst: OpenInstallation): Promise<{ externalBotUserId: string }>;
+  probe(inst: OpenInstallation): Promise<{
+    externalBotUserId: string;
+    config?: Record<string, unknown>;
+  }>;
   /**
    * The outbox target for a conversation in a channel.
    * @param channel - The channel row.

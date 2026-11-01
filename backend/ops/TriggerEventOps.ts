@@ -58,13 +58,17 @@ import { emit, emitStatus } from "./SurfaceOps";
  * | 2 | `kind: lifecycle` | `applyLifecycle`: uninstall, archive, join, leave, disengage, settings; `processed: lifecycle` (`noted` is `ignored: <its note>`) |
  * | 3 | the channel is externally shared, unless the binding allows it | `ignored: shared-channel` |
  * | 4 | no binding for (bot, channel), and the bot's `autoBind` is off for this kind of channel | `ignored: unbound`; the channel is upserted so a person can bind it |
- * | 5 | no binding, and `autoBind` is on | create an enabled binding with the bot's defaults (`autoBound: true`, recorded on the event); continue |
+ * | 5 | no binding, and `autoBind` is on | create an enabled binding with the bot's defaults (`autoBound: true`, recorded on the event; its approval policy is the adapter's `autoBindApprovalPolicy`, else `dashboard`); continue |
  * | 6 | the binding is disabled, or the bot is | `ignored: disabled` |
  * | 7 | `kind: message`, not addressed, mode `mentions`, and no conversation for this thread yet | `ignored: not-addressed` |
  * | 8 | `kind: signal` (`stop`, `disengage`) | cancel the conversation, then write the platform's expected answer (`reply`) if it names one; `processed: signal` (`ignored: no-conversation` without one) |
- * | 9 | `kind: interaction`, or a message reading `approve <id>` / `deny <id>` under an in-channel approval policy | resolve the question or approval it targets (`InteractionOps`); `processed: interaction` or `ignored: <why>` |
+ * | 9 | `kind: interaction`, or a message reading `approve <id>` / `deny <id>` under an in-channel approval policy — never from an `untrusted` sender (a support customer), whose interaction is `ignored: untrusted-interaction` and whose text is only a message | resolve the question or approval it targets (`InteractionOps`); `processed: interaction` or `ignored: <why>` |
  * | 10 | the participant's or the channel's rate limit is exceeded | `ignored: rate-limited` |
- * | 11 | otherwise | upsert the participant; find or create the conversation by (bot, channel, thread); insert the inbox row keyed by the message; wake; write the acknowledgement `status` row (priority `ack`) in the same transaction; `processed: message` |
+ * | 11 | otherwise | upsert the participant; find or create the conversation by (bot, channel, thread), merging the inbound's `conversationDetails` into an existing one's; insert the inbox row keyed by the message; wake; write the acknowledgement `status` row (priority `ack`) in the same transaction; `processed: message` |
+ *
+ * Before the rules, a platform whose deliveries only point at things
+ * (`hydrate`, Pylon) has them read once, outside the transaction, and stored
+ * on the event.
  *
  * Lifecycle comes before the channel rules because an uninstall is about the
  * installation, not a channel: it must apply wherever it was sent from.
@@ -215,6 +219,7 @@ export async function processTriggerEvent(
   const event = await claimEvent(id, force);
   if (!event) return null;
   try {
+    await hydrateEvent(event);
     const result = await api.db.db.transaction(async (tx) => {
       const [locked] = await tx
         .select()
@@ -266,6 +271,33 @@ export async function processTriggerEvent(
     });
     return { status: final ? "failed" : "pending", outcome: null };
   }
+}
+
+/**
+ * Read what a delivery only points at (`hydrate`), once, outside the
+ * processing transaction, and store it on the event as `payload.hydrated`
+ * so a retry reads the stored answer instead of calling the platform again.
+ * @param event - The claimed event.
+ */
+async function hydrateEvent(event: TriggerEvent): Promise<void> {
+  const payload = (event.payload ?? {}) as Record<string, unknown>;
+  if (payload.hydrated !== undefined) return;
+  const [installation] = await api.db.db
+    .select()
+    .from(botInstallations)
+    .where(eq(botInstallations.id, event.botInstallationId))
+    .limit(1);
+  if (!installation) return;
+  const adapter = platformAdapter(installation.type);
+  if (!adapter?.hydrate) return;
+  const hydrated = await adapter.hydrate(
+    payload,
+    openInstallation(installation),
+  );
+  await api.db.db
+    .update(triggerEvents)
+    .set({ payload: { ...payload, hydrated } })
+    .where(eq(triggerEvents.id, event.id));
 }
 
 /**
@@ -382,6 +414,7 @@ async function applyOne(
         mode: ref.isDm ? "dm" : "mentions",
         enabled: true,
         autoBound: true,
+        approvalPolicy: adapter.autoBindApprovalPolicy ?? "dashboard",
       })
       .onConflictDoNothing()
       .returning();
@@ -439,8 +472,14 @@ async function applyOne(
   }
 
   // 9. Interactions, and in-channel approval replies.
+  // Someone outside the team (a support customer) never decides anything.
+  if (inbound.untrusted && inbound.kind === "interaction") {
+    return ignored("untrusted-interaction", detail);
+  }
   const typedApproval =
-    inbound.kind === "message" ? parseApprovalReply(inbound.text) : null;
+    inbound.kind === "message" && !inbound.untrusted
+      ? parseApprovalReply(inbound.text)
+      : null;
   if (
     inbound.kind === "interaction" ||
     (typedApproval && binding.approvalPolicy !== "dashboard")
@@ -501,12 +540,32 @@ async function applyOne(
     ));
   const locked = await lockConversation(tx, conversation.id);
   if (!locked) throw new Error("The conversation vanished while processing");
+  // What the platform learned since (a Pylon issue assigned to the bot) joins
+  // what the conversation knew; nothing it knew is forgotten.
+  if (existing && inbound.conversationDetails) {
+    const merged = {
+      ...(locked.conversation.details ?? {}),
+      ...inbound.conversationDetails,
+    };
+    if (
+      JSON.stringify(merged) !==
+      JSON.stringify(locked.conversation.details ?? {})
+    ) {
+      await tx
+        .update(conversations)
+        .set({ details: merged })
+        .where(eq(conversations.id, conversation.id));
+      locked.conversation.details = merged;
+    }
+  }
   const received = await receiveMessage(tx, locked.conversation, {
     text: inbound.text ?? "",
     delivery: existing ? binding.defaultDelivery : "queue",
     deliveryKey: inbound.messageKey,
     source: "participant",
     participantId: participant.id,
+    // A support customer's message never answers what the bot asked its team.
+    answers: !inbound.untrusted,
   });
   if (received.woke) acc.wake.push(received.conversation);
   if (!received.duplicate) {

@@ -21,6 +21,7 @@ import models from "./models.md?raw";
 import organizations from "./organizations.md?raw";
 import projects from "./projects.md?raw";
 import prompts from "./prompts.md?raw";
+import pylon from "./pylon.md?raw";
 import skills from "./skills.md?raw";
 import slack from "./slack.md?raw";
 import styleGuide from "./style-guide.md?raw";
@@ -77,6 +78,11 @@ export const DOCS_SECTIONS: DocsSection[] = [
     slug: "linear",
     title: "Linear",
     markdown: linear,
+  },
+  {
+    slug: "pylon",
+    title: "Pylon",
+    markdown: pylon,
   },
   {
     slug: "webhook-platform",

@@ -404,6 +404,35 @@
   font-weight: 600;
 }
 
+.pylon-triggers {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-2);
+  padding-left: var(--space-4);
+}
+
+.pylon-trigger-body {
+  white-space: pre;
+  overflow-x: auto;
+}
+
+.pylon-settings {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+}
+
+.pylon-settings-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
 .channels-binding-fields {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

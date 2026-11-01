@@ -26,6 +26,7 @@ import { useSectionSave } from "../sections/useSectionSave";
 import { platformOf } from "../transcript/model";
 import { type Bot, useRead } from "./data";
 import { LinearPlatformBlock } from "./LinearPlatformBlock";
+import { PylonPlatformBlock } from "./PylonPlatformBlock";
 import { SlackPlatformBlock } from "./SlackPlatformBlock";
 
 /** An installation, as `bot-installation:list` serializes it. */
@@ -70,6 +71,11 @@ export interface ChannelsSectionProps {
   bot: Bot;
   /** Why the person may not change the bot's channels, or `undefined`. */
   denied: string | undefined;
+  /**
+   * Why the person may not change a platform's admin-only settings (Pylon's
+   * customer reply policy), or `undefined`.
+   */
+  settingsDenied?: string | undefined;
 }
 
 /**
@@ -620,6 +626,7 @@ export function ChannelsSection({
   projectId,
   bot,
   denied,
+  settingsDenied,
 }: ChannelsSectionProps) {
   const installations = useRead<{ installations: Installation[] }>(
     `/project/${projectId}/bot/${bot.id}/installations?limit=100`,
@@ -689,7 +696,9 @@ export function ChannelsSection({
               ? SlackPlatformBlock
               : platform.type === "linear"
                 ? LinearPlatformBlock
-                : PlatformBlock;
+                : platform.type === "pylon"
+                  ? PylonPlatformBlock
+                  : PlatformBlock;
           const oauth = platform.type === "slack" || platform.type === "linear";
           return (
             <Block
@@ -709,6 +718,7 @@ export function ChannelsSection({
               projectId={projectId}
               bot={bot}
               denied={denied}
+              settingsDenied={settingsDenied}
               onChanged={reload}
             />
           );

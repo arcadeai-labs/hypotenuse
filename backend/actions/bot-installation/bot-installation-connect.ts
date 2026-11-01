@@ -30,7 +30,11 @@ import { botInstallations } from "../../schema/bot_installations";
  * the platform showed (and its non-secret settings), making it active. The
  * credentials are sealed and never returned. Needs the bot's write access.
  *
- * A platform installed by OAuth (Slack) stays `pending` until its install
+ * A platform whose credentials are checked at once (`probeOnConnect`, Pylon)
+ * is probed here: a token the platform refuses leaves the installation
+ * `error` with the platform's reason. Settings a platform protects
+ * (`protectedSettings`, Pylon's customer reply policy) are refused here and
+ * kept as they were. A platform installed by OAuth (Slack) stays `pending` until its install
  * completes — or until the credentials include a bot token pasted from the
  * platform. Connecting again keeps what the install stored (the bot token)
  * unless replaced, and a changed signing secret keeps the old one as
@@ -40,7 +44,7 @@ import { botInstallations } from "../../schema/bot_installations";
 export class BotInstallationConnect extends AuditedAction {
   name = "bot-installation:connect";
   description =
-    "Connect a bot's platform app: paste the credentials the platform showed (webhook: the signing secret both sides share; slack: clientSecret and signingSecret, and botToken if you installed the app in Slack yourself; linear: clientSecret and webhookSecret) and its settings (webhook: the delivery URL the bot's messages are POSTed to; slack: clientId and appId; linear: clientId). Activates the installation the manifest created — for slack and linear, once it is installed (bot-installation:oauth-start), or for slack given a bot token. Credentials are stored sealed and never shown again. Needs the bot's write access.";
+    "Connect a bot's platform app: paste the credentials the platform showed (webhook: the signing secret both sides share; slack: clientSecret and signingSecret, and botToken if you installed the app in Slack yourself; linear: clientSecret and webhookSecret; pylon: apiToken and webhookSecret) and its settings (webhook: the delivery URL the bot's messages are POSTed to; slack: clientId and appId; linear: clientId; pylon: region, and optionally selfName, triggers, listen, legacySignature — the customer reply policy is set with pylon:settings-edit). Activates the installation the manifest created — for slack and linear, once it is installed (bot-installation:oauth-start), or for slack given a bot token. Credentials are stored sealed and never shown again. Needs the bot's write access.";
   middleware = [ProjectMemberMiddleware()];
   web = {
     route: "/project/:projectId/bot/:botId/installation",
@@ -62,10 +66,10 @@ export class BotInstallationConnect extends AuditedAction {
     config: z
       .record(z.string(), z.unknown())
       .describe(
-        "The platform's settings: {deliveryUrl} for webhook, {clientId, appId} for slack, {clientId} for linear",
+        "The platform's settings: {deliveryUrl} for webhook, {clientId, appId} for slack, {clientId} for linear, {region, selfName?, triggers?, listen?, legacySignature?} for pylon",
       ),
     credentials: secret(z.record(z.string(), z.unknown())).describe(
-      "The platform's secrets: {signingSecret} for webhook, {clientSecret, signingSecret, botToken?} for slack, {clientSecret, webhookSecret} for linear",
+      "The platform's secrets: {signingSecret} for webhook, {clientSecret, signingSecret, botToken?} for slack, {clientSecret, webhookSecret} for linear, {apiToken, webhookSecret} for pylon",
     ),
     botUserId: z
       .string()
@@ -112,7 +116,26 @@ export class BotInstallationConnect extends AuditedAction {
         key: "type",
       });
     }
-    const settings = adapter.installationSchema.safeParse(params.config);
+    // Admin-only settings (Pylon's customer reply policy) keep their value:
+    // the platform's own settings action is the only way to change them.
+    const protectedKeys = adapter.protectedSettings ?? [];
+    const offered = protectedKeys.filter((k) => k in params.config);
+    if (offered.length > 0) {
+      throw new TypedError({
+        message: `${offered.join(", ")} cannot be set here: a project admin sets ${offered.length === 1 ? "it" : "them"} with the ${params.type} settings action (${params.type}:settings-edit).`,
+        type: ErrorType.CONNECTION_ACTION_PARAM_VALIDATION,
+        key: "config",
+      });
+    }
+    const kept = Object.fromEntries(
+      protectedKeys
+        .filter((k) => existing.config[k] !== undefined)
+        .map((k) => [k, existing.config[k]]),
+    );
+    const settings = adapter.installationSchema.safeParse({
+      ...params.config,
+      ...kept,
+    });
     if (!settings.success) {
       throw new TypedError({
         message: `The ${params.type} settings are not valid: ${settings.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ")}`,
@@ -163,14 +186,18 @@ export class BotInstallationConnect extends AuditedAction {
     // A pasted bot token is checked at once, and tells us the bot's own id.
     let botUserId = params.botUserId ?? existing.externalBotUserId;
     let probeError: string | null = null;
-    if (adapter.oauth && ready && params.credentials.botToken !== undefined) {
+    let learned: Record<string, unknown> = {};
+    if (
+      (adapter.oauth && ready && params.credentials.botToken !== undefined) ||
+      adapter.probeOnConnect
+    ) {
       try {
-        botUserId = (
-          await adapter.probe({
-            installation: existing,
-            credentials: secrets.data,
-          })
-        ).externalBotUserId;
+        const probed = await adapter.probe({
+          installation: { ...existing, config: settings.data },
+          credentials: secrets.data,
+        });
+        botUserId = probed.externalBotUserId;
+        learned = probed.config ?? {};
       } catch (e) {
         probeError = e instanceof Error ? e.message : String(e);
       }
@@ -179,8 +206,8 @@ export class BotInstallationConnect extends AuditedAction {
       .update(botInstallations)
       .set({
         config: adapter.oauth
-          ? { ...existing.config, ...settings.data }
-          : settings.data,
+          ? { ...existing.config, ...settings.data, ...learned }
+          : { ...settings.data, ...learned },
         credentials: sealCredentials(secrets.data),
         credentialVersion: existing.credentialVersion + 1,
         externalBotUserId:

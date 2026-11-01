@@ -173,6 +173,15 @@ un-delegation, completion, deletion, unassignment, lost team access, and revocat
 refreshed under the row lock with the replay grace and never revoked; `linear_issue_view` and an approval-gated
 `linear_comment_create`; finear as the test Linear; the Linear block on the Channels section, `hypotenuse linear`,
 and the Linear user docs.
+**[Phase 16](./phase-16-pylon.md) is built**: Pylon as a platform — each bot a Pylon API token with its own identity,
+checked at connect (`GET /me`, both regions); `webhooks:pylon` verifying `X-Pylon-Signature-V2` over the timestamp
+and body, fed by four Triggers whose bodies carry ids only; the issue, its account, and the message read before
+processing (`hydrate`); a customer account as the channel and an issue as the conversation; everything written as
+internal notes in one thread, the turn's steps as a checklist; customer replies only through
+`pylon_reply_to_customer` under `customerReplyPolicy` (`never`; `approve`, a draft and a teammate's `approve <id>`;
+`auto-on-low-risk`, the `fast` model's risk check), set only by `pylon:settings-edit`; customers `untrusted`, never
+deciding anything; a promotion guard for facts naming a customer; the Pylon fake; the Pylon block on the Channels
+section, `hypotenuse pylon`, and the Pylon user docs.
 No other phase is built; every later plan's **Learnings from the
 build** section reads "Not built yet." until its phase lands.
 
@@ -206,3 +215,4 @@ build** section reads "Not built yet." until its phase lands.
 | Memory scopes | Channel memory is per channel, shared by every bot working there, and read or changed by whoever may read or change any of those bots; project memory is shared by the project. A bot never changes project memory: a person promotes into it (channel write + admin), audited |
 | Memory embeddings | The project's own `embedding` alias (1536 dimensions, probed when saved); without one, search is keyword-only. Vectors never block a turn |
 | Prompts | Assembled from versioned sections in a fixed order, without a model; contextual sections by deterministic keyword match within a token budget; a bot edits only sections a person marked editable, and its persona is its *Identity* section |
+| Customer-facing text | On a support platform (Pylon) the default audience is the team: everything a bot writes is an internal note, a customer reply is one tool under a per-bot policy (`never` by default) only a project admin sets, and a customer is `untrusted` — never deciding an approval or answering the team |

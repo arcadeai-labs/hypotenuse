@@ -363,6 +363,12 @@ Edit a project name in the browser, then open Audit log: one row, actor you, bef
   tokens before they expire, recorded on the installation). The `linear_*` tools are tools a bot runs, covered by
   the `agent:tick` row; a comment one writes waits for an approval a person decides, audited. Connecting the app
   and its install are the generic `bot-installation:*` actions, audited as for Slack.
+- **Pylon added one unaudited writer**, `webhooks:pylon` (signed machine ingress for each bot's Pylon webhook,
+  recorded as a `trigger_events` row; the issue and message it points at are read during `triggers:process-event`
+  and stored on that row). Its settings — the customer reply policy above all — are `pylon:settings-edit`, audited
+  and admin-only. The `pylon_*` tools are tools a bot runs (the `agent:tick` row); an issue update or a customer
+  reply waits for an approval a person decides, audited — and a reply sent without one, under
+  `auto-on-low-risk`, writes its own `pylon:auto-reply` row naming the admin who set the policy.
 - **Rule 13: no CLI command wraps `audit:list` or `organization:audit-list` yet** — deferred, not out of scope, as
   with phase 04's actions: [phase 06](./phase-06-operator-cli.md) is the CLI's sign-in.
 

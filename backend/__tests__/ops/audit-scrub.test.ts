@@ -21,6 +21,7 @@ const EXPECTED_SENSITIVE_KEYS = [
   "clientSecret",
   "signingSecret",
   "webhookSecret",
+  "apiToken",
   "botToken",
   "appToken",
   "configToken",

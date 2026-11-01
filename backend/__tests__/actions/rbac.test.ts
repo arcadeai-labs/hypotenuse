@@ -203,6 +203,7 @@ const EXPECTED_LEVELS: Record<string, RbacLevel> = {
   "bot-installation:oauth-start": "member",
   "bot-installation:oauth-callback": "none",
   "slack:app-create": "member",
+  "pylon:settings-edit": "admin",
   "channel:list": "member",
   "channel:view": "member",
   "channel-binding:create": "member",
@@ -222,6 +223,7 @@ const EXPECTED_LEVELS: Record<string, RbacLevel> = {
   "webhooks:webhook": "none",
   "webhooks:slack": "none",
   "webhooks:linear": "none",
+  "webhooks:pylon": "none",
   // Event processing and escalation's machine work: task-only, no caller.
   "triggers:process-event": "none",
   "triggers:process-pending": "none",
@@ -273,6 +275,7 @@ const CLOCKS = [
 /** Every action published as an MCP tool for a person's client. */
 const EXPECTED_MCP_TOOLS = [
   "slack:app-create",
+  "pylon:settings-edit",
   "bot-installation:manifest",
   "bot-installation:connect",
   "bot-installation:test",

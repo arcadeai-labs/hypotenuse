@@ -127,6 +127,50 @@ export const configPlatforms = {
       600_000,
     ),
   },
+  /** Pylon: the REST API per region, its webhook clock, and its limits. */
+  pylon: {
+    /** The US region's API origin; the test suite points it at the Pylon fake. */
+    apiUrlUs: await loadFromEnvIfSet(
+      "PYLON_API_URL_US",
+      "https://api.usepylon.com",
+    ),
+    /** The EU region's API origin. */
+    apiUrlEu: await loadFromEnvIfSet(
+      "PYLON_API_URL_EU",
+      "https://api.eu.usepylon.com",
+    ),
+    /** How far `X-Pylon-Timestamp` may be from now (Pylon's docs say five minutes). */
+    timestampToleranceSeconds: await loadFromEnvIfSet(
+      "PYLON_TIMESTAMP_TOLERANCE_SECONDS",
+      300,
+    ),
+    /** How long one API call may take. */
+    requestTimeoutMs: await loadFromEnvIfSet(
+      "PYLON_REQUEST_TIMEOUT_MS",
+      10_000,
+    ),
+    /**
+     * The per-installation bucket for writes (`/note`, `/reply`,
+     * `/draft-reply`, `PATCH /issues`): Pylon allows 30 a minute each. Its
+     * size…
+     */
+    writeBucketCapacity: await loadFromEnvIfSet(
+      "PYLON_WRITE_BUCKET_CAPACITY",
+      10,
+    ),
+    /** …how many it refills each second (0.5 = 30 a minute)… */
+    writeBucketRefillPerSecond: await loadFromEnvIfSet(
+      "PYLON_WRITE_BUCKET_REFILL_PER_SECOND",
+      0.5,
+    ),
+    /** …and how many only an acknowledgement may take. */
+    writeBucketReserve: await loadFromEnvIfSet("PYLON_WRITE_BUCKET_RESERVE", 2),
+    /** Retried webhook deliveries within this window count as one (Pylon sends no delivery id). */
+    dedupeWindowSeconds: await loadFromEnvIfSet(
+      "PYLON_DEDUPE_WINDOW_SECONDS",
+      600,
+    ),
+  },
 };
 
 declare module "keryx" {

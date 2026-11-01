@@ -20,6 +20,13 @@ import { promptCreate } from "./prompt-create";
 import { promptEdit } from "./prompt-edit";
 import { promptList } from "./prompt-list";
 import { promptRead } from "./prompt-read";
+import {
+  pylonAccountIssues,
+  pylonAccountView,
+  pylonContactView,
+  pylonIssueView,
+} from "./pylon-read";
+import { pylonIssueUpdate, pylonReplyToCustomer } from "./pylon-write";
 import { readLargeResult } from "./read-large-result";
 import { replyAndWait } from "./reply-and-wait";
 import { runCode } from "./run-code";
@@ -33,7 +40,8 @@ import { waitFor } from "./wait-for";
  * The tool registry: every tool a bot may be offered, by name. The built-in
  * tools, the memory tools, the MCP meta-tools, the prompt, goal, and skill
  * tools, code mode's `run_code`, and — in a Linear session only — the
- * `linear_*` tools register here.
+ * `linear_*` tools, and — on a Pylon issue only — the `pylon_*` tools
+ * register here.
  */
 
 /** Every registered tool. */
@@ -127,6 +135,12 @@ for (const tool of [
   escalateToHuman,
   linearIssueView,
   linearCommentCreate,
+  pylonIssueView,
+  pylonAccountView,
+  pylonAccountIssues,
+  pylonContactView,
+  pylonIssueUpdate,
+  pylonReplyToCustomer,
 ] as ToolDefinition[]) {
   registerTool(tool);
 }

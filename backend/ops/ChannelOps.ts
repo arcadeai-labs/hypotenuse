@@ -54,6 +54,7 @@ export async function upsertPlatformChannel(
     isPrivate: ref.isPrivate,
     isShared: ref.isShared,
     parentExternalId: ref.parentExternalId ?? null,
+    ...(ref.details ? { details: ref.details } : {}),
   };
   const [row] = await tx
     .insert(channels)

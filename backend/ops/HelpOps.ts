@@ -128,6 +128,8 @@ export async function raiseHelpRequest(
       tx,
       conversation,
       "I've asked a person on the team.",
+      "normal",
+      { escalation: true },
     );
     outboxWritten = Boolean(status);
     return row;

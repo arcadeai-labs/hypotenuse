@@ -1,4 +1,5 @@
-import { type ActionParams, HTTP_METHOD } from "keryx";
+import { eq } from "drizzle-orm";
+import { type ActionParams, ErrorType, HTTP_METHOD, TypedError } from "keryx";
 import { z } from "zod";
 import {
   AuditedAction,
@@ -22,6 +23,8 @@ import {
   serializeMemoryDocument,
   writeVersion,
 } from "../../ops/MemoryOps";
+import { customerNamedIn } from "../../ops/PromotionGuardOps";
+import { channels } from "../../schema/channels";
 
 /**
  * `memory:promote` — copy a channel's memory into project memory, where
@@ -87,6 +90,21 @@ export class MemoryPromote extends AuditedAction {
       params.versionId,
     );
     if (!source || source.tombstone) throw memoryNotFound();
+    // A customer's facts stay with that customer: a fact from a support
+    // account's memory that names the customer is not promoted.
+    const [channel] = await tx
+      .select()
+      .from(channels)
+      .where(eq(channels.id, params.channelId))
+      .limit(1);
+    const named = channel ? customerNamedIn(channel, source.content) : null;
+    if (named) {
+      throw new TypedError({
+        message: `This fact names the customer (“${named}”), and a customer's facts stay in that customer's memory. Write a version that names no customer — no company name and no domain — and promote that instead.`,
+        type: ErrorType.CONNECTION_ACTION_PARAM_VALIDATION,
+        key: "path",
+      });
+    }
     const target = keyIn(
       access.readSet,
       "project",

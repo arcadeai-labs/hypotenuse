@@ -267,7 +267,14 @@ message edited in place, and Block Kit buttons out, through one Web API client w
 link and installed with `actor=app` and PKCE; signed webhooks in, answered 200 even for an installation that is not
 active; an agent session is a conversation and the issue's project (or team) its channel; thoughts, the session's
 plan, actions, elicitations, and responses out, through one GraphQL client that refreshes tokens under the row lock
-and paces each installation with a bucket that keeps a reserve for acknowledgements. Pylon is next.
+and paces each installation with a bucket that keeps a reserve for acknowledgements. **Pylon** is built
+([phase 16](./plans/phase-16-pylon.md)): each bot is a Pylon API token with its own identity, fed by a webhook its
+admin wires to four Triggers whose bodies carry ids only; the issue, its account, and the message are read before
+processing (`hydrate`), outside the transaction; an issue is a conversation and its account — the customer — its
+channel; everything the bot writes is an internal note in one thread per conversation, and a customer-facing reply is
+only the `pylon_reply_to_customer` tool under the bot's customer reply policy (`never` by default; `approve` drafts it
+for a person; `auto-on-low-risk` asks the `fast` model first). A customer's message is `untrusted`: it never decides
+an approval.
 
 - **Ingress** (`webhooks:<type>`) reads the routing key from the raw path, verifies the signature over the raw bytes,
   records a `trigger_events` row deduped on the platform's delivery id, answers, and enqueues; every routing or

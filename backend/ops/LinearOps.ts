@@ -22,7 +22,7 @@ import { runRedisScript } from "./RedisScriptOps";
  *   `X-RateLimit-Requests-Reset` (epoch ms) — never a 429
  *   (https://linear.app/developers/rate-limiting).
  * - **Pacing.** Every call made for an installation first takes a token from
- *   its bucket in Redis (`linear-bucket.lua`). The bucket keeps a reserve
+ *   its bucket in Redis (`reserve-bucket.lua`). The bucket keeps a reserve
  *   only acknowledgements and a stop's answer may take, so a busy bot can
  *   always tell Linear it heard a new session inside Linear's ten seconds.
  *   An empty bucket, like `RATELIMITED`, is a {@link LinearApiError} carrying
@@ -180,7 +180,7 @@ export async function takeLinearToken(
     config.platforms.linear;
   return Number(
     await runRedisScript(
-      "linear-bucket",
+      "reserve-bucket",
       [`linear:bucket:${installationId}`],
       [
         bucketCapacity,
