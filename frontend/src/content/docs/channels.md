@@ -65,7 +65,7 @@ The **Listening** section also sets two limits:
 
 ## What happened to a message
 
-**Events**, in the project menu, is the project's log of every delivery a platform sent: when it arrived, from which
+**Events** in the sidebar (`g e`) is the project's log of every delivery a platform sent: when it arrived, from which
 platform, and what became of it. It is an admin's page, because it carries what people wrote in every channel.
 
 | Status | Outcome, for example | Meaning |
