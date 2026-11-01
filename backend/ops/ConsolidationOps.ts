@@ -72,7 +72,7 @@ export const consolidationSchema = z.object({
 });
 
 /** The instruction the consolidating model gets. */
-const INSTRUCTIONS = `You keep a bot's memory of one channel. Read the new part of a conversation and extract the durable facts worth remembering for later conversations in this channel: decisions, commitments, names and roles, preferences, how things are done, identifiers, and dates. Skip small talk, anything only true during this conversation, and opinions about the conversation itself. Write facts, not reflections or summaries.
+const INSTRUCTIONS = `You keep the memory of one channel, shared by every bot working in it. Read the new part of a conversation and extract the durable facts worth remembering for later conversations in this channel: decisions, commitments, names and roles, preferences, how things are done, identifiers, and dates. Skip small talk, anything only true during this conversation, and opinions about the conversation itself. Write facts, not reflections or summaries.
 
 Each fact gets a path under facts/ (lowercase words joined by dashes, ending in .md), a statement that stands alone, and the [seq] numbers that show it. When a new fact corrects or updates an existing one, set supersedes to the existing fact's path. Return no facts when nothing is worth keeping.`;
 

@@ -63,7 +63,7 @@ async function botWithChannel(
   return { botId: bot.id, channelId: conversation.channelId };
 }
 
-test("an admin writes, finds, edits, and compares project memory, and promotes a bot's channel memory into it", async ({
+test("an admin writes, finds, edits, and compares project memory, and promotes a channel's memory into it", async ({
   page,
 }) => {
   const admin = await signUpApi(page.request, "Memory Admin");
@@ -72,19 +72,25 @@ test("an admin writes, finds, edits, and compares project memory, and promotes a
   const { botId, channelId } = await botWithChannel(page.request, admin);
   await api(page.request, "PUT", `/project/${projectId}/memory/document`, {
     scope: "channel",
-    botId,
     channelId,
     path: "facts/drawbridge.md",
     content: "# Drawbridge\n\nThe drawbridge opens at dawn.",
     changeNote: "Told in the castle channel",
   });
 
-  // Project memory is a live destination; with no embedding model, it says
-  // search matches words only.
+  // Project memory is a live destination, titled as such, with the channels
+  // beside it; with no embedding model, it says search matches words only.
   await page.goto("/status");
   await page.getByTestId("nav-memory").click();
   await expect(page).toHaveURL(/\/memory$/);
   await expect(page.getByTestId("memory-empty")).toBeVisible(LANDED);
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText(
+    "Project memory",
+  );
+  await expect(page.getByTestId("memory-scope-project")).toHaveAttribute(
+    "aria-current",
+    "page",
+  );
   await expect(page.getByTestId("memory-index-banner")).toContainText(
     "Search matches words only",
   );
@@ -148,16 +154,23 @@ test("an admin writes, finds, edits, and compares project memory, and promotes a
     "Pinned: never fades",
   );
 
-  // The bot's page links to its memory, which opens on its one channel.
+  // The bot's page opens the same explorer; the channel is beside project
+  // memory, and its page is titled as a channel's.
   await page.goto(`/bots/${botId}`);
   await page.getByTestId("bot-memory-explorer").click();
+  await expect(page).toHaveURL(/\/memory$/, LANDED);
+  await page.getByTestId(`memory-channel-${channelId}`).click();
   await expect(page).toHaveURL(
-    new RegExp(`/bots/${botId}/memory/${channelId}$`),
+    new RegExp(`/memory/channels/${channelId}$`),
     LANDED,
   );
   await expect(page.getByTestId(`memory-channel-${channelId}`)).toContainText(
     "castle",
   );
+  await expect(page.getByRole("heading", { level: 1 })).toContainText(
+    "Channel memory",
+  );
+  await expect(page.getByTestId("memory-channel-title")).toHaveText("castle");
   await page.getByTestId("memory-row-facts/drawbridge.md").click();
   await expect(page.getByTestId("memory-document-title")).toHaveText(
     "facts/drawbridge.md",
@@ -176,8 +189,16 @@ test("an admin writes, finds, edits, and compares project memory, and promotes a
   );
   await expect(page.getByTestId("memory-provenance-promoted")).toHaveAttribute(
     "href",
-    `/bots/${botId}/memory/${channelId}`,
+    `/memory/channels/${channelId}`,
   );
+
+  // An old address of a bot's memory of a channel lands on that channel.
+  await page.goto(`/bots/${botId}/memory/${channelId}`);
+  await expect(page).toHaveURL(
+    new RegExp(`/memory/channels/${channelId}$`),
+    LANDED,
+  );
+  await page.goto("/memory/document?path=facts%2Fdrawbridge.md");
 
   // Forget it: it leaves the list, and comes back under Show forgotten.
   await page.getByTestId("memory-forget").click();
@@ -220,6 +241,6 @@ test("a bot's memory half-lives are set on its page", async ({ page }) => {
   );
   await expect(page.getByTestId("bot-memory-link")).toHaveAttribute(
     "href",
-    `/bots/${bot.id}/memory`,
+    "/memory",
   );
 });

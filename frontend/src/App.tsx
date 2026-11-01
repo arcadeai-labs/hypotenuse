@@ -38,6 +38,7 @@ import { HelpInboxPage } from "./pages/help/HelpInboxPage";
 import { HelpRequestPage } from "./pages/help/HelpRequestPage";
 import { InvitesPage } from "./pages/InvitesPage";
 import { HomePage } from "./pages/marketing/HomePage";
+import { LegacyBotMemoryRedirect } from "./pages/memory/LegacyBotMemoryRedirect";
 import { MemoryDocumentPage } from "./pages/memory/MemoryDocumentPage";
 import { MemoryExplorerPage } from "./pages/memory/MemoryExplorerPage";
 import { NewOrganizationPage } from "./pages/NewOrganizationPage";
@@ -128,19 +129,27 @@ export function App() {
                   />
                   <Route
                     path="/bots/:botId/memory"
-                    element={<MemoryExplorerPage />}
+                    element={<LegacyBotMemoryRedirect />}
                   />
                   <Route
                     path="/bots/:botId/memory/:channelId"
-                    element={<MemoryExplorerPage />}
+                    element={<LegacyBotMemoryRedirect />}
                   />
                   <Route
                     path="/bots/:botId/memory/:channelId/document"
-                    element={<MemoryDocumentPage />}
+                    element={<LegacyBotMemoryRedirect document />}
                   />
                   <Route path="/memory" element={<MemoryExplorerPage />} />
                   <Route
                     path="/memory/document"
+                    element={<MemoryDocumentPage />}
+                  />
+                  <Route
+                    path="/memory/channels/:channelId"
+                    element={<MemoryExplorerPage />}
+                  />
+                  <Route
+                    path="/memory/channels/:channelId/document"
                     element={<MemoryDocumentPage />}
                   />
                   <Route

@@ -10,7 +10,7 @@ import { scrubParams } from "../../ops/AuditOps";
 import { summarizeText } from "../../ops/ConversationOps";
 import { idInput } from "../../ops/InputOps";
 import {
-  botChannelInputs,
+  channelInputs,
   documentKey,
   resolveMemoryAccess,
   scopeNameInput,
@@ -31,13 +31,13 @@ import {
 /**
  * `memory:write` — a person writes a memory document, as a new version: to
  * correct what a bot learned, or to tell every bot something. Channel memory
- * needs the bot's write access; project memory needs admin standing. The
+ * needs write access to a bot working in the channel; project memory needs admin standing. The
  * audit row keeps the text's length and digest, never the words.
  */
 export class MemoryWrite extends AuditedAction {
   name = "memory:write";
   description =
-    "Write a memory document as a new version (earlier versions are kept). scope project writes memory every bot of the project shares (admin only); scope channel (with botId and channelId) writes one bot's memory of one channel (needs write access to the bot). Pass baseVersionId to refuse the write if someone changed the document since you read it. Requires membership.";
+    "Write a memory document as a new version (earlier versions are kept). scope project writes memory every bot of the project shares (admin only); scope channel (with channelId) writes the memory of one channel, which every bot working there shares (needs write access to a bot working in the channel). Pass baseVersionId to refuse the write if someone changed the document since you read it. Requires membership.";
   middleware = [ProjectMemberMiddleware()];
   web = {
     route: "/project/:projectId/memory/document",
@@ -46,7 +46,7 @@ export class MemoryWrite extends AuditedAction {
   inputs = z.object({
     projectId: idInput("The project"),
     scope: scopeNameInput,
-    ...botChannelInputs,
+    ...channelInputs,
     path: memoryPathInput,
     content: z
       .string()

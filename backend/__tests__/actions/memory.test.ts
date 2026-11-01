@@ -21,7 +21,9 @@ import { call, HOOK_TIMEOUT, type TestUser } from "../setup";
 
 /**
  * RBAC and audit for every memory action. Toadsworth's lists: read by
- * `operators` and `viewers`, written by `operators`.
+ * `operators` and `viewers`, written by `operators`. The channel is
+ * Toadsworth's own API channel, so it is the only bot working there; a
+ * platform channel shared by several bots is in `memory/shared-channel.test.ts`.
  *
  * | Who | Channel read | Channel write | Project read | Project write | Promote |
  * |---|---|---|---|---|---|
@@ -46,7 +48,7 @@ beforeAll(async () => {
   );
   if (edited.status !== 200) throw new Error(JSON.stringify(edited.body));
   channelId = await channelOf(await botCalls(stage, "lobby", []));
-  channel = { scope: "channel", botId: stage.botId, channelId };
+  channel = { scope: "channel", channelId };
 }, HOOK_TIMEOUT);
 
 afterEach(async () => {
@@ -83,7 +85,7 @@ function act(
   );
 }
 
-describe("channel memory follows the bot's access lists", () => {
+describe("channel memory follows the access lists of the bot working there", () => {
   test("read needs the bot's read list; write, forget, and pin its write list", async () => {
     const { peach, mario, luigi, toad, bowser } = stage.u;
     const doc = { ...channel, path: "facts/gate.md" };
@@ -122,13 +124,22 @@ describe("channel memory follows the bot's access lists", () => {
         user,
       );
       expect(search.status, `${user.email} search`).toBe(status);
-      const channels = await getMemory(
+      const channels = await getMemory<{ channels: { id: number }[] }>(
         stage,
-        `bot/${stage.botId}/memory/channels`,
+        "memory/channels",
         {},
         user,
       );
-      expect(channels.status, `${user.email} channels`).toBe(status);
+      // Every member lists channels, and sees only those they may read.
+      expect(channels.status, `${user.email} channels`).toBe(
+        status === 403 ? 403 : 200,
+      );
+      if (status !== 403) {
+        expect(
+          channels.body.channels.some((c) => c.id === channelId),
+          `${user.email} sees the channel`,
+        ).toBe(status === 200);
+      }
     }
 
     expect(
@@ -155,14 +166,14 @@ describe("channel memory follows the bot's access lists", () => {
     );
   });
 
-  test("channel scope needs a bot and its own channel", async () => {
+  test("channel scope needs a channel, and another bot's channel follows that bot", async () => {
     const missing = await getMemory(stage, "memory", {
       scope: "channel",
-      botId: stage.botId,
     });
     expect(missing.status).toBe(406);
     expect(missing.body.error?.key).toBe("channelId");
-    // Another bot's API channel is not this bot's.
+    // Kamek's API channel follows Kamek, whose lists are open: Toad, who may
+    // not read Toadsworth, reads it.
     const other = await call<{ bot: { id: number } }>(
       stage.u.url,
       stage.u.peach,
@@ -180,12 +191,29 @@ describe("channel memory follows the bot's access lists", () => {
       `/project/${stage.u.projectId}/bot/${other.body.bot.id}/conversation`,
       { text: "Hello", channelKey: "lobby" },
     );
-    const foreign = await getMemory(stage, "memory", {
+    const kameks = {
       scope: "channel",
-      botId: stage.botId,
       channelId: started.body.conversation.channelId,
+    };
+    expect(
+      (await getMemory(stage, "memory", kameks, stage.u.toad)).status,
+    ).toBe(200);
+    expect(
+      (
+        await getMemory(
+          stage,
+          "memory",
+          { scope: "channel", channelId },
+          stage.u.toad,
+        )
+      ).status,
+    ).toBe(404);
+    // A channel of no project of the caller's is not found.
+    const nowhere = await getMemory(stage, "memory", {
+      scope: "channel",
+      channelId: 999_999,
     });
-    expect(foreign.status).toBe(404);
+    expect(nowhere.status).toBe(404);
   });
 });
 
@@ -223,7 +251,7 @@ describe("project memory", () => {
     });
   });
 
-  test("promotion needs the bot's write list and admin standing", async () => {
+  test("promotion needs the channel's write access and admin standing", async () => {
     const { peach, mario } = stage.u;
     const doc = { ...channel, path: "facts/drawbridge.md" };
     await writeMemory(
@@ -231,7 +259,7 @@ describe("project memory", () => {
       { ...doc, content: "The drawbridge lowers at noon." },
       mario,
     );
-    const promote = { botId: stage.botId, channelId, path: doc.path };
+    const promote = { channelId, path: doc.path };
     expect(
       (await act(mario, "POST", "memory/document/promote", promote)).status,
     ).toBe(403);
@@ -246,10 +274,7 @@ describe("project memory", () => {
         path: "facts/castle/drawbridge.md",
         content: "The drawbridge lowers at noon.",
         sourceType: "promotion",
-        provenance: {
-          promotedFromBotId: stage.botId,
-          promotedFromChannelId: channelId,
-        },
+        provenance: { promotedFromChannelId: channelId },
       },
       promotedFrom: { scope: "channel", path: doc.path },
     });
@@ -283,7 +308,6 @@ describe("every write is audited, and the words stay out of the audit row", () =
     await writeMemory(stage, { ...doc, content: secret }, peach);
     await act(peach, "POST", "memory/document/pin", doc);
     await act(peach, "POST", "memory/document/promote", {
-      botId: stage.botId,
       channelId,
       path: doc.path,
     });

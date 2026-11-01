@@ -13,7 +13,7 @@ import {
 import type { SessionImpl } from "../../middleware/session";
 import { idInput } from "../../ops/InputOps";
 import {
-  botChannelInputs,
+  channelInputs,
   resolveMemoryAccess,
   scopeChoiceParam,
 } from "../../ops/MemoryAccessOps";
@@ -28,7 +28,7 @@ import { searchMemory } from "../../ops/MemorySearchOps";
 export class MemorySearch implements Action {
   name = "memory:search";
   description =
-    "Search memory the way a bot does: semantic and keyword ranking fused, weighed by how much each memory has faded. Returns hits with path, snippet, score, relevance, decay, and each side's rank. scope project searches shared memory; channel or both (with botId and channelId) include one bot's memory of one channel. Requires membership; channel memory also needs read access to the bot.";
+    "Search memory the way a bot does: semantic and keyword ranking fused, weighed by how much each memory has faded. Returns hits with path, snippet, score, relevance, decay, and each side's rank. scope project searches shared memory; channel or both (with channelId) include the memory of one channel, which every bot working there shares. Requires membership; channel memory also needs read access to a bot working in the channel.";
   middleware = [ProjectMemberMiddleware()];
   web = {
     route: "/project/:projectId/memory/search",
@@ -38,7 +38,7 @@ export class MemorySearch implements Action {
     projectId: idInput("The project"),
     query: z.string().trim().min(1).max(500).describe("What to find"),
     scope: scopeChoiceParam.default("project"),
-    ...botChannelInputs,
+    ...channelInputs,
     pathPrefix: memoryPathPrefixInput.optional(),
     limit: z.coerce
       .number()

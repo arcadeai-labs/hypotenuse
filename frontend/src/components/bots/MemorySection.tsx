@@ -20,9 +20,10 @@ export function parseHalfLife(text: string): number | null {
 }
 
 /**
- * How fast the bot's memories fade with disuse: the half-life of its channel
- * memory, which the decay clock eventually forgets, and of the project's
- * shared memory as this bot ranks it, which only fades in ranking. Both save
+ * How fast memories fade with disuse as this bot ranks them: the half-life of
+ * channel memory (shared by every bot in a channel, and forgotten by the decay
+ * clock once it has faded under the project's longest channel half-life), and
+ * of the project's shared memory, which only fades in ranking. Both save
  * together; the explorer is a link away.
  * @param props - See {@link BotSectionProps}.
  * @returns The section.
@@ -75,9 +76,11 @@ export function MemorySection({
         <>
           A memory nobody uses fades: it loses half its weight in search every
           half-life, and a channel memory that fades far enough unread is
-          forgotten. Pinned memories never fade. See what {bot.name} remembers
-          in its{" "}
-          <Link to={`/bots/${bot.id}/memory`} data-testid="bot-memory-link">
+          forgotten. Pinned memories never fade. A channel's memory is shared by
+          every bot working there; {bot.name} ranks it by these half-lives, and
+          the decay clock forgets a channel memory only once it has faded for
+          the project's slowest-fading bot. See it all in the{" "}
+          <Link to="/memory" data-testid="bot-memory-link">
             memory explorer
           </Link>
           .

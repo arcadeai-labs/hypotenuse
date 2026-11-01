@@ -1,19 +1,17 @@
 /**
  * `hypotenuse memory` — what the selected project's bots remember
  * (`memory:*`): search it as a bot does, list and read documents and their
- * history, correct or forget one, pin it so it never fades, promote a bot's
- * channel memory to project memory, and re-embed after the embedding model
+ * history, correct or forget one, pin it so it never fades, promote a
+ * channel's memory to project memory, and re-embed after the embedding model
  * changes.
  *
- * A document lives in one of two scopes. With neither `--bot` nor `--channel`
- * a command acts on **project** memory, which every bot of the project
- * shares; with both it acts on **channel** memory, one bot's memory of one
- * channel. `search` and `list` also take `--scope both`.
+ * A document lives in one of two scopes. Without `--channel` a command acts on
+ * **project** memory, which every bot of the project shares; with it, on
+ * **channel** memory, which every bot working in that channel shares.
+ * `search` and `list` also take `--scope both`.
  */
 import type { Command } from "commander";
-import { resolveBotId } from "../api/resolve";
 import {
-  type CliContext,
   emit,
   type Paginated,
   pageFooter,
@@ -39,7 +37,6 @@ export interface MemoryDocument {
   id: number;
   projectId: number;
   scope: ScopeName;
-  botId: number | null;
   channelId: number | null;
   path: string;
   versionId: number;
@@ -97,19 +94,19 @@ interface MemoryChannel {
   botId: number | null;
   createdAt: number;
   documents: number;
+  bots: { id: number; name: string; slug: string }[];
+  canWrite: boolean;
 }
 
 /** The scope flags every memory command takes, as commander parses them. */
 interface ScopeFlags {
-  bot?: string;
   channel?: string;
   scope?: string;
 }
 
-/** Where a command acts: a scope, and the bot and channel channel scope needs. */
+/** Where a command acts: a scope, and the channel channel scope needs. */
 export interface Target {
   scope: ScopeName;
-  botId?: number;
   channelId?: number;
 }
 
@@ -125,7 +122,7 @@ const LINE_WIDTH = 80;
 export function channelIdOf(raw: string): number {
   if (!/^\d+$/.test(raw.trim()) || Number(raw) < 1) {
     throw new Error(
-      `--channel takes a channel's id (a number; \`hypotenuse memory channels --bot <bot>\` lists them); got "${raw}".`,
+      `--channel takes a channel's id (a number; \`hypotenuse memory channels\` lists them); got "${raw}".`,
     );
   }
   return Number(raw);
@@ -148,38 +145,29 @@ export function versionIdOf(raw: string, flag: string): number {
 }
 
 /**
- * Which scope one document command acts on: project with neither `--bot` nor
- * `--channel`, channel with both. One without the other is refused, because
- * channel memory is always one bot's memory of one channel.
- * @param flags - `--bot` and `--channel`.
+ * Which scope one document command acts on: channel with `--channel`,
+ * project without it.
+ * @param flags - `--channel`.
  * @returns The scope.
- * @throws {Error} When only one of the two is given.
  */
 export function documentScope(flags: ScopeFlags): ScopeName {
-  const bot = flags.bot !== undefined;
-  const channel = flags.channel !== undefined;
-  if (bot && channel) return "channel";
-  if (!bot && !channel) return "project";
-  throw new Error(
-    "Channel memory is one bot's memory of one channel: pass both --bot and --channel, or neither for project memory.",
-  );
+  return flags.channel !== undefined ? "channel" : "project";
 }
 
 /**
  * Which scopes `search` or `list` look in. `--scope` decides when given;
- * otherwise channel with `--bot` and `--channel`, project with neither.
+ * otherwise channel with `--channel`, project without it.
  *
- * | `--scope` | `--bot` + `--channel` | Looks in |
+ * | `--scope` | `--channel` | Looks in |
  * |---|---|---|
- * | absent | neither | project |
- * | absent | both | channel |
- * | absent | one of them | refused |
- * | `project` | any | project (a `--bot` sets the half-lives decay is read with) |
- * | `channel` or `both` | both | that |
- * | `channel` or `both` | not both | refused |
- * @param flags - `--scope`, `--bot`, and `--channel`.
+ * | absent | absent | project |
+ * | absent | given | channel |
+ * | `project` | any | project |
+ * | `channel` or `both` | given | that |
+ * | `channel` or `both` | absent | refused |
+ * @param flags - `--scope` and `--channel`.
  * @returns The scope choice.
- * @throws {Error} For an unknown scope, or a channel scope without both flags.
+ * @throws {Error} For an unknown scope, or a channel scope without `--channel`.
  */
 export function searchScope(flags: ScopeFlags): ScopeChoice {
   if (flags.scope === undefined) return documentScope(flags);
@@ -189,80 +177,55 @@ export function searchScope(flags: ScopeFlags): ScopeChoice {
     );
   }
   const scope = flags.scope as ScopeChoice;
-  if (
-    scope !== "project" &&
-    (flags.bot === undefined || flags.channel === undefined)
-  ) {
+  if (scope !== "project" && flags.channel === undefined) {
     throw new Error(
-      `--scope ${scope} reads one bot's memory of one channel: pass --bot and --channel too.`,
+      `--scope ${scope} reads one channel's memory: pass --channel too (\`hypotenuse memory channels\` lists them).`,
     );
   }
   return scope;
 }
 
 /**
- * Resolve `--bot` (an id or slug) and `--channel` (an id) into ids.
- * @param ctx - The context.
- * @param projectId - The project.
+ * Parse `--channel` (an id), when given.
  * @param flags - The flags.
- * @returns The ids given, undefined where a flag was not.
+ * @returns The channel id, or nothing.
  */
-async function botAndChannel(
-  ctx: CliContext,
-  projectId: number,
-  flags: ScopeFlags,
-): Promise<{ botId?: number; channelId?: number }> {
-  const channelId =
-    flags.channel !== undefined ? channelIdOf(flags.channel) : undefined;
-  const botId =
-    flags.bot !== undefined
-      ? await resolveBotId(ctx.signedInClient(), projectId, flags.bot)
-      : undefined;
-  return { botId, channelId };
+function channelOf(flags: ScopeFlags): { channelId?: number } {
+  return flags.channel !== undefined
+    ? { channelId: channelIdOf(flags.channel) }
+    : {};
 }
 
 /**
- * Resolve where a document command acts.
- * @param ctx - The context.
- * @param projectId - The project.
- * @param flags - `--bot` and `--channel`.
- * @returns The scope and the ids it needs.
+ * Where a document command acts.
+ * @param flags - `--channel`.
+ * @returns The scope and the channel it needs.
  */
-async function documentTarget(
-  ctx: CliContext,
-  projectId: number,
-  flags: ScopeFlags,
-): Promise<Target> {
-  const scope = documentScope(flags);
-  return { scope, ...(await botAndChannel(ctx, projectId, flags)) };
+function documentTarget(flags: ScopeFlags): Target {
+  return { scope: documentScope(flags), ...channelOf(flags) };
 }
 
 /**
- * Declare `--bot` and `--channel` on a command.
+ * Declare `--channel` on a command.
  * @param command - The command.
  * @returns The same command.
  */
 function withScope(command: Command): Command {
-  return command
-    .option(
-      "--bot <bot>",
-      "with --channel: the bot whose channel memory this is (id or slug)",
-    )
-    .option(
-      "--channel <id>",
-      "with --bot: the channel's id (`memory channels --bot` lists them)",
-    );
+  return command.option(
+    "--channel <id>",
+    "a channel's memory, shared by every bot working there (`memory channels` lists them); without it, project memory",
+  );
 }
 
 /**
- * Declare `--scope` beside `--bot` and `--channel`, for `search` and `list`.
+ * Declare `--scope` beside `--channel`, for `search` and `list`.
  * @param command - The command.
  * @returns The same command.
  */
 function withScopeChoice(command: Command): Command {
   return withScope(command).option(
     "--scope <scope>",
-    "project, channel, or both (default: channel with --bot and --channel, else project)",
+    "project, channel, or both (default: channel with --channel, else project)",
   );
 }
 
@@ -305,9 +268,9 @@ function sourceText(doc: MemoryDocument): string {
   }
   if (
     doc.sourceType === "promotion" &&
-    typeof p.promotedFromBotId === "number"
+    typeof p.promotedFromChannelId === "number"
   ) {
-    return `promotion (bot ${p.promotedFromBotId}, channel ${String(p.promotedFromChannelId ?? "?")})`;
+    return `promotion (channel ${p.promotedFromChannelId})`;
   }
   return doc.sourceType;
 }
@@ -340,7 +303,6 @@ export function documentDetail(
     `decay         ${decayText(doc.decay, doc.pinned)}`,
     `used          ${doc.accessCount} times, last ${when(doc.lastAccessedAt)}`,
   ];
-  if (doc.scope === "channel") lines.push(`bot           ${doc.botId ?? "-"}`);
   if (standing) {
     const can = [
       standing.canWrite ? "change, forget, and pin it" : "read it",
@@ -394,7 +356,7 @@ export function registerMemoryCommands(program: Command): void {
   const memory = program
     .command("memory")
     .description(
-      "What the selected project's bots remember: project memory, or with --bot and --channel one bot's memory of one channel",
+      "What the selected project's bots remember: project memory, or with --channel one channel's memory, shared by every bot working there",
     );
 
   withScopeChoice(
@@ -418,7 +380,7 @@ export function registerMemoryCommands(program: Command): void {
           ? parseNumber(flags.limit, "--limit")
           : undefined;
       const projectId = await ctx.projectId();
-      const ids = await botAndChannel(ctx, projectId, flags);
+      const ids = channelOf(flags);
       const result = await ctx
         .signedInClient()
         .request<SearchResult>("GET", `/project/${projectId}/memory/search`, {
@@ -468,7 +430,7 @@ export function registerMemoryCommands(program: Command): void {
       };
       const scope = searchScope(flags);
       const projectId = await ctx.projectId();
-      const ids = await botAndChannel(ctx, projectId, flags);
+      const ids = channelOf(flags);
       const result = await ctx
         .signedInClient()
         .request<ListResult>("GET", `/project/${projectId}/memory`, {
@@ -526,7 +488,7 @@ export function registerMemoryCommands(program: Command): void {
           ? versionIdOf(flags.versionId, "--version-id")
           : undefined;
       const projectId = await ctx.projectId();
-      const target = await documentTarget(ctx, projectId, flags);
+      const target = documentTarget(flags);
       const result = await ctx.signedInClient().request<{
         document: MemoryDocument;
         standing: { canWrite: boolean; canPromote: boolean };
@@ -550,7 +512,7 @@ export function registerMemoryCommands(program: Command): void {
     await runCommand(this, async (ctx) => {
       const flags = this.opts() as ScopeFlags;
       const projectId = await ctx.projectId();
-      const target = await documentTarget(ctx, projectId, flags);
+      const target = documentTarget(flags);
       const result = await ctx
         .signedInClient()
         .request<Paginated<"versions", MemoryDocument>>(
@@ -586,18 +548,15 @@ export function registerMemoryCommands(program: Command): void {
     memory
       .command("channels")
       .description(
-        "List the channels a bot works in, and how many documents it remembers about each",
-      )
-      .requiredOption("--bot <bot>", "the bot: id or slug"),
+        "List the channels whose memory you can read, how many documents each holds, and the bots working there",
+      ),
   ).action(async function (this: Command) {
     await runCommand(this, async (ctx) => {
-      const flags = this.opts() as { bot: string };
       const client = ctx.signedInClient();
       const projectId = await ctx.projectId();
-      const botId = await resolveBotId(client, projectId, flags.bot);
       const result = await client.request<Paginated<"channels", MemoryChannel>>(
         "GET",
-        `/project/${projectId}/bot/${botId}/memory/channels`,
+        `/project/${projectId}/memory/channels`,
         { query: pageQuery(this) },
       );
       emit(
@@ -610,12 +569,14 @@ export function registerMemoryCommands(program: Command): void {
               type: c.type,
               name: c.name,
               documents: c.documents,
+              bots: c.bots.map((b) => b.slug).join(", ") || "-",
             })),
             [
               { key: "id" },
               { key: "type" },
               { key: "name", maxWidth: 40 },
               { key: "documents" },
+              { key: "bots", maxWidth: 40 },
             ],
           ) + pageFooter(result.pagination),
       );
@@ -656,7 +617,7 @@ export function registerMemoryCommands(program: Command): void {
           : undefined;
       const content = await documentText(flags.text);
       const projectId = await ctx.projectId();
-      const target = await documentTarget(ctx, projectId, flags);
+      const target = documentTarget(flags);
       const result = await ctx
         .signedInClient()
         .request<{ document: MemoryDocument }>(
@@ -694,7 +655,7 @@ export function registerMemoryCommands(program: Command): void {
     await runCommand(this, async (ctx) => {
       const flags = this.opts() as ScopeFlags & { reason?: string };
       const projectId = await ctx.projectId();
-      const target = await documentTarget(ctx, projectId, flags);
+      const target = documentTarget(flags);
       const result = await ctx
         .signedInClient()
         .request<{ document: MemoryDocument }>(
@@ -716,7 +677,7 @@ export function registerMemoryCommands(program: Command): void {
     await runCommand(this, async (ctx) => {
       const flags = this.opts() as ScopeFlags & { unpin?: boolean };
       const projectId = await ctx.projectId();
-      const target = await documentTarget(ctx, projectId, flags);
+      const target = documentTarget(flags);
       const result = await ctx
         .signedInClient()
         .request<{ document: MemoryDocument }>(
@@ -736,10 +697,9 @@ export function registerMemoryCommands(program: Command): void {
   memory
     .command("promote")
     .description(
-      "Copy a bot's channel memory document into project memory, where every bot reads it",
+      "Copy a channel memory document into project memory, where every bot reads it",
     )
     .argument("<path>", "the channel document's path")
-    .requiredOption("--bot <bot>", "the bot whose channel memory it is")
     .requiredOption("--channel <id>", "the channel's id")
     .option("--to <path>", "its path in project memory (default: the same)")
     .option(
@@ -750,7 +710,6 @@ export function registerMemoryCommands(program: Command): void {
     .action(async function (this: Command, path: string) {
       await runCommand(this, async (ctx) => {
         const flags = this.opts() as {
-          bot: string;
           channel: string;
           to?: string;
           versionId?: string;
@@ -761,7 +720,7 @@ export function registerMemoryCommands(program: Command): void {
             ? versionIdOf(flags.versionId, "--version-id")
             : undefined;
         const projectId = await ctx.projectId();
-        const ids = await botAndChannel(ctx, projectId, flags);
+        const ids = channelOf(flags);
         const result = await ctx.signedInClient().request<{
           document: MemoryDocument;
           promotedFrom: MemoryDocument;

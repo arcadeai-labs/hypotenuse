@@ -315,7 +315,8 @@ bun dev                                          # backend :8080, frontend :3000
 - **A conversation is `working`, `hibernating`, `waiting`, or `ended`.** `waiting` always names what it waits on
   (an answer, an approval, the team via a help request, a sandbox, a timer). A tick ends in a terminal tool; a model that stops without one is
   nudged once, then the turn fails. A tick never ends silently.
-- **Memory has two scopes and decays.** Channel memory belongs to one channel and fades with disuse; project memory
+- **Memory has two scopes and decays.** Channel memory belongs to one channel, is shared by every bot working there,
+  and fades with disuse; project memory
   is shared by every bot and channel in the project and fades slowly. Facts are promoted from channel to project
   with their provenance.
 - **Tools are disclosed progressively.** A bot sees `mcp_search` / `mcp_info` / `mcp_exec`, not every tool of every

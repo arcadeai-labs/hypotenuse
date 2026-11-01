@@ -350,6 +350,24 @@ promotion, it is found in both.
 
 ## Learnings from the build
 
+> **Channel memory is now shared by every bot working in a channel** (migration `0014`). Below, wherever a channel
+> memory is "a bot's memory of one channel", read "a channel's memory": the key lost its bot. Translation:
+>
+> | Below | Now |
+> |---|---|
+> | `memory_documents.bot_id`; the key `(project, scope, bot, channel, path)` | no `bot_id`; the key is `(project, scope, channel, path)`. The migration kept, where two bots held the same path in one channel, the newest live version current and the others as history, and the document keeps any pin |
+> | `MemoryReadSet.channel = { botId, channelId }`; `DocumentKey.botId` | `{ channelId }`; no `botId` |
+> | Channel reads need `canReadBot`, writes `canWriteBot`, of *the* bot | of **any** bot working in the channel — a bot's own channel's owner, or every bot bound to a platform channel or with a conversation in it (`MemoryAccessOps.botsByChannel`); admins always. Promotion: channel write + admin |
+> | `memory:channels` at `GET /project/:projectId/bot/:botId/memory/channels`, a bot's channels | `GET /project/:projectId/memory/channels`: every channel the caller may read, with its bots and `canWrite` |
+> | `botId` on `memory:list` / `search` / `view` / `versions` / `write` / `forget` / `pin` / `promote` | gone; `channelId` alone names a channel's memory. A promotion no longer writes `promotedFromBotId` (old rows keep it) |
+> | The decay clock fades with the half-life of the bot whose memory it is | with the project's **longest** channel half-life, so nothing is forgotten while any bot would still rank it; each bot still ranks by its own half-lives, and the dashboard by the defaults |
+> | `/bots/:botId/memory`, `/bots/:botId/memory/:channelId[/document]` | one explorer: `/memory` (titled *Project memory*) and `/memory/channels/:channelId[/document]` (titled *Channel memory*); the old addresses redirect |
+> | `hypotenuse memory … --bot <bot> --channel <id>`; `memory channels --bot` | `--channel <id>` alone; `memory channels` (CLI 2.11.0) |
+>
+> Why: two bots in one Slack channel heard the same people say the same things and kept two memories of it, and a
+> person correcting a fact had to find which bot held it. The channel was always the memory boundary — what one
+> channel says must not reach another — and sharing within it keeps that.
+
 ### What is built
 
 | Piece | Where |

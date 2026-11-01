@@ -32,13 +32,13 @@ export type MemoryVersion = MemoryVersionsResponse["versions"][number];
 /** `memory:channels`'s answer. */
 export type MemoryChannelsResponse = ActionResponse<MemoryChannels>;
 
-/** One channel a bot works in, with how many documents it remembers there. */
+/** One channel whose memory the caller may read: its documents, its bots, and whether they may change it. */
 export type MemoryChannel = MemoryChannelsResponse["channels"][number];
 
-/** Where a document lives: the project, or one bot's memory of one channel. */
+/** Where a document lives: the project, or one channel (shared by every bot working there). */
 export type MemoryWhere =
   | { scope: "project" }
-  | { scope: "channel"; botId: number; channelId: number };
+  | { scope: "channel"; channelId: number };
 
 /** The page size of the explorer's document list. */
 export const MEMORY_PAGE_SIZE = 25;
@@ -46,13 +46,12 @@ export const MEMORY_PAGE_SIZE = 25;
 /**
  * The query string naming where a document lives, as every memory action
  * takes it.
- * @param where - The project, or a bot's channel.
+ * @param where - The project, or a channel.
  * @returns `scope=…` with the bot and channel when it is a channel's.
  */
 function whereParams(where: MemoryWhere): URLSearchParams {
   const params = new URLSearchParams({ scope: where.scope });
   if (where.scope === "channel") {
-    params.set("botId", String(where.botId));
     params.set("channelId", String(where.channelId));
   }
   return params;
@@ -60,19 +59,19 @@ function whereParams(where: MemoryWhere): URLSearchParams {
 
 /**
  * The body naming where a document lives, for the write actions.
- * @param where - The project, or a bot's channel.
- * @returns `{ scope }`, with `botId` and `channelId` for a channel.
+ * @param where - The project, or a channel.
+ * @returns `{ scope }`, with `channelId` for a channel.
  */
 export function whereBody(where: MemoryWhere): Record<string, unknown> {
   return where.scope === "channel"
-    ? { scope: "channel", botId: where.botId, channelId: where.channelId }
+    ? { scope: "channel", channelId: where.channelId }
     : { scope: "project" };
 }
 
 /**
  * `memory:list`'s route for one scope and page.
  * @param projectId - The project.
- * @param where - The project, or a bot's channel.
+ * @param where - The project, or a channel.
  * @param options - The page, a path prefix, and whether forgotten documents are listed.
  * @returns The path beneath `/api`.
  */
@@ -94,7 +93,7 @@ export function memoryListPath(
  * `memory:search`'s route. A channel's search may reach into project memory
  * too (`both`), which is what its bot sees.
  * @param projectId - The project.
- * @param where - The project, or a bot's channel.
+ * @param where - The project, or a channel.
  * @param query - What to find.
  * @param withProject - For a channel, also search project memory.
  * @returns The path beneath `/api`.
@@ -115,7 +114,7 @@ export function memorySearchPath(
 /**
  * `memory:view`'s or `memory:versions`' route for one document.
  * @param projectId - The project.
- * @param where - The project, or a bot's channel.
+ * @param where - The project, or a channel.
  * @param path - The document's path.
  * @param options - `versions` for the history, `versionId` for an earlier version.
  * @returns The path beneath `/api`.
@@ -134,20 +133,20 @@ export function memoryDocumentPath(
 }
 
 /**
- * The dashboard's address of an explorer: the project's memory, or one bot's
- * memory of one channel.
- * @param where - The project, or a bot's channel.
+ * The dashboard's address of the explorer, open on the project's memory or
+ * on one channel's.
+ * @param where - The project, or a channel.
  * @returns The route.
  */
 export function explorerHref(where: MemoryWhere): string {
   return where.scope === "channel"
-    ? `/bots/${where.botId}/memory/${where.channelId}`
+    ? `/memory/channels/${where.channelId}`
     : "/memory";
 }
 
 /**
  * The dashboard's address of a document, at a version when one is named.
- * @param where - The project, or a bot's channel.
+ * @param where - The project, or a channel.
  * @param path - The document's path.
  * @param versionId - An earlier version, or nothing for the current one.
  * @returns The route.

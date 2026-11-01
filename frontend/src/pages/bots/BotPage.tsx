@@ -216,7 +216,7 @@ export function BotPage() {
               <MessagesSquare size={14} aria-hidden="true" /> Conversations
             </Button>
             <Button
-              onClick={() => navigate(`/bots/${bot.id}/memory`)}
+              onClick={() => navigate("/memory")}
               size="sm"
               variant="secondary"
               data-testid="bot-memory-explorer"

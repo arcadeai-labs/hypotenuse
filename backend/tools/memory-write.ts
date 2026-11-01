@@ -48,7 +48,7 @@ export const memoryWrite: ToolDefinition<
 > = {
   name: "memory_write",
   description:
-    'Remember something: write a whole markdown document at a path, as a new version (earlier versions are kept). Use scope "channel" for what you learned here — only you, in this channel, will see it. Project memory is shared with every bot in every channel and changes only when a person promotes something there. Search first and update an existing document rather than starting a near-duplicate; prefer memory_edit for small changes. [[ bash equivalent command: cat > file ]]',
+    'Remember something: write a whole markdown document at a path, as a new version (earlier versions are kept). Use scope "channel" for what you learned here — every bot working in this channel will see it, and no other channel will. Project memory is shared with every bot in every channel and changes only when a person promotes something there. Search first and update an existing document rather than starting a near-duplicate; prefer memory_edit for small changes. [[ bash equivalent command: cat > file ]]',
   inputSchema: input,
   outputSchema: output,
   replay: "unsafe",

@@ -217,16 +217,15 @@ const ILLUSTRATIONS: Illustration[] = [
   },
   {
     name: "memory-channel",
-    path: ({ botId, memoryChannelId }) =>
-      `/bots/${botId}/memory/${memoryChannelId}`,
+    path: ({ memoryChannelId }) => `/memory/channels/${memoryChannelId}`,
     width: 1280,
     height: 560,
     signedIn: true,
   },
   {
     name: "memory-document",
-    path: ({ botId, memoryChannelId }) =>
-      `/bots/${botId}/memory/${memoryChannelId}/document?path=customers/globex.md`,
+    path: ({ memoryChannelId }) =>
+      `/memory/channels/${memoryChannelId}/document?path=customers/globex.md`,
     width: 1280,
     height: 760,
     signedIn: true,
@@ -1299,8 +1298,8 @@ async function writeMemory(
 
 /**
  * Give the Support project the memory the memory illustrations show: three
- * project documents (one with two versions, one pinned), and Ada's memory of
- * her API channel — `customers/globex.md`, which she wrote herself in the
+ * project documents (one with two versions, one pinned), and the memory of
+ * Ada's API channel — `customers/globex.md`, which she wrote herself in the
  * Globex conversation, gains a second version from a person, so its page has
  * a history and a diff. Each is written only when missing.
  * @param request - The browser context's request client.
@@ -1329,17 +1328,13 @@ async function seedMemory(
       await writeMemory(request, base, { scope: "project" }, doc);
   }
 
-  const { channels } = await call<{ channels: { id: number; name: string }[] }>(
-    request,
-    "GET",
-    `/project/${projectId}/bot/${botId}/memory/channels?limit=100`,
-  );
-  const channel = channels[0];
+  const { channels } = await call<{
+    channels: { id: number; name: string; bots: { id: number }[] }[];
+  }>(request, "GET", `/project/${projectId}/memory/channels?limit=100`);
+  const channel = channels.find((c) => c.bots.some((b) => b.id === botId));
   if (!channel) throw new Error("Ada has no channel to remember");
-  const where = { scope: "channel", botId, channelId: channel.id };
-  const remembered = await listed(
-    `scope=channel&botId=${botId}&channelId=${channel.id}`,
-  );
+  const where = { scope: "channel", channelId: channel.id };
+  const remembered = await listed(`scope=channel&channelId=${channel.id}`);
   for (const doc of CHANNEL_MEMORY) {
     if (!remembered.includes(doc.path))
       await writeMemory(request, base, where, doc);
@@ -1350,7 +1345,7 @@ async function seedMemory(
   }>(
     request,
     "GET",
-    `${base}?scope=channel&botId=${botId}&channelId=${channel.id}&path=customers/globex.md`,
+    `${base}?scope=channel&channelId=${channel.id}&path=customers/globex.md`,
   );
   const first =
     "# Globex\n\n- Charged twice for October; the duplicate is **INV-2291**.\n- A refund needs the billing team's confirmation; it has been flagged to them.";

@@ -54,7 +54,7 @@ export const memorySearch: ToolDefinition<
 > = {
   name: "memory_search",
   description:
-    "Search what you remember: this channel's memory (only you, here) and the project's shared memory. Ranks by meaning and by keywords, and favors what was written or used recently. Search before you answer from memory and before you write a new memory, so you update instead of duplicating. Then memory_read a hit for its full text. [[ bash equivalent command: grep -r ]]",
+    "Search what you remember: this channel's memory (shared by every bot working here) and the project's shared memory. Ranks by meaning and by keywords, and favors what was written or used recently. Search before you answer from memory and before you write a new memory, so you update instead of duplicating. Then memory_read a hit for its full text. [[ bash equivalent command: grep -r ]]",
   inputSchema: input,
   outputSchema: output,
   replay: "safe",

@@ -59,7 +59,7 @@ The bot can also read the issue it is working on, and comment on it — each com
 ## Memory follows the Linear project
 
 Each **Linear project** is a channel, with its own memory: what the bot learns on one issue of a project, it can use
-on the project's other issues — and not elsewhere. An issue with no project uses its **team's** channel. A session
+on the project's other issues — and so can any other bot working in that Linear project — and not elsewhere. An issue with no project uses its **team's** channel. A session
 keeps the channel it started in, even if its issue moves to another project; the next session on the issue uses the
 new project.
 
