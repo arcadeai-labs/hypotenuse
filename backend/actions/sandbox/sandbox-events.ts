@@ -8,16 +8,39 @@ import {
   JobTokenRateLimitMiddleware,
 } from "../../middleware/jobToken";
 import { jobTokenInput } from "../../ops/SandboxInputOps";
+import { redactJobTokens } from "../../ops/SandboxJobOps";
 import { sandboxJobEvents } from "../../schema/sandbox_job_events";
 import { sandboxJobs } from "../../schema/sandbox_jobs";
+
+/**
+ * The most events one job may store: its `seq` is bounded by it, so a job's
+ * transcript is bounded too (each event's text and payload are capped).
+ */
+const MAX_EVENTS_PER_JOB = 20_000;
+
+/** The largest payload kept for one event, serialized; longer ones are cut. */
+const MAX_PAYLOAD_CHARS = 20_000;
+
+/**
+ * Keep a payload within {@link MAX_PAYLOAD_CHARS}, or replace it with a note.
+ * @param payload - What the supervisor sent.
+ * @returns What is stored.
+ */
+function boundedPayload(payload: unknown): unknown {
+  if (payload === undefined) return null;
+  const serialized = JSON.stringify(payload) ?? "null";
+  return serialized.length <= MAX_PAYLOAD_CHARS
+    ? payload
+    : { truncated: true, chars: serialized.length };
+}
 
 /** One event as the supervisor posts it. */
 const eventInput = z.object({
   type: z.string().max(40),
   toolName: z.string().max(200).optional(),
-  text: z.string().max(200_000).optional(),
+  text: z.string().max(20_000).optional(),
   payload: z.unknown().optional(),
-  seq: z.number().int().positive(),
+  seq: z.number().int().positive().max(MAX_EVENTS_PER_JOB),
   occurredAt: z.number().int().positive().optional(),
 });
 
@@ -45,6 +68,8 @@ export class SandboxEvents implements Action {
    * @returns How many were stored.
    */
   async run(params: ActionParams<SandboxEvents>, connection: JobConnection) {
+    // A sandbox's own token never reaches a row or a relay.
+    params = redactJobTokens(params);
     const job = actingJob(connection);
     if (params.events.length === 0) return { stored: 0 };
     const rows = await api.db.db
@@ -56,7 +81,7 @@ export class SandboxEvents implements Action {
           kind: e.type,
           toolName: e.toolName ?? null,
           text: e.text ?? null,
-          payload: e.payload ?? null,
+          payload: boundedPayload(e.payload),
           occurredAt: e.occurredAt ? new Date(e.occurredAt) : new Date(),
         })),
       )

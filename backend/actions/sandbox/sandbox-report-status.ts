@@ -9,7 +9,7 @@ import {
 } from "../../middleware/jobToken";
 import { lockConversation } from "../../ops/ConversationOps";
 import { jobTokenInput } from "../../ops/SandboxInputOps";
-import { afterRelay } from "../../ops/SandboxJobOps";
+import { afterRelay, redactJobTokens } from "../../ops/SandboxJobOps";
 import { type RelayResult, relayJobStatus } from "../../ops/SandboxRelayOps";
 import { sandboxJobs } from "../../schema/sandbox_jobs";
 
@@ -51,6 +51,8 @@ export class SandboxReportStatus implements Action {
     params: ActionParams<SandboxReportStatus>,
     connection: JobConnection,
   ) {
+    // A sandbox's own token never reaches a row or a relay.
+    params = redactJobTokens(params);
     const job = actingJob(connection);
     let relay: RelayResult | null = null;
     await api.db.db.transaction(async (tx) => {

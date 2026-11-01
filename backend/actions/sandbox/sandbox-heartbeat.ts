@@ -21,8 +21,8 @@ import { sandboxJobs } from "../../schema/sandbox_jobs";
  * | Job | Answer |
  * |---|---|
  * | cancel requested | `cancelRequested: true` |
- * | `awaiting_input`, a message queued | `followUp`; the job is `running` again |
- * | `running`, a steer queued | `steer`: the supervisor interrupts the turn and resumes with it |
+ * | `awaiting_input`, phase `idle`, a message queued | `followUp`; the job is `running` again |
+ * | `running`, phase `turn`, a steer queued | `steer`: the supervisor interrupts the turn and resumes with it |
  * | otherwise | nothing to do |
  */
 export class SandboxHeartbeat implements Action {
@@ -40,21 +40,21 @@ export class SandboxHeartbeat implements Action {
   });
 
   /**
-   * @param _params - The token.
+   * @param params - The token, and whether the supervisor is mid-turn.
    * @param connection - The job's connection.
    * @returns What the supervisor must do.
    */
-  async run(
-    _params: ActionParams<SandboxHeartbeat>,
-    connection: JobConnection,
-  ) {
+  async run(params: ActionParams<SandboxHeartbeat>, connection: JobConnection) {
     const job = actingJob(connection);
     await api.db.db
       .update(sandboxJobs)
       .set({ lastHeartbeatAt: new Date() })
       .where(eq(sandboxJobs.id, job.id));
     if (job.cancelRequested) return { cancelRequested: true };
-    if (job.status === "awaiting_input") {
+    // A follow-up goes only to a supervisor waiting between turns, and a
+    // steer only to one running a turn: a message is stamped delivered as it
+    // is handed out, so one handed to a supervisor that cannot use it is lost.
+    if (job.status === "awaiting_input" && params.phase === "idle") {
       const message = await claimNextJobMessage(job.id);
       if (!message) return { cancelRequested: false };
       await api.db.db
@@ -75,7 +75,7 @@ export class SandboxHeartbeat implements Action {
         followUp: { id: message.id, body: message.body },
       };
     }
-    if (job.status === "running") {
+    if (job.status === "running" && params.phase === "turn") {
       const steer = await claimNextJobMessage(job.id, "steer");
       if (steer) {
         return {

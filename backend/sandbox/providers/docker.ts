@@ -574,6 +574,17 @@ export class DockerSandboxProvider implements SandboxProvider {
       `${DOCKER_HOST_ALIAS}:host-gateway`,
     ];
     if (config.sandbox.dockerNetwork) {
+      if (
+        config.sandbox.dockerNetwork === "host" &&
+        process.env.NODE_ENV !== "test"
+      ) {
+        // On the host's network the agent reaches everything bound to this
+        // machine's loopback — a trust-auth Postgres, an unauthenticated
+        // Redis. Tests need it; anything else should say so loudly.
+        api.logger.warn(
+          "a docker sandbox is joining the host's network: the coding agent can reach every service on this machine's loopback",
+        );
+      }
       args.push("--network", config.sandbox.dockerNetwork);
     }
     for (const [key, value] of Object.entries(options.labels ?? {})) {

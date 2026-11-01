@@ -21,7 +21,9 @@ import { jobTokenInput } from "../../ops/SandboxInputOps";
 import {
   afterRelay,
   insertJobQuestion,
+  JobEnded,
   QuestionCapReached,
+  redactJobTokens,
 } from "../../ops/SandboxJobOps";
 import { type RelayResult, relayJobHelp } from "../../ops/SandboxRelayOps";
 
@@ -70,6 +72,8 @@ export class SandboxRequestHelp implements Action {
     params: ActionParams<SandboxRequestHelp>,
     connection: JobConnection,
   ) {
+    // A sandbox's own token never reaches a row or a relay.
+    params = redactJobTokens(params);
     const job = actingJob(connection);
     const bot = actingBot(connection);
     let relay: RelayResult | null = null;
@@ -99,6 +103,13 @@ export class SandboxRequestHelp implements Action {
         relay = await relayJobHelp(tx, locked.conversation, job, request.id);
       });
     } catch (e) {
+      if (e instanceof JobEnded) {
+        throw new TypedError({
+          message: `${e.message} Nobody will answer; stop working.`,
+          type: ErrorType.CONNECTION_ACTION_PARAM_VALIDATION,
+          key: "question",
+        });
+      }
       if (e instanceof QuestionCapReached) {
         throw new TypedError({
           message: `${e.message} Do not ask again: carry on with your best judgment, and say in your result what you could not resolve.`,

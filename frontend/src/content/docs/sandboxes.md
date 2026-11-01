@@ -31,6 +31,12 @@ Hypotenuse, which attaches the real credential on its own side:
 | memory | it can search what the bot remembers about this channel and the project, read-only |
 | anything else in Hypotenuse | refused: a job token is not a person, and cannot read or change a project |
 
+The job token never reaches anything you can read: if the agent prints it, the job's transcript, status, and
+artifacts show `hyp_job_[redacted]` instead.
+
+What the agent writes reaches the bot marked as the coding agent's output, never as a person's words, and it never
+counts as an answer to a question the bot asked the people in the conversation.
+
 ## Starting a job
 
 A bot starts a job with its `sandbox_start` tool, naming the work in a short title and writing the task in full —
@@ -52,6 +58,9 @@ Whether a bot may start jobs is its **Sandboxes** setting, on [its page](/docs/b
 | **Ask first** (`approve`, the default) | the job waits for a person to [approve](/docs/approvals) it, like a tool call outside the allowlist |
 | **Allow** | the job starts at once |
 | **Off** | the bot cannot start jobs |
+
+Setting **Allow**, or removing a bot's token budget, takes admin standing in the project: either one lets the bot spend
+the project's money with nobody asked. Anyone who may change the bot can tighten them.
 
 ## In the conversation
 
@@ -105,8 +114,11 @@ conversation is told it was cancelled.
 | The longest one job may run | 1 hour | an admin, but only lower than the deployment's ceiling |
 | An interactive job left waiting for its next instruction | expires after 30 minutes | the deployment |
 | Model tokens one job may use | no cap | the bot's **Sandboxes** section: **Tokens per job** |
+| Model requests in flight at once, per job | 4 | the deployment |
 
-A job over its token budget is refused its next model request (HTTP 402) and cancelled. A job past its time limit
+A model request that could take a job past its token budget — its input plus the `max_tokens` it asks for — is
+refused (HTTP 402) before it is sent, and a job already at its budget is refused and cancelled. A request the agent
+abandons part way is still counted. A job past its time limit
 ends as **timed out**. A job whose agent goes quiet, or whose supervisor stops answering, is ended for it, so a stuck
 sandbox never runs on.
 
