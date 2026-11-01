@@ -249,6 +249,14 @@ envVarGroups:
       # them; without SMTP_HOST it logs each email instead of sending it:
       #
       #   SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD, SMTP_FROM
+      #
+      # Optional. The deployment's one GitHub App (repositories, sandbox
+      # clones, pull requests). Both services mint installation tokens with
+      # the same key; without them, Repositories says what is missing:
+      #
+      #   GITHUB_APP_ID, GITHUB_APP_SLUG, GITHUB_APP_PRIVATE_KEY,
+      #   GITHUB_APP_CLIENT_ID, GITHUB_APP_CLIENT_SECRET,
+      #   GITHUB_APP_WEBHOOK_SECRET
 
 databases:
   - name: hypotenuse-db

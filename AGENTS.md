@@ -107,7 +107,7 @@ These bind from the first line of code. A rule that names a thing not built yet 
    [`phase-05-audit-logging.md`](./docs/plans/phase-05-audit-logging.md), and this list and that table change
    together: reads and `actions:permissions`; `session:create` / `session:destroy`; `notification:mark-read`;
    clocks and sweeps; the CLI's sign-in ingress (`cli-auth:device` / `cli-auth:exchange`, a token's sliding
-   expiry); machine ingress (`webhooks:*` — `webhooks:webhook`, `webhooks:slack`, `webhooks:linear`, and `webhooks:pylon` — recorded in `trigger_events`) and its processing
+   expiry); machine ingress (`webhooks:*` — `webhooks:webhook`, `webhooks:slack`, `webhooks:linear`, `webhooks:pylon`, and `webhooks:github` — recorded in `trigger_events`) and its processing
    (`triggers:process-event`, `triggers:process-pending`, recorded in `trigger_events` and `conversation_inbox`);
    `agent:tick`, `conversation:compact`, and every tool a bot runs (recorded in `conversation_entries`, and a
    prompt or goal edit also in `prompt_section_versions` and `goals`, a program in `code_runs`); memory's
@@ -115,8 +115,8 @@ These bind from the first line of code. A rule that names a thing not built yet 
    `memory_chunks`); the MCP catalog's machine work (`mcp-server:refresh-catalog`, `bot:capabilities`, recorded on
    `mcp_servers` and `bots`); outbox delivery (`outbox:deliver`, recorded in `outbox_messages`); the sandbox's machine half (`sandbox:events`, `sandbox:heartbeat`, `sandbox:complete`, the in-sandbox tools
    `sandbox:report-status`, `sandbox:ask`, `sandbox:check-answer`, `sandbox:request-help`, `sandbox:submit-artifact`,
-   and `sandbox:memory-search`, the proxies `proxy:model` and `proxy:mcp`, and provisioning, `sandbox-job:start`,
-   recorded in `sandbox_jobs`, `sandbox_job_events`, its questions, and the `sandboxes` ledger); and `cost_records`. The audited thing is always **the decision a
+   and `sandbox:memory-search`, the proxies `proxy:model` and `proxy:mcp`, the git credential hop `sandbox:git-credential`, and provisioning, `sandbox-job:start`,
+   recorded in `sandbox_jobs`, `sandbox_job_events`, its questions, its git handouts (`sandbox_job_git_tokens`), and the `sandboxes` ledger); and `cost_records`. The audited thing is always **the decision a
    person made** — editing a bot, its prompt, its goals, or a skill, binding it to a channel, approving a tool call,
    answering a help request, granting a repository. A decision a platform participant makes in a channel (an approval clicked in Slack) is
    audited too, as `actorType: "participant"`.
