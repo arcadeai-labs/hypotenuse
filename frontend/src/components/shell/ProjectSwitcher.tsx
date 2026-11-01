@@ -11,8 +11,6 @@ export interface ProjectSwitcherProps {
   onSelect: (projectId: number) => void;
   /** Why the project's audit log is refused, or `undefined` when it is offered. */
   auditLogDenied?: string;
-  /** Why the project's platform events are refused, or `undefined` when they are offered. */
-  eventsDenied?: string;
   /** Called after a choice (the mobile sheet closes on it). */
   onNavigate?: () => void;
 }
@@ -20,8 +18,8 @@ export interface ProjectSwitcherProps {
 /**
  * The sidebar's project switcher: every project of the active organization
  * the person can see — the ones they belong to, or all of them for an owner —
- * then the active project's audit log and its platform events, an admin's,
- * each drawn disabled with the reason for everyone else.
+ * then the active project's audit log, an admin's, drawn disabled with the
+ * reason for everyone else. Platform events are a sidebar destination.
  * @param props - See {@link ProjectSwitcherProps}.
  * @returns The switcher.
  */
@@ -30,7 +28,6 @@ export function ProjectSwitcher({
   activeProjectId,
   onSelect,
   auditLogDenied,
-  eventsDenied,
   onNavigate,
 }: ProjectSwitcherProps) {
   const active = projects.find((p) => p.id === activeProjectId);
@@ -73,13 +70,6 @@ export function ProjectSwitcher({
           label="Audit log"
           testId="project-audit-link"
           deniedReason={active ? auditLogDenied : "No project selected"}
-          onNavigate={onNavigate}
-        />
-        <MenuLinkItem
-          to="/events"
-          label="Events"
-          testId="project-events-link"
-          deniedReason={active ? eventsDenied : "No project selected"}
           onNavigate={onNavigate}
         />
       </Dropdown.Menu>

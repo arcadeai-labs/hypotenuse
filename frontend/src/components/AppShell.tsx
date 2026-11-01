@@ -233,7 +233,6 @@ export function AppShell() {
       // Anyone signed in may start an organization.
       newOrganizationDenied: auth.user ? undefined : NOT_SIGNED_IN,
       auditLogDenied: reason("audit:list"),
-      eventsDenied: reason("trigger-event:list"),
       organizationAuditDenied: reason("organization:audit-list"),
       pendingInvites,
     }),
