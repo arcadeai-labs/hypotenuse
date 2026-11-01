@@ -24,6 +24,10 @@
  *   `mcp-server:oauth-callback` send a person's browser through a server's
  *   authorization page and back; a model cannot sign in, and the callback
  *   carries a code a model must never hold;
+ * - **the GitHub App install hop** — `github:install-callback` is where
+ *   GitHub sends a person's browser back with an OAuth code and the
+ *   installation they chose; a model can neither install an App nor hold
+ *   the code;
  * - **binary answers** — `bot:avatar` answers image bytes, which no tool
  *   result carries;
  * - **machine families, by prefix** — `webhooks:*` (signed platform ingress),
@@ -137,6 +141,7 @@ export const NEVER_MCP_ACTION_NAMES: ReadonlySet<string> = new Set([
   "cli-auth:device",
   "cli-auth:exchange",
   "sandbox:git-credential",
+  "github:install-callback",
   "email-verification:confirm",
   "mcp-server:oauth-start",
   "mcp-server:oauth-callback",

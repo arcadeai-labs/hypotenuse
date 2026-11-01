@@ -6,6 +6,7 @@ import { configCliAuth } from "./cliAuth";
 import { configCode } from "./code";
 import { configDatabase } from "./database";
 import { configFrontend } from "./frontend";
+import { configGithub } from "./github";
 import { configLogger } from "./logger";
 import { configMcp } from "./mcp";
 import { configMemory } from "./memory";
@@ -50,6 +51,7 @@ export default {
   code: configCode,
   platforms: configPlatforms,
   sandbox: configSandbox,
+  github: configGithub,
 };
 
 /**
