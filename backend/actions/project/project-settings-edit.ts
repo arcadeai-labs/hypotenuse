@@ -49,7 +49,7 @@ export class ProjectSettingsEdit extends AuditedAction {
       .string()
       .trim()
       .max(300)
-      .regex(/^[\w./:@-]+$/, "an image reference")
+      .regex(/^[A-Za-z0-9][\w./:@-]*$/, "an image reference")
       .nullable()
       .optional()
       .describe("The image a job's sandbox runs; null for the provider's own"),

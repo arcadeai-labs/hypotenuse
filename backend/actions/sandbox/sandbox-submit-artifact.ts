@@ -1,4 +1,4 @@
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import {
   type Action,
   type ActionParams,
@@ -15,6 +15,7 @@ import {
   JobTokenRateLimitMiddleware,
 } from "../../middleware/jobToken";
 import { jobTokenInput } from "../../ops/SandboxInputOps";
+import { redactJobTokens } from "../../ops/SandboxJobOps";
 import { sandboxJobs } from "../../schema/sandbox_jobs";
 
 /** The most artifacts one job keeps. */
@@ -52,15 +53,9 @@ export class SandboxSubmitArtifact implements Action {
     params: ActionParams<SandboxSubmitArtifact>,
     connection: JobConnection,
   ) {
+    // A sandbox's own token never reaches a row or a relay.
+    params = redactJobTokens(params);
     const job = actingJob(connection);
-    const names = Object.keys(job.artifacts ?? {});
-    if (!names.includes(params.name) && names.length >= MAX_ARTIFACTS) {
-      throw new TypedError({
-        message: `This job already holds ${MAX_ARTIFACTS} artifacts. Replace one by submitting its name again.`,
-        type: ErrorType.CONNECTION_ACTION_PARAM_VALIDATION,
-        key: "name",
-      });
-    }
     const value = JSON.stringify({
       content: params.content,
       updatedAt: Date.now(),
@@ -71,8 +66,22 @@ export class SandboxSubmitArtifact implements Action {
         artifacts: sql`${sandboxJobs.artifacts} || jsonb_build_object(${params.name}::text, ${value}::jsonb)`,
         lastActivityAt: new Date(),
       })
-      .where(eq(sandboxJobs.id, job.id))
+      // The cap is checked in the statement that writes, so parallel
+      // submissions with new names cannot race past it.
+      .where(
+        and(
+          eq(sandboxJobs.id, job.id),
+          sql`(${sandboxJobs.artifacts} ? ${params.name} or (select count(*) from jsonb_object_keys(${sandboxJobs.artifacts})) < ${MAX_ARTIFACTS})`,
+        ),
+      )
       .returning({ artifacts: sandboxJobs.artifacts });
+    if (!row) {
+      throw new TypedError({
+        message: `This job already holds ${MAX_ARTIFACTS} artifacts. Replace one by submitting its name again.`,
+        type: ErrorType.CONNECTION_ACTION_PARAM_VALIDATION,
+        key: "name",
+      });
+    }
     return { names: Object.keys(row?.artifacts ?? {}) };
   }
 }

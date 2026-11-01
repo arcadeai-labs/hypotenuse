@@ -160,16 +160,27 @@ export async function provisionSandbox(input: {
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     if (created) {
+      // Name the row first, so a crash from here still leaves something to
+      // collect; then destroy the sandbox itself. Not `destroySandbox`: a
+      // release that closed the row while `create` ran has already stamped
+      // it destroyed, and that path would skip the provider.
       await api.db.db
         .update(sandboxes)
         .set({ externalId: created.id })
         .where(eq(sandboxes.id, pending.id));
-      const [named] = await api.db.db
-        .select()
-        .from(sandboxes)
-        .where(eq(sandboxes.id, pending.id));
-      if (await destroySandbox(named).catch(() => null)) {
+      try {
+        await created.destroy();
         await recordSandboxFailed(api.db.db, pending.id, message);
+      } catch (cleanup) {
+        // The row keeps naming it, live, for the orphan sweep.
+        await api.db.db
+          .update(sandboxes)
+          .set({ status: "running", destroyedAt: null })
+          .where(eq(sandboxes.id, pending.id));
+        api.logger.error("could not destroy a half-provisioned sandbox", {
+          sandboxId: pending.id,
+          error: cleanup instanceof Error ? cleanup.message : String(cleanup),
+        });
       }
     } else {
       await recordSandboxFailed(api.db.db, pending.id, message);

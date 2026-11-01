@@ -99,6 +99,14 @@ function useJobEvents(base: string | null, live: boolean) {
     return () => clearInterval(timer);
   }, [live, more, readNext]);
 
+  // The job's last events land as it ends, after the last poll: when it
+  // stops being live, read once more so the transcript shows its end.
+  const wasLive = useRef(live);
+  useEffect(() => {
+    if (wasLive.current && !live) readNext();
+    wasLive.current = live;
+  }, [live, readNext]);
+
   return { events, more, error, readNext };
 }
 

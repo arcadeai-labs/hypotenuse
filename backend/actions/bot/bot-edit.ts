@@ -46,6 +46,7 @@ import {
   summarizeAvatar,
 } from "../../ops/BotOps";
 import { idInput } from "../../ops/InputOps";
+import { isAdmin } from "../../ops/MembershipOps";
 import {
   alwaysTokensAfter,
   botPersona,
@@ -178,6 +179,22 @@ export class BotEdit extends AuditedAction {
       }
     }
     if (params.codeLimits !== undefined) assertCodeLimits(params.codeLimits);
+    // Lifting a sandbox's guards — no approval, or no token cap — spends
+    // the project's money without a person: an admin's call, as is choosing
+    // where jobs run.
+    const lifting =
+      params.sandboxPolicy === "allow" || params.sandboxJobTokenBudget === null;
+    if (
+      lifting &&
+      !isAdmin(callerTags) &&
+      !connection.metadata.viaOrganizationOwner
+    ) {
+      throw new TypedError({
+        message:
+          "Letting a bot start sandbox jobs without approval, or without a token budget, takes admin standing in the project.",
+        type: ErrorType.CONNECTION_CHANNEL_AUTHORIZATION,
+      });
+    }
     const avatar = params.avatar ? decodeAvatar(params.avatar) : null;
 
     const changes: Partial<NewBot> = {};
