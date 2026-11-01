@@ -462,7 +462,8 @@ describe("replies to customers", () => {
     const rows = await api.db.db
       .select()
       .from(auditLogs)
-      .where(eq(auditLogs.action, "pylon:settings-edit"));
+      .where(eq(auditLogs.action, "pylon:settings-edit"))
+      .orderBy(auditLogs.id);
     const last = rows.at(-1);
     expect(
       (last?.after as { config: { customerReplyPolicy: string } }).config
