@@ -7,6 +7,7 @@
  * Pass a response body through, reading the token usage it reports: the
  * `usage` of a JSON body, or `message_start` / `message_delta` of a stream.
  * Counts are the largest seen, never summed, since a stream repeats them.
+ * `onDone` runs once: at the end, on an error, or when the reader hangs up.
  * @param body - The upstream body.
  * @param onDone - Called once with the usage when the body ends.
  * @returns The body to hand back.
@@ -46,26 +47,46 @@ export function teeUsage(
     }
   };
   let whole = "";
-  return body.pipeThrough(
-    new TransformStream<Uint8Array, Uint8Array>({
-      transform(chunk, controller) {
-        controller.enqueue(chunk);
-        const text = decoder.decode(chunk, { stream: true });
+  let done = false;
+  const finish = () => {
+    if (done) return;
+    done = true;
+    lines(true);
+    if (inputTokens === 0 && outputTokens === 0) {
+      try {
+        read(JSON.parse(whole));
+      } catch {
+        // A body that is neither a stream nor JSON reports nothing.
+      }
+    }
+    onDone({ inputTokens, outputTokens });
+  };
+  // A `ReadableStream` rather than a `TransformStream`, for its `cancel`: a
+  // caller that reads the answer and hangs up before the end still has what
+  // it read counted.
+  const reader = body.getReader();
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        const { done: ended, value } = await reader.read();
+        if (ended) {
+          finish();
+          controller.close();
+          return;
+        }
+        const text = decoder.decode(value, { stream: true });
         buffer += text;
         if (whole.length < 4 * 1024 * 1024) whole += text;
         lines(false);
-      },
-      flush() {
-        lines(true);
-        if (inputTokens === 0 && outputTokens === 0) {
-          try {
-            read(JSON.parse(whole));
-          } catch {
-            // A body that is neither a stream nor JSON reports nothing.
-          }
-        }
-        onDone({ inputTokens, outputTokens });
-      },
-    }),
-  );
+        controller.enqueue(value);
+      } catch (e) {
+        finish();
+        controller.error(e);
+      }
+    },
+    async cancel(reason) {
+      finish();
+      await reader.cancel(reason).catch(() => undefined);
+    },
+  });
 }

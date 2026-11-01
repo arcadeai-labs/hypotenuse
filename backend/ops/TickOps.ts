@@ -1540,10 +1540,21 @@ async function applyTransition(
   const pending = await pendingInbox(tx, conversation.id);
 
   if (transition.to === "waiting") {
-    // An answer already waiting satisfies the question at once.
-    if (transition.waitingOn.kind === "answer" && pending) {
+    // An answer already waiting satisfies the question at once; and a
+    // message already in the inbox — a person's, or a job's question or
+    // turn that arrived mid-turn — is what a sandbox wait would wake for.
+    const kind = transition.waitingOn.kind;
+    const ready =
+      kind === "answer"
+        ? await pendingInbox(tx, conversation.id, true)
+        : kind === "sandbox" && pending;
+    if (ready) {
       await appendEntries(tx, conversation.id, conversation.epoch, [
-        statusChange("working", "working", "answered"),
+        statusChange(
+          "working",
+          "working",
+          kind === "answer" ? "answered" : "inbox_pending",
+        ),
       ]);
       await tx
         .update(conversations)
@@ -1585,11 +1596,14 @@ async function applyTransition(
  * Whether the conversation has inbox rows not yet in the transcript.
  * @param tx - A transaction.
  * @param conversationId - The conversation.
+ * @param answering - Count only rows that may answer a question to people:
+ *   not text a sandbox job relayed.
  * @returns `true` if any.
  */
 async function pendingInbox(
   tx: TxHandle,
   conversationId: number,
+  answering = false,
 ): Promise<boolean> {
   const [row] = await tx
     .select({ id: conversationInbox.id })
@@ -1598,6 +1612,10 @@ async function pendingInbox(
       and(
         eq(conversationInbox.conversationId, conversationId),
         isNull(conversationInbox.deliveredAt),
+        // A sandbox's relayed text is never a person's answer.
+        answering
+          ? sql`not (${conversationInbox.metadata} ? 'sandboxJobId')`
+          : undefined,
       ),
     )
     .limit(1);

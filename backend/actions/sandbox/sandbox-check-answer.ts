@@ -59,10 +59,40 @@ export class SandboxCheckAnswer implements Action {
     connection: JobConnection,
   ) {
     const job = actingJob(connection);
-    const waitMs = Math.min(
-      params.waitMs ?? 20_000,
-      config.sandbox.maxCheckWaitMs,
+    // One waiting check per job at a time: a second answers at once rather
+    // than holding another request open polling the database.
+    const lock = `sandbox:check-answer:${job.id}`;
+    const held = await api.redis.redis.set(
+      lock,
+      "1",
+      "PX",
+      config.sandbox.maxCheckWaitMs + 5_000,
+      "NX",
     );
+    try {
+      return await this.check(params, job.id, held === "OK");
+    } finally {
+      if (held === "OK") await api.redis.redis.del(lock);
+    }
+  }
+
+  /**
+   * Read the question, waiting for an answer only when this call holds the
+   * job's check.
+   * @param params - The question and how long to wait.
+   * @param jobId - The job.
+   * @param mayWait - Whether this call may wait.
+   * @returns The answer, or `pending` and whether the wait ran out.
+   */
+  private async check(
+    params: ActionParams<SandboxCheckAnswer>,
+    jobId: number,
+    mayWait: boolean,
+  ) {
+    const job = { id: jobId };
+    const waitMs = mayWait
+      ? Math.min(params.waitMs ?? 20_000, config.sandbox.maxCheckWaitMs)
+      : 0;
     const deadline = Date.now() + waitMs;
     await touchJobActivity(api.db.db, job.id);
     for (;;) {

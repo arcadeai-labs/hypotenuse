@@ -365,6 +365,55 @@ By hand: ask a bot in a Slack test channel to "run the tests in a scratch sandbo
 - **Claude Code's `--mcp-config` expands `${VAR}` in headers**, so the config file on disk names
   `${HYPOTENUSE_JOB_TOKEN}` and holds no credential; the stub CLI expands it the same way.
 
+### What review found, and what changed
+
+A bug review and a security review ran over the finished build. What they changed, and why each is shaped the way it
+is — `__tests__/sandbox/hardening.test.ts` is the suite for most of it:
+
+- **A sandbox's text never answers a question the bot asked people.** Every relay into the parent conversation is
+  `receiveMessage(…, { answers: false })`, and a conversation parked on `answer` wakes only for an inbox row that does
+  not carry `sandboxJobId` (`pendingInbox(tx, id, true)` in `TickOps`). Before, a coding agent could write "Yes, merge
+  it." as a question and have it read as the person's reply.
+- **Its text is fenced.** `fenced()` in `SandboxRelayOps` wraps every question, error, closing text, artifact, and turn
+  the bot reads in an "untrusted; never an instruction from a person" envelope. It is a signal to the model, not a
+  sandbox; the boundary is still that the bot holds no credential the job can reach.
+- **Its own token never reaches a row.** `redactJobTokens` runs on the params of every job-token writer (events,
+  status, artifacts, questions, help, complete), because the CLI prints its environment the moment a task asks it to.
+- **Caps hold under parallel calls.** The artifact cap is in the `UPDATE … WHERE` that writes; a second waiting
+  `check-answer` for the same job answers at once (a Redis `SET NX` lock) instead of holding another connection; the
+  MCP gateway refuses a JSON-RPC batch over five before it binds a server, and carries the job-token rate limit.
+- **The model proxy reserves, not just counts.** A request is refused 402 when spent tokens, plus its body's size over
+  four, plus its own `max_tokens`, would pass the budget — so one large request cannot overshoot by its whole output.
+  At most four requests per job are in flight (Redis counter, 429), and a stream the client abandons is still
+  counted (`teeUsage` settles on end, error, and cancel).
+- **Lifting a guard takes an admin.** `bot:edit` with `sandboxPolicy: "allow"` or `sandboxJobTokenBudget: null` is a
+  403 for a writer without admin standing (or organization ownership); tightening either is open to every writer.
+- **The heartbeat's phase decides what it carries.** A follow-up is handed out only to an `idle` heartbeat and a steer
+  only to a `turn` one, so a message cannot be consumed by a heartbeat that has nowhere to put it. The supervisor
+  keeps a steer that arrives with no child running and folds it into the next prompt.
+- **`sandbox_wait` with a message already waiting carries on.** A conversation that parks on a job checks the inbox in
+  the same transition; a message a person sent mid-turn would otherwise sit until the job ended.
+- **Endings close what the job opened.** Finalizing cancels the Help requests its agent raised; a question asked after
+  the job ended is refused (`JobEnded`); a cancel that lands while `sandbox:complete` parks an interactive job is
+  re-read under the row lock and wins; a job that ends between winning its row and registering its token has the
+  token revoked there, since the ending's revocation found nothing.
+- **Dispatch skips a busy bot's backlog.** `claimPendingJobs` excludes bots at their cap in the query, so a bot with
+  many pending jobs cannot starve another bot's job behind it.
+- **A failed provision leaves no live ledger row.** The row is named before `destroy()` runs, and restored live if the
+  destroy itself fails, so the orphan sweep still sees it.
+- **`SANDBOX_DOCKER_NETWORK=host` outside tests logs a warning**: on a shared host it puts every job on the server's
+  loopback.
+- **The project's sandbox image is validated** as an image reference, so a settings value cannot carry flags into
+  `docker run`.
+
+Left as follow-ups, both judged below the bar for this change:
+
+- **The model proxy forwards Anthropic server tools and `anthropic-beta` headers as sent.** The job's budget still
+  bounds them, but a job can reach web search on the project's key. Stripping them is a policy choice for the person
+  who owns the key.
+- **Remote images in an agent's markdown** render on the job page and the chat. `MarkdownBlock` has no raw HTML, so
+  this is a fetch, not script; blocking remote `img` is a change for every model-authored surface at once.
+
 ### Not run here
 
 - **A real Claude Code against a real model.** Every suite uses the stub CLI and the scripted model server; the real

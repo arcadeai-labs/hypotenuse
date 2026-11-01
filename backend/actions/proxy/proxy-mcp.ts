@@ -5,6 +5,7 @@ import {
   actingJob,
   type JobConnection,
   JobTokenMiddleware,
+  JobTokenRateLimitMiddleware,
 } from "../../middleware/jobToken";
 import { allowance } from "../../ops/ApprovalPatternOps";
 import { botServers } from "../../ops/McpCatalogOps";
@@ -20,6 +21,9 @@ import { scrubCredentials } from "../../tools/mcp-exec";
 
 /** The largest JSON-RPC request accepted. */
 const MAX_REQUEST_BYTES = 4 * 1024 * 1024;
+
+/** The most JSON-RPC messages one request may carry. */
+const MAX_BATCH = 5;
 
 /** The protocol version answered when the client names none we know. */
 const PROTOCOL_VERSION = "2025-06-18";
@@ -82,7 +86,7 @@ export class ProxyMcp implements Action {
   description =
     "Serve a sandbox job one of its bot's shared MCP servers, attaching the server's credentials. Reachable only from inside a sandbox, with a live job token.";
   mcp = { tool: false };
-  middleware = [JobTokenMiddleware];
+  middleware = [JobTokenMiddleware, JobTokenRateLimitMiddleware];
   web = {
     route: /^\/proxy\/mcp\/\d+$/,
     method: HTTP_METHOD.POST,
@@ -101,16 +105,6 @@ export class ProxyMcp implements Action {
     const request = rawRequestOf(connection);
     const job = actingJob(connection);
     const bot = actingBot(connection);
-    const serverId = Number(requestPath(request).split("/").pop());
-    const bound = (await botServers(api.db.db, bot.id)).find(
-      (b) => b.server.id === serverId,
-    );
-    if (!bound) {
-      return Response.json(
-        rpcError(null, -32001, "This MCP server is not available to this job."),
-        { status: 404 },
-      );
-    }
     const body = await readCappedBody(request, MAX_REQUEST_BYTES);
     let parsed: RpcMessage | RpcMessage[];
     try {
@@ -121,6 +115,28 @@ export class ProxyMcp implements Action {
       });
     }
     const messages = Array.isArray(parsed) ? parsed : [parsed];
+    // A batch is a few messages, never a way to run many tools per request
+    // past the rate limit.
+    if (messages.length > MAX_BATCH) {
+      return Response.json(
+        rpcError(
+          null,
+          -32600,
+          `A batch may hold at most ${MAX_BATCH} messages.`,
+        ),
+        { status: 400 },
+      );
+    }
+    const serverId = Number(requestPath(request).split("/").pop());
+    const bound = (await botServers(api.db.db, bot.id)).find(
+      (b) => b.server.id === serverId,
+    );
+    if (!bound) {
+      return Response.json(
+        rpcError(null, -32001, "This MCP server is not available to this job."),
+        { status: 404 },
+      );
+    }
     const answers: unknown[] = [];
     for (const message of messages) {
       if (message.id === undefined || message.id === null) continue;
@@ -213,7 +229,10 @@ export class ProxyMcp implements Action {
             message.id,
             e instanceof McpUnauthorized
               ? `${server.name}'s credentials need attention from a project admin.`
-              : `${server.name}/${name} failed: ${(e instanceof Error ? e.message : String(e)).slice(0, 500)}`,
+              : `${server.name}/${name} failed: ${scrubCredentials(
+                  (e instanceof Error ? e.message : String(e)).slice(0, 500),
+                  credentialValues(server, bot),
+                )}`,
           );
         }
       }

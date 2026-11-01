@@ -18,7 +18,9 @@ import { jobTokenInput } from "../../ops/SandboxInputOps";
 import {
   afterRelay,
   insertJobQuestion,
+  JobEnded,
   QuestionCapReached,
+  redactJobTokens,
 } from "../../ops/SandboxJobOps";
 import { type RelayResult, relayJobQuestion } from "../../ops/SandboxRelayOps";
 
@@ -62,6 +64,8 @@ export class SandboxAsk implements Action {
    * @throws {TypedError} At the question cap.
    */
   async run(params: ActionParams<SandboxAsk>, connection: JobConnection) {
+    // A sandbox's own token never reaches a row or a relay.
+    params = redactJobTokens(params);
     const job = actingJob(connection);
     const blocking = params.blocking !== false;
     let relay: RelayResult | null = null;
@@ -87,6 +91,13 @@ export class SandboxAsk implements Action {
         }
       });
     } catch (e) {
+      if (e instanceof JobEnded) {
+        throw new TypedError({
+          message: `${e.message} Nobody will answer; stop working.`,
+          type: ErrorType.CONNECTION_ACTION_PARAM_VALIDATION,
+          key: "question",
+        });
+      }
       if (e instanceof QuestionCapReached) {
         throw new TypedError({
           message: `${e.message} Do not ask again: carry on with your best judgment, and say in your result what you assumed.`,

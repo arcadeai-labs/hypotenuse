@@ -247,10 +247,12 @@ export class Supervisor {
         this.log("cancel_requested");
         this.child?.kill("SIGTERM");
       }
-      if (answer.steer && phase === "turn" && this.child) {
+      if (answer.steer && phase === "turn") {
+        // Kept even with no CLI running (between spawns): the server has
+        // already marked it delivered, so the next turn starts with it.
         this.pendingSteer = answer.steer.body;
         this.log("steer", { id: answer.steer.id });
-        this.child.kill("SIGTERM");
+        this.child?.kill("SIGTERM");
       }
       return answer;
     } catch (e) {
@@ -380,6 +382,12 @@ export class Supervisor {
   private async awaitFollowUp(): Promise<string | null> {
     for (;;) {
       if (this.cancelRequested) return null;
+      // A steer that landed as the last turn ended is the next instruction.
+      if (this.pendingSteer !== null) {
+        const steer = this.pendingSteer;
+        this.pendingSteer = null;
+        return steer;
+      }
       const answer = await this.heartbeat("idle");
       if (answer?.followUp) return answer.followUp.body;
       if (answer?.steer) return answer.steer.body;
@@ -397,10 +405,15 @@ export class Supervisor {
    */
   async run(): Promise<number> {
     const prompt = readFileSync(this.config.promptFile, "utf8");
-    let argv = fillCommand(this.config.command, {
-      [PROMPT_PLACEHOLDER]: prompt,
-    });
     await this.heartbeat("turn");
+    // A steer that arrived before the CLI started is part of its task.
+    const early = this.pendingSteer;
+    this.pendingSteer = null;
+    let argv = fillCommand(this.config.command, {
+      [PROMPT_PLACEHOLDER]: early
+        ? `${prompt}\n\n## A change from the person who asked\n\n${early}`
+        : prompt,
+    });
     for (;;) {
       if (this.cancelRequested) {
         await this.complete({

@@ -27,6 +27,9 @@ import { modelConnections } from "../../schema/model_connections";
 /** The upstream paths the proxy forwards; anything else is a 404. */
 const FORWARDED_PATHS = new Set(["/v1/messages", "/v1/messages/count_tokens"]);
 
+/** Model requests one job may have in flight at once. */
+const MAX_INFLIGHT = 4;
+
 /** The largest model request forwarded. */
 const MAX_REQUEST_BYTES = 32 * 1024 * 1024;
 
@@ -121,14 +124,14 @@ export class ProxyModel implements Action {
       );
     }
     let requested: string | null = null;
+    let maxTokens = 0;
     try {
-      requested = String(
-        (
-          JSON.parse(new TextDecoder().decode(body.bytes)) as {
-            model?: unknown;
-          }
-        ).model ?? "",
-      );
+      const parsed = JSON.parse(new TextDecoder().decode(body.bytes)) as {
+        model?: unknown;
+        max_tokens?: unknown;
+      };
+      requested = String(parsed.model ?? "");
+      maxTokens = Math.max(0, Number(parsed.max_tokens) || 0);
     } catch {
       return refusal(400, "invalid_request_error", "The body is not JSON.");
     }
@@ -156,6 +159,37 @@ export class ProxyModel implements Action {
         `This job used its budget of ${job.budgetTokens} tokens and is being stopped.`,
       );
     }
+    // What this request could cost at most — its input, at four characters a
+    // token, and every output token it may ask for — must fit what is left,
+    // so parallel requests cannot all start under the line and land far
+    // past it.
+    if (
+      job.budgetTokens !== null &&
+      job.usage.inputTokens +
+        job.usage.outputTokens +
+        Math.ceil(body.byteLength / 4) +
+        maxTokens >
+        job.budgetTokens
+    ) {
+      return refusal(
+        402,
+        "budget_exceeded",
+        `This request could take this job past its budget of ${job.budgetTokens} tokens. Ask for fewer max_tokens, or finish with what you have.`,
+      );
+    }
+    // A few requests in flight per job at once, counted in Redis.
+    const inflight = `sandbox:model-inflight:${job.id}`;
+    const count = await api.redis.redis.incr(inflight);
+    await api.redis.redis.pexpire(inflight, 10 * 60 * 1000);
+    if (count > MAX_INFLIGHT) {
+      await api.redis.redis.decr(inflight);
+      return refusal(
+        429,
+        "rate_limit_error",
+        `At most ${MAX_INFLIGHT} model requests may run at once for one job.`,
+      );
+    }
+    const release = () => void api.redis.redis.decr(inflight).catch(() => 0);
     const alias =
       requested === models.model ? bot.modelAlias : bot.fastModelAlias;
     const [row] = await api.db.db
@@ -173,6 +207,7 @@ export class ProxyModel implements Action {
       )
       .limit(1);
     if (!row) {
+      release();
       return refusal(502, "hypotenuse_refused", "The bot's model is gone.");
     }
     const base = (
@@ -193,6 +228,7 @@ export class ProxyModel implements Action {
         body: body.bytes,
       });
     } catch (e) {
+      release();
       return refusal(
         502,
         "api_error",
@@ -207,6 +243,7 @@ export class ProxyModel implements Action {
     const stream =
       upstream.body && upstreamPath === "/v1/messages"
         ? teeUsage(upstream.body, (usage) => {
+            release();
             void addJobUsage(job.id, usage)
               .then(async (total) => {
                 if (overBudget(job, total)) {
@@ -221,6 +258,7 @@ export class ProxyModel implements Action {
               );
           })
         : upstream.body;
+    if (stream === upstream.body) release();
     return new Response(stream, {
       status: upstream.status,
       statusText: upstream.statusText,

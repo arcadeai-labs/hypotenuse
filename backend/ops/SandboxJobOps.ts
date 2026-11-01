@@ -7,6 +7,7 @@ import {
   inArray,
   isNull,
   lt,
+  notInArray,
   type SQL,
   sql,
 } from "drizzle-orm";
@@ -17,6 +18,7 @@ import type { Bot } from "../schema/bots";
 import { bots } from "../schema/bots";
 import type { Conversation } from "../schema/conversations";
 import { conversations } from "../schema/conversations";
+import { helpRequests } from "../schema/help_requests";
 import {
   type SandboxJobMessage,
   type SandboxMessageDelivery,
@@ -375,6 +377,11 @@ export async function claimPendingJobs(
     const perBot = new Map(inFlight.map((r) => [r.botId, r.n]));
     let free = settings.concurrency - inFlight.reduce((sum, r) => sum + r.n, 0);
     if (free <= 0) return [];
+    // Bots already at their own cap are left out here, not after the
+    // limit, so one busy bot's backlog cannot hide everyone else's jobs.
+    const capped = inFlight
+      .filter((r) => r.n >= config.sandbox.perBotConcurrency)
+      .map((r) => r.botId);
     const pending = await tx
       .select()
       .from(sandboxJobs)
@@ -383,6 +390,7 @@ export async function claimPendingJobs(
           eq(sandboxJobs.projectId, projectId),
           eq(sandboxJobs.status, "pending"),
           eq(sandboxJobs.cancelRequested, false),
+          capped.length > 0 ? notInArray(sandboxJobs.botId, capped) : undefined,
         ),
       )
       .orderBy(asc(sandboxJobs.id))
@@ -497,7 +505,7 @@ export async function finalizeSandboxJob(
       })
       .where(eq(sandboxJobs.id, jobId))
       .returning();
-    await tx
+    const closed = await tx
       .update(sandboxJobQuestions)
       .set({ status: "cancelled", answeredAt: new Date() })
       .where(
@@ -505,7 +513,24 @@ export async function finalizeSandboxJob(
           eq(sandboxJobQuestions.jobId, jobId),
           eq(sandboxJobQuestions.status, "pending"),
         ),
-      );
+      )
+      .returning({ helpRequestId: sandboxJobQuestions.helpRequestId });
+    // A question that went to the team takes its Help request with it, so
+    // nobody answers one that can no longer reach anyone.
+    const helpIds = closed
+      .map((q) => q.helpRequestId)
+      .filter((id): id is number => id !== null);
+    if (helpIds.length > 0) {
+      await tx
+        .update(helpRequests)
+        .set({ status: "cancelled", answeredAt: new Date() })
+        .where(
+          and(
+            inArray(helpRequests.id, helpIds),
+            eq(helpRequests.status, "pending"),
+          ),
+        );
+    }
     if (locked) relay = await relayJobEnded(tx, locked.conversation, ended);
     return { job: ended, alreadyFinal: false };
   });
@@ -681,6 +706,14 @@ export async function claimNextJobMessage(
   return row ?? null;
 }
 
+/** A job asked something after it had ended. */
+export class JobEnded extends Error {
+  /** @param status - How it ended. */
+  constructor(public status: string) {
+    super(`This job has already ended (${status.replace("_", " ")}).`);
+  }
+}
+
 /** A job asked more questions than its cap allows. */
 export class QuestionCapReached extends Error {
   /** @param cap - The cap. */
@@ -708,6 +741,8 @@ export async function insertJobQuestion(
 ): Promise<SandboxJobQuestion> {
   const job = await lockJob(tx, jobId);
   if (!job) throw jobNotFound();
+  // The middleware's "live" was a snapshot; the lock is the guard.
+  if (isTerminalJobStatus(job.status)) throw new JobEnded(job.status);
   const [{ n }] = await tx
     .select({ n: count() })
     .from(sandboxJobQuestions)
@@ -940,4 +975,28 @@ export function serializeJobMessage(m: SandboxJobMessage) {
     deliveredAt: m.deliveredAt?.getTime() ?? null,
     createdAt: m.createdAt.getTime(),
   };
+}
+
+/** What any job token looks like. */
+const JOB_TOKEN_PATTERN = /hyp_job_[A-Za-z0-9_-]+/g;
+
+/**
+ * Remove every job token from what a sandbox sends — its events, status,
+ * questions, artifacts, closing text — before it is stored or relayed. An
+ * agent that runs `env` prints its own token; stored, a project reader could
+ * use it with the bot's authority while the job lives.
+ * @param value - A string, or anything JSON-shaped holding strings.
+ * @returns The same shape with each token replaced.
+ */
+export function redactJobTokens<T>(value: T): T {
+  if (typeof value === "string") {
+    return value.replace(JOB_TOKEN_PATTERN, "hyp_job_[redacted]") as T;
+  }
+  if (Array.isArray(value)) return value.map(redactJobTokens) as T;
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([k, v]) => [k, redactJobTokens(v)]),
+    ) as T;
+  }
+  return value;
 }

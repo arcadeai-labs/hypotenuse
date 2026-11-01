@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { type Action, type ActionParams, api, HTTP_METHOD } from "keryx";
 import { z } from "zod";
 import {
@@ -13,6 +13,7 @@ import {
   afterRelay,
   finalizeSandboxJob,
   lockJob,
+  redactJobTokens,
 } from "../../ops/SandboxJobOps";
 import { type RelayResult, relayJobTurn } from "../../ops/SandboxRelayOps";
 import { sandboxJobs } from "../../schema/sandbox_jobs";
@@ -67,6 +68,8 @@ export class SandboxComplete implements Action {
    * @returns The job's status, and whether it had already ended.
    */
   async run(params: ActionParams<SandboxComplete>, connection: JobConnection) {
+    // A sandbox's own token never reaches a row or a relay.
+    params = redactJobTokens(params);
     let job = actingJob(connection);
     const parks =
       job.interactive && params.outcome === "succeeded" && !job.cancelRequested;
@@ -77,7 +80,13 @@ export class SandboxComplete implements Action {
         const row = await lockJob(tx, job.id);
         // The snapshot the middleware read is not the guard: a cancel that
         // landed since ends the job instead of parking it.
-        if (!row || row.status !== "running" || row.cancelRequested) {
+        // `provisioning` too: a first turn can finish before the starter
+        // marks the job running.
+        if (
+          !row ||
+          (row.status !== "running" && row.status !== "provisioning") ||
+          row.cancelRequested
+        ) {
           return row;
         }
         const [updated] = await tx
@@ -92,7 +101,10 @@ export class SandboxComplete implements Action {
             exitCode: params.exitCode,
           })
           .where(
-            and(eq(sandboxJobs.id, job.id), eq(sandboxJobs.status, "running")),
+            and(
+              eq(sandboxJobs.id, job.id),
+              inArray(sandboxJobs.status, ["running", "provisioning"]),
+            ),
           )
           .returning();
         if (locked && updated) {

@@ -157,21 +157,57 @@ describe("the model proxy", () => {
     expect(none.status).toBe(401);
   });
 
-  test("over its token budget, a job gets 402 and is cancelled", async () => {
-    const { job: j, token } = await job({ budgetTokens: 10 });
-    stage.models.script("ok");
+  test("a request that could pass the budget is refused up front; a job already over it is refused and cancelled", async () => {
     const body = {
       model: "scripted-large",
       max_tokens: 8,
       messages: [{ role: "user", content: "Hi" }],
     };
-    expect((await model(token, body)).status).toBe(200);
-    await Bun.sleep(150);
-    // 15 tokens against a budget of 10: the job is asked to stop at once.
-    expect((await jobRow(j.id)).cancelRequested).toBe(true);
-    const refused = await model(token, body);
+    // Its input (about 25 tokens) and max_tokens cannot fit in 20.
+    const small = await job({ budgetTokens: 20 });
+    const reserved = await model(small.token, body);
+    expect(reserved.status).toBe(402);
+    expect((await jobRow(small.job.id)).cancelRequested).toBe(false);
+    // A job whose recorded usage is already at its budget is stopped.
+    const spent = await job({
+      budgetTokens: 1_000,
+      usage: { inputTokens: 900, outputTokens: 100, requests: 3 },
+    });
+    const refused = await model(spent.token, body);
     expect(refused.status).toBe(402);
     expect(JSON.stringify(await refused.json())).toContain("budget_exceeded");
+    expect((await jobRow(spent.job.id)).cancelRequested).toBe(true);
+  });
+
+  test("a stream the sandbox hangs up on part way is still counted", async () => {
+    const { job: j, token } = await job();
+    stage.models.script("A long answer that streams in several events.");
+    const res = await model(token, {
+      model: "scripted-large",
+      max_tokens: 64,
+      stream: true,
+      messages: [{ role: "user", content: "Hi" }],
+    });
+    expect(res.status).toBe(200);
+    const reader = res.body?.getReader();
+    await reader?.read();
+    await reader?.cancel();
+    await Bun.sleep(300);
+    const usage = (await jobRow(j.id)).usage;
+    expect(usage.requests).toBe(1);
+    expect(usage.inputTokens).toBeGreaterThan(0);
+  });
+
+  test("at most four model requests run at once for one job", async () => {
+    const { job: j, token } = await job();
+    await api.redis.redis.set(`sandbox:model-inflight:${j.id}`, "4");
+    const res = await model(token, {
+      model: "scripted-large",
+      max_tokens: 8,
+      messages: [{ role: "user", content: "Hi" }],
+    });
+    expect(res.status).toBe(429);
+    await api.redis.redis.del(`sandbox:model-inflight:${j.id}`);
   });
 });
 

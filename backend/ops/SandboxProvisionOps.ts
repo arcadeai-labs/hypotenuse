@@ -25,6 +25,7 @@ import {
   loadJob,
   parentOf,
   registerJobToken,
+  revokeJobToken,
 } from "./SandboxJobOps";
 import { provisionSandbox } from "./SandboxOps";
 
@@ -429,6 +430,12 @@ export async function startSandboxJob(jobId: number): Promise<StartOutcome> {
       .returning({ id: sandboxJobs.id });
     if (!won) return "skipped";
     await registerJobToken(jobId, token, job.maxDurationMs + 15 * 60 * 1000);
+    // Ended between winning the row and registering (a reap, a cancel): its
+    // revocation found nothing to revoke, so revoke the token here.
+    if (!(await stillWanted())) {
+      await revokeJobToken(jobId);
+      return "cancelled";
+    }
 
     // 2. The briefing, recorded on the job.
     const apiUrl = resolveSandboxApiUrl(provider);
