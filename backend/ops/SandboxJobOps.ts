@@ -45,6 +45,7 @@ import {
   pingConversation,
 } from "./ConversationOps";
 import type { DbHandle, TxHandle } from "./DbOps";
+import { redactGitHubTokens, revokeJobGitTokens } from "./GitCredentialOps";
 import { enqueueDelivery } from "./OutboxOps";
 import {
   effectiveSandboxSettings,
@@ -536,6 +537,7 @@ export async function finalizeSandboxJob(
   });
   if (!result.alreadyFinal) {
     await revokeJobToken(jobId);
+    await revokeJobGitTokens(jobId);
     await releaseJobSandboxes(jobId);
     await afterRelay(result.job, relay);
   }
@@ -981,7 +983,8 @@ export function serializeJobMessage(m: SandboxJobMessage) {
 const JOB_TOKEN_PATTERN = /hyp_job_[A-Za-z0-9_-]+/g;
 
 /**
- * Remove every job token from what a sandbox sends — its events, status,
+ * Remove every job token — and every GitHub token a git or `gh` command was
+ * handed — from what a sandbox sends — its events, status,
  * questions, artifacts, closing text — before it is stored or relayed. An
  * agent that runs `env` prints its own token; stored, a project reader could
  * use it with the bot's authority while the job lives.
@@ -990,7 +993,9 @@ const JOB_TOKEN_PATTERN = /hyp_job_[A-Za-z0-9_-]+/g;
  */
 export function redactJobTokens<T>(value: T): T {
   if (typeof value === "string") {
-    return value.replace(JOB_TOKEN_PATTERN, "hyp_job_[redacted]") as T;
+    return redactGitHubTokens(
+      value.replace(JOB_TOKEN_PATTERN, "hyp_job_[redacted]"),
+    ) as T;
   }
   if (Array.isArray(value)) return value.map(redactJobTokens) as T;
   if (value && typeof value === "object") {
