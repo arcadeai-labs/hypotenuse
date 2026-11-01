@@ -334,6 +334,10 @@ organization.
 - **A token with its own identity is a user.** Its notes and replies arrive as "a new message" by `author.user.id`
   equal to `GET /me`'s user id, which is how the bot never hears itself; other bots of the project are read in
   `hydrate` from their installations.
+- **An issue that moves keeps its conversation.** Issue ids are global, so the adapter sets
+  `globalConversationKeys`, as Linear's does: an existing conversation for an issue decides the channel, and an
+  issue moved to another account keeps the account it started in (and its memory). The next issue is the new
+  account's.
 - **The risk check is the gate's, not the tool's.** `pylon_reply_to_customer`'s gate asks the `fast` model before
   anything is sent, and a failed or unreadable answer is `high`. After a crash the gate runs again: the resend
   carries the same `custom_source.external_id` (the call's idempotency key), so Pylon returns the message it

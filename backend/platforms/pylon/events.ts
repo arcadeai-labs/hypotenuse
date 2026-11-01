@@ -452,9 +452,12 @@ export function parsePylonDelivery(
 /**
  * The id a retry of a delivery repeats. Pylon sends no delivery id, and a
  * retry is signed again with a new timestamp, so the id is a hash of the body
- * (never `hydrated`, added later) within a window of
- * `dedupeWindowSeconds` around the timestamp: Pylon's two retries come
- * about 4 and 12 seconds after the first attempt.
+ * (never `hydrated`, added later) and the epoch-aligned bucket of
+ * `dedupeWindowSeconds` its timestamp falls in: Pylon's two retries come
+ * about 4 and 12 seconds after the first attempt, so they share a bucket
+ * unless one crosses its edge. One that does is recorded as a second event,
+ * which changes nothing: a message is deduped in the inbox by its own id,
+ * and a disengagement of an ended conversation is a no-op.
  * @param body - The parsed body.
  * @param headers - The request's headers.
  * @returns The id.

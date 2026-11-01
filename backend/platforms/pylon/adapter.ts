@@ -456,6 +456,9 @@ export const pylonAdapter: PlatformAdapter = {
   },
   settlesAtEnqueue: false,
   probeOnConnect: true,
+  // An issue id names one issue across the organization: a conversation keeps
+  // its channel (and memory) when its issue moves to another account.
+  globalConversationKeys: true,
   protectedSettings: ["customerReplyPolicy", "customerReplyPolicySetByUserId"],
   autoBindApprovalPolicy: "participants",
 

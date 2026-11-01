@@ -30,6 +30,7 @@ in the [learnings](../plans/phase-16-pylon.md#learnings-from-the-build); the fir
 | `pylon.trigger.auto_triage` | with `autoTriage` off, a new issue is `noted: auto-triage-off` | `backend/platforms/pylon/events.ts` | `backend/__tests__/pylon/issue.test.ts` |
 | `pylon.listen` | an issue outside the listened teams or tags is `noted: not-listened` | `backend/platforms/pylon/events.ts` | `backend/__tests__/pylon/issue.test.ts` |
 | `pylon.channel.account` | an issue's channel is its account (`account:<id>`, the account's name and domains); with no account, `unassigned` | `backend/platforms/pylon/events.ts` | `backend/__tests__/pylon/issue.test.ts` |
+| `pylon.channel.moved` | an issue moved to another account keeps its conversation and the channel it started in (`globalConversationKeys`) | `backend/platforms/pylon/adapter.ts` | `backend/__tests__/pylon/issue.test.ts` |
 | `pylon.binding` | an account binds itself with approval policy `participants` (`autoBindApprovalPolicy`): only the team sees internal notes | `backend/ops/TriggerEventOps.ts` | `backend/__tests__/pylon/issue.test.ts` |
 | `pylon.in.self` | a note or reply by the bot's own token, or another bot's of the project, is `ignored: loop` | `backend/platforms/pylon/events.ts` | `backend/__tests__/pylon/issue.test.ts` |
 | `pylon.in.customer_message` | a customer's message continues the conversation the bot has on the issue | `backend/platforms/pylon/events.ts` | `backend/__tests__/pylon/issue.test.ts` |

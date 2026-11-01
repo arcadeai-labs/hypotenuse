@@ -191,6 +191,28 @@ describe("the conversation", () => {
     ]);
   });
 
+  // Coverage: `pylon.channel.moved`.
+  test("an issue moved to another account keeps its conversation, and its channel", async () => {
+    stage.models.play([
+      reply("Findings."),
+      reply("Still on it.", { lastMessageIncludes: "Moved, any update?" }),
+    ]);
+    const issue = openAcme();
+    await flow(stage);
+    const before = await conversationForIssue(issue.id);
+    stage.pylon.moveToAccount(issue.id, stage.globex.accountId);
+    stage.pylon.customerWrites(issue.id, "Moved, any update?");
+    await flow(stage);
+    const after = await conversationForIssue(issue.id);
+    expect(after.id).toBe(before.id);
+    expect(after.channelId).toBe(before.channelId);
+    const inbox = await api.db.db
+      .select()
+      .from(conversationInbox)
+      .where(eq(conversationInbox.conversationId, before.id));
+    expect(inbox.map((r) => r.text)).toContain("Moved, any update?");
+  });
+
   // Coverage: `pylon.in.mention`, `pylon.in.note_unaddressed`, `pylon.in.teammate_reply`, `pylon.trigger.auto_triage`.
   test("with auto-triage off, an issue starts nothing until a teammate mentions the bot in a note", async () => {
     await editPylonSettings(stage, { triggers: { autoTriage: false } });

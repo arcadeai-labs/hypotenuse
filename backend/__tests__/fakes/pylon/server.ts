@@ -435,6 +435,16 @@ export class FakePylon {
   }
 
   /**
+   * Move an issue to another account (Pylon fires no Trigger for this here).
+   * @param issueId - The issue.
+   * @param accountId - The account it now belongs to.
+   */
+  moveToAccount(issueId: string, accountId: string): void {
+    const issue = this.mustIssue(issueId);
+    issue.account = { id: accountId };
+  }
+
+  /**
    * Assign an issue (to a user id, or to nobody).
    * @param issueId - The issue.
    * @param userId - The assignee, or `null`.
