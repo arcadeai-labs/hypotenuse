@@ -28,12 +28,23 @@ interface Posted {
  * @param answers - What each path answers.
  * @returns The fetcher and what it saw.
  */
-function fakeServer(answers: Record<string, unknown> = {}) {
+function fakeServer(
+  answers: Record<
+    string,
+    unknown | ((body: Record<string, unknown>) => unknown)
+  > = {},
+) {
   const posted: Posted[] = [];
   const fetcher = (async (url: string, init?: RequestInit) => {
     const path = new URL(url).pathname.replace(/^\/api/, "");
-    posted.push({ path, body: JSON.parse(String(init?.body ?? "{}")) });
-    return Response.json(answers[path] ?? { status: "succeeded" });
+    const body = JSON.parse(String(init?.body ?? "{}"));
+    posted.push({ path, body });
+    const answer = answers[path];
+    return Response.json(
+      typeof answer === "function"
+        ? answer(body)
+        : (answer ?? { status: "succeeded" }),
+    );
   }) as unknown as typeof fetch;
   return { fetcher, posted };
 }
@@ -43,7 +54,7 @@ function fakeServer(answers: Record<string, unknown> = {}) {
  * @param script - The shell the CLI runs.
  * @returns The config.
  */
-function configFor(script: string) {
+function configFor(script: string, extra: Record<string, string> = {}) {
   const dir = mkdtempSync(join(tmpdir(), "supervisor-"));
   writeFileSync(join(dir, "prompt.md"), "Do the work.");
   return readConfig({
@@ -59,6 +70,7 @@ function configFor(script: string) {
     HYPOTENUSE_PROMPT_FILE: join(dir, "prompt.md"),
     HYPOTENUSE_LOG_FILE: join(dir, "supervisor.log"),
     HYPOTENUSE_HEARTBEAT_MS: "60000",
+    ...extra,
   });
 }
 
@@ -163,5 +175,36 @@ describe("a run", () => {
       posted.find((p) => p.path === "/sandbox/complete")?.body,
     ).toMatchObject({ outcome: "cancelled", exitCode: 143 });
     expect(posted.some((p) => p.path === "/sandbox/events")).toBe(false);
+  });
+
+  test("an interactive job cancelled while it waits for a follow-up reports the cancel, so it ends at once", async () => {
+    const result = {
+      type: "result",
+      subtype: "success",
+      is_error: false,
+      result: "First turn done.",
+    };
+    let idle = 0;
+    const { fetcher, posted } = fakeServer({
+      "/sandbox/heartbeat": (body: Record<string, unknown>) => {
+        if (body.phase === "idle") idle++;
+        return { cancelRequested: idle >= 2 };
+      },
+      "/sandbox/complete": (body: Record<string, unknown>) => ({
+        status: body.outcome === "succeeded" ? "awaiting_input" : "cancelled",
+      }),
+    });
+    const code = await new Supervisor(
+      configFor(`echo '${JSON.stringify(result)}'`, {
+        HYPOTENUSE_INTERACTIVE: "true",
+        HYPOTENUSE_HEARTBEAT_MS: "20",
+      }),
+      fetcher,
+    ).run();
+    expect(code).toBe(0);
+    const completes = posted
+      .filter((p) => p.path === "/sandbox/complete")
+      .map((p) => p.body.outcome);
+    expect(completes).toEqual(["succeeded", "cancelled"]);
   });
 });

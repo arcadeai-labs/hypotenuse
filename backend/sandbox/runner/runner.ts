@@ -432,7 +432,19 @@ export class Supervisor {
       }
       if (answer.status !== "awaiting_input") return 0;
       const next = await this.awaitFollowUp();
-      if (next === null) return 0;
+      if (next === null) {
+        // Cancelled while waiting between turns: say so, so the job ends now
+        // rather than when the reaper forces an unacknowledged cancel. A
+        // refusal here means the job already ended on the server.
+        await this.complete({
+          exitCode: SIGTERM_EXIT_CODE,
+          closingText: null,
+          error: null,
+          sessionId: this.sessionId,
+          usage: this.usage,
+        }).catch((e) => this.log("complete_failed", { error: String(e) }));
+        return 0;
+      }
       argv = this.resumeWith(next);
     }
   }

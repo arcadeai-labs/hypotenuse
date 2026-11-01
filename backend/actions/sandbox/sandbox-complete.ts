@@ -67,7 +67,7 @@ export class SandboxComplete implements Action {
    * @returns The job's status, and whether it had already ended.
    */
   async run(params: ActionParams<SandboxComplete>, connection: JobConnection) {
-    const job = actingJob(connection);
+    let job = actingJob(connection);
     const parks =
       job.interactive && params.outcome === "succeeded" && !job.cancelRequested;
     if (parks) {
@@ -75,7 +75,11 @@ export class SandboxComplete implements Action {
       const parked = await api.db.db.transaction(async (tx) => {
         const locked = await lockConversation(tx, job.parentConversationId);
         const row = await lockJob(tx, job.id);
-        if (!row || row.status !== "running") return row;
+        // The snapshot the middleware read is not the guard: a cancel that
+        // landed since ends the job instead of parking it.
+        if (!row || row.status !== "running" || row.cancelRequested) {
+          return row;
+        }
         const [updated] = await tx
           .update(sandboxJobs)
           .set({
@@ -97,7 +101,10 @@ export class SandboxComplete implements Action {
         return updated;
       });
       await afterRelay(job, relay);
-      return { status: parked?.status ?? job.status, alreadyFinal: false };
+      if (!parked?.cancelRequested) {
+        return { status: parked?.status ?? job.status, alreadyFinal: false };
+      }
+      job = parked;
     }
     const result = await finalizeSandboxJob(job.id, {
       status: job.cancelRequested ? "cancelled" : params.outcome,
