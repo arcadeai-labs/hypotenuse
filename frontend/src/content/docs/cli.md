@@ -80,6 +80,7 @@ invites), and `audit list`.
 | `hypotenuse model alias list`, `model alias set <name> --connection --model`, `model alias remove <name>` | The model names bots use. `default` and `fast` must both exist before any bot can run, and `list` says which are missing. `set` creates an alias or changes the one of that name; `--max-output-tokens` and `--temperature` tune it, and `--kind embedding` (only for the alias named `embedding`) makes it the model memory embeds with. Admins only to change |
 | `hypotenuse bot list`, `bot view <bot>` | The bots you can read, and one bot's settings and persona (its prompt's Identity section) |
 | `hypotenuse bot create --name --persona-file`, `bot edit <bot>`, `bot delete <bot> --yes` | Make a bot, change it, or delete it. See **Bots from the command line** below |
+| `hypotenuse bot repos <bot>` | The GitHub repositories a bot may reach, and whether it may push to each. See **Repositories from the command line** below |
 | `hypotenuse bot callback-secret <bot>` | Create the secret a bot signs its API callbacks with, and print it once. See **Talking to a bot** below |
 | `hypotenuse mcp-server list`, `mcp-server view <server>`, `mcp-server match <server> --pattern` | The project's shared [MCP servers](/docs/mcp-servers): each one's endpoint, how it signs in (never the credential), its status, and the tools it offers; and which tools an allowlist pattern would let through |
 | `hypotenuse mcp-server add <name> --endpoint`, `mcp-server edit <server>`, `mcp-server test <server>`, `mcp-server refresh <server>`, `mcp-server sign-in <server>`, `mcp-server remove <server> --yes` | Connect a server, change it, check it answers, re-list its tools, sign the project in to an OAuth server, or disconnect it. Admins only; see **MCP servers from the command line** below |
@@ -100,6 +101,8 @@ invites), and `audit list`.
 | `hypotenuse event list`, `event view <id>` | Every platform delivery the bots received and what became of it — answered, ignored because the channel is unbound, rate-limited (`--status`, `--outcome`, `--installation` narrow the list). Admins only |
 | `hypotenuse approval list`, `approval view <id>`, `approval approve <id>`, `approval deny <id>` | Tool calls bots are waiting on ([approvals](/docs/approvals)): list them (`--status pending`, `--bot`, `--conversation` narrow it), read one, and decide it. See **Approvals from the command line** below |
 | `hypotenuse sandbox list`, `sandbox view <jobId>`, `sandbox events <jobId>`, `sandbox cancel <jobId>`, `sandbox answer <jobId> <questionId> <answer>` | Code work bots handed to a coding agent in a sandbox: list jobs (`--bot`, `--conversation`, `--status` narrow it), read one, read its transcript, stop it, and answer its questions. See **Sandbox jobs from the command line** below |
+| `hypotenuse repo install`, `repo installations`, `repo detach <installationId> --yes` | Attach the deployment's GitHub App to the project — print the link that installs it — list the attached installations, or detach one with its grants. Admins only to change. See **Repositories from the command line** below |
+| `hypotenuse repo grants`, `repo view <grantId>`, `repo grant <owner/name> --installation`, `repo grant-edit <grantId>`, `repo revoke <grantId> --yes` | The repositories the project's bots are granted: list them, read one, grant one (read only, or with `--push`), change one, or revoke one. Admins only to change |
 | `hypotenuse large-result view <lr_id>` | A tool result too long to show in a transcript, which the transcript names `lr_<id>`: a page at a time (`--offset`, `--limit`) or `--all` |
 | `hypotenuse conversation create --bot --text [--web [--fresh]]`, `conversation message <id> --text` | Start a conversation with a bot — over the API, or with `--web` in its dashboard chat — or send one a message. See **Talking to a bot** below |
 | `hypotenuse conversation list`, `conversation view <id>`, `conversation follow <id>`, `conversation cancel <id>` | The conversations with bots you can read (`--bot`, `--state` narrow the list); one conversation's state; its transcript as the bot works; stopping it |
@@ -181,6 +184,10 @@ hypotenuse bot edit ada --disable
 - `bot edit --sandbox off|approve|allow` decides whether the bot may hand code work to a sandbox job; with `approve`
   (the default) each job waits for a person's approval first. `--sandbox-token-budget <tokens>` caps the model tokens
   one job may use before it is stopped; `--no-sandbox-token-budget` lifts the cap.
+- `bot edit --github-wake <events>` sets which events on a pull request the bot's sandbox job opened wake the
+  conversation that asked for it: any of `changes_requested`, `approved`, `commented`, `review_comment`,
+  `check_failed`, `check_passed`, `closed`, and `merged`, comma-separated, or `none`. A new bot wakes on
+  `changes_requested` and `check_failed`; the rest are recorded and wait for its next turn.
 
 `bot edit` changes only what its flags name.
 
@@ -385,6 +392,37 @@ hypotenuse project settings --no-sandbox-image
   may run (seconds, or `30m`, `2h`; only lower than the deployment's ceiling).
 - Each has a `--no-*` form that goes back to the deployment's default. The answer says which settings are the
   project's own and which are defaults.
+
+### Repositories from the command line
+
+Bots reach GitHub through the deployment's GitHub App, installed on your organization and attached to the project. An
+admin attaches it, then grants repositories one at a time:
+
+```bash
+hypotenuse repo install
+hypotenuse repo installations
+hypotenuse repo grant acme/api --installation 3 --push --branch-prefix hypotenuse/ada/ --bot ada
+hypotenuse repo grant acme/docs --installation 3
+hypotenuse repo grants
+hypotenuse bot repos ada
+```
+
+- `install` prints a link to open in a browser signed in to Hypotenuse, within ten minutes. GitHub asks which
+  organization or account to install the App on and which of its repositories it may see, then sends you back; the
+  installation is attached only if your GitHub account can see it. If the deployment has no GitHub App configured,
+  `install` says which settings are missing.
+- `grant` needs a repository owned by the installation's account that the installation can see; otherwise it says
+  to add the repository to the App's installation on GitHub. It grants read access unless you pass `--push`, and
+  every bot unless you name some with `--bot` (repeat it for more).
+- `--branch-prefix` is the branch namespace jobs are asked to push into (`hypotenuse/<bot-slug>/` unless you say
+  otherwise). A token that can push can write every branch, so a push grant without a prefix warns you; `repo view`
+  prints the GitHub ruleset that keeps the App inside its prefix.
+- `grant-edit <grantId>` changes `--push` / `--no-push`, `--branch-prefix` / `--no-branch-prefix`, and `--bot` /
+  `--all-bots`; `revoke <grantId> --yes` deletes the grant.
+- `detach <installationId> --yes` detaches an installation and deletes every grant made through it. The App stays
+  installed on GitHub, where the account's owners remove it.
+- Anyone in the project can list installations and grants, and `bot repos` for a bot they can read; changing them
+  takes an admin.
 
 ### Prompts, goals, and skills from the command line
 

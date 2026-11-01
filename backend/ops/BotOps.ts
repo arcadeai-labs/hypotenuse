@@ -4,7 +4,12 @@ import { config, ErrorType, TypedError } from "keryx";
 import { z } from "zod";
 // Type-only, purely for the `declare module "keryx"` augmentation inside.
 import type {} from "../config/code";
-import { BOT_SANDBOX_POLICIES, type Bot, bots } from "../schema/bots";
+import {
+  BOT_SANDBOX_POLICIES,
+  type Bot,
+  bots,
+  GITHUB_WAKE_EVENTS,
+} from "../schema/bots";
 import type { Tag } from "../schema/tags";
 import {
   ACCESS_EVERYONE,
@@ -123,6 +128,7 @@ export function serializeBot(bot: Bot, persona: string) {
     channelRateLimit: bot.channelRateLimit,
     sandboxPolicy: bot.sandboxPolicy,
     sandboxJobTokenBudget: bot.sandboxJobTokenBudget,
+    githubWakeEvents: bot.githubWakeEvents,
     createdByUserId: bot.createdByUserId,
     createdAt: bot.createdAt.getTime(),
     updatedAt: bot.updatedAt.getTime(),
@@ -608,6 +614,18 @@ export const sandboxJobTokenBudgetInput = z
   .nullable()
   .describe(
     "The most model tokens (input plus output) one sandbox job may use before it is stopped; null for no cap",
+  );
+
+/**
+ * Which events on a pull request one of the bot's jobs opened wake its
+ * conversation; deduplicated, in {@link GITHUB_WAKE_EVENTS} order.
+ */
+export const githubWakeEventsInput = z
+  .array(z.enum(GITHUB_WAKE_EVENTS))
+  .max(GITHUB_WAKE_EVENTS.length * 4)
+  .transform((events) => GITHUB_WAKE_EVENTS.filter((e) => events.includes(e)))
+  .describe(
+    `Which events on a pull request one of the bot's sandbox jobs opened wake the conversation that asked for it: any of ${GITHUB_WAKE_EVENTS.join(", ")}; the rest are recorded for its next turn. An empty list wakes it for none`,
   );
 
 /** Whether a bot is offered `run_code`. */

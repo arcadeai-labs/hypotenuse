@@ -101,6 +101,20 @@ const EXPECTED_LEVELS: Record<string, RbacLevel> = {
   "bot-skill:attach": "member",
   "bot-skill:detach": "member",
   "bot-skill:list": "member",
+  // Repositories: members read the installations and grants, and a bot's
+  // repositories under its read access; attaching, detaching, and granting
+  // are an admin's decision.
+  "github:installation-list": "member",
+  "repository-grant:list": "member",
+  "repository-grant:view": "member",
+  "bot:repositories": "member",
+  "github:install-url": "admin",
+  "github:installation-detach": "admin",
+  "repository-grant:create": "admin",
+  "repository-grant:edit": "admin",
+  "repository-grant:delete": "admin",
+  // The GitHub App's install hop: its single-use state names the admin.
+  "github:install-callback": "none",
 
   // A project's admin level: managing people, tags, invites, the project.
   "project:edit": "admin",
@@ -224,6 +238,7 @@ const EXPECTED_LEVELS: Record<string, RbacLevel> = {
   "webhooks:slack": "none",
   "webhooks:linear": "none",
   "webhooks:pylon": "none",
+  "webhooks:github": "none",
   // Event processing and escalation's machine work: task-only, no caller.
   "triggers:process-event": "none",
   "triggers:process-pending": "none",
@@ -302,6 +317,15 @@ const CLOCKS = [
 
 /** Every action published as an MCP tool for a person's client. */
 const EXPECTED_MCP_TOOLS = [
+  "github:install-url",
+  "github:installation-list",
+  "github:installation-detach",
+  "repository-grant:create",
+  "repository-grant:edit",
+  "repository-grant:delete",
+  "repository-grant:list",
+  "repository-grant:view",
+  "bot:repositories",
   "project:settings-edit",
   "sandbox-job:list",
   "sandbox-job:view",
@@ -573,6 +597,7 @@ describe("MCP publish policy", () => {
         "cli-auth:device",
         "cli-auth:exchange",
         "email-verification:confirm",
+        "github:install-callback",
         "health",
         "mcp-server:oauth-callback",
         "mcp-server:oauth-start",

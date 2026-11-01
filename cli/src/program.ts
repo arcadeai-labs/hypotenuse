@@ -37,6 +37,7 @@ import {
 import { registerProjectCommands } from "./commands/project";
 import { registerPromptCommands } from "./commands/prompt";
 import { registerPylonCommands } from "./commands/pylon";
+import { registerRepoCommands } from "./commands/repo";
 import { registerSandboxCommands } from "./commands/sandbox";
 import { registerSkillCommands } from "./commands/skill";
 import { registerSlackCommands } from "./commands/slack";
@@ -105,6 +106,7 @@ export function buildProgram(): Command {
   registerLargeResultCommands(program);
   registerCodeRunCommands(program);
   registerSandboxCommands(program);
+  registerRepoCommands(program);
   registerMemoryCommands(program);
   registerParticipantCommands(program);
   registerEventCommands(program);
