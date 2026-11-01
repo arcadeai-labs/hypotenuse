@@ -58,8 +58,8 @@ approvals it waits on, each linking to where it is decided.
 
 ## Turning it on and off, and limits
 
-Code mode is on for every bot unless you turn it off. The bot's page has a **Code** section with the switch and three
-limits you can set for that bot:
+Code mode is on for every bot unless you turn it off. The bot's page has a **Code** card, under **Tools & code**,
+with the switch and three limits you can set for that bot:
 
 ![A bot's Code section: the code-mode switch and its own limits](illustration:bot-code)
 

@@ -147,7 +147,7 @@ test("an admin connects an MCP server, gives it to a bot with a pattern, and dec
   );
 
   // Give it to the bot: nothing is allowlisted, so everything waits.
-  await page.goto(`/bots/${botId}`);
+  await page.goto(`/bots/${botId}/tools`);
   await expect(page.getByTestId("bot-tools-empty")).toBeVisible(LANDED);
   await page
     .getByTestId("bot-tools-add-select")
