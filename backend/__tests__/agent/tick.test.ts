@@ -81,6 +81,7 @@ describe("a turn", () => {
             "prompt_read",
             "reply_and_wait",
             "run_code",
+            "sandbox_start",
             "search_history",
             "skill_list",
             "use_skill",

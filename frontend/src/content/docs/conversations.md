@@ -20,7 +20,7 @@ Every conversation is in one of four states.
 |---|---|
 | **Working** | The bot is on it. Write again and it reads your message before its next step, without stopping what it is doing. |
 | **Resting** (`hibernating`) | The bot answered and is waiting for anyone to say something. Writing wakes it. |
-| **Waiting** | The bot paused on purpose: for the answer to a question it asked, until a time it chose, or for a person to [approve](/docs/approvals) a tool call. Your next message is the answer to its question; while it sleeps on a timer or waits for an approval, messages are kept and read when it wakes. |
+| **Waiting** | The bot paused on purpose: for the answer to a question it asked, until a time it chose, for a person to [approve](/docs/approvals) a tool call, or for a [sandbox job](/docs/sandboxes) it started to finish. Your next message is the answer to its question; while it sleeps on a timer or waits for an approval, messages are kept and read when it wakes. |
 | **Ended** | Closed, with an outcome: **completed** (it said the work was done), **failed** (it could not, and said why), or **cancelled** (someone stopped it). Writing again starts a new turn in the same conversation. |
 
 A **turn** is everything the bot does between your message and its answer. A bot always ends a turn deliberately —

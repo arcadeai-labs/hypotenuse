@@ -238,6 +238,31 @@ const EXPECTED_LEVELS: Record<string, RbacLevel> = {
   "cli-auth:exchange": "none",
   "cli-token:list": "none",
   "cli-token:revoke": "none",
+  // Sandboxes: a person's view of a job is member-gated, filtered by the
+  // bot's read access, and cancelling or answering needs its write access.
+  "project:settings-edit": "admin",
+  "sandbox-job:list": "member",
+  "sandbox-job:view": "member",
+  "sandbox-job:events": "member",
+  "sandbox-job:cancel": "member",
+  "sandbox-job:answer": "member",
+  // The sandbox's machine half and the proxies: the job token is the caller.
+  "sandbox:events": "none",
+  "sandbox:heartbeat": "none",
+  "sandbox:complete": "none",
+  "sandbox:report-status": "none",
+  "sandbox:ask": "none",
+  "sandbox:check-answer": "none",
+  "sandbox:request-help": "none",
+  "sandbox:submit-artifact": "none",
+  "sandbox:memory-search": "none",
+  "proxy:model": "none",
+  "proxy:mcp": "none",
+  // Provisioning and the sandbox clocks: task-only, no caller.
+  "sandbox-job:start": "none",
+  "sandbox-jobs:dispatch": "none",
+  "sandbox-jobs:reap": "none",
+  "sandbox:orphan-sweep": "none",
 };
 
 /**
@@ -270,10 +295,26 @@ const CLOCKS = [
   "triggers:process-pending",
   "help:expire",
   "installations:refresh-tokens",
+  "sandbox-jobs:dispatch",
+  "sandbox-jobs:reap",
+  "sandbox:orphan-sweep",
 ];
 
 /** Every action published as an MCP tool for a person's client. */
 const EXPECTED_MCP_TOOLS = [
+  "project:settings-edit",
+  "sandbox-job:list",
+  "sandbox-job:view",
+  "sandbox-job:events",
+  "sandbox-job:cancel",
+  "sandbox-job:answer",
+  // The in-sandbox tools: published, and shown only to a job's session.
+  "sandbox:report-status",
+  "sandbox:ask",
+  "sandbox:check-answer",
+  "sandbox:request-help",
+  "sandbox:submit-artifact",
+  "sandbox:memory-search",
   "slack:app-create",
   "pylon:settings-edit",
   "bot-installation:manifest",

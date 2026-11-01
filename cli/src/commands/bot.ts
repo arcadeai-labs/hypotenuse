@@ -58,6 +58,8 @@ interface Bot {
   autoBind?: { public: boolean; private: boolean; dm: boolean };
   participantRateLimit?: number;
   channelRateLimit?: number;
+  sandboxPolicy?: string;
+  sandboxJobTokenBudget?: number | null;
   createdAt: number;
   updatedAt: number;
   standing?: { canWrite: boolean };
@@ -113,7 +115,14 @@ export interface BotFlags {
   participantRateLimit?: string;
   /** `bot edit` only: messages a minute one channel may send it. */
   channelRateLimit?: string;
+  /** `bot edit` only: whether it may start sandbox jobs (`off`, `approve`, `allow`). */
+  sandbox?: string;
+  /** `bot edit` only: tokens one sandbox job may use, or `false` from `--no-sandbox-token-budget`. */
+  sandboxTokenBudget?: string | false;
 }
+
+/** Whether a bot may start sandbox jobs, and whether each waits for a person. */
+export const SANDBOX_POLICIES = ["off", "approve", "allow"] as const;
 
 /** The kinds of channel a bot may bind itself in when invited. */
 export const AUTO_BIND_KINDS = ["public", "private", "dm"] as const;
@@ -362,6 +371,21 @@ export function botBody(flags: BotFlags): Record<string, unknown> {
       "--channel-rate-limit",
     );
   }
+  if (flags.sandbox !== undefined) {
+    if (!(SANDBOX_POLICIES as readonly string[]).includes(flags.sandbox)) {
+      throw new Error(
+        `--sandbox takes one of ${SANDBOX_POLICIES.join(", ")}; got "${flags.sandbox}".`,
+      );
+    }
+    body.sandboxPolicy = flags.sandbox;
+  }
+  if (flags.sandboxTokenBudget === false) body.sandboxJobTokenBudget = null;
+  else if (flags.sandboxTokenBudget !== undefined) {
+    body.sandboxJobTokenBudget = parseNumber(
+      flags.sandboxTokenBudget,
+      "--sandbox-token-budget",
+    );
+  }
   return body;
 }
 
@@ -428,6 +452,11 @@ function botDetail(bot: Bot, canWrite: boolean): string {
     `steps/turn    ${bot.maxStepsPerTurn ?? 50}`,
     `prompt        about ${bot.promptBudgetTokens ?? 8_000} tokens; it may add ${bot.maxAgentSections ?? 10} sections itself (\`hypotenuse prompt list --bot ${bot.slug}\`)`,
     `code          ${codeText(bot)}`,
+    ...(bot.sandboxPolicy
+      ? [
+          `sandbox jobs  ${bot.sandboxPolicy === "approve" ? "each waits for approval" : bot.sandboxPolicy}${bot.sandboxPolicy !== "off" && bot.sandboxJobTokenBudget ? `; at most ${bot.sandboxJobTokenBudget} tokens a job` : ""}`,
+        ]
+      : []),
     `half-life     ${bot.memoryChannelHalfLifeDays ?? 30} days channel memory, ${bot.memoryProjectHalfLifeDays ?? 180} days project memory`,
     `callbacks     ${bot.hasCallbackSecret ? "signed (secret set)" : "no secret yet"}`,
     ...(bot.autoBind
@@ -552,7 +581,16 @@ export function registerBotCommands(program: Command): void {
       .option(
         "--channel-rate-limit <n>",
         "the most messages a minute one channel may send it",
-      ),
+      )
+      .option(
+        "--sandbox <policy>",
+        `whether it may hand code work to sandbox jobs: ${SANDBOX_POLICIES.join(", ")} (approve: each job waits for a person)`,
+      )
+      .option(
+        "--sandbox-token-budget <tokens>",
+        "the most model tokens one sandbox job may use before it is stopped (at least 1000)",
+      )
+      .option("--no-sandbox-token-budget", "no token cap on a sandbox job"),
   ).action(async function (this: Command, selector: string) {
     await runCommand(this, async (ctx) => {
       const body = botBody(this.opts() as BotFlags);

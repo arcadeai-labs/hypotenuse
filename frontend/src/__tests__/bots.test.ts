@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import { parseStepsPerTurn } from "../components/bots/BudgetSection";
-import { UNAVAILABLE_BOT_SECTIONS } from "../components/bots/UnavailableSections";
 import {
   BOT_WRITE_DENIED,
   botWriteDenied,
@@ -40,15 +39,6 @@ describe("the missing model names banner", () => {
     expect(missingAliasesSentence(["default", "fast"])).toBe(
       'This project needs the "default" and "fast" model names before any bot can run.',
     );
-  });
-});
-
-describe("the bot page's sections not built yet", () => {
-  test("are the one the page will configure, and name no plan", () => {
-    expect(UNAVAILABLE_BOT_SECTIONS.map((s) => s.title)).toEqual(["Sandboxes"]);
-    for (const section of UNAVAILABLE_BOT_SECTIONS) {
-      expect(section.purpose).not.toMatch(/phase/i);
-    }
   });
 });
 

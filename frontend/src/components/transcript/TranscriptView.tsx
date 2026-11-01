@@ -1,10 +1,12 @@
 import { useEffect, useRef } from "react";
 import type { Platform } from "../../../../design/states";
 import { Avatar, Button, PlatformChip, StatusGlyph } from "../../ui";
+import { type SandboxJobRow, sandboxStartJobId } from "../../utils/sandboxJobs";
 import { MarkdownBlock } from "../MarkdownBlock";
 import { CodeRunCall, type CodeRunDetail } from "./CodeRun";
 import { PromptChangeLine, SkillRunLine } from "./ContextUpdate";
 import type { TranscriptItem } from "./model";
+import { SandboxStartCall } from "./SandboxStart";
 import { ToolCall } from "./ToolCall";
 
 /** Who a transcript's speakers are, as the page knows them. */
@@ -34,6 +36,7 @@ const TOOL_NOTES: Record<string, string | undefined> = {
  * @param props.speakers - Who is speaking.
  * @param props.questionOpen - Whether this is the question the bot waits on.
  * @param props.codeRuns - The conversation's code runs, by intent entry id.
+ * @param props.sandboxJobs - The conversation's sandbox jobs, by job id.
  * @returns The line.
  */
 function TranscriptItemLine({
@@ -41,11 +44,13 @@ function TranscriptItemLine({
   speakers,
   questionOpen,
   codeRuns,
+  sandboxJobs,
 }: {
   item: TranscriptItem;
   speakers: TranscriptSpeakers;
   questionOpen: boolean;
   codeRuns?: ReadonlyMap<number, CodeRunDetail>;
+  sandboxJobs?: ReadonlyMap<number, SandboxJobRow>;
 }) {
   switch (item.kind) {
     case "person": {
@@ -129,6 +134,18 @@ function TranscriptItemLine({
       ) {
         return <CodeRunCall item={item} run={codeRuns?.get(item.entryId)} />;
       }
+      if (
+        item.toolName === "sandbox_start" ||
+        item.toolName === "sandbox_wait"
+      ) {
+        const jobId = sandboxStartJobId(item.output);
+        return (
+          <SandboxStartCall
+            item={item}
+            job={jobId === null ? undefined : sandboxJobs?.get(jobId)}
+          />
+        );
+      }
       return <ToolCall item={item} />;
     case "status":
       return (
@@ -168,7 +185,8 @@ function TranscriptItemLine({
  * avatar and badge; tool calls are collapsed rows; state changes, a prompt
  * that changed between steps, and a `/skill` expanded are small system lines
  * that open; a compaction is a divider. A `run_code` call opens to its
- * program, result, console, and host calls.
+ * program, result, console, and host calls; a `sandbox_start` or
+ * `sandbox_wait` call to its job's task and status, with a link to the job.
  *
  * It follows: while the reader is at the bottom, new lines keep the bottom
  * in view; once they scroll up, it stays put.
@@ -177,6 +195,7 @@ function TranscriptItemLine({
  * @param props.waitingOnAnswer - Whether the conversation waits on an answer, so its last question is open.
  * @param props.highlight - Entries to mark, such as those a memory was learned from.
  * @param props.codeRuns - The conversation's code runs, by intent entry id, for `run_code` calls.
+ * @param props.sandboxJobs - The conversation's sandbox jobs, by job id, for `sandbox_start` and `sandbox_wait` calls.
  * @returns The log.
  */
 export function TranscriptView({
@@ -185,12 +204,14 @@ export function TranscriptView({
   waitingOnAnswer,
   highlight,
   codeRuns,
+  sandboxJobs,
 }: {
   items: TranscriptItem[];
   speakers: TranscriptSpeakers;
   waitingOnAnswer: boolean;
   highlight?: ReadonlySet<number>;
   codeRuns?: ReadonlyMap<number, CodeRunDetail>;
+  sandboxJobs?: ReadonlyMap<number, SandboxJobRow>;
 }) {
   const end = useRef<HTMLDivElement>(null);
   const atBottom = useRef(true);
@@ -230,6 +251,7 @@ export function TranscriptView({
             speakers={speakers}
             questionOpen={waitingOnAnswer && i === lastQuestion}
             codeRuns={codeRuns}
+            sandboxJobs={sandboxJobs}
           />
         );
         return highlight?.has(item.seq) ? (

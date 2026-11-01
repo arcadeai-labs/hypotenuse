@@ -55,7 +55,7 @@ describe("routes", () => {
 
   test("every destination is in the sidebar; one not built yet is disabled and says so without a phase", () => {
     const html = renderAt("/status");
-    for (const id of ["home", "sandboxes"]) {
+    for (const id of ["home"]) {
       const item = html.match(
         new RegExp(`<[a-z]+[^>]*data-testid="nav-${id}"[^>]*>`),
       )?.[0];
@@ -66,7 +66,7 @@ describe("routes", () => {
     expect(html).not.toMatch(/phase/i);
   });
 
-  test("settings, bots, conversations, approvals, and memory are live destinations", () => {
+  test("settings, bots, conversations, approvals, memory, and sandboxes are live destinations", () => {
     const html = renderAt("/status");
     for (const [id, href] of [
       ["settings", "/settings"],
@@ -74,6 +74,7 @@ describe("routes", () => {
       ["bots", "/bots"],
       ["conversations", "/conversations"],
       ["memory", "/memory"],
+      ["sandboxes", "/sandboxes"],
     ]) {
       const item = html.match(
         new RegExp(`<[a-z]+[^>]*data-testid="nav-${id}"[^>]*>`),
@@ -93,6 +94,9 @@ describe("routes", () => {
       "/settings/mcp-servers",
       "/settings/skills",
       "/settings/prompt-sections",
+      "/settings/sandboxes",
+      "/sandboxes",
+      "/sandboxes/1",
       "/approvals",
       "/approvals/1",
       "/bots",

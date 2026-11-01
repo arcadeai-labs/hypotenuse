@@ -70,6 +70,30 @@ jobs:
           DATABASE_URL_TEST: postgres://postgres:postgres@localhost:5432/hypotenuse_test
           DATABASE_AUTO_MIGRATE_TEST: "true"
           REDIS_URL_TEST: redis://localhost:6379/1
+      # The sandbox suites start real containers (the runner has a Docker
+      # daemon); each cleans up after itself, and this proves it did.
+      - name: No sandbox containers left behind
+        if: always()
+        run: |
+          left=$(docker ps -aq --filter label=hypotenuse.managed=true)
+          if [ -n "$left" ]; then
+            docker ps -a --filter label=hypotenuse.managed=true
+            exit 1
+          fi
+
+  # The development sandbox image: it builds, and the userland it promises
+  # answers as the user the coding agent runs as.
+  sandbox-image:
+    name: Sandbox Image
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+      - run: bun run sandbox:build-image
+      - run: bun run sandbox:verify-image
 
   backend-docker:
     name: Backend Docker
@@ -213,6 +237,7 @@ jobs:
       [
         backend-lint,
         backend-test,
+        sandbox-image,
         backend-docker,
         cli,
         cli-upgrade,

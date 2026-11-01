@@ -543,3 +543,64 @@
 .events-error {
   color: var(--status-error);
 }
+
+// ---------------------------------------------------------------------------
+// Sandbox jobs: the list, one job, and its settings
+// ---------------------------------------------------------------------------
+
+.sandbox-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-2);
+
+  @media (max-width: 767.98px) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.sandbox-bot-filter {
+  max-width: 200px;
+}
+
+.sandbox-block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.sandbox-block-title {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  font-weight: 600;
+}
+
+.sandbox-briefing > summary {
+  cursor: pointer;
+}
+
+.sandbox-briefing > pre,
+.sandbox-events pre,
+.sandbox-block pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.sandbox-briefing > pre {
+  margin-top: var(--space-2);
+}
+
+.sandbox-event-text {
+  color: var(--text-secondary);
+}
+
+.sandbox-events .tx-call[data-kind="error"] .tx-verb {
+  color: var(--status-error);
+}
+
+.sandbox-task {
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+}

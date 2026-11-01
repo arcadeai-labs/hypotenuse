@@ -4,7 +4,7 @@ import { config, ErrorType, TypedError } from "keryx";
 import { z } from "zod";
 // Type-only, purely for the `declare module "keryx"` augmentation inside.
 import type {} from "../config/code";
-import { type Bot, bots } from "../schema/bots";
+import { BOT_SANDBOX_POLICIES, type Bot, bots } from "../schema/bots";
 import type { Tag } from "../schema/tags";
 import {
   ACCESS_EVERYONE,
@@ -121,6 +121,8 @@ export function serializeBot(bot: Bot, persona: string) {
     autoBind: bot.autoBind,
     participantRateLimit: bot.participantRateLimit,
     channelRateLimit: bot.channelRateLimit,
+    sandboxPolicy: bot.sandboxPolicy,
+    sandboxJobTokenBudget: bot.sandboxJobTokenBudget,
     createdByUserId: bot.createdByUserId,
     createdAt: bot.createdAt.getTime(),
     updatedAt: bot.updatedAt.getTime(),
@@ -591,7 +593,23 @@ export const promptBudgetInput = z
     "The system prompt's budget in tokens (estimated at four characters each); contextual sections are dropped to fit it",
   );
 
-/** The Zod input for how many sections a bot may create itself. */
+/** Whether a bot may start sandbox jobs, and whether each waits for approval. */
+export const sandboxPolicyInput = z
+  .enum(BOT_SANDBOX_POLICIES)
+  .describe(
+    "Sandbox jobs (sandbox_start): off, approve (each job waits for a person's approval), or allow",
+  );
+
+/** The model tokens one sandbox job may use. */
+export const sandboxJobTokenBudgetInput = z
+  .number()
+  .int()
+  .min(1_000)
+  .nullable()
+  .describe(
+    "The most model tokens (input plus output) one sandbox job may use before it is stopped; null for no cap",
+  );
+
 /** Whether a bot is offered `run_code`. */
 export const codeModeEnabledInput = z
   .boolean()
@@ -650,6 +668,7 @@ export function assertCodeLimits(
   }
 }
 
+/** The Zod input for how many sections a bot may create itself. */
 export const maxAgentSectionsInput = z
   .number()
   .int()

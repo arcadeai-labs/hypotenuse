@@ -177,6 +177,19 @@ describe("botBody", () => {
     );
   });
 
+  test("the sandbox flags set its policy and its per-job token budget", () => {
+    expect(botBody({ sandbox: "allow", sandboxTokenBudget: "50000" })).toEqual({
+      sandboxPolicy: "allow",
+      sandboxJobTokenBudget: 50_000,
+    });
+    expect(botBody({ sandboxTokenBudget: false })).toEqual({
+      sandboxJobTokenBudget: null,
+    });
+    expect(() => botBody({ sandbox: "sometimes" })).toThrow(
+      "--sandbox takes one of off, approve, allow",
+    );
+  });
+
   test("contradictory flags are refused", () => {
     expect(() => botBody({ enable: true, disable: true })).toThrow("not both");
     expect(() => botBody({ avatarFile: "a.png", avatar: false })).toThrow(

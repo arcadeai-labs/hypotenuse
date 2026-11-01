@@ -1,0 +1,78 @@
+import { eq, sql } from "drizzle-orm";
+import {
+  type Action,
+  type ActionParams,
+  api,
+  ErrorType,
+  HTTP_METHOD,
+  TypedError,
+} from "keryx";
+import { z } from "zod";
+import {
+  actingJob,
+  type JobConnection,
+  JobTokenMiddleware,
+  JobTokenRateLimitMiddleware,
+} from "../../middleware/jobToken";
+import { jobTokenInput } from "../../ops/SandboxInputOps";
+import { sandboxJobs } from "../../schema/sandbox_jobs";
+
+/** The most artifacts one job keeps. */
+const MAX_ARTIFACTS = 20;
+
+/**
+ * `sandbox:submit-artifact` — the coding agent hands back a named text: its
+ * `result`, a report, a diff. Stored on the job (a name submitted again is
+ * replaced) and given to the bot with the job's ending. Job token only; not
+ * audited.
+ */
+export class SandboxSubmitArtifact implements Action {
+  name = "sandbox:submit-artifact";
+  description =
+    'Hand back a named piece of text with your work. Always submit your final answer as name "result": what you did, what you found, and where. Submitting a name again replaces it. At most 20 names.';
+  middleware = [JobTokenMiddleware, JobTokenRateLimitMiddleware];
+  web = { route: "/sandbox/job/artifact", method: HTTP_METHOD.PUT };
+  inputs = z.object({
+    token: jobTokenInput,
+    name: z
+      .string()
+      .trim()
+      .regex(/^[a-z0-9][a-z0-9._-]{0,79}$/, "lowercase letters, digits, . _ -")
+      .describe("The artifact's name, e.g. result"),
+    content: z.string().max(200_000).describe("The text"),
+  });
+
+  /**
+   * @param params - The artifact.
+   * @param connection - The job's connection.
+   * @returns The names the job now holds.
+   * @throws {TypedError} Past the artifact cap.
+   */
+  async run(
+    params: ActionParams<SandboxSubmitArtifact>,
+    connection: JobConnection,
+  ) {
+    const job = actingJob(connection);
+    const names = Object.keys(job.artifacts ?? {});
+    if (!names.includes(params.name) && names.length >= MAX_ARTIFACTS) {
+      throw new TypedError({
+        message: `This job already holds ${MAX_ARTIFACTS} artifacts. Replace one by submitting its name again.`,
+        type: ErrorType.CONNECTION_ACTION_PARAM_VALIDATION,
+        key: "name",
+      });
+    }
+    const value = JSON.stringify({
+      content: params.content,
+      updatedAt: Date.now(),
+    });
+    const [row] = await api.db.db
+      .update(sandboxJobs)
+      .set({
+        artifacts: sql`${sandboxJobs.artifacts} || jsonb_build_object(${params.name}::text, ${value}::jsonb)`,
+        lastActivityAt: new Date(),
+      })
+      .where(eq(sandboxJobs.id, job.id))
+      .returning({ artifacts: sandboxJobs.artifacts });
+    return { names: Object.keys(row?.artifacts ?? {}) };
+  }
+}

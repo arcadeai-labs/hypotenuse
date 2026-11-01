@@ -10,9 +10,14 @@ export const configTasks = {
   // must reach a conversation's inbox, and a finished answer must leave for its
   // platform, ahead of another tick on some other conversation. Ticks are the
   // long work, so they wait. `orchestrator` holds the clocks and sweeps.
-  queues: ["ingress", "outbox", "agents", "orchestrator", "default"] as
-    | string[]
-    | (() => Promise<string[]>),
+  queues: [
+    "ingress",
+    "outbox",
+    "agents",
+    "sandboxes",
+    "orchestrator",
+    "default",
+  ] as string[] | (() => Promise<string[]>),
   // Or, rather than providing a static list of `queues`, you can define a method that returns the list of queues.
   // queues: async () => { return ["queueA", "queueB"]; } as string[] | (() => Promise<string[]>)>,
   // how long to sleep between jobs / scheduler checks

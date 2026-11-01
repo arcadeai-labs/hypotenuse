@@ -30,6 +30,11 @@ import { pylonIssueUpdate, pylonReplyToCustomer } from "./pylon-write";
 import { readLargeResult } from "./read-large-result";
 import { replyAndWait } from "./reply-and-wait";
 import { runCode } from "./run-code";
+import { sandboxCancel } from "./sandbox-cancel";
+import { sandboxMessage } from "./sandbox-message";
+import { sandboxStart } from "./sandbox-start";
+import { sandboxStatus } from "./sandbox-status";
+import { sandboxWait } from "./sandbox-wait";
 import { searchHistory } from "./search-history";
 import { skillList } from "./skill-list";
 import type { ToolContext, ToolDefinition } from "./types";
@@ -41,7 +46,8 @@ import { waitFor } from "./wait-for";
  * tools, the memory tools, the MCP meta-tools, the prompt, goal, and skill
  * tools, code mode's `run_code`, and — in a Linear session only — the
  * `linear_*` tools, and — on a Pylon issue only — the `pylon_*` tools
- * register here.
+ * register here, as do the `sandbox_*` tools (`sandbox_start` when the bot's
+ * sandbox policy allows it; the rest once the conversation has a job).
  */
 
 /** Every registered tool. */
@@ -55,6 +61,7 @@ export const TERMINAL_TOOL_NAMES = [
   "wait_for",
   "ask_question",
   "escalate_to_human",
+  "sandbox_wait",
 ] as const;
 
 /**
@@ -141,6 +148,11 @@ for (const tool of [
   pylonContactView,
   pylonIssueUpdate,
   pylonReplyToCustomer,
+  sandboxStart,
+  sandboxStatus,
+  sandboxMessage,
+  sandboxCancel,
+  sandboxWait,
 ] as ToolDefinition[]) {
   registerTool(tool);
 }

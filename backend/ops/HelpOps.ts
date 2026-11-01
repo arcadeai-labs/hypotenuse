@@ -5,6 +5,10 @@ import type {} from "../config/platforms";
 import { type Bot, bots } from "../schema/bots";
 import type { Conversation } from "../schema/conversations";
 import { type HelpRequest, helpRequests } from "../schema/help_requests";
+import {
+  type SandboxJobQuestion,
+  sandboxJobQuestions,
+} from "../schema/sandbox_job_questions";
 import { canReadBot, canWriteBot } from "./BotOps";
 import {
   enqueueTick,
@@ -35,6 +39,12 @@ import { emitStatus } from "./SurfaceOps";
  *
  * A conversation raises at most `HELP_CAP_PER_CONVERSATION` (5) requests,
  * counted under its lock.
+ *
+ * **A sandbox job asks too** (`sandbox:request-help`): the request is the
+ * same row in the same inbox, with no intent (`entryId` null) and the job's
+ * question in `sandboxQuestionId`. Settling it answers that question — the
+ * coding agent collects it with `sandbox:check-answer` — and writes nothing
+ * to the conversation, which never waited on it.
  */
 
 /**
@@ -138,6 +148,59 @@ export async function raiseHelpRequest(
   return request;
 }
 
+/**
+ * Raise a request on behalf of a sandbox job's question, in the caller's
+ * transaction (the conversation already locked): the row, its
+ * notifications, and the question's link to it.
+ * @param tx - An open transaction.
+ * @param conversation - The job's conversation, locked.
+ * @param bot - Its bot.
+ * @param question - The job's `team` question.
+ * @param draft - The question's context and urgency.
+ * @returns The request.
+ */
+export async function raiseJobHelpRequest(
+  tx: TxHandle,
+  conversation: Conversation,
+  bot: Bot,
+  question: SandboxJobQuestion,
+  draft: { context: string; urgency: "low" | "normal" | "high" },
+): Promise<HelpRequest> {
+  const [row] = await tx
+    .insert(helpRequests)
+    .values({
+      projectId: conversation.projectId,
+      botId: bot.id,
+      conversationId: conversation.id,
+      entryId: null,
+      sandboxQuestionId: question.id,
+      question: question.question,
+      context: draft.context,
+      urgency: draft.urgency,
+      blocking: false,
+      expiresAt: question.expiresAt,
+    })
+    .returning();
+  await tx
+    .update(sandboxJobQuestions)
+    .set({ helpRequestId: row.id })
+    .where(eq(sandboxJobQuestions.id, question.id));
+  await enqueueNotification(tx, {
+    projectId: conversation.projectId,
+    userIds: await resolveHelpRecipients(bot),
+    template: "help-requested",
+    payload: {
+      helpRequestId: row.id,
+      botName: bot.displayName,
+      question: question.question,
+      urgency: draft.urgency,
+      conversationId: conversation.id,
+    },
+    linkPath: `/help/${row.id}`,
+  });
+  return row;
+}
+
 /** A conversation asked for help too many times. */
 export class HelpCapReached extends Error {
   /** @param cap - The cap. */
@@ -194,6 +257,24 @@ export async function settleHelpRequest(
     })
     .where(eq(helpRequests.id, request.id))
     .returning();
+  if (before.sandboxQuestionId !== null) {
+    // A sandbox's request: the answer goes back to the job's question.
+    await tx
+      .update(sandboxJobQuestions)
+      .set({
+        status: settle.status,
+        answer: settle.answer ?? null,
+        answeredBy: { kind: "help", userId: settle.userId ?? null },
+        answeredAt: new Date(),
+      })
+      .where(
+        and(
+          eq(sandboxJobQuestions.id, before.sandboxQuestionId),
+          eq(sandboxJobQuestions.status, "pending"),
+        ),
+      );
+    return { before, request: row, woke: null };
+  }
   const received = await receiveMessage(tx, locked.conversation, {
     text,
     delivery: "queue",
@@ -304,6 +385,7 @@ export function serializeHelpRequest(r: HelpRequest) {
     botId: r.botId,
     conversationId: r.conversationId,
     entryId: r.entryId,
+    sandboxQuestionId: r.sandboxQuestionId,
     question: r.question,
     context: r.context,
     urgency: r.urgency,

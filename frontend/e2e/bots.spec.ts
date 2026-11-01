@@ -47,12 +47,8 @@ test("a member makes a bot, gives it an avatar and a persona; restricting who ma
   await expect(
     page.locator(".ui-bot-badge[data-bot='Kit']").first(),
   ).toBeVisible();
-  // What the page does not configure yet is there, disabled, and says so.
-  for (const slug of ["sandboxes"]) {
-    const section = page.getByTestId(`bot-section-${slug}`);
-    await expect(section).toHaveAttribute("aria-disabled", "true");
-    await expect(section).toContainText("Not available yet");
-  }
+  // Sandbox jobs wait for a person's approval by default.
+  await expect(page.getByTestId("bot-sandbox-policy")).toHaveValue("approve");
   // Code mode is configured here, and on by default.
   await expect(page.getByTestId("bot-code-enabled")).toBeChecked();
 

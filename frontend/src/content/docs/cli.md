@@ -70,6 +70,7 @@ invites), and `audit list`.
 | `hypotenuse org members`, `org member set-role <userId> owner\|member`, `org member remove <userId>` | An organization's people. Changing roles and removing people needs an owner; pass your own id to leave |
 | `hypotenuse project list`, `project view`, `project use` | Your projects, and choosing one |
 | `hypotenuse project create --name`, `project edit --name`, `project delete --yes` | Make a project in the chosen organization; rename or delete one where you are an admin |
+| `hypotenuse project settings` | Where the project's sandbox jobs run, and — as an admin — changing it. See **Sandbox jobs from the command line** below |
 | `hypotenuse member list`, `member add --email`, `member remove <userId>` | The project's members. Adding takes someone already in the organization; anyone else gets an invite |
 | `hypotenuse invite list`, `invite pending`, `invite create --email [--tag <id>]`, `invite accept <id>`, `invite reject <id>` | Invitations. `create` invites into the project; `--organization-only` invites into the organization instead. `pending` lists invitations addressed to you |
 | `hypotenuse tag list`, `tag create <name>`, `tag edit <id> --name`, `tag delete <id>`, `tag assign <id> --user <userId>`, `tag remove <id> --user <userId>` | The project's [tags](/docs/tags) and who holds them. The `admin` tag is reserved |
@@ -98,6 +99,7 @@ invites), and `audit list`.
 | `hypotenuse participant list`, `participant view <id>` | The people on platforms who have written to the project's bots (`--type`, `--query` narrow the list) |
 | `hypotenuse event list`, `event view <id>` | Every platform delivery the bots received and what became of it — answered, ignored because the channel is unbound, rate-limited (`--status`, `--outcome`, `--installation` narrow the list). Admins only |
 | `hypotenuse approval list`, `approval view <id>`, `approval approve <id>`, `approval deny <id>` | Tool calls bots are waiting on ([approvals](/docs/approvals)): list them (`--status pending`, `--bot`, `--conversation` narrow it), read one, and decide it. See **Approvals from the command line** below |
+| `hypotenuse sandbox list`, `sandbox view <jobId>`, `sandbox events <jobId>`, `sandbox cancel <jobId>`, `sandbox answer <jobId> <questionId> <answer>` | Code work bots handed to a coding agent in a sandbox: list jobs (`--bot`, `--conversation`, `--status` narrow it), read one, read its transcript, stop it, and answer its questions. See **Sandbox jobs from the command line** below |
 | `hypotenuse large-result view <lr_id>` | A tool result too long to show in a transcript, which the transcript names `lr_<id>`: a page at a time (`--offset`, `--limit`) or `--all` |
 | `hypotenuse conversation create --bot --text [--web [--fresh]]`, `conversation message <id> --text` | Start a conversation with a bot — over the API, or with `--web` in its dashboard chat — or send one a message. See **Talking to a bot** below |
 | `hypotenuse conversation list`, `conversation view <id>`, `conversation follow <id>`, `conversation cancel <id>` | The conversations with bots you can read (`--bot`, `--state` narrow the list); one conversation's state; its transcript as the bot works; stopping it |
@@ -176,6 +178,9 @@ hypotenuse bot edit ada --disable
   bind itself in waits for a person to bind it.
 - `bot edit --participant-rate-limit <n>` and `--channel-rate-limit <n>` cap the messages a minute one platform
   person, or one channel, may send the bot; past that it ignores them for the rest of the minute.
+- `bot edit --sandbox off|approve|allow` decides whether the bot may hand code work to a sandbox job; with `approve`
+  (the default) each job waits for a person's approval first. `--sandbox-token-budget <tokens>` caps the model tokens
+  one job may use before it is stopped; `--no-sandbox-token-budget` lifts the cap.
 
 `bot edit` changes only what its flags name.
 
@@ -341,6 +346,45 @@ hypotenuse code-run view 7
 - `list` shows each program's status, first line, how many host calls it made, and how it ended, newest first.
 - `view` prints the program, its result or error, what it logged, every host call with how the gate let it through,
   and the approvals a paused program waits on. A paused program's saved state is never shown.
+
+### Sandbox jobs from the command line
+
+When a bot hands code work to a coding agent in a sandbox, follow the job, answer what the agent asks, or stop it:
+
+```bash
+hypotenuse sandbox list --status running
+hypotenuse sandbox view 9
+hypotenuse sandbox events 9 --after 40
+hypotenuse sandbox answer 9 3 "Use the staging database"
+hypotenuse sandbox cancel 9
+```
+
+- `list` shows each job's status, bot, title, conversation, and the model tokens it has used, newest first; `--bot`,
+  `--conversation`, and `--status` (`pending`, `provisioning`, `running`, `awaiting_input`, `succeeded`, `failed`,
+  `cancelled`, `timed_out`, `expired`) narrow it.
+- `view` prints the task, the agent's last reported status, its closing text, artifacts, every question and its
+  answer, the messages sent to it, and the sandboxes it ran in.
+- `events` prints the agent's transcript, oldest first; `--after <seq>` prints only what came after an event you
+  have seen.
+- `answer` gives the agent an answer it reads the next time it checks; `-` reads it from standard input. A question
+  the agent sent to the team is answered in the help inbox instead.
+- `cancel` stops a job: one that has not started ends at once, a running one within a heartbeat, and the
+  conversation that started it is told.
+- Reading needs read access to the job's bot; answering and cancelling need write access.
+
+Where a project's jobs run is a project setting. Anyone in the project can read it; an admin changes it:
+
+```bash
+hypotenuse project settings
+hypotenuse project settings --sandbox-provider docker --sandbox-concurrency 2 --sandbox-max-duration 30m
+hypotenuse project settings --no-sandbox-image
+```
+
+- `--sandbox-provider` names where jobs run (`docker` is for development only), `--sandbox-image` the image a job's
+  sandbox runs, `--sandbox-concurrency` how many run at once (1–50), and `--sandbox-max-duration` the longest one
+  may run (seconds, or `30m`, `2h`; only lower than the deployment's ceiling).
+- Each has a `--no-*` form that goes back to the deployment's default. The answer says which settings are the
+  project's own and which are defaults.
 
 ### Prompts, goals, and skills from the command line
 

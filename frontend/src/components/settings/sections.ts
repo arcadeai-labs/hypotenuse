@@ -21,6 +21,7 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
   { slug: "mcp-servers", label: "MCP servers", group: "Project" },
   { slug: "skills", label: "Skills", group: "Project" },
   { slug: "prompt-sections", label: "Prompt sections", group: "Project" },
+  { slug: "sandboxes", label: "Sandboxes", group: "Project" },
   { slug: "members", label: "Members", group: "People" },
   { slug: "tags", label: "Tags", group: "People" },
   { slug: "danger", label: "Danger zone", group: "Irreversible" },

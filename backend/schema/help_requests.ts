@@ -37,6 +37,10 @@ export type HelpUrgency = (typeof HELP_URGENCIES)[number];
  * conversation as a system message; a `blocking` request parks the
  * conversation on `waiting` / `answer` until then. `entryId` is the
  * `escalate_to_human` intent that raised it.
+ *
+ * A request raised from inside a sandbox (`sandbox:request-help`) has no
+ * intent: `entryId` is null and `sandboxQuestionId` names the job's question
+ * the answer goes back to, instead of the conversation.
  */
 export const helpRequests = pgTable(
   "help_requests",
@@ -51,7 +55,8 @@ export const helpRequests = pgTable(
     conversationId: integer("conversation_id")
       .notNull()
       .references(() => conversations.id, { onDelete: "cascade" }),
-    entryId: integer("entry_id").notNull(),
+    entryId: integer("entry_id"),
+    sandboxQuestionId: integer("sandbox_question_id"),
     question: text("question").notNull(),
     context: text("context").notNull().default(""),
     urgency: text("urgency").$type<HelpUrgency>().notNull().default("normal"),

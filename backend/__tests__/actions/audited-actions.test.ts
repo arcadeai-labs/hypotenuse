@@ -79,6 +79,9 @@ const READS = new Set([
   "help:list",
   "help:view",
   "conversation:live",
+  "sandbox-job:list",
+  "sandbox-job:view",
+  "sandbox-job:events",
 ]);
 
 /**
@@ -135,6 +138,26 @@ const UNAUDITED_WRITERS = new Set([
   "large-results:sweep",
   "triggers:process-pending",
   "help:expire",
+  // The sandbox's machine half: the supervisor's three, the in-sandbox
+  // tools, and the proxies, recorded in `sandbox_jobs`,
+  // `sandbox_job_events`, its questions, and the job's usage.
+  "sandbox:events",
+  "sandbox:heartbeat",
+  "sandbox:complete",
+  "sandbox:report-status",
+  "sandbox:ask",
+  "sandbox:check-answer",
+  "sandbox:request-help",
+  "sandbox:submit-artifact",
+  "sandbox:memory-search",
+  "proxy:model",
+  "proxy:mcp",
+  // A job's provisioning and the sandbox clocks: recorded on `sandbox_jobs`
+  // and the `sandboxes` ledger.
+  "sandbox-job:start",
+  "sandbox-jobs:dispatch",
+  "sandbox-jobs:reap",
+  "sandbox:orphan-sweep",
 ]);
 
 /**

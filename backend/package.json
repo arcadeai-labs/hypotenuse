@@ -18,7 +18,10 @@
     "lint": "tsc && biome check .",
     "format": "tsc && biome check --write .",
     "slack:fetch-spec": "bun run scripts/fetch-slack-spec.ts",
-    "finear:fetch": "bun run scripts/fetch-finear.ts"
+    "finear:fetch": "bun run scripts/fetch-finear.ts",
+    "sandbox:build-image": "docker build -f sandbox/images/Dockerfile.dev --build-arg SANDBOX_IMAGE_VERSION=$(tr -d '[:space:]' < sandbox/images/VERSION) -t hypotenuse/sandbox:dev sandbox/images",
+    "sandbox:build-test-image": "docker build -f sandbox/images/Dockerfile.test -t hypotenuse/sandbox:test sandbox/images",
+    "sandbox:verify-image": "bash sandbox/images/verify-image.sh"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "4.0.91",

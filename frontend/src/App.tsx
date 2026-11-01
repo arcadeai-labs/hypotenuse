@@ -9,6 +9,7 @@ import { McpServersSection } from "./components/settings/sections/McpServersSect
 import { MembersSection } from "./components/settings/sections/MembersSection";
 import { ModelsSection } from "./components/settings/sections/ModelsSection";
 import { PromptSectionsSection } from "./components/settings/sections/PromptSectionsSection";
+import { SandboxesSection } from "./components/settings/sections/SandboxesSection";
 import { SkillLibrarySection } from "./components/settings/sections/SkillLibrarySection";
 import { TagsSection } from "./components/settings/sections/TagsSection";
 import { PublicShell } from "./components/shell/PublicShell";
@@ -52,6 +53,8 @@ import { SettingsPage } from "./pages/SettingsPage";
 import { SignInPage } from "./pages/SignInPage";
 import { SignUpPage } from "./pages/SignUpPage";
 import { StatusPage } from "./pages/StatusPage";
+import { SandboxJobPage } from "./pages/sandboxes/SandboxJobPage";
+import { SandboxJobsPage } from "./pages/sandboxes/SandboxJobsPage";
 import { VerifyEmailPage } from "./pages/VerifyEmailPage";
 import { Alert } from "./ui";
 
@@ -113,6 +116,11 @@ export function App() {
                   <Route
                     path="/help/:helpRequestId"
                     element={<HelpRequestPage />}
+                  />
+                  <Route path="/sandboxes" element={<SandboxJobsPage />} />
+                  <Route
+                    path="/sandboxes/:jobId"
+                    element={<SandboxJobPage />}
                   />
                   <Route path="/chat" element={<ChatIndexPage />} />
                   <Route path="/bots" element={<BotsPage />} />
@@ -180,6 +188,7 @@ export function App() {
                       path="prompt-sections"
                       element={<PromptSectionsSection />}
                     />
+                    <Route path="sandboxes" element={<SandboxesSection />} />
                     <Route path="members" element={<MembersSection />} />
                     <Route path="tags" element={<TagsSection />} />
                     <Route path="danger" element={<DangerZoneSection />} />

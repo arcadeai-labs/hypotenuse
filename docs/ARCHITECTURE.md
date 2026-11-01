@@ -109,7 +109,7 @@ person approves it on a dashboard page (`/cli/authorize`, `/cli/activate`), and 
 one sign-in never mints another.
 
 A bot acts with **its own** authority — its installations, its allowlisted tools, its repository grants — not the
-authority of whoever is talking to it. A sandbox it starts carries a run token scoped to that job.
+authority of whoever is talking to it. A sandbox it starts carries a job token scoped to that job, and nothing else.
 
 ## Models
 
@@ -129,7 +129,7 @@ job is an accelerant that a clock can replace.
 |---|---|---|
 | `working` | a tick holds the lease, or one is owed (`wakeRequestedAt`) | a terminal tool parks, rests, or ends it; a cancel ends it |
 | `hibernating` | at rest after answering | an inbound message wakes it for a new turn |
-| `waiting` | parked on a typed `waitingOn`: an `answer` (with an optional timeout), a `timer`, or `approval` (the approvals a step's gated tool calls wait on); `sandbox` is reserved for sandbox jobs | the answer arrives (the next message), the timer or timeout is due, every approval is decided or expired, or it is cancelled |
+| `waiting` | parked on a typed `waitingOn`: an `answer` (with an optional timeout), a `timer`, `approval` (the approvals a step's gated tool calls wait on), `help`, or `sandbox` (`sandbox_wait` on a job) | the answer arrives (the next message), the timer or timeout is due, every approval is decided or expired, the help request settles, the job ends, asks a blocking question, or finishes an interactive turn (a person's message wakes one waiting on a job too), or it is cancelled |
 | `ended` | closed with an outcome: `completed`, `failed`, or `cancelled` | an inbound message starts a new turn |
 
 Every move into `working` goes through one operation, `ConversationOps.wake` (bot `FOR SHARE`, then conversation
@@ -296,21 +296,26 @@ Each platform has a coverage matrix in [`docs/platform-coverage/`](./platform-co
 
 ## Sandboxes
 
-ToolExec's design: a `SandboxProvider` interface (Docker for development and CI, Vercel for production), a
-`sandboxes` ledger written before the provider is called, and an orphan sweep. A bot's `sandbox_start` creates a
-`sandbox_jobs` row; a dispatch clock and a start task provision the sandbox with a run token, the Hypotenuse MCP
-server scoped to that job, the shared MCP servers through a server-side proxy, and a model proxy. The supervisor
-reports over HTTP (`sandbox:events`, `sandbox:heartbeat`, `sandbox:complete`); the heartbeat is the only way the
-server steers it. The coding agent inside can report status, ask a question, or ask for help, and each lands in the
-conversation that started the job, which waits on it and wakes when it ends. Git reaches GitHub with a
-repository-scoped installation token minted per command; the pull request goes back to the conversation.
+Built, with Docker; a production provider and git follow. ToolExec's design: a `SandboxProvider` interface
+(`backend/sandbox/`, Docker for development and CI, refused in production), a `sandboxes` ledger written before the
+provider is called, and an orphan sweep. A bot's `sandbox_start` (approval-gated unless its `sandboxPolicy` is
+`allow`) writes a `sandbox_jobs` row its conversation owns, and `sandbox_wait` parks the conversation on it. A dispatch
+clock claims jobs within the project's and the bot's concurrency, and `sandbox-job:start` provisions: a job token (the
+sandbox's only credential), the briefing and task, an MCP config naming our `/mcp` (the six in-sandbox tools only) and
+the bot's shared servers through the gateway proxy (`proxy:mcp`, its allowlisted tools only), Claude Code pointed at the
+model proxy (`proxy:model`, the bot's Anthropic models, a token budget), and the supervisor. The supervisor pushes over
+HTTP (`sandbox:events`, `sandbox:heartbeat`, `sandbox:complete`); the heartbeat's answer is the only way the server
+steers it (cancel, follow-up, steer). Status, questions, and help land in the conversation that started the job —
+status on its surface, questions as messages the bot answers with `sandbox_message`, help in the Help inbox — and
+every ending goes through `finalizeSandboxJob`, which revokes the token, destroys the sandbox, and wakes the bot with
+the result. The reaper's six sweeps end jobs that died, stalled, stuck, ran over, ignored a cancel, or idled.
 
 ## Processes and queues
 
 | Process | Runs |
 |---|---|
 | api | HTTP and WebSocket actions, MCP for people (OAuth 2.1), platform webhooks; migrations, once per deploy, in its pre-deploy (`scripts/migrate.ts`) |
-| worker | task queues, drained in order: `ingress`, `outbox` (`outbox:deliver`), `agents` (`agent:tick`, `conversation:compact`), `orchestrator` (the clocks), `default` |
+| worker | task queues, drained in order: `ingress`, `outbox` (`outbox:deliver`), `agents` (`agent:tick`, `conversation:compact`), `sandboxes` (`sandbox-job:start`), `orchestrator` (the clocks), `default` |
 
 Postgres is the source of truth. Redis holds sessions, rate limits, leases, the task queues, and pub/sub;
 WebSocket frames carry no content, and a dashboard re-reads over HTTP.

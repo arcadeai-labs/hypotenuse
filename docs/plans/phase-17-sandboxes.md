@@ -2,7 +2,7 @@
 
 > **Goal:** A bot can hand real work to a coding agent in an ephemeral sandbox, and the people who asked can follow it from where they asked. Real work here means anything that needs a filesystem, a shell, or hours: reading a repository, running tests, changing code. The bot starts a sandbox job from a conversation. The job's coding agent sees Hypotenuse's own tools and the project's shared MCP servers. It reports status, asks questions, and asks for help, and each of those arrives in the originating Slack thread, Linear session, or Pylon issue. The bot sleeps while the job runs and wakes when it finishes.
 
-> **Status: planned, not built.** Builds on the [durable agent loop](./phase-08-durable-agent-loop.md) (`waitingOn`, wake), [shared MCP servers](./phase-10-shared-mcp-servers.md) (registry, credentials, approval gate), and [the channel framework](./phase-13-channel-framework.md) (interactive surface, escalation). Git credentials and pull requests are [the next phase](./phase-18-git-and-pull-requests.md). Docker is the only provider here; [Vercel](./phase-19-vercel-sandboxes.md) follows.
+> **Status: built.** Builds on the [durable agent loop](./phase-08-durable-agent-loop.md) (`waitingOn`, wake), [shared MCP servers](./phase-10-shared-mcp-servers.md) (registry, credentials, approval gate), and [the channel framework](./phase-13-channel-framework.md) (interactive surface, escalation). Git credentials and pull requests are [the next phase](./phase-18-git-and-pull-requests.md). Docker is the only provider here; [Vercel](./phase-19-vercel-sandboxes.md) follows.
 
 Hypotenuse's main loop runs on hosts shared by every tenant. It runs model calls, memory, MCP, and [code mode](./phase-12-code-mode.md) in a WASM isolate, and never a shell. Anything that needs a real machine runs somewhere disposable. ToolExec already built that machinery: a provider interface, a ledger, a supervisor that speaks to the server over plain HTTPS, an injected MCP server, credential containment, human help, and reapers. Most of it ports with its learnings intact. What is new is the **caller**: a conversation waiting on a job, instead of a person watching a run page.
 
@@ -283,14 +283,14 @@ By hand: ask a bot in a Slack test channel to "run the tests in a scratch sandbo
 
 ## Definition of done
 
-- [ ] ToolExec's provider interface, registry, Docker provider, and ledger are ported with their tests
-- [ ] A bot starts a sandbox job by tool, parks its conversation, and wakes on completion or failure
-- [ ] The supervisor protocol (`sandbox:events`/`heartbeat`/`complete`) and the job token work end to end
-- [ ] Inside the sandbox: Hypotenuse's sandbox-only tools plus the bot's allowed shared MCP servers via the gateway proxy; models via the model proxy
-- [ ] Status, questions, and help from the sandbox reach the originating conversation's interactive surface
-- [ ] The only credential in a sandbox is its job token, proven by test
-- [ ] Every reaper sweep and the orphan sweep are tested
-- [ ] Settings, job views, CLI, and `sandboxes.md` ship in the same PR
+- [x] ToolExec's provider interface, registry, Docker provider, and ledger are ported with their tests
+- [x] A bot starts a sandbox job by tool, parks its conversation, and wakes on completion or failure
+- [x] The supervisor protocol (`sandbox:events`/`heartbeat`/`complete`) and the job token work end to end
+- [x] Inside the sandbox: Hypotenuse's sandbox-only tools plus the bot's allowed shared MCP servers via the gateway proxy; models via the model proxy
+- [x] Status, questions, and help from the sandbox reach the originating conversation's interactive surface
+- [x] The only credential in a sandbox is its job token, proven by test
+- [x] Every reaper sweep and the orphan sweep are tested
+- [x] Settings, job views, CLI, and `sandboxes.md` ship in the same PR
 
 ## Open questions
 
@@ -300,4 +300,78 @@ By hand: ask a bot in a Slack test channel to "run the tests in a scratch sandbo
 
 ## Learnings from the build
 
-Not built yet.
+### What is built
+
+| Piece | Where |
+|---|---|
+| The provider interface, registry (`docker` only, refused in production at `project:settings-edit` and when a job starts), and the Docker provider (label `hypotenuse.managed`, polling exec, the deadline file, `chown` after `docker cp`, an optional `SANDBOX_DOCKER_NETWORK`) | `backend/sandbox/{types,registry}.ts`, `backend/sandbox/providers/{docker,execPolling}.ts` |
+| The images: `Dockerfile.dev` (non-root `agent`, Claude Code baked in, `VERSION` 1.0.0, `verify-image.sh`, CI's **Sandbox Image** job) and `Dockerfile.test` with the scripted CLI, `stub-claude.ts`, which plays `STUB {…}` directives from its task and calls our MCP tools and proxies for real | `backend/sandbox/images/*` |
+| Schema (migration `0016`): `sandboxes` (the ledger), `sandbox_jobs`, `sandbox_job_events`, `sandbox_job_messages`, `sandbox_job_questions`; `project_settings.sandbox*`; `bots.sandboxPolicy` and `sandboxJobTokenBudget`; `help_requests.entryId` nullable and `sandboxQuestionId` | `backend/schema/*` |
+| The ledger, the job lifecycle (token, claim, the one `finalizeSandboxJob`, messages, questions, usage), the relay to the parent conversation, provisioning, and the reaper and orphan sweep | `backend/ops/Sandbox{,Job,Relay,Provision,Reap}Ops.ts`, `backend/sandbox/briefing.md` |
+| The supervisor, ported lean: `parser.ts`, `batcher.ts`, `usage.ts` verbatim; `runner.ts` rewritten without session checkpointing | `backend/sandbox/runner/*` |
+| The job token (`JobTokenMiddleware`, a per-job rate limit) and the split between machine and human principals, over HTTP and `/mcp` | `backend/middleware/jobToken.ts`, `backend/initializers/sandboxSplit.ts`, `SANDBOX_ONLY_ACTION_NAMES` in `backend/ops/McpToolPolicyOps.ts` |
+| The proxies: `proxy:model` (Anthropic messages only, the bot's two models, token budget → 402 and a cancel) and `proxy:mcp` (the gateway) | `backend/actions/proxy/*`, `backend/ops/ModelProxyOps.ts` |
+| Actions: the supervisor's `sandbox:events` / `heartbeat` / `complete`; the in-sandbox tools `sandbox:report-status`, `ask`, `check-answer`, `request-help`, `submit-artifact`, `memory-search`; `sandbox-job:list` / `view` / `events` / `cancel` / `answer`; `project:settings-edit`; task-only `sandbox-job:start`; clocks `sandbox-jobs:dispatch`, `sandbox-jobs:reap`, `sandbox:orphan-sweep` (on a new `sandboxes` queue) | `backend/actions/{sandbox,sandbox-job,project}/*` |
+| Bot tools: `sandbox_start` (gated by the bot's policy), `sandbox_wait` (terminal), `sandbox_status`, `sandbox_message`, `sandbox_cancel` | `backend/tools/sandbox-*.ts` |
+| Proof | `backend/__tests__/sandbox/{lifecycle,scope,questions,reaper,proxies,tools,runner}.test.ts` (lifecycle in real containers, skipped where no Docker daemon answers), `backend/__tests__/cli/sandbox-commands.test.ts` |
+| CLI 2.12.0 | `hypotenuse sandbox list\|view\|events\|cancel\|answer`, `hypotenuse project settings`, `bot edit --sandbox` and `--sandbox-token-budget` |
+| User docs | `frontend/src/content/docs/sandboxes.md`, `cli.md` |
+
+### Where the build differs from the plan
+
+| The plan says | The build does, and why |
+|---|---|
+| `sandbox_start` ends the tick with `waitingOn: { kind: "sandbox" }` unless `wait: false` | **Two tools.** `sandbox_start` starts the job and is gated by the bot's `sandboxPolicy`; `sandbox_wait({ jobId? })` is the turn-ending call that parks on it (`jobId` defaults to the conversation's newest job). The tick runs a step's terminal call last and never through a gate, so a gated tool cannot also end a turn; making it one would have meant reworking the tick's approval path. A bot that does not wait ends its turn with `reply_and_wait`, and the job's ending wakes it from rest |
+| The job's result is hydrated as the `tool_result` of the original `sandbox_start` | The result arrives as an inbox `system` message (`deliveryKey` `sandbox:<id>:ended`), the way a help request's answer does, and it wakes the conversation if it waits on the job or rests. The inbox is delivered at a step boundary, so nothing a sandbox does can land between a tool call and its result |
+| A question appears on the surface as a `question` | It appears as a **status** ("The sandbox working on … has a question"), and reaches the bot as a `system` message naming the question id. The bot answers it with `sandbox_message({ jobId, questionId, text })`, from what it knows or after asking the people with `ask_question`; a person can also answer from the job page (`sandbox-job:answer`). A surface `question` needs an `ask_question` intent behind its buttons, and nothing may follow one |
+| Open question: a service identity per bot for the job token's `userId` | Not needed. The token's Keryx OAuth record carries `userId: 0` and `clientId` `hypotenuse-job:<id>`; Keryx opens its MCP session with no person, so every session-gated human action answers 401, and the split refuses the rest with 403. Every in-sandbox action re-reads the job row and derives its scope from it |
+| A per-job USD budget, `costUsd` | A **token** budget (`bots.sandboxJobTokenBudget` copied to `sandbox_jobs.budgetTokens`): the proxy is the one place that sees usage, and nothing prices it yet; telemetry and cost turns this into money. Usage is summed by the proxy into `usage`, and the CLI's own report is kept apart in `cliUsage` |
+| The gateway proxy forwards to the shared server | It is a small stateless MCP server of its own in front of the bot's servers: `tools/list` from the cached catalog shows only what the bot may call **without asking**, and a call outside the allowlist is refused with a sentence pointing at `sandbox-ask` — a sandbox cannot park for an approval. Calls go through the same client pool as `mcp_exec`, so OAuth refresh and the SSRF guard come along |
+| Endpoints at `${apiUrl}/proxy/...` and human routes like `/sandbox-job/:id` | Actions live under `/api`: `/api/sandbox/*`, `/api/sandbox/job/*`, `/api/proxy/model/anthropic/*`, `/api/proxy/mcp/:serverId`; the person-facing routes carry the project (`/project/:projectId/sandbox-job/:jobId`) because membership middleware reads it |
+| The model proxy follows the bot's model connection | Only an Anthropic connection: the coding CLI speaks the Anthropic API. The body's `model` must be the bot's `modelAlias` or `fastModelAlias` model id (passed as `--model` and `ANTHROPIC_SMALL_FAST_MODEL`); anything else is a 400, and a bot whose `default` is not on Anthropic is refused at `sandbox_start` |
+| `SANDBOX_ONLY_ACTION_NAMES` is the in-sandbox tools | It is every action a job token may call — the supervisor's three, the six tools, and the two proxies — and nothing else. The six tools are published as MCP tools despite the `sandbox:` prefix (`SANDBOX_MCP_TOOL_ACTION_NAMES`) and removed from every person's session |
+| Open question: default approval for `sandbox_start` | `approve` by default (`off`, `approve`, `allow` per bot); the bot is offered `sandbox_start` unless its policy is `off` |
+| Open question: concurrency defaults | 3 jobs in flight per project (`project_settings.sandboxConcurrency`), 1 per bot (`SANDBOX_PER_BOT_CONCURRENCY`) |
+| Restart test: kill the worker mid-job | Proved by construction: the suites run with no task processors, provisioning is the only step a worker holds, and after it the supervisor pushes to whichever web node answers while the job runs to its end with no worker at all |
+
+### Decisions the plan left open
+
+- **Lock order is the conversation, then its jobs**, everywhere: `finalizeSandboxJob`, the cancel, every relay. A
+  conversation's cancel (`finalizeCancel`) flags its live jobs in its own transaction; each supervisor stops its CLI
+  at the next heartbeat, and the reaper ends one that never acknowledges.
+- **A job's ending does not wake a conversation that has ended**: a person cancelled it, and that cancelled the job.
+  The message waits in the inbox for the next turn.
+- **A non-blocking question is delivered `quiet`** (a new `receiveMessage` option): it waits in the inbox for the
+  bot's next turn rather than waking a resting conversation.
+- **A person's message wakes a conversation waiting on a sandbox** (unlike one waiting on help): the bot may check on
+  the job, steer it, or answer, and parks again with `sandbox_wait`. `wakeParentsOfEndedJobs` in the reaper wakes any
+  conversation that parked on a job which had already ended.
+- **An interactive job's turn ends with a relay too** ("finished a turn and is waiting for its next instruction"),
+  which wakes the waiting bot; it gives the next instruction with `sandbox_message`, and an idle job expires after
+  `SANDBOX_IDLE_TIMEOUT_MS` (30 minutes).
+- **A sandbox's help request** is a `help_requests` row with no intent and a `sandboxQuestionId`; `help:answer`
+  answers the job's question and writes nothing to the conversation, which never waited on it.
+- **Under test, containers join the host's network** (`SANDBOX_DOCKER_NETWORK_TEST=host`), so they reach the suite's
+  server on loopback without binding it to every interface. On Docker Desktop, host networking must be turned on.
+
+### Traps found while building
+
+- **`api.db.db.execute` answers node-postgres's `{ rows }`**, not an array. A raw `update … returning` read as an array
+  claimed a follow-up message, stamped it delivered, and handed out nothing — a message lost after its claim. The
+  interactive lifecycle test caught it.
+- **Two checkouts' worth of test runs on one test database truncate each other** (rule: `bun run workspace:setup`).
+  Parallel agents in one checkout hit it too; give each its own `DATABASE_URL_TEST` and `REDIS_URL_TEST`.
+- **Parallel-safe tool calls settle in any order**: a test reading a step's results matches them by content.
+- **Claude Code's `--mcp-config` expands `${VAR}` in headers**, so the config file on disk names
+  `${HYPOTENUSE_JOB_TOKEN}` and holds no credential; the stub CLI expands it the same way.
+
+### Not run here
+
+- **A real Claude Code against a real model.** Every suite uses the stub CLI and the scripted model server; the real
+  CLI's flags were checked against the built image (`claude --help`, 2.1.316), not exercised with a key.
+- **`bun run sandbox:build-image` as committed**: this environment's egress proxy re-signs TLS, so `npm install` in the
+  build refuses its certificate. The image was built from a local copy that trusts that proxy's CA, and
+  `verify-image.sh` passed against it; CI's **Sandbox Image** job builds it as committed.
+- **The end-to-end from Slack** (`e2e/sandbox-from-slack.test.ts` in the plan's verification) is not written: the
+  surface rows a job writes are proved on the dashboard chat, and Slack renders status rows already under its own
+  suite.

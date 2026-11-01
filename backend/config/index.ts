@@ -17,6 +17,7 @@ import { configPlugins } from "./plugins";
 import { configProcess } from "./process";
 import { configRateLimit } from "./rateLimit";
 import { configRedis } from "./redis";
+import { configSandbox } from "./sandbox";
 import { configSecrets } from "./secrets";
 import { configServerCli } from "./server/cli";
 import { configServerMcp } from "./server/mcp";
@@ -48,6 +49,7 @@ export default {
   mcp: configMcp,
   code: configCode,
   platforms: configPlatforms,
+  sandbox: configSandbox,
 };
 
 /**

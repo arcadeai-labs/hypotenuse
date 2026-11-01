@@ -19,6 +19,7 @@ import {
   conversations,
 } from "../schema/conversations";
 import { outboxMessages } from "../schema/outbox_messages";
+import { sandboxJobs } from "../schema/sandbox_jobs";
 import type { Tag } from "../schema/tags";
 import { canReadBot } from "./BotOps";
 import { abandonCodeRuns } from "./CodeRunOps";
@@ -35,8 +36,12 @@ import { appendEntries, type EntryDraft } from "./TranscriptOps";
  * | `working` | inbox row; a `steer` row enters at the next step, a `queue` row at the turn's end | a live lease: flag it and wake, the tick finalizes; no live lease: finalize here |
  * | `hibernating` | wake: new turn | finalize |
  * | `waiting` (answer) | the message is the answer: wake, same turn | finalize |
- * | `waiting` (timer, approval, help, sandbox) | inbox row kept until the wait ends | finalize; its pending approvals expire |
- * | `ended` | wake: new turn, outcome cleared | no-op |
+ * | `waiting` (sandbox), a person's message | wake, same turn: the bot may check on, steer, or answer the job | finalize; its live jobs are asked to stop |
+ * | `waiting` (sandbox), a `system` message | inbox row kept; the job's own relays wake it explicitly | finalize; its live jobs are asked to stop |
+ * | `waiting` (timer, approval, help) | inbox row kept until the wait ends | finalize; its pending approvals expire |
+ * | `ended` | wake: new turn, outcome cleared (not a `quiet` message) | no-op |
+ *
+ * A `quiet` message never wakes anything by itself; it waits for the next turn.
  */
 
 /** The WebSocket channel name for one conversation. */
@@ -244,6 +249,7 @@ export type WakeReason =
   | "question_timeout"
   | "approval"
   | "help"
+  | "sandbox"
   | "cancel"
   | "created";
 
@@ -374,7 +380,11 @@ export interface InboundResult {
  * @param message - The text, how it enters a turn, its dedupe key, and who
  *   wrote it; `answers: false` for a message that may not answer a question
  *   the conversation waits on (a support customer's, when the bot asked its
- *   team): it waits in the inbox for the turn the answer starts.
+ *   team): it waits in the inbox for the turn the answer starts; `quiet`
+ *   for a message that never wakes the conversation by itself (a sandbox's
+ *   non-blocking question): it waits for the next turn. A person's message
+ *   wakes a conversation waiting on a sandbox job — the bot may check on
+ *   the job, steer it, or answer — while one waiting on help keeps it.
  * @returns What happened.
  */
 export async function receiveMessage(
@@ -389,6 +399,7 @@ export async function receiveMessage(
     participantId?: number | null;
     metadata?: Record<string, unknown>;
     answers?: boolean;
+    quiet?: boolean;
   },
 ): Promise<InboundResult> {
   const deliveryKey = message.deliveryKey ?? randomUUID();
@@ -422,11 +433,15 @@ export async function receiveMessage(
 
   const waitingOn = conversation.waitingOn;
   const wakes =
-    conversation.state === "hibernating" ||
-    conversation.state === "ended" ||
-    (conversation.state === "waiting" &&
-      waitingOn?.kind === "answer" &&
-      message.answers !== false);
+    message.quiet !== true &&
+    (conversation.state === "hibernating" ||
+      conversation.state === "ended" ||
+      (conversation.state === "waiting" &&
+        waitingOn?.kind === "answer" &&
+        message.answers !== false) ||
+      (conversation.state === "waiting" &&
+        waitingOn?.kind === "sandbox" &&
+        message.source !== "system"));
   if (!wakes) {
     await tx
       .update(conversations)
@@ -437,7 +452,9 @@ export async function receiveMessage(
   const woken = await wake(
     tx,
     conversation,
-    conversation.state === "waiting" ? "answer" : "message",
+    conversation.state === "waiting" && waitingOn?.kind === "answer"
+      ? "answer"
+      : "message",
   );
   return { conversation: woken, inbox: inserted, duplicate: false, woke: true };
 }
@@ -483,7 +500,8 @@ export async function requestCancel(
 
 /**
  * End a conversation as cancelled: settle every open intent as interrupted,
- * end any wait (expiring its pending approvals), release any lease, and
+ * end any wait (expiring its pending approvals), ask its live sandbox jobs
+ * to stop, release any lease, and
  * supersede outbox rows that were only
  * progress. Runs with the conversation locked.
  * @param tx - An open transaction.
@@ -509,6 +527,27 @@ export async function finalizeCancel(
   ]);
   // A paused program can no longer resume.
   await abandonCodeRuns(tx, conversation.id);
+  // The sandbox jobs it started stop too: each supervisor stops its CLI at
+  // its next heartbeat, and the reaper ends a job nobody acknowledges.
+  await tx
+    .update(sandboxJobs)
+    .set({
+      cancelRequested: true,
+      cancelRequestedAt: new Date(),
+      endReason: "conversation_cancelled",
+    })
+    .where(
+      and(
+        eq(sandboxJobs.parentConversationId, conversation.id),
+        eq(sandboxJobs.cancelRequested, false),
+        inArray(sandboxJobs.status, [
+          "pending",
+          "provisioning",
+          "running",
+          "awaiting_input",
+        ]),
+      ),
+    );
   // An approval nobody decided can no longer run anything.
   await tx
     .update(approvals)

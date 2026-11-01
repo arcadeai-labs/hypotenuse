@@ -30,12 +30,10 @@ read and change it, and whether you may change it.
 | **Memory** | how fast memories fade in its searches, and a link to the memory explorer |
 | **Tools** | which MCP servers it may use, which of their tools run without asking, and what its tools can do |
 | **Code** | whether it may run programs ([code mode](/docs/code-mode)), and its own, lower limits for them |
+| **Sandboxes** | whether it may hand code work to a [sandbox job](/docs/sandboxes) — off, after a person's approval (the default), or at once — and the most model tokens one job may use |
 | **Approvals** | who may decide its tool calls, and how long a waiting call lasts |
 | **Channels** | its apps on platforms, the channels it is bound in and their settings, and channels that messaged it unbound — see [Channels](/docs/channels) |
 | **Listening** | where it binds itself when invited, and how many messages a minute one person, and one channel, may send it |
-
-The page also shows **Sandboxes**, reading *Not available yet*. It will hold the sandboxes the bot hands repository
-work to.
 
 **Chat** at the top of the page opens the bot's [chat](/docs/chat), where you talk to it in the dashboard.
 

@@ -182,6 +182,16 @@ internal notes in one thread, the turn's steps as a checklist; customer replies 
 `auto-on-low-risk`, the `fast` model's risk check), set only by `pylon:settings-edit`; customers `untrusted`, never
 deciding anything; a promotion guard for facts naming a customer; the Pylon fake; the Pylon block on the Channels
 section, `hypotenuse pylon`, and the Pylon user docs.
+**[Phase 17](./phase-17-sandboxes.md) is built**: ToolExec's sandbox provider interface, registry, and Docker
+provider (development only), the `sandboxes` ledger and orphan sweep; `sandbox_jobs` owned by a conversation, with
+their events, messages, and questions; `sandbox_start` (gated by each bot's `sandboxPolicy`, `approve` by default) and
+`sandbox_wait`, `sandbox_status`, `sandbox_message`, `sandbox_cancel`; dispatch within project and bot concurrency and
+provisioning with a job token as the only credential; the supervisor and its protocol (`sandbox:events`, `heartbeat`,
+`complete`); the in-sandbox tools on `/mcp` (status, ask and check, request help, artifacts, memory search) behind a
+principal split over HTTP and MCP; the model proxy (Anthropic, the bot's models, a token budget) and the MCP gateway
+(the bot's allowlist); relays of status, questions, help, and endings to the conversation; the reaper's six sweeps;
+`sandbox-job:*` and `project:settings-edit`; the development and test images; the Sandboxes settings, job pages, and
+transcript block; `hypotenuse sandbox` and `project settings`; and `sandboxes.md`.
 No other phase is built; every later plan's **Learnings from the
 build** section reads "Not built yet." until its phase lands.
 

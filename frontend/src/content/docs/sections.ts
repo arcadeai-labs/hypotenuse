@@ -22,6 +22,7 @@ import organizations from "./organizations.md?raw";
 import projects from "./projects.md?raw";
 import prompts from "./prompts.md?raw";
 import pylon from "./pylon.md?raw";
+import sandboxes from "./sandboxes.md?raw";
 import skills from "./skills.md?raw";
 import slack from "./slack.md?raw";
 import styleGuide from "./style-guide.md?raw";
@@ -95,6 +96,7 @@ export const DOCS_SECTIONS: DocsSection[] = [
     markdown: escalation,
   },
   { slug: "code-mode", title: "Code mode", markdown: codeMode },
+  { slug: "sandboxes", title: "Sandboxes", markdown: sandboxes },
   {
     slug: "talking-to-a-bot-over-the-api",
     title: "Talking to a bot over the API",

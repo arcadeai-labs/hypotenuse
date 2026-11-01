@@ -25,6 +25,7 @@ describe("queue priority", () => {
       "ingress",
       "outbox",
       "agents",
+      "sandboxes",
       "orchestrator",
       "default",
     ]);
