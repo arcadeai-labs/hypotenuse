@@ -52,7 +52,13 @@ whose supervisor runs Claude Code and pushes its transcript, heartbeats, and com
 reports status, asks the conversation questions (the bot answers), or asks the team, and its result wakes the bot. The
 sandbox holds one credential, its job token: models through the model proxy, the bot's allowlisted MCP tools through
 the gateway, our own sandbox tools on `/mcp`; a reaper ends dead, stalled, stuck, overlong, unacknowledged, and idle
-jobs, and an orphan sweep collects what the `sandboxes` ledger does not account for. The build order and every
+jobs, and an orphan sweep collects what the `sandboxes` ledger does not account for. Bots **work in repositories**:
+one GitHub App for the deployment, its installations attached per project by a person GitHub says can see them, and
+repository grants (read or push, a branch prefix, which bots) a project admin makes; a sandbox's git and managed `gh`
+trade the job token for an installation token scoped to one repository on every command, revoked when the job ends;
+a job's pull request comes back to the conversation as a link (Slack, Linear's external URL, a Pylon note), and review
+and CI events on it, through `webhooks:github`, wake the bot as its `githubWakeEvents` say — tested against a GitHub
+fake serving App tokens, git smart HTTP, REST, and signed webhooks. The build order and every
 > plan are in
 > [`docs/plans/README.md`](./docs/plans/README.md); the system on one page is
 > [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md). Hypotenuse **v1** — local coding agents answering

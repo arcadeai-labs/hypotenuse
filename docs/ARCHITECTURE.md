@@ -296,7 +296,7 @@ Each platform has a coverage matrix in [`docs/platform-coverage/`](./platform-co
 
 ## Sandboxes
 
-Built, with Docker; a production provider and git follow. ToolExec's design: a `SandboxProvider` interface
+Built, with Docker; a production provider follows. ToolExec's design: a `SandboxProvider` interface
 (`backend/sandbox/`, Docker for development and CI, refused in production), a `sandboxes` ledger written before the
 provider is called, and an orphan sweep. A bot's `sandbox_start` (approval-gated unless its `sandboxPolicy` is
 `allow`) writes a `sandbox_jobs` row its conversation owns, and `sandbox_wait` parks the conversation on it. A dispatch
@@ -309,6 +309,30 @@ steers it (cancel, follow-up, steer). Status, questions, and help land in the co
 status on its surface, questions as messages the bot answers with `sandbox_message`, help in the Help inbox — and
 every ending goes through `finalizeSandboxJob`, which revokes the token, destroys the sandbox, and wakes the bot with
 the result. The reaper's six sweeps end jobs that died, stalled, stuck, ran over, ignored a cancel, or idled.
+
+## Git and pull requests
+
+Built. One GitHub App serves the deployment (`GITHUB_APP_*`); a project attaches its installations
+(`github_installations`) through the App's install flow, and only a person GitHub says can see the installation can
+attach it — the callback exchanges the OAuth code and asks `GET /user/installations`, because the `installation_id` on
+the query string can be spoofed. A project admin grants repositories (`repository_grants`: read or push, a branch
+prefix, which bots). The grant is the one answer the whole system asks — `none`, `read`, or `write` — for
+`sandbox_start`, the credential handout, and the read tools.
+
+A sandbox holds no GitHub credential. Its git and the managed `gh` wrapper ask `sandbox:git-credential` with the job
+token on every command and are handed an installation token scoped to the one repository they named, at `write` only
+when the grant allows a push and the job was started in `write` mode on that repository; every handout and refusal is a
+`sandbox_job_git_tokens` row, and `finalizeSandboxJob` revokes every token the job was issued. Ref policy is GitHub's:
+a token's `contents: write` reaches every branch, so the branch prefix is guidance and a repository ruleset is the
+enforcement. Server-side read tools (`github_file_read`, `github_search_code`, `github_pr_view`, `github_issue_view`)
+mint a read token per call and revoke it after.
+
+A pull request a job opens (reported as a `pull_request` artifact, or seen in the transcript) is a
+`sandbox_job_pull_requests` row and a `link` surface row — a link in the Slack thread, an external URL on the Linear
+session, an internal note on Pylon. `webhooks:github` verifies `X-Hub-Signature-256` and records `trigger_events` of
+type `github` per attached project; processing matches reviews, review comments, check suites, and closes to the
+pull request's conversation, writes a fenced system message, and wakes the bot for the kinds its
+`githubWakeEvents` names (changes requested and failed checks by default) — never a conversation a person stopped.
 
 ## Processes and queues
 
