@@ -181,9 +181,12 @@ export class BotEdit extends AuditedAction {
     if (params.codeLimits !== undefined) assertCodeLimits(params.codeLimits);
     // Lifting a sandbox's guards — no approval, or no token cap — spends
     // the project's money without a person: an admin's call, as is choosing
-    // where jobs run.
+    // where jobs run. Only a change counts: a form that resends a value
+    // already lifted, while tightening the other, is not lifting anything.
     const lifting =
-      params.sandboxPolicy === "allow" || params.sandboxJobTokenBudget === null;
+      (params.sandboxPolicy === "allow" && bot.sandboxPolicy !== "allow") ||
+      (params.sandboxJobTokenBudget === null &&
+        bot.sandboxJobTokenBudget !== null);
     if (
       lifting &&
       !isAdmin(callerTags) &&

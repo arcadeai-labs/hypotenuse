@@ -303,6 +303,14 @@ describe("endings and parking", () => {
 
 describe("lifting a bot's sandbox guards", () => {
   test("takes admin standing: a writer without it may not allow jobs unasked or drop the budget", async () => {
+    // Start guarded: the stage's bot allows jobs.
+    await call(
+      stage.u.url,
+      stage.u.peach,
+      "POST",
+      `/project/${stage.u.projectId}/bot/${stage.botId}`,
+      { sandboxPolicy: "approve", sandboxJobTokenBudget: 50_000 },
+    );
     for (const body of [
       { sandboxPolicy: "allow" },
       { sandboxJobTokenBudget: null },
@@ -332,5 +340,27 @@ describe("lifting a bot's sandbox guards", () => {
       { sandboxPolicy: "allow", sandboxJobTokenBudget: null },
     );
     expect(admin.status).toBe(200);
+    // Both are lifted now: resending them while tightening the other is
+    // not lifting, as the bot's settings form sends both fields.
+    for (const body of [
+      { sandboxPolicy: "allow", sandboxJobTokenBudget: 50_000 },
+      { sandboxPolicy: "off", sandboxJobTokenBudget: null },
+    ]) {
+      const res = await call(
+        stage.u.url,
+        stage.u.toad,
+        "POST",
+        `/project/${stage.u.projectId}/bot/${stage.botId}`,
+        body,
+      );
+      expect(res.status, JSON.stringify(body)).toBe(200);
+      await call(
+        stage.u.url,
+        stage.u.peach,
+        "POST",
+        `/project/${stage.u.projectId}/bot/${stage.botId}`,
+        { sandboxPolicy: "allow", sandboxJobTokenBudget: null },
+      );
+    }
   });
 });
