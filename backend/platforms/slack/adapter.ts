@@ -8,6 +8,7 @@ import type {} from "../../config/platforms";
 import {
   buildSlackManifest,
   SLACK_BOT_SCOPES,
+  slackAppCreationLink,
 } from "../../ops/SlackManifestOps";
 import { toMrkdwn, truncateForSlack } from "../../ops/SlackMarkdownOps";
 import { SlackApiError, slackCall, slackTsOlderThan } from "../../ops/SlackOps";
@@ -451,9 +452,11 @@ export const slackAdapter: PlatformAdapter = {
   handshakeWhilePending: true,
 
   manifest(bot, urls) {
+    const manifest = buildSlackManifest(bot, urls);
     return {
-      instructions: `Create ${bot.displayName}'s Slack app from this manifest (api.slack.com/apps → Create New App → From a manifest), or let Hypotenuse create it with an app configuration token. Then connect the app's Client ID, Client Secret, and Signing Secret, and install it into the workspace. Invite it to a channel with /invite.`,
-      manifest: buildSlackManifest(bot, urls),
+      instructions: `Create ${bot.displayName}'s Slack app from the creation link (or api.slack.com/apps → Create New App → From a manifest, pasting this manifest), or let Hypotenuse create it with an app configuration token. Then connect the app's Client ID, Client Secret, and Signing Secret, and install it into the workspace. Invite it to a channel with /invite.`,
+      manifest,
+      link: slackAppCreationLink(manifest),
     };
   },
 

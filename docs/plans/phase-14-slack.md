@@ -400,6 +400,13 @@ Then by hand against a real workspace:
 
 ### Traps found while building
 
+- **Slack's manifest schema is not all of Slack's rules.** A manifest with `features.assistant_view` and no
+  `assistant_thread_started` bot event passes the published schema, yet Slack's app editor flags it ("Assistant View
+  should use `assistant_thread_started` bot event subscription"). The manifest now subscribes to
+  `assistant_thread_started` and `assistant_thread_context_changed`, both recorded and changing nothing (the first
+  message in the assistant pane arrives as `message.im`), and the fake's `validateManifest` enforces the rule on top
+  of the schema. The manifest answer also carries a pre-filled creation link,
+  `api.slack.com/apps?new_app=1&manifest_json=<manifest>` (`config.platforms.slack.appCreationUrl`), as Linear's does.
 - **Two suites on one test database** — again: running a single file while the full backend suite ran truncated its
   tables mid-run and failed unrelated state-machine tests. One run at a time, or `bun run workspace:setup`.
 - **The suites' `settle()` runs ticks before deliveries**, so a turn's `status`, `stream`, and `plan` rows are all

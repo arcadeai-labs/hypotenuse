@@ -58,6 +58,11 @@ export const configPlatforms = {
       "SLACK_AUTHORIZE_URL",
       "https://slack.com/oauth/v2/authorize",
     ),
+    /** Where a person creates an app (`?new_app=1&manifest_json=` pre-fills it). */
+    appCreationUrl: await loadFromEnvIfSet(
+      "SLACK_APP_CREATION_URL",
+      "https://api.slack.com/apps",
+    ),
     /** How long one Web API call may take. */
     requestTimeoutMs: await loadFromEnvIfSet(
       "SLACK_REQUEST_TIMEOUT_MS",

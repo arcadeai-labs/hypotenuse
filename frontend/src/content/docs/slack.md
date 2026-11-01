@@ -17,8 +17,9 @@ There are two ways; both end with the same app.
   (`xoxe.xoxp-…`) into **Create the app**. Hypotenuse creates the bot's app from its manifest and keeps the app's
   credentials, encrypted. The configuration token is used for that one call and never stored; Slack expires it
   after twelve hours anyway.
-- **By hand.** **Get manifest** shows the app's manifest, once — it contains the bot's private events URL. In Slack,
-  choose **Create New App → From a manifest**, pick the workspace, and paste it. Then copy the app's **Client ID**,
+- **By hand.** **Get manifest** shows the app's manifest, once — it contains the bot's private events URL — and a
+  link to Slack's new-app form with the manifest filled in. Open the link and pick the workspace (or, in Slack,
+  choose **Create New App → From a manifest** and paste it). Then copy the app's **Client ID**,
   **Client Secret**, and **Signing Secret** (under **Basic Information**) into the connect form, and **Connect**.
 
 The manifest asks for only what the bot needs: to see mentions and messages in the threads it is part of and in its

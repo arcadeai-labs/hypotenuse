@@ -130,7 +130,7 @@ export interface AppManifest {
   instructions: string;
   /** The definition itself, in the platform's own format. */
   manifest: Record<string, unknown>;
-  /** A link to the platform's own form, pre-filled with the definition (Linear). */
+  /** A link to the platform's own form, pre-filled with the definition (Linear, Slack). */
   link?: string;
 }
 

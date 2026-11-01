@@ -1,3 +1,6 @@
+import { config } from "keryx";
+// Type-only, purely for the `declare module "keryx"` augmentation inside.
+import type {} from "../config/platforms";
 import type { InstallationUrls } from "../platforms/types";
 import type { Bot } from "../schema/bots";
 
@@ -39,6 +42,11 @@ export const SLACK_BOT_EVENTS = [
   "app_uninstalled",
   "tokens_revoked",
   "app_home_opened",
+  // An assistant view needs these two; Slack's editor flags the first's
+  // absence. Both are recorded and change nothing: the person's first
+  // message in the assistant pane arrives as `message.im`.
+  "assistant_thread_started",
+  "assistant_thread_context_changed",
 ] as const;
 
 /**
@@ -104,4 +112,20 @@ export function buildSlackManifest(
       token_rotation_enabled: false,
     },
   };
+}
+
+/**
+ * The pre-filled app-creation link: Slack's "Create an app" page with the
+ * manifest in one `manifest_json` query parameter (`new_app=1` opens the
+ * from-a-manifest dialog with it filled in).
+ * @param manifest - The manifest.
+ * @returns The link a workspace admin opens.
+ */
+export function slackAppCreationLink(
+  manifest: Record<string, unknown>,
+): string {
+  const url = new URL(config.platforms.slack.appCreationUrl);
+  url.searchParams.set("new_app", "1");
+  url.searchParams.set("manifest_json", JSON.stringify(manifest));
+  return url.toString();
 }

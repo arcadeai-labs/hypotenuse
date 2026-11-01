@@ -116,7 +116,7 @@ describe("the app and its install", () => {
       oauth: {
         client_name: "Toadsworth",
         redirect_uris: [minted.body.urls.oauthRedirect],
-        grant_types: ["authorization_code", "refresh_token"],
+        grant_types: ["authorization_code"],
       },
       webhook: {
         enabled: true,
@@ -129,6 +129,14 @@ describe("the app and its install", () => {
         ],
       },
     });
+    // Linear's schema closes `oauth` and admits only these grants: an extra
+    // key (a description) or grant (`refresh_token`) refuses the whole link.
+    expect(Object.keys(m.oauth).sort()).toEqual([
+      "client_name",
+      "client_uri",
+      "grant_types",
+      "redirect_uris",
+    ]);
     expect(minted.body.urls.events).toMatch(/\/api\/webhooks\/linear\/hyp_rk_/);
     const link = new URL(minted.body.link);
     expect(link.origin + link.pathname).toBe(
@@ -138,6 +146,34 @@ describe("the app and its install", () => {
     expect(prefilled).toEqual(m);
     // The suite's server is not public HTTPS, which Linear would refuse: said.
     expect(minted.body.instructions).toContain("is not HTTPS");
+  });
+
+  // Coverage: `linear.manifest`.
+  test("a bot's description goes in the manifest's display, never in its closed oauth block", async () => {
+    const bot = await call<{ bot: { id: number } }>(
+      stage.u.url,
+      stage.u.peach,
+      "PUT",
+      `/project/${stage.u.projectId}/bot`,
+      {
+        name: "Kammy",
+        persona: "A sharp-eyed witch.",
+        description: "General Purpose Bot",
+      },
+    );
+    expect(bot.status).toBe(200);
+    const minted = await call<{ manifest: Record<string, never> }>(
+      stage.u.url,
+      stage.u.peach,
+      "POST",
+      `/project/${stage.u.projectId}/bot/${bot.body.bot.id}/installation/linear/manifest`,
+      { externalWorkspaceId: "draft" },
+    );
+    expect(minted.status).toBe(200);
+    const m = minted.body.manifest as Record<string, Record<string, unknown>>;
+    expect(m.display).toEqual({ description: "General Purpose Bot" });
+    expect(m.oauth).not.toHaveProperty("description");
+    expect(m.oauth?.grant_types).toEqual(["authorization_code"]);
   });
 
   // Coverage: `linear.app.register`, `linear.oauth.install`, `linear.out.viewer`.
