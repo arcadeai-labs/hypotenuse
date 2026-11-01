@@ -369,6 +369,14 @@ Edit a project name in the browser, then open Audit log: one row, actor you, bef
   and admin-only. The `pylon_*` tools are tools a bot runs (the `agent:tick` row); an issue update or a customer
   reply waits for an approval a person decides, audited — and a reply sent without one, under
   `auto-on-low-risk`, writes its own `pylon:auto-reply` row naming the admin who set the policy.
+- **Sandboxes added the sandbox's machine half as unaudited writers**: the supervisor's `sandbox:events`,
+  `sandbox:heartbeat`, and `sandbox:complete`; the in-sandbox tools `sandbox:report-status`, `sandbox:ask`,
+  `sandbox:check-answer`, `sandbox:request-help`, `sandbox:submit-artifact`, and `sandbox:memory-search`; the
+  proxies `proxy:model` and `proxy:mcp`; and provisioning, `sandbox-job:start` — all authenticated by a job token,
+  never a person, and recorded in `sandbox_jobs`, `sandbox_job_events`, `sandbox_job_questions`, and the `sandboxes`
+  ledger; plus the clocks `sandbox-jobs:dispatch`, `sandbox-jobs:reap`, and `sandbox:orphan-sweep`. The decisions are
+  audited: a job approved (the `approve` sandbox policy parks `sandbox_start` on an approval), `sandbox-job:cancel`,
+  `sandbox-job:answer`, `project:settings-edit`, and the bot's sandbox policy through `bot:edit`.
 - **Rule 13: no CLI command wraps `audit:list` or `organization:audit-list` yet** — deferred, not out of scope, as
   with phase 04's actions: [phase 06](./phase-06-operator-cli.md) is the CLI's sign-in.
 

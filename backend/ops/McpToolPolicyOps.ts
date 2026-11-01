@@ -27,15 +27,81 @@
  * - **binary answers** — `bot:avatar` answers image bytes, which no tool
  *   result carries;
  * - **machine families, by prefix** — `webhooks:*` (signed platform ingress),
- *   `sandbox:*` (run-token actions), and `proxy:*` (the model and MCP gateway
- *   proxies). Asserting a prefix is safe only because no human action shares it;
+ *   `sandbox:*` (job-token actions), and `proxy:*` (the model and MCP gateway
+ *   proxies). Asserting a prefix is safe only because no human action shares it
+ *   (the human sandbox surface is `sandbox-job:*`);
  * - **structural** — no `web.route`, a clock (`task.frequency > 0`), or an
  *   action flagged as login or sign-up.
  *
  * {@link applyMcpToolPolicy} overwrites every action's `mcp.tool` from
  * {@link shouldPublishAsMcpTool} at boot, and `rbac.test.ts` asserts every
  * action's live flag equals that function.
+ *
+ * **The sandbox surface.** One `/mcp` serves people and sandbox jobs. A job
+ * token's session sees only {@link SANDBOX_MCP_TOOL_NAMES} — the in-sandbox
+ * tools, published despite the `sandbox:` prefix — and a person's session
+ * sees everything else. `initializers/sandboxSplit.ts` removes the other
+ * surface from each session and a `beforeAct` hook default-denies both ways,
+ * over MCP and HTTP alike: a job token may call only
+ * {@link SANDBOX_ONLY_ACTION_NAMES}, and a person none of them. If a sandbox
+ * needs something a human action does, duplicate it under `sandbox:`.
  */
+
+/**
+ * **The closed list** of actions a sandbox job token may call — and the only
+ * ones: the supervisor's three, the in-sandbox tools, and the two proxies.
+ * `rbac.test.ts` asserts it by name, both directions.
+ */
+export const SANDBOX_ONLY_ACTION_NAMES = [
+  "sandbox:events",
+  "sandbox:heartbeat",
+  "sandbox:complete",
+  "sandbox:report-status",
+  "sandbox:ask",
+  "sandbox:check-answer",
+  "sandbox:request-help",
+  "sandbox:submit-artifact",
+  "sandbox:memory-search",
+  "proxy:model",
+  "proxy:mcp",
+] as const;
+
+/**
+ * The in-sandbox tools: the members of {@link SANDBOX_ONLY_ACTION_NAMES} a
+ * job's coding agent calls as MCP tools. The supervisor's three and the
+ * proxies are HTTP only.
+ */
+export const SANDBOX_MCP_TOOL_ACTION_NAMES: ReadonlySet<string> = new Set([
+  "sandbox:report-status",
+  "sandbox:ask",
+  "sandbox:check-answer",
+  "sandbox:request-help",
+  "sandbox:submit-artifact",
+  "sandbox:memory-search",
+]);
+
+/** The MCP tool names of {@link SANDBOX_MCP_TOOL_ACTION_NAMES} (`:` → `-`). */
+export const SANDBOX_MCP_TOOL_NAMES: ReadonlySet<string> = new Set(
+  [...SANDBOX_MCP_TOOL_ACTION_NAMES].map((name) => name.replace(/:/g, "-")),
+);
+
+/**
+ * Whether an action is on the job-token list.
+ * @param actionName - The action.
+ * @returns `true` for a sandbox-only action.
+ */
+export function isSandboxOnlyActionName(actionName: string): boolean {
+  return (SANDBOX_ONLY_ACTION_NAMES as readonly string[]).includes(actionName);
+}
+
+/**
+ * Whether an MCP tool name belongs to the sandbox surface.
+ * @param toolName - The name `tools/list` reports.
+ * @returns `true` for an in-sandbox tool.
+ */
+export function isSandboxToolName(toolName: string): boolean {
+  return SANDBOX_MCP_TOOL_NAMES.has(toolName);
+}
 
 /**
  * The fields the publish policy reads and the `mcp.tool` flag it writes.
@@ -94,7 +160,9 @@ export const NEVER_MCP_PREFIXES: readonly string[] = [
  *
  * Publish if it has a `web.route`, unless it is a clock, a login or signup
  * action, a member of {@link NEVER_MCP_ACTION_NAMES}, or under one of
- * {@link NEVER_MCP_PREFIXES}.
+ * {@link NEVER_MCP_PREFIXES} — except the in-sandbox tools
+ * ({@link SANDBOX_MCP_TOOL_ACTION_NAMES}), which are published for job-token
+ * sessions only.
  *
  * Class-level `mcp.tool` is the boot default and is overwritten by
  * {@link applyMcpToolPolicy}. `rbac.test.ts` asserts every action's live flag
@@ -104,6 +172,8 @@ export const NEVER_MCP_PREFIXES: readonly string[] = [
  */
 export function shouldPublishAsMcpTool(action: McpPublishableAction): boolean {
   if (!action.web?.route) return false;
+  // The sandbox surface: published, and shown only to job-token sessions.
+  if (SANDBOX_MCP_TOOL_ACTION_NAMES.has(action.name)) return true;
   if (
     action.task != null &&
     action.task.frequency != null &&

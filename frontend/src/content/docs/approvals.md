@@ -19,6 +19,9 @@ When a bot calls a tool, Hypotenuse decides before anything is sent:
 The conversation pauses — the bot shows **Waiting for approval** — and the people who may decide are notified. Other
 calls the bot made in the same step that did not need approval have already run.
 
+A [sandbox job](/docs/sandboxes) a bot starts waits the same way unless its **Sandboxes** setting is *Allow*: the
+approval shows the job's title and the task the bot wrote, and approving it starts the job once.
+
 ## Deciding
 
 **Approvals** in the sidebar (`g a`) lists the calls waiting on someone, with a count; the notification bell links to each. An approval

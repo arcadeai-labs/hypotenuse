@@ -49,8 +49,9 @@ export type ConversationOutcome = (typeof CONVERSATION_OUTCOMES)[number];
  *   being answered, withdrawn, or expired (`HelpOps.settleHelpRequest`) ends
  *   the wait. A message meanwhile is kept in the inbox, so nobody in the
  *   channel can unblock an escalation that may be about the channel.
- * - `sandbox`: reserved for sandbox jobs, which do not exist yet; nothing
- *   writes it.
+ * - `sandbox`: `sandbox_wait` parked on a job the conversation started.
+ *   The job's ending, a blocking question it asks, or an interactive turn's
+ *   end wakes it (`SandboxRelayOps`), and so does a person's message.
  */
 export type WaitingOn =
   | { kind: "answer"; questionEntryId: number; timeoutAt: number | null }

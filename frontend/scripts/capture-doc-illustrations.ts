@@ -32,6 +32,13 @@
  *
  *   NETWORK_ALLOW_PRIVATE_HOSTS=true MCP_GENERATE_CAPABILITIES=false bun dev
  *
+ * With the sandbox illustrations (below), start the backend on its own and
+ * without `--watch` — an edit that restarts it mid-run kills the capture:
+ *
+ *   cd backend && NETWORK_ALLOW_PRIVATE_HOSTS=true MCP_GENERATE_CAPABILITIES=false \
+ *     SANDBOX_DOCKER_NETWORK=host bun keryx.ts start
+ *   cd frontend && bun run dev
+ *
  * The chat illustration is a seeded dashboard chat (`channelType: "web"`)
  * that ends parked on an approval; the help inbox shows a seeded conversation
  * in which Ada asks a person for help. The Channels illustration reads what
@@ -44,6 +51,15 @@
  * skills, one edited — plus a seeded conversation in which Ada adds to her
  * own *Things I have learned* with `prompt_edit`, so her history has an edit
  * marked as the bot's.
+ *
+ * The sandbox illustrations need a real sandbox job, so the first run has
+ * Ada start one (`sandbox_start`) that runs in Docker on the stub coding
+ * agent the backend's sandbox suite uses — the `hypotenuse/sandbox:test`
+ * image (`cd backend && bun run sandbox:build-test-image`). It reaches the
+ * backend on loopback, so start the backend with `SANDBOX_DOCKER_NETWORK=host`
+ * too. Ada answers the agent's question from the job's page, as a person
+ * would; once the job is over the project's image is put back to the
+ * provider's own.
  *
  * The Pylon illustration shows Ada connected to the Pylon fake
  * (`backend/__tests__/fakes/pylon/process.ts`, started here unless one answers
@@ -74,6 +90,8 @@ interface Seeded {
   codeConversationId: number;
   /** The dashboard chat the chat illustration opens. */
   chatConversationId: number;
+  /** The sandbox job the job illustration opens. */
+  sandboxJobId: number;
 }
 
 /** One illustration: a route, and optionally the element to crop to (`{theme}` is replaced). */
@@ -191,6 +209,35 @@ const ILLUSTRATIONS: Illustration[] = [
     height: 1100,
     signedIn: true,
     open: ["[data-testid=tx-code-run] > summary"],
+  },
+  {
+    name: "bot-sandbox",
+    path: ({ botId }) => `/bots/${botId}`,
+    selector: "[data-testid=bot-bot-sandbox]",
+    width: 1280,
+    height: 5600,
+    signedIn: true,
+  },
+  {
+    name: "settings-sandboxes",
+    path: "/settings/sandboxes",
+    width: 1280,
+    height: 760,
+    signedIn: true,
+  },
+  {
+    name: "sandboxes",
+    path: "/sandboxes",
+    width: 1280,
+    height: 440,
+    signedIn: true,
+  },
+  {
+    name: "sandbox-job",
+    path: ({ sandboxJobId }) => `/sandboxes/${sandboxJobId}`,
+    width: 1280,
+    height: 1500,
+    signedIn: true,
   },
   {
     name: "approvals",
@@ -487,6 +534,7 @@ async function seed(request: APIRequestContext): Promise<Seeded> {
   await seedSlack(request, support.id, botId);
   await seedLinear(request, support.id, botId);
   await seedPylon(request, support.id, botId);
+  const sandboxJobId = await seedSandbox(request, support.id, botId);
   return {
     organizationId: organization.id,
     projectId: support.id,
@@ -496,6 +544,7 @@ async function seed(request: APIRequestContext): Promise<Seeded> {
     mcpServerId,
     codeConversationId: coded.id,
     chatConversationId: chatted.id,
+    sandboxJobId,
   };
 }
 
@@ -1096,6 +1145,199 @@ async function seedConversations(
   const shown = existing.find((e) => e.title === "Refund for Globex");
   if (!shown) throw new Error("the Refund for Globex conversation is missing");
   return shown.id;
+}
+
+/** The title of the conversation whose sandbox job the sandbox illustrations show. */
+const SANDBOX_TITLE = "Duplicate charge on INV-2291";
+
+/** The image the stub coding agent runs in. */
+const SANDBOX_IMAGE = "hypotenuse/sandbox:test";
+
+/**
+ * The task Ada hands the coding agent: what a person would read, then the
+ * stub agent's scenario, one directive per line.
+ */
+const SANDBOX_TASK = [
+  "Find out why Globex was charged twice on INV-2291, and whether a retry can double-charge anyone else.",
+  "",
+  ...[
+    {
+      op: "status",
+      state: "reading",
+      message: "Reading the billing retry code",
+    },
+    { op: "sleep", ms: 1500 },
+    {
+      op: "ask",
+      question: "Should I check the EU billing region too, or only US?",
+      options: ["US only", "Both"],
+      blocking: false,
+      waitSeconds: 90,
+    },
+    {
+      op: "status",
+      state: "testing",
+      message: "Replaying the retry against a test ledger",
+    },
+    { op: "model", prompt: "Summarize the retry path" },
+    {
+      op: "artifact",
+      name: "result",
+      content:
+        "The charge job retries on a timeout without an idempotency key, so a slow gateway answer is charged twice. Checked: {{answer}}. 3 other invoices this month match.",
+    },
+    {
+      op: "result",
+      text: "A retry after a gateway timeout charges again: the retry has no idempotency key. Checked {{answer}}.",
+    },
+  ].map((d) => `STUB ${JSON.stringify(d)}`),
+].join("\n");
+
+/**
+ * Give the Support project what the sandbox illustrations show: Ada allowed
+ * to start jobs, with a token budget, and one job she started, which ran in
+ * Docker and asked a question Ada Lovelace answered on its page. The job is
+ * made only when its conversation is missing. Afterwards the project's
+ * sandbox settings are the ones the settings illustration shows.
+ * @param request - The browser context's request client.
+ * @param projectId - The Support project.
+ * @param botId - Ada.
+ * @returns The job's id.
+ */
+async function seedSandbox(
+  request: APIRequestContext,
+  projectId: number,
+  botId: number,
+): Promise<number> {
+  const settingsPath = `/project/${projectId}/settings`;
+  await call(request, "POST", `/project/${projectId}/bot/${botId}`, {
+    sandboxPolicy: "allow",
+    sandboxJobTokenBudget: 200_000,
+  });
+  const listed = async () =>
+    (
+      await call<{ sandboxJobs: { id: number; title: string }[] }>(
+        request,
+        "GET",
+        `/project/${projectId}/sandbox-jobs?botId=${botId}&limit=100`,
+      )
+    ).sandboxJobs;
+  let job = (await listed()).find((j) => j.title === SANDBOX_TITLE);
+  if (!job) {
+    const prepared = await call(request, "POST", settingsPath, {
+      sandboxProvider: "docker",
+      sandboxImage: SANDBOX_IMAGE,
+    });
+    if (prepared.error) {
+      throw new Error(`sandbox settings: ${prepared.error.message}`);
+    }
+    const { modelConnections } = await call<{
+      modelConnections: { id: number; name: string }[];
+    }>(request, "GET", `/project/${projectId}/model-connections?limit=100`);
+    const connection = modelConnections.find((c) => c.name === "Anthropic");
+    if (!connection) throw new Error("the Anthropic connection is missing");
+    const connectionPath = `/project/${projectId}/model-connection/${connection.id}`;
+    const scripted = await model<{ baseUrl: string; apiKey: string }>(
+      "GET",
+      "/connection?provider=anthropic",
+    );
+    await call(request, "POST", connectionPath, scripted);
+    try {
+      await quiet();
+      await model("POST", "/reset");
+      await model("POST", "/play", {
+        responses: [
+          {
+            toolCalls: [
+              {
+                name: "sandbox_start",
+                input: { title: SANDBOX_TITLE, task: SANDBOX_TASK },
+              },
+            ],
+          },
+          // Starting is not waiting: Ada ends her turn on the job.
+          { toolCalls: [{ name: "sandbox_wait", input: {} }] },
+          // The agent's own model call, through the model proxy.
+          {
+            text: "The retry path re-sends the charge with no idempotency key.",
+          },
+          {
+            toolCalls: [
+              {
+                name: "reply_and_wait",
+                input: {
+                  text: "Found it: a retry after a gateway timeout charges again, because the retry carries no idempotency key. Three other invoices this month look the same — I've listed them on the job.",
+                },
+              },
+            ],
+          },
+        ],
+      });
+      const created = await call<{ conversation: { id: number } }>(
+        request,
+        "PUT",
+        `/project/${projectId}/bot/${botId}/conversation`,
+        {
+          text: "Globex says they were charged twice on INV-2291. Can you dig into the billing code and find out why?",
+          title: SANDBOX_TITLE,
+        },
+      );
+      if (created.error) {
+        throw new Error(`conversation: ${created.error.message}`);
+      }
+      const base = `/project/${projectId}/conversation/${created.conversation.id}`;
+      await settle(request, base);
+      for (let i = 0; i < 600 && !job; i++) {
+        job = (await listed()).find((j) => j.title === SANDBOX_TITLE);
+        if (!job) await Bun.sleep(250);
+      }
+      if (!job) throw new Error("Ada never started the sandbox job");
+      const jobPath = `/project/${projectId}/sandbox-job/${job.id}`;
+      let answered = false;
+      for (let i = 0; ; i++) {
+        if (i > 1200) throw new Error(`job ${job.id} never ended`);
+        const view = await call<{
+          sandboxJob: { status: string; error: string | null };
+          questions: { id: number; status: string }[];
+        }>(request, "GET", jobPath);
+        const pending = view.questions.find((q) => q.status === "pending");
+        if (pending && !answered) {
+          await call(request, "POST", `${jobPath}/question/${pending.id}`, {
+            answer: "Both",
+          });
+          answered = true;
+        }
+        if (
+          ["succeeded", "failed", "cancelled", "timed_out", "expired"].includes(
+            view.sandboxJob.status,
+          )
+        ) {
+          if (view.sandboxJob.status !== "succeeded") {
+            throw new Error(
+              `job ${job.id} ${view.sandboxJob.status}: ${view.sandboxJob.error} (is ${SANDBOX_IMAGE} built, and the backend started with SANDBOX_DOCKER_NETWORK=host?)`,
+            );
+          }
+          break;
+        }
+        await Bun.sleep(250);
+      }
+      await Bun.sleep(1000);
+      await settle(request, base);
+    } finally {
+      await quiet();
+      await call(request, "POST", connectionPath, {
+        baseUrl: null,
+        apiKey: "sk-ant-illustration-placeholder-a1f3",
+      });
+    }
+  }
+  await call(request, "POST", settingsPath, {
+    sandboxProvider: "docker",
+    sandboxImage: null,
+    sandboxConcurrency: 3,
+    sandboxMaxDurationMs: 30 * 60_000,
+  });
+  return job.id;
 }
 
 /** Where the MCP fixtures' control server listens. */

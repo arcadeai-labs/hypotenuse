@@ -1,19 +1,32 @@
 import {
   integer,
+  jsonb,
   pgTable,
   serial,
+  text,
   timestamp,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
 import { projects } from "./projects";
 
+/** Per-provider sandbox configuration: an image to run, today. */
+export interface SandboxConfig {
+  image?: string;
+}
+
 /**
  * A project's settings — one row per project, inserted with the project itself
- * by `createProjectForOwner`.
+ * by `createProjectForOwner`. Each feature that needs a setting adds its own
+ * column by migration rather than this table guessing them in advance.
  *
- * It holds no setting yet. Each feature that needs one adds its own column by
- * migration rather than this table guessing them in advance; the row exists now
- * so that adding the first column never has to backfill a row per project.
+ * - `sandboxProvider` — where the project's sandbox jobs run; null means the
+ *   deployment's `SANDBOX_DEFAULT_PROVIDER`. `docker` is refused in
+ *   production, here and when a job starts.
+ * - `sandboxConfig` — that provider's options (`image`).
+ * - `sandboxConcurrency` — jobs in flight at once; null means the
+ *   deployment's default.
+ * - `sandboxMaxDurationMs` — the longest one job may run; null means the
+ *   deployment's ceiling, which this may only lower.
  */
 export const projectSettings = pgTable(
   "project_settings",
@@ -22,6 +35,13 @@ export const projectSettings = pgTable(
     projectId: integer("project_id")
       .notNull()
       .references(() => projects.id, { onDelete: "cascade" }),
+    sandboxProvider: text("sandbox_provider"),
+    sandboxConfig: jsonb("sandbox_config")
+      .$type<SandboxConfig>()
+      .notNull()
+      .default({}),
+    sandboxConcurrency: integer("sandbox_concurrency"),
+    sandboxMaxDurationMs: integer("sandbox_max_duration_ms"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

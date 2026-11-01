@@ -113,7 +113,7 @@ export const DESTINATIONS: readonly Destination[] = [
     label: "Sandboxes",
     Icon: Box,
     shortcut: "g s",
-    available: false,
+    available: true,
   },
   {
     id: "settings",

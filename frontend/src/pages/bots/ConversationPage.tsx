@@ -35,6 +35,7 @@ import {
 } from "../../ui";
 import { botAvatarSrc } from "../../utils/avatar";
 import { API_URL, apiFetch } from "../../utils/client";
+import { isLiveJob, type SandboxJobRow } from "../../utils/sandboxJobs";
 
 /** What the Cancel button says when the conversation is already over. */
 const ENDED = "This conversation has ended. Writing to it starts a new turn.";
@@ -109,6 +110,50 @@ export function ConversationPage() {
     conversation?.id,
     lastSeq,
     conversation?.state,
+  ]);
+
+  // A sandbox job's status lives on the job: read the conversation's jobs
+  // again whenever the transcript moves, if it started any. A live job is
+  // read again every few seconds, since its progress moves no entry.
+  const hasSandbox = items.some(
+    (item) =>
+      item.kind === "tool" &&
+      (item.toolName === "sandbox_start" || item.toolName === "sandbox_wait"),
+  );
+  const [sandboxJobs, setSandboxJobs] = useState<Map<number, SandboxJobRow>>(
+    () => new Map(),
+  );
+  const [sandboxTick, setSandboxTick] = useState(0);
+  const sandboxLive = [...sandboxJobs.values()].some((j) =>
+    isLiveJob(j.status),
+  );
+  useEffect(() => {
+    if (!sandboxLive) return;
+    const timer = setInterval(() => setSandboxTick((n) => n + 1), 5000);
+    return () => clearInterval(timer);
+  }, [sandboxLive]);
+  useEffect(() => {
+    if (!hasSandbox || !activeProjectId || !conversation) return;
+    let cancelled = false;
+    apiFetch<{ sandboxJobs: SandboxJobRow[] }>(
+      `/project/${activeProjectId}/sandbox-jobs?conversationId=${conversation.id}&limit=100`,
+    )
+      .then((res) => {
+        if (!cancelled) {
+          setSandboxJobs(new Map(res.sandboxJobs.map((j) => [j.id, j])));
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    hasSandbox,
+    activeProjectId,
+    conversation?.id,
+    lastSeq,
+    conversation?.state,
+    sandboxTick,
   ]);
 
   // A link from a memory marks the entries it was learned from: bring the
@@ -243,6 +288,17 @@ export function ConversationPage() {
                 {stateLabel}
               </span>
             </Property>
+            {conversation.state === "waiting" &&
+              conversation.waitingOn?.kind === "sandbox" && (
+                <Property label="Waits on">
+                  <Link
+                    to={`/sandboxes/${conversation.waitingOn.sandboxJobId}`}
+                    data-testid="conversation-sandbox-job"
+                  >
+                    Sandbox job #{conversation.waitingOn.sandboxJobId}
+                  </Link>
+                </Property>
+              )}
             <Property label="Bot">
               <Link to={`/bots/${view.bot.id}`} className="conversation-bot">
                 <Avatar name={view.bot.name} src={botAvatar} bot size={20} />
@@ -348,6 +404,7 @@ export function ConversationPage() {
                 }
                 highlight={highlight}
                 codeRuns={codeRuns}
+                sandboxJobs={sandboxJobs}
               />
               {conversation.state === "waiting" &&
                 conversation.waitingOn?.kind === "approval" && (

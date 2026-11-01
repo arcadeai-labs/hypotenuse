@@ -28,8 +28,9 @@ import {
 /**
  * **One test per reachable cell** of the conversation state table
  * (`ops/ConversationOps.ts`, and the tick's table in `ops/TickOps.ts`), each
- * named `<state> × <event>`. The approval and sandbox waits have no writer
- * yet, so their cells are proven with the timer wait, which shares the row.
+ * named `<state> × <event>`. The cells common to every wait are proven with
+ * the timer wait, which shares the row; the approval wait has its own suite
+ * under `__tests__/mcp/`, and the sandbox wait under `__tests__/sandbox/`.
  */
 let stage: AgentStage;
 let defaults: typeof config.agents;

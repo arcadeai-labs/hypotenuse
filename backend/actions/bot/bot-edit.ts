@@ -40,6 +40,8 @@ import {
   monthlyBudgetInput,
   promptBudgetInput,
   rateLimitInput,
+  sandboxJobTokenBudgetInput,
+  sandboxPolicyInput,
   serializeBot,
   summarizeAvatar,
 } from "../../ops/BotOps";
@@ -62,7 +64,7 @@ import { bots, type NewBot } from "../../schema/bots";
 export class BotEdit extends AuditedAction {
   name = "bot:edit";
   description =
-    "Edit a bot: any of its name, slug, description, display name, persona (its Identity prompt section; a change is a new version), model aliases, access lists, help tag, approver tag, approval expiry, monthly budget, prompt budget, how many sections it may create itself, code mode and its limits (which may only lower the deployment's), enabled flag, or avatar (a square PNG or JPEG, base64, at most 512 KB; null removes it). Only the fields sent change. Requires membership and the bot's write access; you cannot save access lists that would lock you out unless you are an admin.";
+    "Edit a bot: any of its name, slug, description, display name, persona (its Identity prompt section; a change is a new version), model aliases, access lists, help tag, approver tag, approval expiry, monthly budget, prompt budget, how many sections it may create itself, code mode and its limits (which may only lower the deployment's), sandbox policy (off, approve, allow) and per-job token budget, enabled flag, or avatar (a square PNG or JPEG, base64, at most 512 KB; null removes it). Only the fields sent change. Requires membership and the bot's write access; you cannot save access lists that would lock you out unless you are an admin.";
   middleware = [ProjectMemberMiddleware()];
   web = { route: "/project/:projectId/bot/:botId", method: HTTP_METHOD.POST };
   inputs = z.object({
@@ -96,6 +98,8 @@ export class BotEdit extends AuditedAction {
     autoBind: autoBindInput.optional(),
     participantRateLimit: rateLimitInput("one platform person").optional(),
     channelRateLimit: rateLimitInput("one channel").optional(),
+    sandboxPolicy: sandboxPolicyInput.optional(),
+    sandboxJobTokenBudget: sandboxJobTokenBudgetInput.optional(),
   });
 
   /**
@@ -200,6 +204,8 @@ export class BotEdit extends AuditedAction {
       "autoBind",
       "participantRateLimit",
       "channelRateLimit",
+      "sandboxPolicy",
+      "sandboxJobTokenBudget",
     ] as const) {
       if (params[key] !== undefined) {
         (changes as Record<string, unknown>)[key] = params[key];

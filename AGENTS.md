@@ -46,7 +46,13 @@ and four Triggers its admin builds from the manifest; a new issue, an assignment
 bot starts work on the issue, remembered per customer account, with everything the bot writes an internal note in one
 thread — a customer sees only a reply its customer reply policy allows (`never` by default; `approve` drafts it for a
 teammate's `approve <id>`; `auto-on-low-risk` sends what the `fast` model rates low-risk) — tested against a Pylon
-fake. The build order and every
+fake. Bots **hand code work to sandboxes**: `sandbox_start` (approval-gated by default) writes a job the conversation
+owns and `sandbox_wait` parks on it; a dispatch clock provisions an ephemeral container (`docker`, development only)
+whose supervisor runs Claude Code and pushes its transcript, heartbeats, and completion over HTTP; the coding agent
+reports status, asks the conversation questions (the bot answers), or asks the team, and its result wakes the bot. The
+sandbox holds one credential, its job token: models through the model proxy, the bot's allowlisted MCP tools through
+the gateway, our own sandbox tools on `/mcp`; a reaper ends dead, stalled, stuck, overlong, unacknowledged, and idle
+jobs, and an orphan sweep collects what the `sandboxes` ledger does not account for. The build order and every
 > plan are in
 > [`docs/plans/README.md`](./docs/plans/README.md); the system on one page is
 > [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md). Hypotenuse **v1** — local coding agents answering
@@ -107,23 +113,25 @@ These bind from the first line of code. A rule that names a thing not built yet 
    prompt or goal edit also in `prompt_section_versions` and `goals`, a program in `code_runs`); memory's
    machine work (`memory:embed`, `memory:consolidate`, `memory:decay-project`, recorded in `memory_documents` and
    `memory_chunks`); the MCP catalog's machine work (`mcp-server:refresh-catalog`, `bot:capabilities`, recorded on
-   `mcp_servers` and `bots`); outbox delivery (`outbox:deliver`, recorded in `outbox_messages`); the sandbox's machine half (`sandbox:events` / `heartbeat` / `complete` and the in-sandbox tools, recorded in
-   `sandbox_jobs` and `sandbox_job_events`); and `cost_records`. The audited thing is always **the decision a
+   `mcp_servers` and `bots`); outbox delivery (`outbox:deliver`, recorded in `outbox_messages`); the sandbox's machine half (`sandbox:events`, `sandbox:heartbeat`, `sandbox:complete`, the in-sandbox tools
+   `sandbox:report-status`, `sandbox:ask`, `sandbox:check-answer`, `sandbox:request-help`, `sandbox:submit-artifact`,
+   and `sandbox:memory-search`, the proxies `proxy:model` and `proxy:mcp`, and provisioning, `sandbox-job:start`,
+   recorded in `sandbox_jobs`, `sandbox_job_events`, its questions, and the `sandboxes` ledger); and `cost_records`. The audited thing is always **the decision a
    person made** — editing a bot, its prompt, its goals, or a skill, binding it to a channel, approving a tool call,
    answering a help request, granting a repository. A decision a platform participant makes in a channel (an approval clicked in Slack) is
    audited too, as `actorType: "participant"`.
 6. **Credentials never leave the server.** No action returns a platform token, signing secret, model key, MCP
    server credential, or GitHub App key, and no serializer has a field one fits in. A sandbox holds exactly one
-   credential — its run token — and reaches models, MCP servers, and git through server-side proxies and
+   credential — its job token — and reaches models, MCP servers, and git through server-side proxies and
    repository-scoped tokens minted per command. Code mode reaches nothing the bot could not reach as a tool.
-7. **Machine principals and human principals are disjoint.** A sandbox run token may call only the closed
-   `SANDBOX_ONLY_ACTION_NAMES` list, and a human may call none of them — enforced by a `beforeAct` hook, never by
-   name prefix alone. If a sandbox needs something a human action does, **duplicate it** as `sandbox:*`.
+7. **Machine principals and human principals are disjoint.** A sandbox job token may call only the closed
+   `SANDBOX_ONLY_ACTION_NAMES` list, and a human may call none of them — enforced by a `beforeAct` hook
+   (`initializers/sandboxSplit.ts`) over HTTP and `/mcp`, never by name prefix alone. If a sandbox needs something a human action does, **duplicate it** as `sandbox:*`.
 8. **Human MCP ≈ HTTP.** Almost every action with a `web.route` is published as an MCP tool for human OAuth
    clients. `applyMcpToolPolicy` / `shouldPublishAsMcpTool` in `backend/ops/McpToolPolicyOps.ts` is the source of
    truth, and `rbac.test.ts` asserts every action's live flag equals it. **Never MCP:** login/signup, browser hops
    (OAuth callbacks, app installs, the email-confirmation link), `webhooks:*`, `sandbox:*` machine actions and
-   `sandbox:git-credential`, proxies, unauthenticated introspection, binary answers (`bot:avatar`), clocks
+   `sandbox:git-credential` (the in-sandbox tools are published, and only a job's session sees them), proxies, unauthenticated introspection, binary answers (`bot:avatar`), clocks
    (`task.frequency > 0`), and anything with no `web.route`.
 9. **The platform's permissions decide who may talk to a bot; the project's RBAC decides who may run it.** Anyone
    who can post in a Slack channel, comment on a Linear issue, or write on a Pylon ticket where a bot is bound may

@@ -22,9 +22,9 @@ import { MemorySection } from "../../components/bots/MemorySection";
 import { MissingAliasesBanner } from "../../components/bots/MissingAliasesBanner";
 import { ModelSection } from "../../components/bots/ModelSection";
 import { PromptSettingsSection } from "../../components/bots/PromptSettingsSection";
+import { SandboxSection } from "../../components/bots/SandboxSection";
 import { SkillsSection } from "../../components/bots/SkillsSection";
 import { ToolsSection } from "../../components/bots/ToolsSection";
-import { UnavailableSections } from "../../components/bots/UnavailableSections";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { GatedButton } from "../../components/GatedButton";
 import { LoadingLabel } from "../../components/LoadingLabel";
@@ -354,6 +354,7 @@ export function BotPage() {
             denied={botWriteDenied(reason("bot-mcp-server:set"), standing)}
           />
           <CodeSection {...sectionProps} />
+          <SandboxSection {...sectionProps} />
           <ApprovalSettingsSection {...sectionProps} tags={tags} />
           <ChannelsSection
             projectId={activeProjectId}
@@ -369,7 +370,6 @@ export function BotPage() {
               standing,
             )}
           />
-          <UnavailableSections />
         </div>
       </DetailLayout>
       <ConfirmDialog

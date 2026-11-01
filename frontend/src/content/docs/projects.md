@@ -27,9 +27,15 @@ see [Tags](/docs/tags).
 
 ## Settings
 
-A project's **Settings** has four sections:
+A project's **Settings** has these sections:
 
 - **General** — the project's name. Its slug follows the name.
+- **Models** — the model providers it connects and the model names its bots use. See [Models](/docs/models).
+- **MCP servers** — the shared tool servers its bots may be given. See [MCP servers](/docs/mcp-servers).
+- **Skills** — the project's library of skills. See [Skills](/docs/skills).
+- **Prompt sections** — sections of the prompt every bot in the project includes. See [Prompts](/docs/prompts).
+- **Sandboxes** — where its bots' sandbox jobs run: the provider, the image, how many at once, and the longest one
+  may run. See [Sandboxes](/docs/sandboxes).
 - **Members** — who is in the project and which tags they hold. See [Members](/docs/members).
 - **Tags** — the project's roles. See [Tags](/docs/tags).
 - **Danger zone** — delete the project.

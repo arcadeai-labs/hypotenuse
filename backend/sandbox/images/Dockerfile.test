@@ -1,0 +1,22 @@
+# The image the sandbox lifecycle suite provisions against — TEST ONLY.
+#
+#   cd backend && bun run sandbox:build-test-image
+#
+# `Dockerfile.dev` minus the real coding CLI, plus `stub-claude.sh` standing
+# in for `claude`. Everything else is real: the container, the supervisor,
+# the HTTP ingest, our MCP server, the proxies. The stub plays a scenario
+# written into its task and calls our MCP tools for real, so the suite
+# asserts the orchestration with no model, no key, and no network beyond us.
+FROM oven/bun:1
+
+COPY stub-claude.sh /usr/local/bin/claude
+COPY stub-claude.ts /usr/local/lib/hypotenuse/stub-claude.ts
+RUN chmod 0755 /usr/local/bin/claude \
+  && chmod 0644 /usr/local/lib/hypotenuse/stub-claude.ts
+
+# The same non-root account as the development image.
+RUN groupmod -n agent bun \
+  && usermod -l agent -d /home/agent -m bun \
+  && mkdir -p /work && chown agent:agent /work
+WORKDIR /work
+USER agent

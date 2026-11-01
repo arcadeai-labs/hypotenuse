@@ -1,0 +1,50 @@
+# The image the `docker` sandbox provider runs — DEVELOPMENT AND CI ONLY.
+# Changing this file means bumping `VERSION` beside it.
+#
+#   cd backend && bun run sandbox:build-image
+#   cd backend && bun run sandbox:verify-image
+#
+# The coding CLI is baked in rather than installed when a job starts: that
+# would add a minute to every job and a wide egress window to every sandbox.
+# `oven/bun:1` because the in-sandbox supervisor is a Bun script, and it is
+# Debian, so `sh`, `base64`, and `date` are there for the provider's scripts.
+FROM oven/bun:1
+
+ARG SANDBOX_IMAGE_VERSION=0.0.0
+LABEL org.opencontainers.image.version="${SANDBOX_IMAGE_VERSION}"
+
+# git and ca-certificates for the work itself, curl and jq because a coding
+# agent reaches for them, node and npm because Claude Code is published for
+# node, build-essential and python3 for the repositories that are not
+# JavaScript. `sudo` lets the agent install what a repository needs.
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends \
+    build-essential \
+    ca-certificates \
+    curl \
+    git \
+    jq \
+    nodejs \
+    npm \
+    python3 \
+    sudo \
+  && rm -rf /var/lib/apt/lists/*
+
+# The account the agent runs as: `oven/bun:1`'s uid 1000, renamed. Claude Code
+# refuses `--permission-mode bypassPermissions` as root, which is why the
+# image is non-root; passwordless sudo is how a job still installs things.
+RUN groupmod -n agent bun \
+  && usermod -l agent -d /home/agent -m bun \
+  && printf 'agent ALL=(ALL) NOPASSWD:ALL\n' > /etc/sudoers.d/agent \
+  && chmod 0440 /etc/sudoers.d/agent
+
+ARG CLAUDE_CODE_VERSION=latest
+RUN npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" \
+  && claude --version
+
+RUN mkdir -p /work && chown agent:agent /work
+WORKDIR /work
+USER agent
+
+# No CMD: the provider supplies its own keep-alive entrypoint, because the
+# container has to outlive the agent it hosts.

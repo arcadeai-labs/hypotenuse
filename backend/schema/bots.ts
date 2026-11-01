@@ -20,6 +20,12 @@ const bytea = customType<{ data: Buffer; driverData: Buffer }>({
   dataType: () => "bytea",
 });
 
+/** Whether a bot may start sandbox jobs, and whether each waits for a person. */
+export const BOT_SANDBOX_POLICIES = ["off", "approve", "allow"] as const;
+
+/** One of {@link BOT_SANDBOX_POLICIES}. */
+export type BotSandboxPolicy = (typeof BOT_SANDBOX_POLICIES)[number];
+
 /**
  * A `bot` is one agent of a project: who it is (name, display name, avatar;
  * its persona is the *Identity* section of its prompt, in `prompt_sections`), which of the project's model aliases it thinks with, who may read
@@ -72,6 +78,11 @@ const bytea = customType<{ data: Buffer; driverData: Buffer }>({
  * - `participantRateLimit` / `channelRateLimit` — the most messages a minute
  *   one platform person, or one channel, may send the bot before it ignores
  *   them for the rest of the minute.
+ * - `sandboxPolicy` — whether the bot may hand work to a sandbox job
+ *   (`sandbox_start`): `off`, `approve` (the default: every job waits for a
+ *   person's approval, since a sandbox costs money and can change code), or
+ *   `allow`. `sandboxJobTokenBudget` caps the model tokens one job may use
+ *   through the model proxy; null means no cap.
  */
 /** Per kind of channel, whether a bot binds itself when invited. */
 export interface BotAutoBind {
@@ -144,6 +155,11 @@ export const bots = pgTable(
       .notNull()
       .default(20),
     channelRateLimit: integer("channel_rate_limit").notNull().default(60),
+    sandboxPolicy: text("sandbox_policy")
+      .$type<BotSandboxPolicy>()
+      .notNull()
+      .default("approve"),
+    sandboxJobTokenBudget: integer("sandbox_job_token_budget"),
     createdByUserId: integer("created_by_user_id").references(() => users.id, {
       onDelete: "set null",
     }),

@@ -299,40 +299,6 @@
   background: var(--bg-sunken);
 }
 
-// What the page does not configure yet: disabled, never absent.
-.bot-unavailable-sections {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: var(--space-3);
-}
-
-.bot-unavailable {
-  padding: var(--space-3) var(--space-4);
-  border: 1px dashed var(--border-default);
-  border-radius: var(--radius-lg);
-  color: var(--text-disabled);
-  cursor: not-allowed;
-}
-
-.bot-unavailable-title {
-  margin: 0;
-  color: var(--text-secondary);
-  font-size: var(--text-sm);
-}
-
-.bot-unavailable-status {
-  margin: 0;
-  color: var(--text-tertiary);
-  font-size: var(--text-xs);
-  font-weight: 500;
-}
-
-.bot-unavailable-purpose {
-  margin: var(--space-2) 0 0;
-  color: var(--text-tertiary);
-  font-size: var(--text-xs);
-}
-
 // ---------------------------------------------------------------------------
 // Memory explorer: scope, then document, then versions
 // ---------------------------------------------------------------------------

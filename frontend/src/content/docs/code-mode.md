@@ -24,7 +24,7 @@ sandbox (QuickJS compiled to WebAssembly) inside Hypotenuse's worker, and can re
 
 That is all. A program has no network, files, packages, timers, or shell, and cannot post to the conversation, ask a
 question, or end the bot's turn — it computes, then the bot decides what to say. Work that needs a repository, a
-shell, or packages belongs in a sandbox, not in code mode.
+shell, or packages belongs in a [sandbox job](/docs/sandboxes), not in code mode.
 
 Every call goes through the same rules as the bot's own tools: it sees only its own memory, never another channel's;
 it cannot change the project's memory; it can use only the MCP servers it was given; and it must read a tool's

@@ -56,6 +56,7 @@ const BUILT_IN = [
   "skill_list",
   "use_skill",
   "run_code",
+  "sandbox_start",
   "mcp_list_tools",
 ];
 const MCP_TOOLS = ["mcp_exec", "mcp_info", "mcp_search", "read_large_result"];
