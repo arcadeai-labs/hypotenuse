@@ -10,7 +10,6 @@ import {
   timestamp,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
-import { bots } from "./bots";
 import { channels } from "./channels";
 import { projects } from "./projects";
 import { users } from "./users";
@@ -50,6 +49,7 @@ export interface MemorySourceRef {
   toolCallId?: string;
   userId?: number;
   promotedFromId?: number;
+  /** Written by promotions made before channel memory was shared by every bot. */
   promotedFromBotId?: number;
   promotedFromChannelId?: number;
 }
@@ -58,10 +58,11 @@ export interface MemorySourceRef {
  * A `memory_document` row is **one version** of a markdown document a bot
  * remembers, addressed by its scope and `logicalPath` (`people/alex.md`).
  *
- * - `scope = 'project'`: `botId` and `channelId` are null; every bot and
- *   channel of the project reads it.
- * - `scope = 'channel'`: both set; only that bot, in that channel, reads it.
- *   The pair is the memory boundary, and every query names it in its `WHERE`.
+ * - `scope = 'project'`: `channelId` is null; every bot and channel of the
+ *   project reads it.
+ * - `scope = 'channel'`: `channelId` set; every bot working in that channel
+ *   reads and writes it, and no other channel sees it. The channel is the
+ *   memory boundary, and every query names it in its `WHERE`.
  *
  * History is append-only: a write or edit inserts a new row with a later
  * `versionId` and clears `isCurrent` on the one before; a forget inserts a
@@ -80,9 +81,6 @@ export const memoryDocuments = pgTable(
       .notNull()
       .references(() => projects.id, { onDelete: "cascade" }),
     scope: text("scope").$type<MemoryScopeName>().notNull(),
-    botId: integer("bot_id").references(() => bots.id, {
-      onDelete: "cascade",
-    }),
     channelId: integer("channel_id").references(() => channels.id, {
       onDelete: "cascade",
     }),
@@ -112,21 +110,14 @@ export const memoryDocuments = pgTable(
     uniqueIndex("memory_documents_version_idx").on(
       t.projectId,
       t.scope,
-      sql`coalesce(${t.botId}, 0)`,
       sql`coalesce(${t.channelId}, 0)`,
       t.logicalPath,
       t.versionId,
     ),
     uniqueIndex("memory_documents_current_idx")
-      .on(
-        t.projectId,
-        t.scope,
-        sql`coalesce(${t.botId}, 0)`,
-        sql`coalesce(${t.channelId}, 0)`,
-        t.logicalPath,
-      )
+      .on(t.projectId, t.scope, sql`coalesce(${t.channelId}, 0)`, t.logicalPath)
       .where(sql`${t.isCurrent}`),
-    index("memory_documents_channel_idx").on(t.botId, t.channelId),
+    index("memory_documents_channel_idx").on(t.channelId),
   ],
 );
 

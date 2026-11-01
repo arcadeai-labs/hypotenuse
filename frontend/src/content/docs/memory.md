@@ -4,8 +4,8 @@ A bot remembers what it learns, so the next conversation does not start from not
 markdown **documents**, each at a path such as `people/kim.md` or `facts/deploy-process.md`. Every change is a new
 **version**, and earlier versions are kept, so you can always see what a bot believed and when it changed its mind.
 
-**Memory** in the sidebar (`g m`) opens the project's shared memory; **Memory** on a bot's page opens what that bot
-remembers about each of its channels.
+**Memory** in the sidebar (`g m`) opens the memory explorer: **Project memory** first, then the **channel memory** of
+each channel you may see. **Memory** on a bot's page opens the same explorer.
 
 ![The memory explorer: search, and each document with how much it has faded](illustration:memory)
 
@@ -13,12 +13,13 @@ remembers about each of its channels.
 
 | Scope | Who reads it | Who changes it | Fades |
 |---|---|---|---|
-| **Channel memory** | one bot, in one channel | the bot as it works; people who may change the bot | yes, and is eventually forgotten when unused |
+| **Channel memory** | every bot working in one channel, there | those bots as they work; people who may change one of them | yes, and is eventually forgotten when unused |
 | **Project memory** | every bot, in every channel of the project | the project's admins, and promotion | in ranking only; never forgotten on its own |
 
-Channel memory belongs to **one bot in one channel**. Two bots in the same Slack channel keep separate channel
-memories, and share the project's. What a bot learned in one channel never appears in another: a channel's memory
-carries what its members said there.
+Channel memory belongs to **one channel**, and every bot working there shares it: two bots in the same Slack channel
+read and write the same channel memory, so what one learns the other knows. What was learned in one channel never
+appears in another: a channel's memory carries what its members said there. A bot's API channels and its dashboard
+chat are its own, so their memory has only that bot in it.
 
 What counts as a channel depends on where the bot is talking:
 
@@ -29,7 +30,7 @@ What counts as a channel depends on where the bot is talking:
 | Linear | a Linear project; an issue in no project falls back to its team | an agent session on an issue |
 | Pylon | a customer account (the company) | an issue |
 
-![A bot's memory: its channels beside the list, each with how many documents it holds](illustration:memory-channel)
+![One channel's memory, shared by every bot working there: the channels beside the list, each with how many documents it holds](illustration:memory-channel)
 
 ## How a bot uses it
 
@@ -44,11 +45,11 @@ A bot has six memory tools, and uses them without asking anyone:
 | `memory_edit` | changes some lines of a document, refused if it changed since the bot read it |
 | `memory_forget` | forgets a document; its history is kept |
 
-A bot writes only to its **channel** memory. Project memory is shared with every channel, so it changes only when a
+A bot writes only to its channel's memory. Project memory is shared with every channel, so it changes only when a
 person writes it or promotes something into it; a bot that tries is told to ask.
 
 **After a conversation comes to rest** — [resting or ended](/docs/conversations#what-a-conversation-is-doing), with at
-least four new entries since it last looked — the bot's `fast` model reads
+least four new entries since it last looked — the `fast` model of the bot that held it reads
 what was said since it last looked and writes down the facts worth keeping under `facts/` in that channel's memory:
 decisions, commitments, names and roles, preferences, how things are done. Each fact cites the transcript entries it
 came from, and a fact that corrects an earlier one updates that document rather than adding a near-duplicate. Small
@@ -82,15 +83,17 @@ starts that work again if it stopped.
 ## Decay
 
 A memory nobody uses fades. Its **decay** starts at 1 when it is written or last used, and halves every
-**half-life** — by default 30 days for channel memory and 180 days for project memory, set per bot on its page
-under [Memory](/docs/bots#memory). Being read by the bot, or being among the top three results of one of its
-searches, resets the clock.
+**half-life** — by default 30 days for channel memory and 180 days for project memory. Each bot ranks what it finds
+by its own half-lives, set on its page under [Memory](/docs/bots#memory); the explorer uses the defaults. Being read
+by a bot, or being among the top three results of one of its searches, resets the clock.
 
 - Decay **ranks** memories; it never hides one. A memory keeps a quarter of its weight however old it is, so an exact
   match is still found.
 - In the explorer, each document's bar is its decay; hover it for its half-life.
 - A **channel** memory that has faded below 5%, was read fewer than three times, and is not pinned is **forgotten**
-  by the hourly decay clock, with "faded" as the reason. Its history is kept.
+  by the hourly decay clock, with "faded" as the reason. Its history is kept. Since every bot in a channel shares its
+  memory, the clock measures with the project's longest channel half-life, so nothing is forgotten while a bot that
+  fades memory slowly would still find it.
 - **Project** memory is never forgotten by decay; a person forgets it.
 - **Pinned** documents never fade.
 
@@ -106,10 +109,10 @@ a search, then:
 
 | Action | What it does | Who may |
 |---|---|---|
-| **Edit** | writes a new version; your note says why. If someone (or the bot) changed it while you edited, the save is refused and your text kept, so you can look at what changed and save again | channel: who may change the bot; project: admins |
+| **Edit** | writes a new version; your note says why. If someone (or a bot) changed it while you edited, the save is refused and your text kept, so you can look at what changed and save again | channel: who may change a bot working in it; project: admins |
 | **Pin** / **Unpin** | a pinned memory never fades | the same |
 | **Forget** | no bot finds it any more; its history stays, and any earlier version can be restored | the same |
-| **Promote** | copies a channel's memory into project memory, citing where it came from | who may change the bot, and is an admin |
+| **Promote** | copies a channel's memory into project memory, citing where it came from | an admin (who may change every bot) |
 | **Restore this version** | on an earlier version: makes it current again | the same as Edit |
 
 **New document** in the explorer writes one from scratch — a fact you want every conversation in a channel, or the
@@ -132,5 +135,13 @@ the channel version it came from, and that version is kept for as long as the co
 
 ## Who may see it
 
-Reading a channel's memory takes read access to its bot; reading project memory takes membership in the project. See
+A channel's memory follows the bots working in it — the bot whose API channel or dashboard chat it is, or every bot
+bound to the channel or with a conversation in it:
+
+| | Channel memory | Project memory |
+|---|---|---|
+| **Read** | anyone who may read **any** of those bots; admins always | every member |
+| **Change, forget, pin** | anyone who may change **any** of those bots; admins always | admins |
+
+The explorer lists only the channels you may read. See
 [who may read and change a bot](/docs/bots#who-may-read-and-change-it).

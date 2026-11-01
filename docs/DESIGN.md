@@ -272,12 +272,13 @@ and links to its conversation — beside a preview of the exact text sent. A dif
 
 ### 3. The memory explorer
 
-Scope, then document, then versions. Scopes are the project and each channel, with its platform chip and a count.
-Each document shows its newest version and how faded it is; each version names the bot that wrote it and links to
+Scope, then document, then versions. One explorer: the scope list is **Project memory**, then **Channel memory** —
+each channel the reader may see, with its platform chip, a count, and the bots that share it on hover — and the
+page's title names the scope it shows. Each document shows its newest version and how faded it is; each version names the bot that wrote it and links to
 the conversation entry it came from, and a promoted fact says which channel it was promoted from. Decay is the short
 bar (`DecayMeter`), with the half-life on hover; the shrinking ring in `/docs/style-guide` is not used. Built as
-`/memory` (the project's) and `/bots/:botId/memory/:channelId` (a bot's memory of one channel), with the document at
-`…/document?path=`: rendered or raw text, the version history, a line diff against the current version, and pin, edit,
+`/memory` (the project's) and `/memory/channels/:channelId` (one channel's, shared by every bot working there), with
+the document at `…/document?path=`; the old `/bots/:botId/memory…` addresses redirect there. A document page has its rendered or raw text, its version history, a line diff against the current version, and pin, edit,
 forget, and promote where the caller's standing allows.
 
 ### 4. The public site and `/docs`

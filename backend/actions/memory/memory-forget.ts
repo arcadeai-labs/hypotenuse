@@ -8,7 +8,7 @@ import {
 import { ProjectMemberMiddleware } from "../../middleware/rbac";
 import { idInput } from "../../ops/InputOps";
 import {
-  botChannelInputs,
+  channelInputs,
   documentKey,
   resolveMemoryAccess,
   scopeNameInput,
@@ -30,7 +30,7 @@ import {
 export class MemoryForget extends AuditedAction {
   name = "memory:forget";
   description =
-    "Forget a memory document: it stops appearing in search and lists, and its history is kept. Same access as memory:write — project memory needs admin standing, channel memory needs write access to the bot.";
+    "Forget a memory document: it stops appearing in search and lists, and its history is kept. Same access as memory:write — project memory needs admin standing, channel memory needs write access to a bot working in the channel.";
   middleware = [ProjectMemberMiddleware()];
   web = {
     route: "/project/:projectId/memory/document",
@@ -39,7 +39,7 @@ export class MemoryForget extends AuditedAction {
   inputs = z.object({
     projectId: idInput("The project"),
     scope: scopeNameInput,
-    ...botChannelInputs,
+    ...channelInputs,
     path: memoryPathInput,
     reason: z
       .string()

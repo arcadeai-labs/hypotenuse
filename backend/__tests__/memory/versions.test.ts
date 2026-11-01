@@ -152,7 +152,6 @@ describe("versions", () => {
       }[];
     }>(stage, "memory/document/versions", {
       scope: "channel",
-      botId: stage.botId,
       channelId,
       path: PATH,
     });
@@ -192,7 +191,6 @@ describe("versions", () => {
       "memory/document/versions",
       {
         scope: "channel",
-        botId: stage.botId,
         channelId,
         path: "facts/moat.md",
       },

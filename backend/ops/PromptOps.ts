@@ -139,7 +139,7 @@ const MEMORY_RULES = [
   "",
   "You have a memory that outlasts this conversation, in two scopes:",
   "",
-  "- **channel** — what you have learned in this channel. Only you, here, can see it.",
+  "- **channel** — what has been learned in this channel. Every bot working here shares it, so another bot may have written some of it; no other channel sees it.",
   "- **project** — what is shared by every bot in every channel of the project. Only a person adds to it.",
   "",
   "Before answering from what you think you know, `memory_search` it. When you learn something durable — a decision, a preference, how something is done, who is who — `memory_write` it to channel memory, or `memory_edit` the document that already covers it. `memory_forget` what turns out to be wrong. Memories you do not use fade over time.",

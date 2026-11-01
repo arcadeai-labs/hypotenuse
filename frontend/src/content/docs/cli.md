@@ -100,8 +100,8 @@ invites), and `audit list`.
 | `hypotenuse large-result view <lr_id>` | A tool result too long to show in a transcript, which the transcript names `lr_<id>`: a page at a time (`--offset`, `--limit`) or `--all` |
 | `hypotenuse conversation create --bot --text [--web [--fresh]]`, `conversation message <id> --text` | Start a conversation with a bot — over the API, or with `--web` in its dashboard chat — or send one a message. See **Talking to a bot** below |
 | `hypotenuse conversation list`, `conversation view <id>`, `conversation follow <id>`, `conversation cancel <id>` | The conversations with bots you can read (`--bot`, `--state` narrow the list); one conversation's state; its transcript as the bot works; stopping it |
-| `hypotenuse memory search <query>`, `memory list`, `memory view <path>`, `memory versions <path>`, `memory channels --bot` | Search what bots [remember](/docs/memory) the way a bot does, list documents with how much each has faded, read one (`--version-id` for an earlier version) and its history, and list the channels a bot remembers. See **Memory from the command line** below |
-| `hypotenuse memory write <path> --text`, `memory forget <path>`, `memory pin <path>`, `memory promote <path> --bot --channel`, `memory reindex` | Correct or add a memory, forget one, pin one so it never fades (`--unpin` to undo), copy a bot's channel memory into project memory, and re-embed after the embedding model changes |
+| `hypotenuse memory search <query>`, `memory list`, `memory view <path>`, `memory versions <path>`, `memory channels` | Search what bots [remember](/docs/memory) the way a bot does, list documents with how much each has faded, read one (`--version-id` for an earlier version) and its history, and list the channels whose memory you can read. See **Memory from the command line** below |
+| `hypotenuse memory write <path> --text`, `memory forget <path>`, `memory pin <path>`, `memory promote <path> --channel`, `memory reindex` | Correct or add a memory, forget one, pin one so it never fades (`--unpin` to undo), copy a channel's memory into project memory, and re-embed after the embedding model changes |
 | `hypotenuse audit list` | The project's [audit log](/docs/audit), newest first, or with `--org` the organization's (`--org-only` for its own rows, no project's) |
 | `hypotenuse check-update`, `hypotenuse upgrade` | See whether a newer release exists, and install it |
 
@@ -392,21 +392,21 @@ Anyone who can read a bot can talk to it, and see and cancel its conversations.
 
 ### Memory from the command line
 
-Every `memory` command acts on one of two scopes. With neither `--bot` nor `--channel` it acts on **project
-memory**, which every bot of the project shares; with both it acts on **channel memory** — one bot's memory of one
-channel. `memory channels --bot <bot>` lists a bot's channels and their ids.
+Every `memory` command acts on one of two scopes. Without `--channel` it acts on **project memory**, which every bot
+of the project shares; with `--channel <id>` it acts on that channel's **channel memory**, which every bot working in
+the channel shares. `memory channels` lists the channels you can read, their ids, and the bots working in each.
 
 ```bash
-hypotenuse memory channels --bot ada
-hypotenuse memory search "deploy process" --bot ada --channel 3 --scope both
-hypotenuse memory list --bot ada --channel 3
-hypotenuse memory view facts/deploys.md --bot ada --channel 3
-hypotenuse memory versions facts/deploys.md --bot ada --channel 3
+hypotenuse memory channels
+hypotenuse memory search "deploy process" --channel 3 --scope both
+hypotenuse memory list --channel 3
+hypotenuse memory view facts/deploys.md --channel 3
+hypotenuse memory versions facts/deploys.md --channel 3
 cat deploys.md | hypotenuse memory write facts/deploys.md --text - --note "From the runbook"
-hypotenuse memory promote facts/deploys.md --bot ada --channel 3 --to runbooks/deploys.md
+hypotenuse memory promote facts/deploys.md --channel 3 --to runbooks/deploys.md
 ```
 
-- `search` and `list` look in channel memory when given `--bot` and `--channel`, and in project memory otherwise;
+- `search` and `list` look in channel memory when given `--channel`, and in project memory otherwise;
   `--scope both` looks in the two at once. `--path <prefix>` keeps only documents under a path. `search` shows each
   hit's score, its decay (1 is fresh; `pinned` never fades), and a snippet, and says when it ranked by keyword alone.
 - `list` ends with which model embeds memory and how many pieces are not embedded yet; `--forgotten` includes
@@ -420,8 +420,8 @@ hypotenuse memory promote facts/deploys.md --bot ada --channel 3 --to runbooks/d
 - `reindex` re-embeds what the current embedding model has not embedded, in the background. Run it after changing
   the `embedding` alias; until it finishes, search ranks those memories by keyword.
 
-Anyone who can read a bot can read its channel memory, and anyone who can change the bot can change it. Every
-member reads project memory; only an admin changes it, promotes into it, or reindexes.
+Anyone who can read a bot working in a channel can read that channel's memory, and anyone who can change one of them
+can change it. Every member reads project memory; only an admin changes it, promotes into it, or reindexes.
 
 ## Scripting
 

@@ -8,7 +8,7 @@ import {
 import { ProjectMemberMiddleware } from "../../middleware/rbac";
 import { idInput } from "../../ops/InputOps";
 import {
-  botChannelInputs,
+  channelInputs,
   documentKey,
   resolveMemoryAccess,
   scopeNameInput,
@@ -38,7 +38,7 @@ export class MemoryPin extends AuditedAction {
   inputs = z.object({
     projectId: idInput("The project"),
     scope: scopeNameInput,
-    ...botChannelInputs,
+    ...channelInputs,
     path: memoryPathInput,
     pinned: z.boolean().default(true).describe("true pins; false unpins"),
   });

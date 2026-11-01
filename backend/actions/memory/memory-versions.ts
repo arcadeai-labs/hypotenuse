@@ -13,7 +13,7 @@ import {
 import type { SessionImpl } from "../../middleware/session";
 import { idInput } from "../../ops/InputOps";
 import {
-  botChannelInputs,
+  channelInputs,
   documentKey,
   resolveMemoryAccess,
   scopeNameInput,
@@ -29,7 +29,7 @@ import { listVersions, serializeMemoryDocument } from "../../ops/MemoryOps";
 export class MemoryVersions implements Action {
   name = "memory:versions";
   description =
-    "List a memory document's versions, newest first, each with its text, change note, source (agent, person, consolidation, promotion, decay), and provenance. Forgotten versions are tombstones. Requires membership; channel memory also needs read access to the bot. Paginated.";
+    "List a memory document's versions, newest first, each with its text, change note, source (agent, person, consolidation, promotion, decay), and provenance. Forgotten versions are tombstones. Requires membership; channel memory also needs read access to a bot working in the channel. Paginated.";
   middleware = [ProjectMemberMiddleware()];
   web = {
     route: "/project/:projectId/memory/document/versions",
@@ -38,7 +38,7 @@ export class MemoryVersions implements Action {
   inputs = paginationInputs({ defaultLimit: 25 }).extend({
     projectId: idInput("The project"),
     scope: scopeNameInput,
-    ...botChannelInputs,
+    ...channelInputs,
     path: memoryPathInput,
   });
 

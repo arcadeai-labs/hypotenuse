@@ -27,7 +27,7 @@ read and change it, and whether you may change it.
 | **Prompt** | its prompt budget in tokens, how many sections it may add to its own prompt, and a link to its [prompt](/docs/prompts) |
 | **Goals** | what it works toward — see [Goals](/docs/goals) |
 | **Skills** | which of the project's [skills](/docs/skills) it may use, and which version of each |
-| **Memory** | how fast its memories fade when unused, and a link to what it remembers |
+| **Memory** | how fast memories fade in its searches, and a link to the memory explorer |
 | **Tools** | which MCP servers it may use, which of their tools run without asking, and what its tools can do |
 | **Code** | whether it may run programs ([code mode](/docs/code-mode)), and its own, lower limits for them |
 | **Approvals** | who may decide its tool calls, and how long a waiting call lasts |
@@ -117,7 +117,8 @@ pin one. See [Skills](/docs/skills).
 ## Memory
 
 A bot remembers what it learns in each channel, and reads the project's shared memory too — see
-[Memory](/docs/memory). It searches, lists, reads, writes, edits, and forgets its own channel memory with six
+[Memory](/docs/memory). A channel's memory is shared by every bot working there, so a second bot in the channel
+starts out knowing what the first learned. It searches, lists, reads, writes, edits, and forgets its channel's memory with six
 `memory_*` tools, without asking, and after each conversation comes to rest it writes down the facts worth keeping.
 
 A memory nobody uses fades: it loses half its weight in search every **half-life**. The section sets two, each a
@@ -125,10 +126,10 @@ whole number of days from 1 to 3650:
 
 | Setting | Default | What it does |
 |---|---|---|
-| **Channel memory half-life** | 30 days | how fast what it learned in a channel fades; one that fades far enough unread is forgotten |
+| **Channel memory half-life** | 30 days | how fast channel memory fades in this bot's searches; one that fades far enough unread is forgotten, measured with the longest channel half-life of the project's bots |
 | **Project memory half-life** | 180 days | how fast the project's shared memory fades in this bot's searches; project memory is never forgotten by fading |
 
-**Memory** at the top of the page, or the link in the section, opens what the bot remembers, one channel at a time.
+**Memory** at the top of the page, or the link in the section, opens the memory explorer: project memory, and the memory of each channel.
 
 ## Tools
 

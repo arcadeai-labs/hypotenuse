@@ -5,7 +5,7 @@ A bot answers where your team already works. Three things decide where that is:
 | Thing | What it is |
 |---|---|
 | **An installation** | the bot's own app on a platform — its events URL, its credentials, its delivery address. One per bot per platform workspace. See [Connecting a platform](/docs/connecting-a-platform) |
-| **A channel** | one place on that platform — a channel, a team, a customer account. It is also where the bot's [memory](/docs/memory) of that place is kept |
+| **A channel** | one place on that platform — a channel, a team, a customer account. It is also where the [memory](/docs/memory) of that place is kept, shared by every bot working there |
 | **A binding** | the bot listening in a channel, with settings of its own |
 
 A bot hears from every channel its installation is in, but **answers only where it is bound**. Everything a

@@ -145,8 +145,45 @@ describe("decay in ranking", () => {
 });
 
 describe("the decay clock", () => {
+  test("it forgets a channel memory only once it has faded for the project's slowest-fading bot", async () => {
+    // Every bot in a channel shares its memory: a bot whose channel half-life
+    // is a year still finds a 300-day-old memory, so the clock keeps it.
+    const slow = await call<{ bot: { id: number } }>(
+      stage.u.url,
+      stage.u.peach,
+      "PUT",
+      `/project/${stage.u.projectId}/bot`,
+      {
+        name: "Slowpoke",
+        persona: "You remember for a long time.",
+        memoryChannelHalfLifeDays: 365,
+      },
+    );
+    expect(slow.status).toBe(200);
+    const channel = { scope: "channel", channelId };
+    await writeMemory(stage, {
+      ...channel,
+      path: "facts/old.md",
+      content: "An old fact.",
+    });
+    await age("facts/old.md", 300);
+    await runDecayClock();
+    expect((await current("facts/old.md", "channel")).tombstone).toBe(false);
+
+    // With that bot gone, the longest half-life is 30 days again.
+    const deleted = await call(
+      stage.u.url,
+      stage.u.peach,
+      "DELETE",
+      `/project/${stage.u.projectId}/bot/${slow.body.bot.id}`,
+    );
+    expect(deleted.status).toBe(200);
+    await runDecayClock();
+    expect((await current("facts/old.md", "channel")).tombstone).toBe(true);
+  });
+
   test("it tombstones faded channel memory, and spares pinned, well-used, and project memory", async () => {
-    const channel = { scope: "channel", botId: stage.botId, channelId };
+    const channel = { scope: "channel", channelId };
     for (const path of [
       "facts/faded.md",
       "facts/pinned.md",
@@ -218,7 +255,7 @@ describe("the decay clock", () => {
   });
 
   test("it prunes old non-current versions, never a current one or one a promotion cites", async () => {
-    const channel = { scope: "channel", botId: stage.botId, channelId };
+    const channel = { scope: "channel", channelId };
     for (const text of ["one", "two", "three"]) {
       await writeMemory(stage, {
         ...channel,
@@ -239,7 +276,6 @@ describe("the decay clock", () => {
       "POST",
       `/project/${stage.u.projectId}/memory/document/promote`,
       {
-        botId: stage.botId,
         channelId,
         path: "facts/rules.md",
         versionId: first,

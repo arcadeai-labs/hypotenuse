@@ -17,7 +17,6 @@ import { api, config, ErrorType, TypedError } from "keryx";
 // Type-only, purely for the `declare module "keryx"` augmentation inside.
 import type {} from "../config/memory";
 import type { Bot } from "../schema/bots";
-import { type Channel, channels } from "../schema/channels";
 import type { Conversation } from "../schema/conversations";
 import {
   MEMORY_EMBEDDING_DIMENSIONS,
@@ -47,7 +46,7 @@ import { embeddingModel } from "./ModelOps";
  *
  * | Scope | Key | Who reads it |
  * |---|---|---|
- * | `channel` | `(projectId, botId, channelId)` | that bot, in conversations in that channel; people with `canReadBot` |
+ * | `channel` | `(projectId, channelId)` | every bot, in conversations in that channel; people who may read a bot working there |
  * | `project` | `projectId` | every bot and channel of the project; every member |
  */
 
@@ -61,24 +60,25 @@ export const DEFAULT_HALF_LIFE_DAYS = { channel: 30, project: 180 } as const;
  */
 export interface MemoryReadSet {
   projectId: number;
-  channel: { botId: number; channelId: number } | null;
+  channel: { channelId: number } | null;
   /** Half-lives in days, for ranking. */
   halfLifeDays: { channel: number; project: number };
 }
 
 /**
- * The read set of a conversation: its own bot and channel, and its project.
+ * The read set of a conversation: its channel, and its project. Every bot in
+ * the channel shares its memory; the bot only sets the half-lives it ranks by.
  * @param conversation - The conversation row.
  * @param bot - Its bot, for its half-lives.
  * @returns The read set.
  */
 export function scopeFor(
-  conversation: Pick<Conversation, "projectId" | "botId" | "channelId">,
+  conversation: Pick<Conversation, "projectId" | "channelId">,
   bot: Pick<Bot, "memoryChannelHalfLifeDays" | "memoryProjectHalfLifeDays">,
 ): MemoryReadSet {
   return {
     projectId: conversation.projectId,
-    channel: { botId: conversation.botId, channelId: conversation.channelId },
+    channel: { channelId: conversation.channelId },
     halfLifeDays: {
       channel: bot.memoryChannelHalfLifeDays,
       project: bot.memoryProjectHalfLifeDays,
@@ -94,7 +94,6 @@ export interface DocumentKey {
   projectId: number;
   scope: MemoryScopeName;
   /** Set iff `scope` is `channel`. */
-  botId: number | null;
   channelId: number | null;
   path: string;
 }
@@ -116,7 +115,6 @@ export function keyIn(
     return {
       projectId: readSet.projectId,
       scope,
-      botId: null,
       channelId: null,
       path,
     };
@@ -125,7 +123,6 @@ export function keyIn(
   return {
     projectId: readSet.projectId,
     scope,
-    botId: readSet.channel.botId,
     channelId: readSet.channel.channelId,
     path,
   };
@@ -133,8 +130,8 @@ export function keyIn(
 
 /**
  * The SQL condition for one scope of a read set, over `memory_documents`.
- * The channel condition always names the bot **and** the channel: this is the
- * memory boundary, and it is enforced here, in the `WHERE` of every query.
+ * The channel condition always names the channel: this is the memory
+ * boundary, and it is enforced here, in the `WHERE` of every query.
  * @param readSet - The read set.
  * @param choice - `channel`, `project`, or `both`.
  * @returns The condition.
@@ -151,7 +148,6 @@ export function scopeCondition(
     ? (and(
         eq(memoryDocuments.projectId, readSet.projectId),
         eq(memoryDocuments.scope, "channel"),
-        eq(memoryDocuments.botId, readSet.channel.botId),
         eq(memoryDocuments.channelId, readSet.channel.channelId),
       ) as SQL)
     : sql`false`;
@@ -169,9 +165,6 @@ function keyCondition(key: DocumentKey): SQL {
   return and(
     eq(memoryDocuments.projectId, key.projectId),
     eq(memoryDocuments.scope, key.scope),
-    key.botId === null
-      ? isNull(memoryDocuments.botId)
-      : eq(memoryDocuments.botId, key.botId),
     key.channelId === null
       ? isNull(memoryDocuments.channelId)
       : eq(memoryDocuments.channelId, key.channelId),
@@ -328,7 +321,6 @@ export async function writeVersion(
     .values({
       projectId: key.projectId,
       scope: key.scope,
-      botId: key.botId,
       channelId: key.channelId,
       logicalPath: key.path,
       versionId,
@@ -387,7 +379,7 @@ export async function lockDocument(
  * @returns A string unique to it.
  */
 function documentLockKey(key: DocumentKey): string {
-  return `memory:${key.projectId}:${key.scope}:${key.botId ?? 0}:${key.channelId ?? 0}:${key.path}`;
+  return `memory:${key.projectId}:${key.scope}:${key.channelId ?? 0}:${key.path}`;
 }
 
 /**
@@ -560,7 +552,6 @@ export function serializeMemoryDocument(
     id: row.id,
     projectId: row.projectId,
     scope: row.scope,
-    botId: row.botId,
     channelId: row.channelId,
     path: row.logicalPath,
     versionId: row.versionId.getTime(),
@@ -603,72 +594,6 @@ export function memoryNotFound(): TypedError {
     message: "Memory document not found",
     type: ErrorType.CONNECTION_ACTION_NOT_FOUND,
   });
-}
-
-/**
- * Load a channel a bot's memory may be kept for: one of the project, and
- * either shared (a platform channel) or the bot's own (an API channel).
- * @param db - A database handle.
- * @param projectId - The project.
- * @param botId - The bot.
- * @param channelId - The channel.
- * @returns The channel.
- * @throws {TypedError} `CONNECTION_ACTION_NOT_FOUND`.
- */
-export async function loadBotChannel(
-  db: DbHandle,
-  projectId: number,
-  botId: number,
-  channelId: number,
-): Promise<Channel> {
-  const [channel] = await db
-    .select()
-    .from(channels)
-    .where(and(eq(channels.id, channelId), eq(channels.projectId, projectId)))
-    .limit(1);
-  if (!channel || (channel.botId !== null && channel.botId !== botId)) {
-    throw new TypedError({
-      message: "Channel not found for this bot",
-      type: ErrorType.CONNECTION_ACTION_NOT_FOUND,
-    });
-  }
-  return channel;
-}
-
-/**
- * The channels a bot has memory in, with how many live documents each holds.
- * @param db - A database handle.
- * @param projectId - The project.
- * @param botId - The bot.
- * @returns Each channel and its count, by name.
- */
-export async function botMemoryChannels(
-  db: DbHandle,
-  projectId: number,
-  botId: number,
-): Promise<{ channel: Channel; documents: number }[]> {
-  const rows = await db
-    .select({ channel: channels, documents: count(memoryDocuments.id) })
-    .from(channels)
-    .leftJoin(
-      memoryDocuments,
-      and(
-        eq(memoryDocuments.channelId, channels.id),
-        eq(memoryDocuments.botId, botId),
-        eq(memoryDocuments.scope, "channel"),
-        eq(memoryDocuments.isCurrent, true),
-        eq(memoryDocuments.tombstone, false),
-      ),
-    )
-    .where(
-      and(
-        eq(channels.projectId, projectId),
-        or(isNull(channels.botId), eq(channels.botId, botId)),
-      ),
-    )
-    .groupBy(channels.id)
-    .orderBy(asc(channels.name), asc(channels.id));
-  return rows;
 }
 
 /** The Redis key that marks an embed run as queued or running for a project. */

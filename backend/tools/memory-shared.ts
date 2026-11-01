@@ -32,7 +32,7 @@ import { type ToolContext, ToolError } from "./types";
 export const scopeInput = z
   .enum(["channel", "project"])
   .describe(
-    "channel: what this bot remembers about this channel (only it, here, sees it); project: what every bot in every channel of the project shares",
+    "channel: what is remembered about this channel (every bot working here shares it, and no other channel sees it); project: what every bot in every channel of the project shares",
   );
 
 /** The input choosing which scopes to look in. */
@@ -163,9 +163,6 @@ export async function botWrite(
         and(
           eq(memoryDocuments.projectId, key.projectId),
           eq(memoryDocuments.scope, key.scope),
-          key.botId === null
-            ? sql`${memoryDocuments.botId} is null`
-            : eq(memoryDocuments.botId, key.botId),
           key.channelId === null
             ? sql`${memoryDocuments.channelId} is null`
             : eq(memoryDocuments.channelId, key.channelId),
