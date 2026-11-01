@@ -350,7 +350,7 @@ By hand: create a bot's Linear app from the link; install it in a test workspace
 | Piece | Where |
 |---|---|
 | The adapter: `Linear-Signature` verification with the previous secret and the signed `webhookTimestamp` (60 s), the OAuth install with `actor=app` and PKCE, and the activities out | `backend/platforms/linear/{adapter,events}.ts`, registered in `backend/platforms/registry.ts` |
-| The API client (GraphQL and the token endpoint, `RATELIMITED`, refresh under the row lock with the replay grace, never revoke) and the per-installation bucket with a reserve | `backend/ops/LinearOps.ts`, `backend/lua/linear-bucket.lua`, `config.platforms.linear` |
+| The API client (GraphQL and the token endpoint, `RATELIMITED`, refresh under the row lock with the replay grace, never revoke) and the per-installation bucket with a reserve | `backend/ops/LinearOps.ts`, `backend/lua/reserve-bucket.lua`, `config.platforms.linear` |
 | The manifest and its pre-filled creation link; mention-safe, size-capped bodies | `backend/ops/LinearManifestOps.ts`, `backend/ops/LinearMarkdownOps.ts` |
 | Contract additions: `acknowledgeWhileInactive`, `globalConversationKeys`, `workspaceOf`, `oauth.pkce` and `oauth.tokenKeys`, a manifest's `link`; inbound `conversationDetails`, `ackPayload`, a stop's `reply`, and the lifecycles `disengage`, `settings`, `noted` | `backend/platforms/types.ts`, `backend/ops/{TriggerEventOps,IngressOps,InstallationOps}.ts`, the generic OAuth hops |
 | `conversations.details` (a session's issue, team, and project) | `backend/schema/conversations.ts`, migration `0013` |

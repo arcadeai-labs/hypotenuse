@@ -1,6 +1,6 @@
 {
   "name": "@arcadeai/hypotenuse",
-  "version": "2.10.0",
+  "version": "2.11.0",
   "description": "Hypotenuse — the operator CLI for a persistent multiplayer, multichannel agent for your team",
   "type": "module",
   "license": "Apache-2.0",

@@ -1,6 +1,7 @@
 import {
   boolean,
   integer,
+  jsonb,
   pgTable,
   serial,
   text,
@@ -34,7 +35,9 @@ export type ChannelType = (typeof CHANNEL_TYPES)[number];
  * `parentExternalId` is a platform's grouping (a Linear team above a
  * project). `isPrivate` and `isShared` (externally shared, Slack Connect)
  * decide `autoBind` and the shared-channel rule; `archived` is set when the
- * platform archives it.
+ * platform archives it. `details` is what the platform knows about the
+ * channel beyond its name (a Pylon account's `domains`), refreshed on every
+ * delivery that names it.
  */
 export const channels = pgTable(
   "channels",
@@ -57,6 +60,10 @@ export const channels = pgTable(
     isPrivate: boolean("is_private").notNull().default(false),
     isShared: boolean("is_shared").notNull().default(false),
     archived: boolean("archived").notNull().default(false),
+    details: jsonb("details")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default({}),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

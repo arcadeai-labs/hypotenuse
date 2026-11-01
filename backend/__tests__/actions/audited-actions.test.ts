@@ -108,6 +108,7 @@ const UNAUDITED_WRITERS = new Set([
   "webhooks:webhook",
   "webhooks:slack",
   "webhooks:linear",
+  "webhooks:pylon",
   "triggers:process-event",
   // Memory's machine work: each version's source and provenance, and each
   // chunk's embedding revision, are the record.

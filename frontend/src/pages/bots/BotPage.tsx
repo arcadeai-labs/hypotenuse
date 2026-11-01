@@ -359,6 +359,7 @@ export function BotPage() {
             projectId={activeProjectId}
             bot={bot}
             denied={botWriteDenied(reason("channel-binding:create"), standing)}
+            settingsDenied={reason("pylon:settings-edit")}
           />
           <ListeningSection {...sectionProps} />
           <CallbackSecretSection

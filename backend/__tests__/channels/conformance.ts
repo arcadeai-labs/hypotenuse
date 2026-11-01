@@ -16,7 +16,7 @@ import type { ModelServer } from "../fixtures/model-server";
  * | Case | Needs the wire |
  * |---|---|
  * | ordering | no |
- * | supersession | no |
+ * | supersession (on a surface with a status line) | no |
  * | nothing after a question | no |
  * | question round trip | no |
  * | approval round trip, per policy the surface has | no |
@@ -45,6 +45,11 @@ export interface ConformanceDriver {
   shown(conversationId: number): Promise<Shown[]>;
   /** The status lines a surface shows now, newest last. */
   statuses(conversationId: number): Promise<string[]>;
+  /**
+   * The surface has no status line at all (Pylon: a note is permanent), so
+   * the supersession case does not apply.
+   */
+  noStatusLine?: boolean;
   /** Answer a question by pressing its option. */
   pressAnswer(
     conversationId: number,
@@ -117,6 +122,7 @@ export function conformance(name: string, driver: () => ConformanceDriver) {
 
   test(`${name}: supersession — only the newest status line is shown`, async () => {
     const d = driver();
+    if (d.noStatusLine) return;
     const id = await d.say("sup", "Hello?");
     const conversation = await conversationRow(id);
     await emitStatus(api.db.db, conversation, "First");

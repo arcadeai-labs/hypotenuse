@@ -2,7 +2,7 @@
 
 > **Goal:** A bot works a support team's Pylon queue as its own teammate. When a customer issue arrives or changes, the bot reads it, works out an answer from its memory of that customer and the shared tools, and posts what it found as an **internal note** for the support team. It sends a customer-facing reply only when the bot's policy allows it, or when a person approves it. It remembers each customer company across all of that company's issues.
 
-> **Status: planned, not built.** Builds on [the channel framework](./phase-13-channel-framework.md), the [durable agent loop](./phase-08-durable-agent-loop.md), [memory](./phase-09-memory.md), and the approval gate from [shared MCP servers](./phase-10-shared-mcp-servers.md). [Slack](./phase-14-slack.md) and [Linear](./phase-15-linear.md) are siblings.
+> **Status: built.** Builds on [the channel framework](./phase-13-channel-framework.md), the [durable agent loop](./phase-08-durable-agent-loop.md), [memory](./phase-09-memory.md), and the approval gate from [shared MCP servers](./phase-10-shared-mcp-servers.md). [Slack](./phase-14-slack.md) and [Linear](./phase-15-linear.md) are siblings.
 
 Pylon is customer support, which changes two things compared with Slack and Linear.
 
@@ -259,12 +259,12 @@ By hand against a Pylon sandbox org:
 
 ## Definition of done
 
-- [ ] A bot connects to Pylon with its own token identity and a verified webhook destination
-- [ ] New, assigned, and mentioned issues become conversations; customer messages continue them
-- [ ] Status, plan, questions, and findings appear as internal notes in one thread per conversation
-- [ ] Customer replies are impossible under `never`, drafted and approval-gated under `approve`, and risk-checked under `auto-on-low-risk`
-- [ ] Channel memory is per customer account and never crosses accounts
-- [ ] `docs/PYLON_COVERAGE.md`, the Pylon tab, CLI, and `pylon.md` ship in the same PR
+- [x] A bot connects to Pylon with its own token identity and a verified webhook destination
+- [x] New, assigned, and mentioned issues become conversations; customer messages continue them
+- [x] Status, plan, questions, and findings appear as internal notes in one thread per conversation
+- [x] Customer replies are impossible under `never`, drafted and approval-gated under `approve`, and risk-checked under `auto-on-low-risk`
+- [x] Channel memory is per customer account and never crosses accounts
+- [x] `docs/PYLON_COVERAGE.md`, the Pylon tab, CLI, and `pylon.md` ship in the same PR
 
 ## Open questions
 
@@ -276,4 +276,79 @@ By hand against a Pylon sandbox org:
 
 ## Learnings from the build
 
-Not built yet.
+### What is built
+
+| Piece | Where |
+|---|---|
+| The adapter: `X-Pylon-Signature-V2` over `<timestamp>.<body>` within 300 s, the legacy signature on request, `hydrate` reading the issue, account, and message before processing, and internal notes out in one thread per conversation | `backend/platforms/pylon/{adapter,events}.ts`, registered in `backend/platforms/registry.ts` |
+| The API client (both regions, Pylon's error codes, `429` with `Retry-After`) and the per-installation write bucket, on the reserve bucket Linear's client uses too (`linear-bucket.lua` renamed `reserve-bucket.lua`) | `backend/ops/PylonOps.ts`, `backend/lua/reserve-bucket.lua`, `config.platforms.pylon` |
+| Markdown to escaped `body_html`, and Pylon's HTML to text | `backend/ops/PylonMarkdownOps.ts` |
+| The risk check for `auto-on-low-risk` | `backend/ops/PylonRiskOps.ts` |
+| The promotion guard: a fact naming a customer is not promoted | `backend/ops/PromotionGuardOps.ts`, in `memory:promote` |
+| Contract additions: `hydrate`, `probeOnConnect` (and a probe that returns settings), `protectedSettings`, `autoBindApprovalPolicy`; inbound `untrusted`; a channel's `details` (migration `0014`); an existing conversation merges an inbound's `conversationDetails`; an escalation's status carries `escalation: true` | `backend/platforms/types.ts`, `backend/ops/TriggerEventOps.ts`, `backend/actions/bot-installation/bot-installation-connect.ts`, `backend/schema/channels.ts`, `backend/ops/HelpOps.ts` |
+| Actions: `webhooks:pylon`; `pylon:settings-edit` (admin-only, audited) | `backend/actions/webhooks/webhooks-pylon.ts`, `backend/actions/pylon/pylon-settings-edit.ts` |
+| Tools: `pylon_issue_view`, `pylon_account_view`, `pylon_account_issues`, `pylon_contact_view`, `pylon_issue_update` (gated), `pylon_reply_to_customer` (the policy), offered only on a Pylon issue | `backend/tools/pylon-{shared,read,write}.ts` |
+| The Pylon fake (both regions, rate limits, Trigger templates rendered and signed) and its process for a running deployment | `backend/__tests__/fakes/pylon/{server,process}.ts` |
+| Proof | `backend/__tests__/pylon/{install,issue,conformance-pylon}.test.ts`, `backend/__tests__/cli/pylon-commands.test.ts`; the coverage matrix [`docs/platform-coverage/pylon.md`](../platform-coverage/pylon.md) |
+| Dashboard | the Pylon block on the bot's Channels section (`frontend/src/components/bots/PylonPlatformBlock.tsx`) |
+| CLI 2.11.0 | `hypotenuse pylon setup\|connect\|settings` (`cli/src/commands/pylon.ts`); `installation test`, `view`, and `disconnect` serve Pylon |
+| User docs | `frontend/src/content/docs/pylon.md`; `connecting-a-platform.md` and `cli.md` updated |
+
+### What Pylon's docs say now, against the plan
+
+The plan's open questions were answered by Pylon's public developer docs
+(https://docs.usepylon.com/pylon-docs/developer), read while building; none is yet confirmed against a live
+organization.
+
+| The plan says | Pylon's docs say | As built |
+|---|---|---|
+| `Pylon-Webhook-Signature: hs256=<hex>` over `<Pylon-Webhook-Timestamp>.<body>` | `X-Pylon-Signature-V2`: hex HMAC-SHA256 of `<X-Pylon-Timestamp>.<body>`, the timestamp in Unix seconds, reject beyond five minutes; legacy `X-Pylon-Signature` is the body alone and "verifies indefinitely" | the docs' headers, with an `hs256=` prefix tolerated; legacy only when the installation sets `legacySignature` |
+| a webhook destination per installation sends issue events (names to confirm) | there are no webhook events: a webhook is the **Send webhook** action of a Trigger an admin builds, with a body **template** they write, every value a string | the manifest lists four Triggers (*New issue created*, *Issue has a new message*, *Issue assigned*, *Issue status changed*) and the body each sends; the body names the event itself |
+| the payload's event id, else sha256(body) | "No event ID header"; up to three attempts (about 4 s, then 8 s), `X-Pylon-Retry-Number` on retries, each signed with a new timestamp | the id is the body's hash within `dedupeWindowSeconds` (600) of its timestamp; a message's own id dedupes it in the inbox too |
+| retries over about 31 hours; a destination inactive after 7 days | three attempts, 20 s each; nothing said about inactivity | the block shows the last delivery received, so a silent webhook is visible |
+| payloads may not carry bodies: a follow-up job reads messages | a template pastes values as text, not JSON-escaped: an issue title or a message with a `"` would break the body | bodies carry ids only (`issue.id`, `issue.status`, `issue.assignee.id`, `issue.last_message.id`), and **`hydrate`** — a new contract hook run by `triggers:process-event` before its transaction — reads the issue, its account, and the message, storing them on the event as `payload.hydrated` so a retry does not call Pylon again |
+| can teammates `@mention` a token identity? | not said | the bot matches its token's name (`selfName`, set at connect) in a note's text, with or without `@`, and cuts it out |
+| `draft-reply` needs `user_id` for unlinked or service tokens | the same; a draft is private to its owner, and an existing draft not made by the endpoint is a 409 | the draft is made with the token's own user id; a 409 (a teammate's own draft) is skipped and the note carries the text |
+| `GET /me` names the token's identity and name | `GET /me` answers the organization's id and name and the user's id and email — no name | the name is given at connect (`selfName`, defaulting to the bot's name in the dashboard) |
+
+### Decisions the plan left open, and where the build differs
+
+| The plan says | As built |
+|---|---|
+| `backend/channels/pylon/`, `backend/tools/pylon/*.ts`, `BotPylonTab.tsx` | `backend/platforms/pylon/`; `backend/tools/pylon-*.ts`; a Pylon block on the bot's Channels section, as Slack and Linear |
+| `pylon:connect`, `pylon:webhook-register`, `pylon:status`, `pylon:disconnect` | the framework's `bot-installation:manifest` / `:connect` / `:view` / `:test` / `:disconnect`. The token and the webhook secret are connected together, after the admin made both (Pylon shows the secret once, at creation, and the URL is known from the manifest). Pylon's own action is only `pylon:settings-edit` |
+| the policy changed by `pylon:settings-edit` | and by nothing else: `protectedSettings` makes `bot-installation:connect` refuse `customerReplyPolicy` and keep it; the admin who set it is stored with it (`customerReplyPolicySetByUserId`) |
+| `docs/PYLON_COVERAGE.md` with `PC-*` ids | [`docs/platform-coverage/pylon.md`](../platform-coverage/pylon.md) with `pylon.*` ids, beside the others |
+| status, plan, and steps batched into one note per tick | `status` and `stream` are dropped at enqueue (a note is permanent), except the acknowledgement and an escalation; `plan` rows are kept and post nothing, and the final note of the turn reads the newest one as its checklist. The acknowledgement is posted once per conversation: it opens the thread |
+| the conversation's thread by `thread_id` | the first note names a Pylon-only thread (`thread_name`); its id (`noteMessageId`) is kept on the conversation and every later note passes it as `message_id` — `POST /note` answers the note's id, not the thread's |
+| a customer reply approved by a note "approve" | `approve <id>` / `deny <id>`, the framework's typed approval; the auto-made binding of an account starts at `participants` (`autoBindApprovalPolicy`) because only the team sees internal notes |
+| who may decide | a teammate (an internal note) or a dashboard user under `approval:decide`. A **customer** never: their messages are `untrusted`, a new inbound flag — rule 9 never reads them as approvals |
+| the auto-send "plus a note saying it was sent" | the tool's answer tells the model to say so in its final note; no separate note |
+| every auto-send audited as the policy's decision | `pylon:auto-reply`, `actorType: user` naming the admin who set the policy (`system` if nobody is recorded), written by the tool after the send |
+| disengage on assignment away "if the bot was assignee" | a conversation the bot was assigned carries `assignedIssueId` (an existing conversation now merges an inbound's `conversationDetails`); an assignment to anyone else disengages on that key, so an issue the bot only triaged is not stopped by a teammate taking it |
+| account events update the channel | not subscribed: every delivery about an issue reads its account and refreshes the channel's name and `details.domains` |
+| promotion refuses facts naming the customer; "the promotion prompt is told" | promotion is a person's action with no prompt; the guard checks the account's name, each domain, and each domain's first label |
+| `pylon_issue_update` approval-gated by policy | always gated, like `linear_comment_create` |
+| Slack Connect threads | out, as planned |
+
+- **A token with its own identity is a user.** Its notes and replies arrive as "a new message" by `author.user.id`
+  equal to `GET /me`'s user id, which is how the bot never hears itself; other bots of the project are read in
+  `hydrate` from their installations.
+- **The risk check is the gate's, not the tool's.** `pylon_reply_to_customer`'s gate asks the `fast` model before
+  anything is sent, and a failed or unreadable answer is `high`. After a crash the gate runs again: the resend
+  carries the same `custom_source.external_id` (the call's idempotency key), so Pylon returns the message it
+  already has.
+- **`settle()` runs ticks before deliveries**, as the Linear learnings say: the test harness's `flow` drains
+  ingress and the outbox before settling, so the acknowledgement is delivered before the turn's answer supersedes it.
+
+### Upstream
+
+Nothing filed. The Pylon fake is ours; where it differs from Pylon, Pylon's docs are the reference and the fake is
+fixed.
+
+### Unconfirmed until a live install
+
+- That Pylon pastes template values unescaped (the reason bodies carry ids only), and that `{{ issue.status }}` is
+  the state's slug.
+- That a note by an API token arrives as "Issue has a new message" with `author.user.id` set.
+- That a draft made with `user_id` shows in that token identity's drafts on the issue.

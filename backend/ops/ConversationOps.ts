@@ -371,7 +371,10 @@ export interface InboundResult {
  * caller's transaction with the conversation locked.
  * @param tx - An open transaction.
  * @param conversation - The conversation, locked.
- * @param message - The text, how it enters a turn, its dedupe key, and who wrote it.
+ * @param message - The text, how it enters a turn, its dedupe key, and who
+ *   wrote it; `answers: false` for a message that may not answer a question
+ *   the conversation waits on (a support customer's, when the bot asked its
+ *   team): it waits in the inbox for the turn the answer starts.
  * @returns What happened.
  */
 export async function receiveMessage(
@@ -385,6 +388,7 @@ export async function receiveMessage(
     userId?: number | null;
     participantId?: number | null;
     metadata?: Record<string, unknown>;
+    answers?: boolean;
   },
 ): Promise<InboundResult> {
   const deliveryKey = message.deliveryKey ?? randomUUID();
@@ -420,7 +424,9 @@ export async function receiveMessage(
   const wakes =
     conversation.state === "hibernating" ||
     conversation.state === "ended" ||
-    (conversation.state === "waiting" && waitingOn?.kind === "answer");
+    (conversation.state === "waiting" &&
+      waitingOn?.kind === "answer" &&
+      message.answers !== false);
   if (!wakes) {
     await tx
       .update(conversations)

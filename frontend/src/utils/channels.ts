@@ -27,10 +27,48 @@ export const INSTALLABLE_PLATFORMS: readonly InstallablePlatform[] = [
       "The bot as its own Linear app: create it from a pre-filled link, install it into your workspace, and delegate issues to it or mention it.",
   },
   {
+    type: "pylon",
+    label: "Pylon",
+    summary:
+      "The bot as a teammate on your support queue: a Pylon API token with its own identity, and a webhook fed by four Triggers. It writes internal notes; customers hear from it only as its reply policy allows.",
+  },
+  {
     type: "webhook",
     label: "Webhook",
     summary:
       "Any system that can POST signed JSON: it sends people's messages to the bot's events URL, and receives the bot's messages at a delivery URL you choose.",
+  },
+];
+
+/** A Pylon customer reply policy. */
+export type CustomerReplyPolicyChoice =
+  | "never"
+  | "approve"
+  | "auto-on-low-risk";
+
+/** The customer reply policies, safest first, each with what it means in plain words. */
+export const CUSTOMER_REPLY_POLICIES: readonly {
+  value: CustomerReplyPolicyChoice;
+  label: string;
+  consequence: string;
+}[] = [
+  {
+    value: "never",
+    label: "Never",
+    consequence:
+      "Customers never hear from the bot. It writes internal notes, with a suggested reply your team can send.",
+  },
+  {
+    value: "approve",
+    label: "With approval",
+    consequence:
+      "The bot drafts a reply; a teammate approves it (a note saying approve and its number) before exactly that text is sent.",
+  },
+  {
+    value: "auto-on-low-risk",
+    label: "Automatically when low-risk",
+    consequence:
+      "A plainly informational reply is sent at once, in your name as the admin who chose this. Refunds, legal, security, promises, and upset customers still wait for approval.",
   },
 ];
 

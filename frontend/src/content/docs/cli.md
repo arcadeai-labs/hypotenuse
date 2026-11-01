@@ -91,6 +91,7 @@ invites), and `audit list`.
 | `hypotenuse installation manifest --bot`, `installation connect --bot --delivery-url`, `installation test <id>`, `installation list --bot`, `installation view <id>`, `installation disconnect <id> --yes` | A bot's platform apps: get the events URL the platform delivers to, connect its credentials, check it works, and disconnect it. See **Platforms and channels from the command line** below |
 | `hypotenuse slack create --bot`, `slack connect --bot --client-id`, `slack install <id>` | A bot's own [Slack](/docs/slack) app: create it with a configuration token, or connect one made from the manifest; then print the link that installs it into the workspace |
 | `hypotenuse linear link --bot`, `linear connect --bot --client-id`, `linear install <id>` | A bot's own [Linear](/docs/linear) app: print the pre-filled link that creates it in Linear, connect its credentials, then print the link that installs it into the workspace |
+| `hypotenuse pylon setup --bot`, `pylon connect --bot --region --name`, `pylon settings --bot` | A bot on a [Pylon](/docs/pylon) queue: print what a Pylon admin creates (token, webhook, Triggers), connect the token and webhook secret, and — as a project admin — choose its customer reply policy, triggers, and listen filters |
 | `hypotenuse channel list [--bot]`, `channel view <id>` | The platform channels the project's bots hear from, and how each bot is bound there |
 | `hypotenuse binding list --bot`, `binding create --bot --channel`, `binding edit <id>`, `binding delete <id> --yes` | Where a bot listens: bind it to a channel, change how it listens, or unbind it. Changing needs write access to the bot |
 | `hypotenuse help-request list`, `help-request view <id>`, `help-request answer <id> --text`, `help-request cancel <id>` | The help inbox: questions bots escalated to the team, and your answers. See **The help inbox from the command line** below |
@@ -263,6 +264,18 @@ hypotenuse binding edit 5 --mode all --approval-policy participants
   `linear link` mints the app's webhook URL, which is in the link and shown once; asking again makes a new one.
   `linear connect` reads the Client Secret and the webhook signing secret from the named environment variables, or a
   hidden prompt. `linear install` prints a link that works once, for ten minutes.
+- **Pylon** has no app to create: a Pylon admin creates a token with its own identity, a webhook, and four Triggers.
+
+  ```bash
+  hypotenuse pylon setup --bot ada    # prints the webhook URL (shown once), the token to create, and the Triggers
+  PYLON_TOKEN=… PYLON_WH=… hypotenuse pylon connect --bot ada --region us --name Ada \
+    --token-env PYLON_TOKEN --webhook-secret-env PYLON_WH
+  hypotenuse pylon settings --bot ada --policy approve --tags billing,refunds
+  ```
+
+  `pylon connect` asks Pylon who the token is at once. `pylon settings` is for project admins: `--policy` is
+  `never` (the default: internal notes only), `approve`, or `auto-on-low-risk`; `--auto-triage`, `--mention`, and
+  `--assignment` take `on` or `off`.
 - A channel appears once the bot hears from it. `channel list --bot` shows each one with the bot's binding, or
   `unbound`.
 - `binding create` lets the bot listen in a channel. Everyone who can read the bot in Hypotenuse can then read that

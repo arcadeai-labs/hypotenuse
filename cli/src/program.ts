@@ -36,6 +36,7 @@ import {
 } from "./commands/platform-log";
 import { registerProjectCommands } from "./commands/project";
 import { registerPromptCommands } from "./commands/prompt";
+import { registerPylonCommands } from "./commands/pylon";
 import { registerSkillCommands } from "./commands/skill";
 import { registerSlackCommands } from "./commands/slack";
 import { registerTagCommands } from "./commands/tag";
@@ -94,6 +95,7 @@ export function buildProgram(): Command {
   registerInstallationCommands(program);
   registerSlackCommands(program);
   registerLinearCommands(program);
+  registerPylonCommands(program);
   registerChannelCommands(program);
   registerBindingCommands(program);
   registerConversationCommands(program);

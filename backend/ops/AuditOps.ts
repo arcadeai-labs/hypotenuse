@@ -45,6 +45,7 @@ export const SENSITIVE_KEYS = [
   "signingSecret",
   // platform apps, the GitHub App
   "webhookSecret",
+  "apiToken",
   "botToken",
   "appToken",
   "configToken",

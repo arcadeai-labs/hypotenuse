@@ -45,6 +45,11 @@
  * own *Things I have learned* with `prompt_edit`, so her history has an edit
  * marked as the bot's.
  *
+ * The Pylon illustration shows Ada connected to the Pylon fake
+ * (`backend/__tests__/fakes/pylon/process.ts`, started here unless one answers
+ * on `PYLON_FAKE_PORT`), so start the backend pointed at it as well:
+ * `PYLON_API_URL_US=http://127.0.0.1:9190/us`.
+ *
  *   cd frontend && bun run docs:illustrations
  *   ILLUSTRATIONS=bot,memory bun run docs:illustrations   # only those
  */
@@ -264,6 +269,14 @@ const ILLUSTRATIONS: Illustration[] = [
     signedIn: true,
   },
   {
+    name: "bot-pylon",
+    path: ({ botId }) => `/bots/${botId}`,
+    selector: "[data-testid=bot-channels-platform-pylon]",
+    width: 1280,
+    height: 6400,
+    signedIn: true,
+  },
+  {
     name: "help",
     path: "/help",
     width: 1280,
@@ -474,6 +487,7 @@ async function seed(request: APIRequestContext): Promise<Seeded> {
   await seedChannels(request, support.id, botId);
   await seedSlack(request, support.id, botId);
   await seedLinear(request, support.id, botId);
+  await seedPylon(request, support.id, botId);
   return {
     organizationId: organization.id,
     projectId: support.id,
@@ -1659,6 +1673,98 @@ async function seedLinear(
     throw new Error(`linear connect: ${connected.error.message}`);
 }
 
+/** Where the Pylon fake listens. */
+const PYLON_FAKE = `http://127.0.0.1:${process.env.PYLON_FAKE_PORT ?? "9190"}`;
+
+/** The token the Pylon fake accepts as Ada. */
+const PYLON_FAKE_TOKEN = "pylon_illustration_0000";
+
+/** The Pylon fake this script started, if it had to. */
+let pylonProcess: Subprocess | null = null;
+
+/**
+ * Make sure the Pylon fake answers, starting it if nothing does.
+ */
+async function ensurePylonFake(): Promise<void> {
+  const answers = async () => {
+    try {
+      const res = await fetch(`${PYLON_FAKE}/us/me`, {
+        headers: { authorization: `Bearer ${PYLON_FAKE_TOKEN}` },
+      });
+      return res.ok;
+    } catch {
+      return false;
+    }
+  };
+  if (await answers()) return;
+  pylonProcess = Bun.spawn(["bun", "__tests__/fakes/pylon/process.ts"], {
+    cwd: join(import.meta.dirname, "../../backend"),
+    env: { ...process.env, PYLON_FAKE_PORT: new URL(PYLON_FAKE).port },
+    stdout: "inherit",
+    stderr: "inherit",
+  });
+  for (let i = 0; i < 50; i++) {
+    await Bun.sleep(100);
+    if (await answers()) return;
+  }
+  throw new Error(`the Pylon fake never answered at ${PYLON_FAKE}`);
+}
+
+/**
+ * Give Ada what the Pylon illustration shows: connected to a Pylon queue as
+ * a token with its own identity, replies to customers only with approval,
+ * listening to billing issues. Made only when Ada has no Pylon installation.
+ * @param request - The browser context's request client.
+ * @param projectId - The Support project.
+ * @param botId - Ada.
+ */
+async function seedPylon(
+  request: APIRequestContext,
+  projectId: number,
+  botId: number,
+): Promise<void> {
+  const { installations } = await call<{
+    installations: { type: string; status: string }[];
+  }>(request, "GET", `/project/${projectId}/bot/${botId}/installations`);
+  if (installations.some((i) => i.type === "pylon")) return;
+  await ensurePylonFake();
+  const manifest = await call(
+    request,
+    "POST",
+    `/project/${projectId}/bot/${botId}/installation/pylon/manifest`,
+  );
+  if (manifest.error)
+    throw new Error(`pylon manifest: ${manifest.error.message}`);
+  const connected = await call<{ installation: { status: string } }>(
+    request,
+    "PUT",
+    `/project/${projectId}/bot/${botId}/installation`,
+    {
+      type: "pylon",
+      config: { region: "us", selfName: "Ada" },
+      credentials: {
+        apiToken: PYLON_FAKE_TOKEN,
+        webhookSecret: "illustration-pylon-webhook-secret",
+      },
+    },
+  );
+  if (connected.error)
+    throw new Error(`pylon connect: ${connected.error.message}`);
+  if (connected.installation?.status !== "active") {
+    console.warn(
+      `Ada's Pylon token was not accepted: start the backend with PYLON_API_URL_US=${PYLON_FAKE}/us`,
+    );
+  }
+  const settings = await call(
+    request,
+    "POST",
+    `/project/${projectId}/bot/${botId}/pylon/settings`,
+    { customerReplyPolicy: "approve", listen: { tags: ["billing"] } },
+  );
+  if (settings.error)
+    throw new Error(`pylon settings: ${settings.error.message}`);
+}
+
 /** The webhook app's delivery address: never called, since nobody mentions Ada in these channels. */
 const WEBHOOK_DELIVERY_URL = "https://hooks.acme.example/hypotenuse";
 
@@ -1841,6 +1947,7 @@ async function main(): Promise<void> {
   } finally {
     await browser.close();
     modelProcess?.kill();
+    pylonProcess?.kill();
     mcpProcess?.kill();
   }
 }
