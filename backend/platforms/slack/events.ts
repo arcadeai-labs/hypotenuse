@@ -18,7 +18,7 @@ import type { ChannelRef, NormalizedInbound, OpenInstallation } from "../types";
  * | `app_uninstalled` | — | `uninstall` |
  * | `tokens_revoked` | the bot's token is among them | `uninstall` |
  * | `agent_session_stopped` | — | the `stop` signal |
- * | `app_home_opened`, anything else | — | nothing |
+ * | `app_home_opened`, `assistant_thread_started`, `assistant_thread_context_changed`, anything else | — | nothing |
  * | `block_actions` | `action_id` `q:<question>:<option>` | an answer |
  * | `block_actions` | `action_id` `a:<approval>:approve\|deny` | an approval decision |
  * | `block_actions` | anything else | nothing |

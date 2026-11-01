@@ -71,10 +71,37 @@ const JSON_PARAMS = new Set([
  */
 export function validateManifest(manifest: unknown): true | string {
   const parsed = MANIFEST.safeParse(manifest);
-  if (parsed.success) return true;
-  return parsed.error.issues
-    .map((i) => `/${i.path.join("/")}: ${i.message}`)
-    .join("; ");
+  if (!parsed.success) {
+    return parsed.error.issues
+      .map((i) => `/${i.path.join("/")}: ${i.message}`)
+      .join("; ");
+  }
+  return manifestRuleProblem(manifest as SlackManifestShape) ?? true;
+}
+
+/** The parts of a manifest Slack's cross-field rules read. */
+interface SlackManifestShape {
+  features?: { assistant_view?: unknown };
+  settings?: { event_subscriptions?: { bot_events?: string[] } };
+}
+
+/**
+ * The rules Slack's app-config editor enforces beyond the JSON schema. An
+ * assistant view without the `assistant_thread_started` subscription is
+ * flagged ("Assistant View should use `assistant_thread_started` bot event
+ * subscription") and the app's assistant never opens.
+ * @param manifest - A manifest that already passed the schema.
+ * @returns Why it is refused, or `null`.
+ */
+function manifestRuleProblem(manifest: SlackManifestShape): string | null {
+  const events = manifest.settings?.event_subscriptions?.bot_events ?? [];
+  if (
+    manifest.features?.assistant_view &&
+    !events.includes("assistant_thread_started")
+  ) {
+    return "/features/assistant_view: Assistant View should use `assistant_thread_started` bot event subscription";
+  }
+  return null;
 }
 
 /**

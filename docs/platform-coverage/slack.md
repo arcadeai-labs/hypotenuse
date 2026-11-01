@@ -12,7 +12,7 @@ first real install pins them (see the Slack plan's open questions).
 
 | Id | Interaction | Module | Test |
 |---|---|---|---|
-| `slack.manifest` | the app manifest generated per bot — name, bot user, assistant view, scopes, events, interactivity, OAuth redirect — valid against Slack's manifest schema | `backend/ops/SlackManifestOps.ts` | `backend/__tests__/slack/install.test.ts` |
+| `slack.manifest` | the app manifest generated per bot — name, bot user, assistant view (with the `assistant_thread_started` subscription Slack requires of it), scopes, events, interactivity, OAuth redirect — valid against Slack's manifest schema, and its pre-filled creation link (`api.slack.com/apps?new_app=1&manifest_json=`) | `backend/ops/SlackManifestOps.ts` | `backend/__tests__/slack/install.test.ts` |
 | `slack.app.create` | `apps.manifest.create` with a pasted app configuration token (used once, never stored); the client and signing secrets sealed on a pending installation | `backend/actions/slack/slack-app-create.ts` | `backend/__tests__/slack/install.test.ts` |
 | `slack.app.invalid-manifest` | `invalid_manifest` answered with Slack's `errors[].pointer` verbatim; a refused configuration token names the token | `backend/actions/slack/slack-app-create.ts` | `backend/__tests__/slack/install.test.ts` |
 | `slack.app.register` | the manual path: the manifest pasted into Slack, the app's credentials connected (pending until installed); a pasted `xoxb-` token activates it | `backend/actions/bot-installation/bot-installation-connect.ts` | `backend/__tests__/slack/install.test.ts` |
@@ -34,7 +34,7 @@ first real install pins them (see the Slack plan's open questions).
 | `slack.in.member-joined` | `member_joined_channel` for the bot records the channel and binds it under the bot's auto-bind | `backend/ops/TriggerEventOps.ts` | `backend/__tests__/slack/thread.test.ts` |
 | `slack.in.channel-left` | `channel_left` / `group_left`: the binding is removed (or disabled) and the channel's live conversations end | `backend/ops/TriggerEventOps.ts` | `backend/__tests__/slack/thread.test.ts` |
 | `slack.in.uninstall` | `app_uninstalled`, and `tokens_revoked` naming the bot: the installation is uninstalled, its conversations end, its URL is the 404 | `backend/ops/TriggerEventOps.ts` | `backend/__tests__/slack/thread.test.ts` |
-| `slack.in.app-home` | `app_home_opened` and other events are recorded and change nothing | `backend/platforms/slack/events.ts` | `backend/__tests__/slack/install.test.ts` |
+| `slack.in.app-home` | `app_home_opened`, `assistant_thread_started`, `assistant_thread_context_changed`, and other events are recorded and change nothing | `backend/platforms/slack/events.ts` | `backend/__tests__/slack/install.test.ts` |
 | `slack.out.status` | `assistant.threads.setStatus` for the working line; Slack clears it when the bot posts | `backend/platforms/slack/adapter.ts` | `backend/__tests__/slack/thread.test.ts` |
 | `slack.out.stream` | `chat.startStream` / `chat.appendStream` (`markdown_text` deltas) / `chat.stopStream`; a row that does not extend the stream restarts it (*unconfirmed*) | `backend/platforms/slack/adapter.ts` | `backend/__tests__/slack/thread.test.ts` |
 | `slack.out.stream-age` | a stream older than Slack's ten minutes is closed and another started | `backend/platforms/slack/adapter.ts` | `backend/__tests__/slack/thread.test.ts` |

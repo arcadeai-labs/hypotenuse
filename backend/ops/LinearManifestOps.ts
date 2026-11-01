@@ -19,6 +19,10 @@ import type { Bot } from "../schema/bots";
  *   changes, and issues (for un-delegation and an issue completed or deleted).
  *   Revocation (`OAuthApp`) is a toggle on the app's settings page, not in
  *   the manifest's enum: the instructions say to switch it on.
+ * - `oauth` is closed (`additionalProperties: false`): the description lives
+ *   in `display`, and `grant_types` admits only `authorization_code` and
+ *   `client_credentials`. Refresh tokens need no grant here; Linear issues
+ *   one with every authorization-code token.
  */
 
 /** The manifest schema Linear publishes. */
@@ -108,15 +112,15 @@ export function buildLinearManifest(
     $schema: LINEAR_MANIFEST_SCHEMA_URL,
     schemaVersion: "1.0.0",
     distribution: "public",
+    ...(bot.description
+      ? { display: { description: bot.description.slice(0, 1000) } }
+      : {}),
     developer: { name: bot.displayName },
     oauth: {
       client_name: bot.displayName,
       client_uri: config.frontend.url.replace(/\/+$/, ""),
       redirect_uris: [urls.oauthRedirect],
-      grant_types: ["authorization_code", "refresh_token"],
-      ...(bot.description
-        ? { description: bot.description.slice(0, 500) }
-        : {}),
+      grant_types: ["authorization_code"],
     },
     webhook: {
       enabled: true,

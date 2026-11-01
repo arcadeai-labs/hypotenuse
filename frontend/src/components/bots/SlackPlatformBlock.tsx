@@ -333,9 +333,9 @@ export function SlackPlatformBlock({
               Or create it yourself from the manifest
             </h4>
             <p className="text-meta mb-0">
-              Paste the manifest into api.slack.com/apps → Create New App → From
-              a manifest, then connect the app's credentials from its Basic
-              Information page.
+              Open the pre-filled link (or paste the manifest into
+              api.slack.com/apps → Create New App → From a manifest), then
+              connect the app's credentials from its Basic Information page.
             </p>
             <div>
               <GatedButton
@@ -359,6 +359,18 @@ export function SlackPlatformBlock({
                   The events URL inside is shown once: copy the manifest now.
                   Asking for a new one makes a new URL and stops this one.
                 </p>
+                {manifest.link && (
+                  <p className="mb-2">
+                    <a
+                      href={manifest.link}
+                      target="_blank"
+                      rel="noreferrer"
+                      data-testid="bot-channels-creation-link-slack"
+                    >
+                      Open Slack's new app form, pre-filled
+                    </a>
+                  </p>
+                )}
                 <div className="bot-callback-secret">
                   <code className="mono">{manifest.urls.events}</code>
                   <CopyButton

@@ -412,6 +412,13 @@ answers — never by faking Linear in `backend/`. None is filed yet: a person fi
 
 ### Traps found while building
 
+- **Linear's manifest schema is closed, and the creation form refuses the whole link on one stray key.** `oauth`
+  allows only `client_name`, `client_uri`, `redirect_uris`, and `grant_types`, and `grant_types` only
+  `authorization_code` and `client_credentials` — refresh tokens come with every authorization-code token without
+  asking. The bot's description belongs in `display.description` (≤ 1000 characters). The first build put the
+  description in `oauth` and listed `refresh_token`, and every link failed with "The app manifest provided in the URL
+  is invalid". Check a change against `https://linear.app/.well-known/oauth-app-manifest.schema.json`; finear does
+  not validate manifests.
 - **An import cycle through the registry.** `platforms/registry.ts` → the Linear adapter → `LinearOps` →
   `InstallationOps` → the registry left `linearAdapter` uninitialized at boot. The credential helpers moved to
   `ops/InstallationCredentialOps.ts`, which reads no registry; `InstallationOps` re-exports them.

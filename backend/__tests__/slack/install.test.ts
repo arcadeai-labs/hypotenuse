@@ -111,12 +111,24 @@ describe("creating and installing the app", () => {
     expect(
       validateManifest({ display_information: { name: "x" }, nope: 1 }),
     ).not.toBe(true);
+    // Slack's editor flags an assistant view without this subscription.
+    const bare = buildSlackManifest(
+      { displayName: "Toadsworth", description: "", slug: "toadsworth" },
+      urls,
+    ) as { settings: { event_subscriptions: { bot_events: string[] } } };
+    bare.settings.event_subscriptions.bot_events =
+      bare.settings.event_subscriptions.bot_events.filter(
+        (e) => e !== "assistant_thread_started",
+      );
+    expect(validateManifest(bare)).toContain("assistant_thread_started");
   });
 
-  test("the manifest action answers Slack's manifest with the events URL", async () => {
+  // Coverage: `slack.manifest`.
+  test("the manifest action answers Slack's manifest with the events URL and a pre-filled creation link", async () => {
     const res = await call<{
       manifest: { settings: { event_subscriptions: { request_url: string } } };
       urls: { events: string };
+      link: string;
     }>(
       stage.u.url,
       stage.u.peach,
@@ -129,6 +141,12 @@ describe("creating and installing the app", () => {
       res.body.urls.events,
     );
     expect(validateManifest(res.body.manifest)).toBe(true);
+    const link = new URL(res.body.link);
+    expect(link.origin + link.pathname).toBe("https://api.slack.com/apps");
+    expect(link.searchParams.get("new_app")).toBe("1");
+    expect(JSON.parse(String(link.searchParams.get("manifest_json")))).toEqual(
+      res.body.manifest,
+    );
   });
 
   // Coverage: `slack.app.invalid-manifest`.
@@ -394,6 +412,33 @@ describe("ingress", () => {
     await drainQueue("ingress");
     const [row] = await api.db.db.select().from(triggerEvents);
     expect(row.outcome).toBe("empty");
+  });
+
+  // Coverage: `slack.in.app-home`.
+  test("the assistant view's thread events are recorded and change nothing", async () => {
+    const before = (await api.db.db.select().from(triggerEvents)).length;
+    for (const type of [
+      "assistant_thread_started",
+      "assistant_thread_context_changed",
+    ]) {
+      const body = stage.slack.envelope(
+        {
+          type,
+          assistant_thread: {
+            user_id: "U0PEACH",
+            channel_id: "D0DM",
+            thread_ts: "1700000000.000100",
+            context: {},
+          },
+        },
+        { eventId: `Ev-${type}` },
+      );
+      expect((await stage.slack.post(body)).status).toBe(200);
+    }
+    await drainQueue("ingress");
+    const rows = (await api.db.db.select().from(triggerEvents)).slice(before);
+    expect(rows).toHaveLength(2);
+    expect(rows.map((r) => r.outcome)).toEqual(["empty", "empty"]);
   });
 
   test("a body past the cap is a 413", async () => {
