@@ -6,7 +6,7 @@ import type {} from "../../config/platforms";
 import { guardedFetch, HostRefused } from "../../ops/NetworkGuardOps";
 import { signCallback, verifySignatureBytes } from "../../ops/SignatureOps";
 import type { Channel } from "../../schema/channels";
-import { applyFallbacks } from "../surface";
+import { applyFallbacks, linkProblem } from "../surface";
 import type {
   NormalizedInbound,
   OpenInstallation,
@@ -36,7 +36,8 @@ import type {
  * installation's `deliveryUrl`, signed the same way, with
  * `Hypotenuse-Delivery: <outbox row id>` as the idempotency key:
  * `{deliveryId, kind, channel, conversation, ...payload}` — a `message` carries
- * `messageKind` (`reply`, `complete`, `fail`, `error`). An answer of
+ * `messageKind` (`reply`, `complete`, `fail`, `error`); a `link` carries
+ * `label`, `url`, and `text` (a pull request a sandbox job opened). An answer of
  * `{"messageId": "…"}` is recorded as the row's `externalMessageId`.
  *
  * | Answer | Then |
@@ -261,6 +262,8 @@ export const webhookAdapter: PlatformAdapter = {
     if (draft.kind === "approval" && !draft.payload.approvalId) {
       return { refused: true, reason: "An approval needs its approvalId." };
     }
+    const problem = linkProblem(draft);
+    if (problem) return { refused: true, reason: problem };
     return applyFallbacks(draft, this.capabilities);
   },
 

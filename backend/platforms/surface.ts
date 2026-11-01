@@ -13,6 +13,7 @@ import type { OutboxDraft, SurfaceCapabilities } from "./types";
  * | `message` | a reply | plain text |
  * | `question` | buttons for its options | text listing the options; the next message is the answer |
  * | `approval` | Approve / Deny buttons | text with the dashboard link |
+ * | `link` | a labelled link the platform keeps with the thread (Linear's session `externalUrls`) | a message carrying the link (Slack), an internal note (Pylon), the row itself (the dashboard, the API callback, the generic webhook) |
  */
 
 /** The ephemeral kinds: a newer row supersedes an older undelivered one. */
@@ -79,4 +80,22 @@ export function applyFallbacks(
     default:
       return draft;
   }
+}
+
+/**
+ * Check a `link` draft: it needs a label and an absolute http(s) URL. Every
+ * adapter refuses a malformed one at enqueue with this reason.
+ * @param draft - The draft.
+ * @returns The refusal reason, or `null` when the draft is not a malformed link.
+ */
+export function linkProblem(draft: OutboxDraft): string | null {
+  if (draft.kind !== "link") return null;
+  const { label, url } = draft.payload;
+  if (typeof label !== "string" || !label.trim()) {
+    return "A link needs a label.";
+  }
+  if (typeof url !== "string" || !/^https?:\/\/\S+$/i.test(url)) {
+    return "A link needs an absolute http(s) URL.";
+  }
+  return null;
 }

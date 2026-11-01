@@ -50,6 +50,7 @@ ends its conversations there.
 - **Message it directly** (once direct messages are bound) and each new message starts its own thread.
 - While it works, Slack shows its **status** ("Thinking…", "Searching memory…") under the thread, its answer
   **streams** in as it writes, and a **plan** message lists the tools it is running, ticking each off.
+- A **pull request** a sandbox job opened is posted in the thread as a link, "Pull Request: <its title>".
 - A **question** comes with a button for each choice (a menu past five); press one, or just reply in the thread.
 - An **approval request** names the tool and its arguments, with **Approve** and **Deny** — if the channel's
   approval policy lets people in the channel decide. Otherwise it links to the request in Hypotenuse. A button

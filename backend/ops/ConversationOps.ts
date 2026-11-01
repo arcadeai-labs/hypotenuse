@@ -250,6 +250,7 @@ export type WakeReason =
   | "approval"
   | "help"
   | "sandbox"
+  | "github"
   | "cancel"
   | "created";
 

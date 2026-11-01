@@ -39,6 +39,7 @@ import {
   requestCancel,
 } from "./ConversationOps";
 import type { TxHandle } from "./DbOps";
+import { processGitHubEvent } from "./GitHubEventOps";
 import { openInstallation, sealCredentials } from "./InstallationOps";
 import { enqueueDelivery } from "./OutboxOps";
 import { emit, emitStatus } from "./SurfaceOps";
@@ -72,6 +73,10 @@ import { emit, emitStatus } from "./SurfaceOps";
  *
  * Lifecycle comes before the channel rules because an uninstall is about the
  * installation, not a channel: it must apply wherever it was sent from.
+ *
+ * An event of `type: "github"` (the deployment's GitHub App, whose
+ * `botInstallationId` is a `github_installations` row) skips the table:
+ * `GitHubEventOps.processGitHubEvent` decides it.
  *
  * On a platform whose conversation keys are global (`globalConversationKeys`,
  * a Linear session), an existing conversation for the key decides the
@@ -280,6 +285,8 @@ export async function processTriggerEvent(
  * @param event - The claimed event.
  */
 async function hydrateEvent(event: TriggerEvent): Promise<void> {
+  // A GitHub event names no bot installation (`GitHubEventOps`).
+  if (event.type === "github") return;
   const payload = (event.payload ?? {}) as Record<string, unknown>;
   if (payload.hydrated !== undefined) return;
   const [installation] = await api.db.db
@@ -311,6 +318,8 @@ async function applyRules(
   tx: TxHandle,
   event: TriggerEvent,
 ): Promise<ProcessResult> {
+  // GitHub's App webhooks belong to no bot: their own processing.
+  if (event.type === "github") return processGitHubEvent(tx, event);
   const result: ProcessResult = {
     status: "ignored",
     outcome: "empty",

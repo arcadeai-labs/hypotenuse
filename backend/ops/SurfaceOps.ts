@@ -40,11 +40,15 @@ import type { DbHandle } from "./DbOps";
  * | `message` | `reply_and_wait`, `complete`, `fail`, a failed turn | every undelivered ephemeral row |
  * | `question` | `ask_question` | every undelivered ephemeral row |
  * | `approval` | the gate parking a call | — |
+ * | `link` | a pull request a sandbox job opened (`PullRequestOps`) | — |
  *
  * **Nothing follows a question**: while a conversation waits on an answer,
  * every row is dropped at enqueue unless it is the answer's acknowledgement.
  * Linear derives a session's state from its last activity, and anything
- * after an elicitation breaks it; the rule holds everywhere.
+ * after an elicitation breaks it; the rule holds everywhere. A `link` is the
+ * one exception: it is not a turn's message (on Linear it is a session's
+ * `externalUrls`, not an activity), and a pull request opened while the bot
+ * waits on a person must still reach the thread.
  */
 
 /** A row to write, before the adapter shapes it. */
@@ -151,7 +155,8 @@ export async function emit(
   if (
     conversation.state === "waiting" &&
     conversation.waitingOn?.kind === "answer" &&
-    !draft.acknowledgesAnswer
+    !draft.acknowledgesAnswer &&
+    draft.kind !== "link"
   ) {
     return null;
   }
@@ -176,12 +181,13 @@ export async function emit(
     );
   }
   // A final row makes every undelivered progress row stale; an ephemeral
-  // row makes the older one of its key stale.
+  // row makes the older one of its key stale. An approval or a link is
+  // neither: it supersedes nothing.
   const stale = isEphemeral(shaped.kind)
     ? shaped.supersedesKey
       ? [eq(outboxMessages.supersedesKey, shaped.supersedesKey)]
       : []
-    : shaped.kind === "approval"
+    : shaped.kind === "approval" || shaped.kind === "link"
       ? []
       : [inArray(outboxMessages.kind, ["status", "stream", "plan"])];
   if (stale.length > 0) {

@@ -7,6 +7,10 @@ import {
   JobTokenMiddleware,
   JobTokenRateLimitMiddleware,
 } from "../../middleware/jobToken";
+import {
+  announcedPullRequests,
+  recordJobPullRequest,
+} from "../../ops/PullRequestOps";
 import { jobTokenInput } from "../../ops/SandboxInputOps";
 import { redactJobTokens } from "../../ops/SandboxJobOps";
 import { sandboxJobEvents } from "../../schema/sandbox_job_events";
@@ -95,6 +99,21 @@ export class SandboxEvents implements Action {
         ...(init?.text ? { cliSessionId: init.text } : {}),
       })
       .where(eq(sandboxJobs.id, job.id));
+    // What `gh pr create` printed: record it, best effort — the transcript
+    // is stored whatever happens here.
+    const announced = params.events
+      .filter((e) => e.type === "tool_result" && e.text)
+      .flatMap((e) => announcedPullRequests(String(e.text)));
+    for (const pr of announced) {
+      try {
+        await recordJobPullRequest(job, pr.url);
+      } catch (e) {
+        api.logger.warn("could not record a pull request from a transcript", {
+          jobId: job.id,
+          error: e instanceof Error ? e.message : String(e),
+        });
+      }
+    }
     return { stored: rows.length };
   }
 }

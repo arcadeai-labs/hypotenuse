@@ -48,7 +48,8 @@ ended its turn — is `POST`ed to that URL as JSON:
 { "conversationId": 42, "entrySeq": 9, "kind": "reply", "text": "Two incidents…" }
 ```
 
-`kind` is `reply`, `question` (with `options` when it offered choices), `complete`, `fail`, or `error`. Answer with any
+`kind` is `reply`, `question` (with `options` when it offered choices), `complete`, `fail`, or `error` — or `link`,
+with `label`, `url`, and `text`, for a pull request a sandbox job opened (`"label": "Pull Request"`). Answer with any
 `2xx`. A timeout, a `408`, a `429`, or a `5xx` is retried with growing back-off for up to a day; any other `4xx` gives
 up. A retry carries the same `Hypotenuse-Delivery` header, so drop one you have already handled.
 

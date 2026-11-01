@@ -79,6 +79,7 @@ same id on a retry, so you can drop a repeat. The body is `{deliveryId, kind, ch
 | `message` | `kind` (`reply_and_wait`, `complete`, `fail`), `text` | what the bot says |
 | `question` | `text`, `options?`, `questionEntryId` | a question. Offer the options as buttons, and send the choice back as an `answer` interaction with `targetId` set to `questionEntryId` — or let the next message in the thread be the answer. Nothing else is sent in the conversation until it is answered |
 | `approval` | `approvalId`, `name`, `server`, `tool`, `args`, `inChannel`, `actions` | a tool call waiting for approval. When `inChannel` is true, offer `actions` (`approve`, `deny`) and send the choice back as an `approval` interaction with `targetId` set to `approvalId`. When false, it is decided in the dashboard |
+| `link` | `label`, `url`, `text?` | a link the bot attaches to the conversation — a pull request a sandbox job opened, labelled `Pull Request`, with its title. Keep it with the thread |
 
 Answer `2xx` once you have it. You may answer `{"messageId": "…"}` to tell Hypotenuse your id for what you posted.
 

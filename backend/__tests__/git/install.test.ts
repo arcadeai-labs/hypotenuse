@@ -94,6 +94,7 @@ describe("github:install-url", () => {
 describe("github:install-callback", () => {
   let attachedId: number;
 
+  // github.install.callback
   test("a person who can see the installation attaches it, and lands on Repositories", async () => {
     const { state } = await installUrl(u.url, u.peach, u.projectId);
     const code = github.authorizeUser("peach-gh", ["7001"]);
@@ -193,6 +194,7 @@ describe("github:install-callback", () => {
     );
   });
 
+  // github.install.spoofed
   test("a spoofed installation id the person cannot see writes nothing", async () => {
     const before = await lastAudit("github:install-callback");
     const { state } = await installUrl(u.url, u.peach, u.projectId);

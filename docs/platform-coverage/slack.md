@@ -43,6 +43,7 @@ first real install pins them (see the Slack plan's open questions).
 | `slack.out.mrkdwn` | markdown to `mrkdwn`; `<!channel>` / `<!here>` / the bot's own mention never sent; past 40,000 characters, truncated with a transcript link | `backend/ops/SlackMarkdownOps.ts` | `backend/__tests__/slack/thread.test.ts` |
 | `slack.out.question` | a question with buttons (`q:<question>:<option>`), a menu past five options | `backend/platforms/slack/render.ts` | `backend/__tests__/slack/conformance-slack.test.ts` |
 | `slack.out.approval` | an approval with Approve / Deny (`a:<approval>:…`) and the dashboard link; under the dashboard policy, the link alone | `backend/platforms/slack/render.ts` | `backend/__tests__/slack/thread.test.ts` |
+| `slack.out.link` | a `link` — a pull request a sandbox job opened — as `chat.postMessage` of a link labelled "Pull Request: <title>" in the thread | `backend/platforms/slack/adapter.ts` | `backend/__tests__/github/pull-requests.test.ts` |
 | `slack.out.ratelimited` | HTTP 429 `ratelimited` with `Retry-After` reschedules the outbox row; no worker waits | `backend/ops/SlackOps.ts` | `backend/__tests__/slack/thread.test.ts` |
 | `slack.out.bucket` | the per-installation token bucket defers a send before Slack is called | `backend/lua/slack-bucket.lua` | `backend/__tests__/slack/thread.test.ts` |
 | `slack.out.undeliverable` | any other `ok: false` (`not_in_channel`, `invalid_auth`) makes the row undeliverable | `backend/platforms/slack/adapter.ts` | `backend/__tests__/slack/thread.test.ts` |
