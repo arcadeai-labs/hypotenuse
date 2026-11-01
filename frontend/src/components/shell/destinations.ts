@@ -2,6 +2,7 @@ import {
   Bot,
   Box,
   Brain,
+  FolderGit2,
   House,
   LifeBuoy,
   type LucideIcon,
@@ -24,6 +25,7 @@ export interface Destination {
     | "memory"
     | "events"
     | "sandboxes"
+    | "repositories"
     | "settings";
   to: string;
   label: string;
@@ -113,6 +115,14 @@ export const DESTINATIONS: readonly Destination[] = [
     label: "Sandboxes",
     Icon: Box,
     shortcut: "g s",
+    available: true,
+  },
+  {
+    id: "repositories",
+    to: "/repositories",
+    label: "Repositories",
+    Icon: FolderGit2,
+    shortcut: "g r",
     available: true,
   },
   {

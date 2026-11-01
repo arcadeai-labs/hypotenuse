@@ -16,4 +16,5 @@ the user docs' *Webhook platform* page.
 | `webhook.in.lifecycle` | `type: lifecycle` — `uninstall` marks the installation, `channel_archived` the channel | `backend/ops/TriggerEventOps.ts` | `backend/__tests__/channels/processing.test.ts` |
 | `webhook.out.ping` | `bot-installation:test`'s signed probe, answered with `{botUserId}` | `backend/platforms/webhook/adapter.ts` | `backend/__tests__/channels/harness.ts` |
 | `webhook.out.surface` | the signed delivery of each surface kind — `status`, `stream`, `plan`, `message`, `question`, `approval` — with `Hypotenuse-Delivery` | `backend/platforms/webhook/adapter.ts` | `backend/__tests__/channels/conformance.ts` |
+| `webhook.out.link` | a `link` — a pull request a sandbox job opened — delivered signed as its own kind: `label`, `url`, `text` | `backend/platforms/webhook/adapter.ts` | `backend/__tests__/github/pull-requests.test.ts` |
 | `webhook.out.retry` | 2xx sent (with `messageId`), 408/429 (`Retry-After`)/5xx retried, other 4xx undeliverable, a lost response retried with the same delivery id | `backend/ops/OutboxOps.ts` | `backend/__tests__/channels/outbox.test.ts` |

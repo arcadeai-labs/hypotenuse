@@ -175,6 +175,11 @@
   flex: 1;
 }
 
+// A link the conversation was handed (a pull request): as wide as it needs.
+.chat-link-card {
+  flex: 0 1 auto;
+}
+
 // A message the system wrote, and a turn that failed: centred, quiet.
 .chat-system {
   align-self: center;

@@ -28,6 +28,17 @@ done
 [ "$(pwd)" = "/work" ] || { echo "working directory is $(pwd), expected /work" >&2; status=1; }
 touch /work/.write-check && rm /work/.write-check || { echo "/work is not writable" >&2; status=1; }
 sudo -n true || { echo "sudo -n failed" >&2; status=1; }
+# The real GitHub CLI is off PATH; the managed wrapper is the only gh.
+if [ -x /usr/local/lib/hypotenuse/gh-real ]; then
+  echo "ok       gh-real -> $(/usr/local/lib/hypotenuse/gh-real --version | head -n 1)"
+else
+  echo "MISSING  /usr/local/lib/hypotenuse/gh-real" >&2
+  status=1
+fi
+if command -v gh >/dev/null 2>&1; then
+  echo "a stock gh is on PATH at $(command -v gh); only the managed wrapper may be" >&2
+  status=1
+fi
 claude --version
 exit $status
 '

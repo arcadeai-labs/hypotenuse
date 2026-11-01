@@ -42,7 +42,9 @@ export type OutboxTarget =
 /**
  * What an outbox row is, on the interactive surface. `status`, `stream`, and
  * `plan` are ephemeral; the API channel's callbacks keep their own kinds
- * (`reply`, `complete`, `fail`, `question`, `error`).
+ * (`reply`, `complete`, `fail`, `question`, `error`, `link`). A `link` is a
+ * labelled URL the bot attaches to the conversation (a pull request a
+ * sandbox job opened): payload `{ label, url, text? }`.
  */
 export const SURFACE_KINDS = [
   "status",
@@ -51,6 +53,7 @@ export const SURFACE_KINDS = [
   "message",
   "question",
   "approval",
+  "link",
 ] as const;
 
 /** One of {@link SURFACE_KINDS}. */

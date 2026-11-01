@@ -31,6 +31,7 @@ read and change it, and whether you may change it.
 | **Tools** | which MCP servers it may use, which of their tools run without asking, and what its tools can do |
 | **Code** | whether it may run programs ([code mode](/docs/code-mode)), and its own, lower limits for them |
 | **Sandboxes** | whether it may hand code work to a [sandbox job](/docs/sandboxes) — off, after a person's approval (the default), or at once — and the most model tokens one job may use. Allowing jobs at once, or removing the token cap, takes an admin |
+| **Repositories** | the GitHub repositories it can read, or also push to, from the project's [repository grants](/docs/repositories), and which events on a pull request its job opened wake it — by default a review asking for changes and a failed check |
 | **Approvals** | who may decide its tool calls, and how long a waiting call lasts |
 | **Channels** | its apps on platforms, the channels it is bound in and their settings, and channels that messaged it unbound — see [Channels](/docs/channels) |
 | **Listening** | where it binds itself when invited, and how many messages a minute one person, and one channel, may send it |
@@ -152,6 +153,13 @@ none. For each server, two settings decide which calls run without a person's [a
 **What its tools can do** is a few lines the bot reads in its instructions, written by its `fast` model from the
 tools it can see, in themes and without tool names — so it searches for the right tool rather than guessing one. It
 is rewritten whenever a server's tools change.
+
+A bot with a GitHub repository [granted to it](/docs/repositories) can also read that repository without a sandbox,
+with four tools that need no approval: `github_file_read` (a file as text, or a directory listing; a long
+file is cut and says so), `github_search_code`, `github_pr_view`, and `github_issue_view`. They read only
+repositories granted to this bot — a bot with none is not offered them — each call through a read-only token for
+that one repository, revoked when the call ends. Anything that needs a checkout, a build, or a change goes to a
+[sandbox](/docs/sandboxes).
 
 The **Approvals** section sets two more. **Approver tag** names a tag whose holders may approve or deny this bot's calls besides the people who may change
 it; they are the ones notified. **Approvals expire after** sets how long a call waits before it counts as denied —

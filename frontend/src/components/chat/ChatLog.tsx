@@ -1,4 +1,4 @@
-import { ChevronRight, TriangleAlert } from "lucide-react";
+import { ChevronRight, GitPullRequest, TriangleAlert } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import type { Platform } from "../../../../design/states";
@@ -433,6 +433,27 @@ function ChatLine({
           >
             {stepsLabel(item.count)}
           </Link>
+        </div>
+      );
+    case "link":
+      return (
+        <div className="chat-row chat-row-bot" data-testid="chat-link">
+          <BotAvatar speakers={speakers} />
+          <div className="tx-card chat-card chat-link-card">
+            <div className="tx-card-title">
+              <GitPullRequest size={14} aria-hidden="true" />
+              {item.label}
+            </div>
+            <a
+              href={item.url}
+              target="_blank"
+              rel="noreferrer"
+              className="mono"
+              data-testid="chat-link-url"
+            >
+              {item.text}
+            </a>
+          </div>
         </div>
       );
     case "compaction":

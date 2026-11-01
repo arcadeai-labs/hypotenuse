@@ -120,6 +120,13 @@
       "when": 1793551662742,
       "tag": "0016_chunky_longshot",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1793570928812,
+      "tag": "0017_sweet_monster_badoon",
+      "breakpoints": true
     }
   ]
 }

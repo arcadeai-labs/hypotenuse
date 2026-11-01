@@ -195,6 +195,17 @@ transcript block; `hypotenuse sandbox` and `project settings`; and `sandboxes.md
 No other phase is built; every later plan's **Learnings from the
 build** section reads "Not built yet." until its phase lands.
 
+**[Phase 18](./phase-18-git-and-pull-requests.md) is built**: one GitHub App for the deployment, installations
+attached per project by a person GitHub says can see them (`github_installations`), repository grants with read or
+push, a branch prefix, and the bots they cover (`repository_grants`); `sandbox:git-credential` handing a job's git and
+the managed `gh` an installation token scoped to one repository per command, ledgered in `sandbox_job_git_tokens` and
+revoked when the job ends; `sandbox_start` with a `repository` and a `mode` (read jobs skip approval and run shorter),
+the clone prologue, and the gh wrapper on PATH in login shells; pull requests recorded per job
+(`sandbox_job_pull_requests`) and relayed as a new `link` surface kind (Slack link, Linear external URL, Pylon note);
+`webhooks:github` and the processing that wakes a conversation on review and CI events per the bot's
+`githubWakeEvents`; four server-side read tools; the Repositories page, bot and job sections, the `hypotenuse repo`
+commands, and `repositories.md`; and a GitHub fake serving App tokens, git smart HTTP, REST, and signed webhooks.
+
 ### Decisions so far
 
 | Topic | Decision |

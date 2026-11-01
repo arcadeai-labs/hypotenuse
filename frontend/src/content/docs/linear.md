@@ -50,6 +50,7 @@ read and write issues and comments, and to be **assignable** (so issues can be d
 - **An approval request** names the tool and its arguments and links to the request in Hypotenuse. If the channel's
   approval policy lets people in the channel decide (see [Channels](/docs/channels#binding-a-channel)), it offers
   **Approve #…** and **Deny #…**: choosing one decides it, recorded in the audit log as you.
+- **A pull request** a sandbox job opened is added to the session's links as **Pull Request**.
 - **The answer** ends the session's turn, or an **error** when the bot could not do it. Write in the session again to
   continue.
 - The bot never writes its own `@name`, so it never mentions itself into a second session.

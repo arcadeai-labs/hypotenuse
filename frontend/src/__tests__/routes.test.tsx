@@ -75,6 +75,7 @@ describe("routes", () => {
       ["conversations", "/conversations"],
       ["memory", "/memory"],
       ["sandboxes", "/sandboxes"],
+      ["repositories", "/repositories"],
     ]) {
       const item = html.match(
         new RegExp(`<[a-z]+[^>]*data-testid="nav-${id}"[^>]*>`),

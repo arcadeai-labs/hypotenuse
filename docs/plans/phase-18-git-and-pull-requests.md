@@ -2,7 +2,7 @@
 
 > **Goal:** A bot can read any repository its project has granted, and contribute back to it. Asked in Slack to "fix the flaky test in `acme/api`", the bot starts a sandbox job. The sandbox clones the repository with a credential good for that one repository and nothing else, makes the change, pushes a branch, and opens a pull request. The PR link lands in the Slack thread, on the Linear session as its "Pull Request", or in the Pylon note. Review comments and CI results on that PR can wake the conversation again.
 
-> **Status: planned, not built.** Builds on [sandboxes](./phase-17-sandboxes.md) (jobs, job token, the egress allowlist, the supervisor) and [the channel framework](./phase-13-channel-framework.md). Uses [Linear](./phase-15-linear.md)'s `externalUrls` when the conversation is a Linear session.
+> **Status: built.** Builds on [sandboxes](./phase-17-sandboxes.md) (jobs, job token, the egress allowlist, the supervisor) and [the channel framework](./phase-13-channel-framework.md). Uses [Linear](./phase-15-linear.md)'s `externalUrls` when the conversation is a Linear session.
 
 Git access is where a team agent becomes useful and where it can do the most damage. ToolExec already settled the hard parts. Its first design proxied git; its later design ([direct git](https://github.com/arcadeai-labs/toolexec/blob/main/docs/plans/phase-22-direct-git.md)) deleted the proxy. The property that mattered was a GitHub credential worth almost nothing outside one repository and one job. GitHub sells that directly: a GitHub App installation token scoped to one repository and a permission set, dead within the hour. Ref policy is something only the remote can enforce, so it belongs to GitHub rulesets. This phase ports that design, adds the pull-request round trip back to the conversation, and adds a read-only path for "go look at the code" questions that need no write access.
 
@@ -190,13 +190,13 @@ By hand: install the App on a test org; grant a scratch repository with push; as
 
 ## Definition of done
 
-- [ ] Projects attach GitHub App installations and grant repositories per bot, read or push
-- [ ] Sandboxes clone and push with one-repository, one-job installation tokens via `sandbox:git-credential`
-- [ ] The managed `gh` wrapper works in a login shell; the credential helper survives pretty-printed JSON
-- [ ] PRs opened by jobs are relayed to Slack, Linear (`externalUrls`), and Pylon
-- [ ] Review and CI events on those PRs wake the originating conversation, unless it was disengaged
-- [ ] Server-side read tools answer code questions without a sandbox
-- [ ] Repositories page, CLI, and `repositories.md` ship in the same PR
+- [x] Projects attach GitHub App installations and grant repositories per bot, read or push
+- [x] Sandboxes clone and push with one-repository, one-job installation tokens via `sandbox:git-credential`
+- [x] The managed `gh` wrapper works in a login shell; the credential helper survives pretty-printed JSON
+- [x] PRs opened by jobs are relayed to Slack, Linear (`externalUrls`), and Pylon
+- [x] Review and CI events on those PRs wake the originating conversation, unless it was disengaged
+- [x] Server-side read tools answer code questions without a sandbox
+- [x] Repositories page, CLI, and `repositories.md` ship in the same PR
 
 ## Open questions
 
@@ -206,4 +206,72 @@ By hand: install the App on a test org; grant a scratch repository with push; as
 
 ## Learnings from the build
 
-Not built yet.
+### What is built
+
+| Piece | Where |
+|---|---|
+| Config: one GitHub App for the deployment (`GITHUB_APP_ID`, `_SLUG`, `_PRIVATE_KEY`, `_CLIENT_ID`, `_CLIENT_SECRET`, `_WEBHOOK_SECRET`; `GITHUB_API_URL` / `GITHUB_WEB_URL` for the fake) | `backend/config/github.ts`, `render.yaml` (the shared group's comment) |
+| Schema (migration `0017`): `github_installations`, `repository_grants`, `sandbox_job_git_tokens` (the handout ledger), `sandbox_job_pull_requests`, `bots.githubWakeEvents` | `backend/schema/*` |
+| Ported from ToolExec: App JWT, scoped mint, revoke, the install's user check; credential issuance keyed by job; the helper, the gh wrapper, the PATH persist script, git config | `backend/ops/{GitHubAppOps,GitCredentialOps,GitAccessOps}.ts` |
+| Install and grants: `github:install-url`, `github:install-callback`, `github:installation-list` / `-detach`, `repository-grant:*`, `bot:repositories`, `bot:edit --githubWakeEvents` | `backend/actions/{github,repository-grant}/*`, `backend/ops/{GitHubInstallOps,RepositoryGrantOps,RepositoryOps}.ts` |
+| The sandbox's git: `sandbox:git-credential`, the clone prologue, the managed `gh` (`gh-real` off PATH in `Dockerfile.dev`, image 1.1.0), `sandbox_start({ repository, mode, ref })` | `backend/actions/sandbox/sandbox-git-credential.ts`, `backend/ops/SandboxProvisionOps.ts`, `backend/tools/sandbox-start.ts`, `backend/sandbox/{briefing.md,images/*}` |
+| Pull requests and events: `PullRequestOps` (artifact and transcript detection), the `link` surface kind on every adapter, `webhooks:github` and `GitHubEventOps` | `backend/ops/{PullRequestOps,GitHubEventOps}.ts`, `backend/platforms/*`, `backend/actions/webhooks/webhooks-github.ts` |
+| Read tools: `github_file_read`, `github_search_code`, `github_pr_view`, `github_issue_view` | `backend/tools/github-*.ts` |
+| The GitHub fake: the App's key pair and JWT check, scoped installation tokens, revocation, user OAuth, git smart HTTP (`git http-backend`) over private bare repositories enforcing a token's repository list, the REST slice, signed webhooks | `backend/__tests__/fakes/github/server.ts` |
+| Proof | `backend/__tests__/git/*` (App, install, grants, credentials and the helper against the live endpoint, `sandbox_start`, a real container's clone and push), `backend/__tests__/github/*` (webhooks, pull requests on every platform, read tools), `backend/__tests__/e2e/pr-from-slack.test.ts`, `docs/platform-coverage/github.md` |
+| Frontend, CLI 2.13.0, docs | the Repositories page, the bot page's Repositories section, the job page's pull requests and git handouts; `hypotenuse repo …`, `bot repos`, `bot edit --github-wake`; `repositories.md` |
+
+### Where the build differs from the plan
+
+| The plan says | The build does, and why |
+|---|---|
+| `sandbox_jobs.pullRequest jsonb` | A table, `sandbox_job_pull_requests`, unique on (project, host, owner, name, number). A job can open more than one, and a webhook event must find its conversation with one indexed read; a later job that pushes to the same branch leaves the pull request with the job that opened it |
+| `sandbox_job_git_tokens { tokenHash, expiresAt }` | The same table carries every request: `outcome` `issued` / `reused` / `refused` and the refusal's `reason`, so the job page shows what git asked for and why it was told no. The plan's "a `sandbox_job_events` row per handout" would have collided with the supervisor's own `seq` |
+| A token's permission is the grant's level | `write` only when the grant allows a push **and** the job was started in `write` mode on that repository. A job may read any repository its bot is granted (a submodule, a library) and write only the one it was started to change |
+| `contents`, `pull_requests`, `issues`, `checks:read` at the grant's level | The installation's live permission map, capped to the job's level, with `checks` and `statuses` held at `read`, and `administration`, `secrets`, `environments`, and `workflows` never handed out. The read tools mint narrower still: `metadata` plus the one permission the call needs, because asking for `issues` on an installation without it 422s the mint |
+| The PR relayed as "a Slack link block / Linear `addedExternalUrls` / a Pylon note" | One new surface kind, `link` (`{ label, url, text }`), that each adapter renders its way. It is exempt from "nothing follows a question": it is not part of a turn (on Linear it is `externalUrls`, not an activity), and a pull request must reach a conversation that waits on a person |
+| `webhooks:github` records "the event" | One `trigger_events` row per project that attached the installation (`botInstallationId` holds the `github_installations` row id for this type); an installation no project attached is one row, `projectId: null`, `ignored: unknown_installation` |
+| Open question: one App or one per project | One App for the deployment. Commits are authored as the bot by name (`<bot> (Hypotenuse)`), with a `Co-authored-by:` line for the requester only when they are a linked user with an email |
+| Open question: wake on PR events by default | Changes requested and failed checks wake; everything else waits in the inbox for the next turn. Per bot, `githubWakeEvents` widens it — merged and closed included, though neither is in the default. A conversation a person stopped hears nothing |
+| Open question: forks | No. A read-only grant cannot open a pull request |
+| `sandbox_start` `mode: "read"` "no approval by default" | Under the `approve` policy a read job skips approval; `off` still refuses it. A read job runs at most 15 minutes |
+
+### Decisions the plan left open
+
+- **The grant is re-checked at provisioning**, so a grant revoked between `sandbox_start` and the job's start fails the
+  job before a sandbox exists.
+- **The install callback peeks the state before consuming it**, so a signed-out browser or the wrong person sees an
+  error without spending the state of the person who started the install. Every outcome is a redirect to
+  `/projects/:projectId/repositories`, which selects the project; a failure writes no audit row.
+- **A grant is proven before it is saved**: `repository-grant:create` mints a `metadata: read` token for the
+  repository and revokes it at once, so a repository the installation cannot see is refused where a person can fix it,
+  not in a sandbox later.
+- **Pull requests are detected two ways**: the `pull_request` artifact the briefing asks for, and a transcript
+  `tool_result` that is nothing but a pull request URL on the configured origin (what `gh pr create` prints). A URL in
+  prose is not recorded, so an old pull request mentioned in passing does not attach itself.
+- **Merges and closes update the row's `state`** whether or not they wake the bot.
+
+### Traps found while building
+
+- **`state` is in `SENSITIVE_KEYS`**, and `scrubToolOutput` applies that list to tool results: a tool output key named
+  `state` never reaches the model. The read tools answer `status`. `linear_issue_view` answers `state` today and loses
+  it — a fix for that tool, outside this change.
+- **Keryx logs an action's params, never its response**, so `sandbox:git-credential`'s `password` is not logged
+  without any workaround (checked in Keryx 0.48.2's `logAction`).
+- **Two suites that each call `destroyManagedContainers` kill each other's containers.** The end-to-end suite failed
+  once while the lifecycle suites ran beside it; alone it passed every time. Container suites run one at a time.
+- **Docker Hub rate-limits the test image's base** (`429` on `oven/bun:1`); a rebuild in the middle of a full run fails
+  every container suite at once. `pr-from-slack.test.ts` falls back to a local image when the rebuild fails.
+- **A fake `gh-real` cannot be dropped into the test image at run time** (its directory is root's). The end-to-end
+  opens its pull request the way `gh` would — a token from the real credential helper for one command, then the REST
+  call — and reports it with the `pull_request` artifact.
+
+### Not run here
+
+- **`Dockerfile.dev` as committed**: the GitHub CLI tarball download fails behind this environment's TLS-re-signing
+  proxy (curl exit 60), as `npm install` did for the sandbox image. Both tarball URLs answer 200 from the host and the
+  archive layout was checked; CI's **Sandbox Image** job builds it.
+- **A real GitHub App and a real repository**: every suite runs against the GitHub fake. The by-hand verification in
+  this plan — install on a test org, a one-line README change from Slack, a review — waits for staging's App.
+- **The docs illustrations** do not include the Repositories page: they seed over the API, and an installation cannot
+  be attached without a real App. The screenshots under `docs/screenshots/repositories/` were taken from seeded rows.

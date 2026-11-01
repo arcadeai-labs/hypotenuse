@@ -33,7 +33,7 @@ import {
   type OutboxMessage,
   outboxMessages,
 } from "../../schema/outbox_messages";
-import { applyFallbacks, approvalLink } from "../surface";
+import { applyFallbacks, approvalLink, linkProblem } from "../surface";
 import type {
   OpenInstallation,
   PlatformAdapter,
@@ -81,6 +81,7 @@ import {
  * | `question` | a note asking the team; a teammate's note mentioning the bot answers it | |
  * | `approval` of `pylon/reply_to_customer` | a draft reply (`POST /issues/{id}/draft-reply`, in the bot's drafts) and a note quoting it, asking for `approve <id>` | approving sends exactly the approved text |
  * | `approval` of anything else | a note asking for `approve <id>` | |
+ * | `link` | a note: "**Pull Request**: [text](url)" | a pull request a sandbox job opened, for the team, never the customer |
  *
  * Every note after the first goes to the same thread (`message_id` of the
  * first note, kept on the conversation as `noteMessageId`).
@@ -632,6 +633,8 @@ export const pylonAdapter: PlatformAdapter = {
         return null;
       }
     }
+    const problem = linkProblem(draft);
+    if (problem) return { refused: true, reason: problem };
     return applyFallbacks(draft, this.capabilities);
   },
 
@@ -689,6 +692,16 @@ export const pylonAdapter: PlatformAdapter = {
         }
         case "approval": {
           const id = await sendApproval(inst, ctx, issueId, p);
+          return { outcome: "sent", externalMessageId: id };
+        }
+        case "link": {
+          const shown = String(p.text ?? "").trim() || String(p.url);
+          const id = await note(
+            inst,
+            ctx,
+            issueId,
+            `**${String(p.label)}**: [${shown.replace(/[[\]]/g, "")}](${String(p.url)})`,
+          );
           return { outcome: "sent", externalMessageId: id };
         }
         default: {

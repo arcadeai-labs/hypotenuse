@@ -49,6 +49,8 @@ import { OrganizationMembersPage } from "./pages/organization/OrganizationMember
 import { OrganizationPage } from "./pages/organization/OrganizationPage";
 import { OrganizationProjectsPage } from "./pages/organization/OrganizationProjectsPage";
 import { OrganizationSettingsPage } from "./pages/organization/OrganizationSettingsPage";
+import { ProjectRepositoriesRedirect } from "./pages/repositories/ProjectRepositoriesRedirect";
+import { RepositoriesPage } from "./pages/repositories/RepositoriesPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { SignInPage } from "./pages/SignInPage";
 import { SignUpPage } from "./pages/SignUpPage";
@@ -121,6 +123,12 @@ export function App() {
                   <Route
                     path="/sandboxes/:jobId"
                     element={<SandboxJobPage />}
+                  />
+                  <Route path="/repositories" element={<RepositoriesPage />} />
+                  {/* Where GitHub's install flow returns, naming the project. */}
+                  <Route
+                    path="/projects/:projectId/repositories"
+                    element={<ProjectRepositoriesRedirect />}
                   />
                   <Route path="/chat" element={<ChatIndexPage />} />
                   <Route path="/bots" element={<BotsPage />} />

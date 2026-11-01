@@ -38,6 +38,20 @@ RUN groupmod -n agent bun \
   && printf 'agent ALL=(ALL) NOPASSWD:ALL\n' > /etc/sudoers.d/agent \
   && chmod 0440 /etc/sudoers.d/agent
 
+# The GitHub CLI, pinned, **off PATH**: the only `gh` an agent finds is the
+# managed wrapper provisioning writes, which trades the job token for one
+# repository's short-lived token per command and execs this binary with it.
+# A stock `gh` on PATH would have no token and tell the agent to log in.
+ARG GH_VERSION=2.62.0
+ARG TARGETARCH
+RUN arch="${TARGETARCH:-$(dpkg --print-architecture)}" \
+  && curl -fsSL "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_${arch}.tar.gz" \
+    -o /tmp/gh.tar.gz \
+  && tar -xzf /tmp/gh.tar.gz -C /tmp \
+  && install -D -m 0755 "/tmp/gh_${GH_VERSION}_linux_${arch}/bin/gh" /usr/local/lib/hypotenuse/gh-real \
+  && rm -rf /tmp/gh.tar.gz "/tmp/gh_${GH_VERSION}_linux_${arch}" \
+  && /usr/local/lib/hypotenuse/gh-real --version
+
 ARG CLAUDE_CODE_VERSION=latest
 RUN npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" \
   && claude --version

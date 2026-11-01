@@ -29,6 +29,7 @@ Hypotenuse, which attaches the real credential on its own side:
 | an MCP tool | the **gateway** serves the bot's own [MCP servers](/docs/mcp-servers), and lists and runs only the tools the bot may call without asking |
 | a tool outside the bot's allowlist | **refused**. A sandbox cannot wait for an [approval](/docs/approvals), so the agent is told to ask instead, or to say in its result that the call is needed |
 | memory | it can search what the bot remembers about this channel and the project, read-only |
+| a GitHub repository | git and `gh` get a token for that one repository, one command at a time — see [Working on a repository](#working-on-a-repository) |
 | anything else in Hypotenuse | refused: a job token is not a person, and cannot read or change a project |
 
 The job token never reaches anything you can read: if the agent prints it, the job's transcript, status, and
@@ -59,8 +60,40 @@ Whether a bot may start jobs is its **Sandboxes** setting, on [its page](/docs/b
 | **Allow** | the job starts at once |
 | **Off** | the bot cannot start jobs |
 
+A job on a repository in **read** mode runs without asking even under **Ask first**: it can push nothing. **Off**
+still refuses it.
+
 Setting **Allow**, or removing a bot's token budget, takes admin standing in the project: either one lets the bot spend
 the project's money with nobody asked. Anyone who may change the bot can tighten them.
+
+## Working on a repository
+
+A bot can start a job on a GitHub repository its project has [granted it](/docs/repositories) by naming it
+(`owner/name`) in `sandbox_start`. Before the agent starts, the repository is cloned into the sandbox, and the
+agent works in that checkout. A bot holding no grant for the repository is told so, and to ask a project admin.
+
+| Mode | For | What the job may do |
+|---|---|---|
+| **write** (the default) | changing the code | push a branch and open a pull request. Needs a grant that allows pushes, and follows the bot's **Sandboxes** setting |
+| **read** | questions about the code ("how does auth work in `acme/api`?") | read and run it, never push. Runs without approval, and for at most 15 minutes |
+
+The bot can also name a branch, tag, or commit to check out — a pull request's branch, to address its review.
+
+- **Branches.** A write job is told to push a new branch under the grant's branch prefix (by default
+  `hypotenuse/<bot>/`), never to the default branch. A [repository ruleset](/docs/repositories) on GitHub is what
+  enforces it.
+- **Pull requests.** The agent opens one with `gh pr create` and reports its link, which comes back to the
+  conversation. Commits are authored as the bot, with the person who asked as co-author when they are a Hypotenuse
+  user.
+- **Credentials, one command at a time.** The sandbox holds no GitHub token. Each `git` or `gh` command asks
+  Hypotenuse for a token good for one repository — at write only for the repository a write job was started on, and
+  only when its grant allows a push; read for any other repository granted to the bot. The token lives for that
+  command, is never written to disk or the environment, and every token a job was given is **revoked when the job
+  ends**.
+- **The managed `gh`.** The `gh` in a sandbox works with no `gh auth login`: inside the checkout it uses that
+  repository, and anywhere else it needs `--repo owner/name`; it never guesses.
+
+Every token a job asked for — handed out, reused, or refused, with the reason — is recorded with the job.
 
 ## In the conversation
 

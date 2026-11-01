@@ -14,6 +14,7 @@
  *     STUB {"op":"model"}
  *     STUB {"op":"mcp","server":"mail","tool":"send","args":{}}
  *     STUB {"op":"memory","query":"deploys"}
+ *     STUB {"op":"sh","command":"git push -u origin HEAD"}
  *     STUB {"op":"sleep","ms":1000}
  *     STUB {"op":"hang"}
  *     STUB {"op":"fail","message":"the stub was asked to fail"}
@@ -23,7 +24,9 @@
  * server and the gateway proxy over Streamable HTTP with the job token as a
  * bearer, and models through `ANTHROPIC_BASE_URL` with
  * `ANTHROPIC_AUTH_TOKEN`. A directive's failure is printed as an error result
- * and exits 2.
+ * and exits 2. `sh` runs a shell command in the CLI's working directory, the
+ * way the real CLI's Bash tool does (as `sh -lc`, a login shell), says its
+ * output, and fails the run on a non-zero exit unless `"allowFail": true`.
  */
 import { readFileSync } from "node:fs";
 
@@ -323,6 +326,23 @@ try {
         );
         const body = await res.text();
         say(`Model answered ${res.status}: ${body.slice(0, 500)}`);
+        break;
+      }
+      case "sh": {
+        const proc = Bun.spawn(["sh", "-lc", String(d.command)], {
+          stdout: "pipe",
+          stderr: "pipe",
+          env: { ...process.env },
+        });
+        const [out, err, code] = await Promise.all([
+          new Response(proc.stdout).text(),
+          new Response(proc.stderr).text(),
+          proc.exited,
+        ]);
+        say(`$ ${d.command} (exit ${code})\n${out}${err}`.slice(0, 4000));
+        if (code !== 0 && d.allowFail !== true) {
+          throw new Error(`${d.command} exited ${code}: ${err.slice(0, 500)}`);
+        }
         break;
       }
       case "sleep":

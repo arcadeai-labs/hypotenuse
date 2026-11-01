@@ -83,7 +83,29 @@ export type BotSandboxPolicy = (typeof BOT_SANDBOX_POLICIES)[number];
  *   person's approval, since a sandbox costs money and can change code), or
  *   `allow`. `sandboxJobTokenBudget` caps the model tokens one job may use
  *   through the model proxy; null means no cap.
+ * - `githubWakeEvents` — which events on a pull request one of the bot's
+ *   sandbox jobs opened wake the conversation that asked for it
+ *   ({@link GITHUB_WAKE_EVENTS}); the rest are recorded and wait for its next
+ *   turn. The default is a review requesting changes and a failed check.
  */
+/** What can happen on a pull request a bot's job opened, that may wake it. */
+export const GITHUB_WAKE_EVENTS = [
+  "changes_requested",
+  "approved",
+  "commented",
+  "review_comment",
+  "check_failed",
+  "check_passed",
+  "closed",
+  "merged",
+] as const;
+/** One of {@link GITHUB_WAKE_EVENTS}. */
+export type GithubWakeEvent = (typeof GITHUB_WAKE_EVENTS)[number];
+/** The events that wake a bot until someone says otherwise. */
+export const DEFAULT_GITHUB_WAKE_EVENTS: GithubWakeEvent[] = [
+  "changes_requested",
+  "check_failed",
+];
 /** Per kind of channel, whether a bot binds itself when invited. */
 export interface BotAutoBind {
   public: boolean;
@@ -160,6 +182,11 @@ export const bots = pgTable(
       .notNull()
       .default("approve"),
     sandboxJobTokenBudget: integer("sandbox_job_token_budget"),
+    githubWakeEvents: text("github_wake_events")
+      .array()
+      .$type<GithubWakeEvent[]>()
+      .notNull()
+      .default(["changes_requested", "check_failed"]),
     createdByUserId: integer("created_by_user_id").references(() => users.id, {
       onDelete: "set null",
     }),

@@ -17,7 +17,7 @@ import {
   type OutboxMessage,
   outboxMessages,
 } from "../../schema/outbox_messages";
-import { applyFallbacks } from "../surface";
+import { applyFallbacks, linkProblem } from "../surface";
 import type {
   OpenInstallation,
   PlatformAdapter,
@@ -53,6 +53,7 @@ import { approvalBlocks, planMessage, questionBlocks } from "./render";
  * | `message` | `chat.stopStream` of an open stream, then `chat.postMessage` | `mrkdwn` from markdown, sanitized; past 40,000 characters, truncated with a link to the transcript |
  * | `question` | `chat.postMessage` with buttons (a menu past five options) | `action_id` `q:<question>:<option>` |
  * | `approval` | `chat.postMessage` with Approve / Deny, or a dashboard link | `action_id` `a:<approval>:approve\|deny` |
+ * | `link` | `chat.postMessage` of `<url\|label: text>` in the thread | a pull request a sandbox job opened; unfurls off, like every message |
  *
  * | Slack answers | Then |
  * |---|---|
@@ -370,7 +371,35 @@ function transcriptLink(conversationId: number): string {
 }
 
 /**
- * Post a final row — a message, a question, or an approval — in the thread.
+ * Escape text for Slack's `mrkdwn` control characters.
+ * @param text - The text.
+ * @returns It, with `&`, `<`, and `>` escaped.
+ */
+function escapeMrkdwn(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+/**
+ * A `link` row as one Slack message: `<url|label: text>`.
+ * @param p - The row's payload (`label`, `url`, `text?`).
+ * @returns The `mrkdwn` text.
+ */
+function slackLink(p: Record<string, unknown>): string {
+  const label = String(p.label ?? "Link");
+  const title = typeof p.text === "string" && p.text.trim() ? p.text : "";
+  const shown = escapeMrkdwn(title ? `${label}: ${title}` : label).replace(
+    /\|/g,
+    "¦",
+  );
+  const url = String(p.url ?? "").replace(/[<>|\s]/g, "");
+  return `<${url}|${shown}>`;
+}
+
+/**
+ * Post a final row — a message, a question, an approval, or a link — in the thread.
  * @param row - The row.
  * @param target - The thread.
  * @param token - The bot token.
@@ -409,6 +438,8 @@ async function sendFinal(
         actions: (p.actions as string[] | undefined) ?? [],
       }),
     };
+  } else if (row.kind === "link") {
+    body = { text: slackLink(p) };
   } else {
     const prefix = p.messageKind === "error" ? ":warning: " : "";
     body = {
@@ -615,6 +646,8 @@ export const slackAdapter: PlatformAdapter = {
     if (draft.kind === "approval" && !draft.payload.approvalId) {
       return { refused: true, reason: "An approval needs its approvalId." };
     }
+    const problem = linkProblem(draft);
+    if (problem) return { refused: true, reason: problem };
     return applyFallbacks(draft, this.capabilities);
   },
 
