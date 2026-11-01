@@ -9,6 +9,7 @@ import {
   MessagesSquare,
   Settings,
   ShieldCheck,
+  Webhook,
 } from "lucide-react";
 
 /** One sidebar destination. */
@@ -21,6 +22,7 @@ export interface Destination {
     | "help"
     | "bots"
     | "memory"
+    | "events"
     | "sandboxes"
     | "settings";
   to: string;
@@ -95,6 +97,14 @@ export const DESTINATIONS: readonly Destination[] = [
     label: "Memory",
     Icon: Brain,
     shortcut: "g m",
+    available: true,
+  },
+  {
+    id: "events",
+    to: "/events",
+    label: "Events",
+    Icon: Webhook,
+    shortcut: "g e",
     available: true,
   },
   {

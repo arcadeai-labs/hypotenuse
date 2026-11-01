@@ -11,11 +11,10 @@ import {
   type RbacConnectionMeta,
 } from "../../middleware/rbac";
 import type { SessionImpl } from "../../middleware/session";
-import { canWriteBot } from "../../ops/BotOps";
 import { idInput } from "../../ops/InputOps";
 import { isAdmin } from "../../ops/MembershipOps";
 import {
-  botChannelInputs,
+  channelInputs,
   documentKey,
   resolveMemoryAccess,
   scopeNameInput,
@@ -36,7 +35,7 @@ import {
 export class MemoryView implements Action {
   name = "memory:view";
   description =
-    "Read one memory document: its markdown, description, version, pin, decay, and provenance (the conversation and entries it was learned from, the person who wrote it, or the channel memory it was promoted from). Pass versionId for an earlier version. standing says whether you may change, forget, pin, or promote it. Requires membership; channel memory also needs read access to the bot.";
+    "Read one memory document: its markdown, description, version, pin, decay, and provenance (the conversation and entries it was learned from, the person who wrote it, or the channel memory it was promoted from). Pass versionId for an earlier version. standing says whether you may change, forget, pin, or promote it. Requires membership; channel memory also needs read access to a bot working in the channel.";
   middleware = [ProjectMemberMiddleware()];
   web = {
     route: "/project/:projectId/memory/document",
@@ -45,7 +44,7 @@ export class MemoryView implements Action {
   inputs = z.object({
     projectId: idInput("The project"),
     scope: scopeNameInput,
-    ...botChannelInputs,
+    ...channelInputs,
     path: memoryPathInput,
     versionId: z.coerce
       .number()
@@ -80,9 +79,7 @@ export class MemoryView implements Action {
     if (!row) throw memoryNotFound();
     const admin = isAdmin(callerTags);
     const canWrite =
-      params.scope === "project"
-        ? admin
-        : Boolean(access.bot && canWriteBot(access.bot, callerTags));
+      params.scope === "project" ? admin : Boolean(access.standing?.canWrite);
     return {
       document: serializeMemoryDocument(row, {
         content: true,

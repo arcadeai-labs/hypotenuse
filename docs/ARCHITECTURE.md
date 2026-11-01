@@ -166,8 +166,12 @@ Built ([phase 09](./plans/phase-09-memory.md)). Every memory is a markdown docum
 
 | Scope | Key | Read by | Changed by |
 |---|---|---|---|
-| `channel` | `(bot, channel)` | that bot, in that channel; people with `canReadBot` | the bot's tools; people with `canWriteBot`; the decay clock |
-| `project` | the project | every bot and channel; every member | project admins, and promotion (`canWriteBot` + admin) |
+| `channel` | the channel | every bot working in it, there; people who may read any of those bots | those bots' tools; people who may change any of them; the decay clock |
+| `project` | the project | every bot and channel; every member | project admins, and promotion (channel write + admin) |
+
+The bots working in a channel are the owner of a bot's own channel (API, dashboard chat), or every bot bound to a
+platform channel or with a conversation in it (`MemoryAccessOps.botsByChannel`). The memory explorer is one page:
+`/memory` and `/memory/channels/:channelId`.
 
 - **Append-only versions.** `memory_documents` holds every version; a write or edit inserts one and moves
   `is_current`, a forget inserts a tombstone, and only the decay clock deletes — non-current versions past 90 days
@@ -176,17 +180,18 @@ Built ([phase 09](./plans/phase-09-memory.md)). Every memory is a markdown docum
 - **Search** (`MemorySearchOps`) fuses the top 50 chunks by pgvector cosine and the top 50 by `ts_rank_cd` (any of
   the query's words) with weighted reciprocal rank (k 60, semantic 0.6), keeps at most 3 chunks per document, and
   weighs each by **decay** — `exp(−ln 2 · age / half-life)` from the later of the version and its last use, floored
-  at 0.25. Half-lives are per bot: 30 days for channel memory, 180 for project. Both candidate queries carry the
+  at 0.25. Half-lives are per bot, for ranking: 30 days for channel memory, 180 for project; the dashboard ranks with
+the defaults. Both candidate queries carry the
   read set in their `WHERE`.
 - **Embeddings never block a turn.** A write commits text and chunks; `memory:embed` fills in vectors with the
   project's `embedding` alias (an OpenAI-compatible model returning 1536 dimensions), stamping an embedding
   revision. A chunk without a current vector ranks by keyword alone; a project with no embedding model searches by
   keyword.
 - **Consolidation.** When a tick leaves a conversation hibernating or ended with at least 4 new entries,
-  `memory:consolidate` has the bot's `fast` model extract facts into channel memory under `facts/`, each citing its
+  `memory:consolidate` has the conversation's bot's `fast` model extract facts into channel memory under `facts/`, each citing its
   seqs; `memory:consolidate-due` catches a lost enqueue.
 - **Decay clock.** `memory:decay` (hourly) fans out `memory:decay-project`, which tombstones unpinned channel
-  memory read fewer than 3 times whose decay fell below 0.05. Project memory never fades on its own.
+  memory read fewer than 3 times whose decay fell below 0.05 under the project's longest channel half-life. Project memory never fades on its own.
 - **Tools:** `memory_search`, `memory_list`, `memory_read` (replay safe); `memory_write`, `memory_edit`,
   `memory_forget` (unsafe, deduped by tool call id). A bot cannot change project memory: until a channel binding
   allows it, project memory changes only by a person.

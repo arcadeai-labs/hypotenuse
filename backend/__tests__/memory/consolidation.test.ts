@@ -124,7 +124,7 @@ describe("consolidation", () => {
     const channelId = await channelOf(id);
     const list = await getMemory<{
       documents: { path: string; sourceType: string }[];
-    }>(stage, "memory", { scope: "channel", botId: stage.botId, channelId });
+    }>(stage, "memory", { scope: "channel", channelId });
     expect(list.body.documents.map((d) => [d.path, d.sourceType])).toEqual([
       ["facts/deploy-day.md", "consolidation"],
       ["facts/release-owner.md", "consolidation"],
@@ -133,7 +133,6 @@ describe("consolidation", () => {
       document: { content: string; provenance: unknown };
     }>(stage, "memory/document", {
       scope: "channel",
-      botId: stage.botId,
       channelId,
       path: "facts/deploy-day.md",
     });
@@ -163,7 +162,6 @@ describe("consolidation", () => {
     const channelId = await channelOf(id);
     await writeMemory(stage, {
       scope: "channel",
-      botId: stage.botId,
       channelId,
       path: "facts/deploy-day.md",
       content: "Deploys happen on Tuesdays.",
@@ -187,7 +185,7 @@ describe("consolidation", () => {
     const list = await getMemory<{ documents: { path: string }[] }>(
       stage,
       "memory",
-      { scope: "channel", botId: stage.botId, channelId },
+      { scope: "channel", channelId },
     );
     expect(list.body.documents.map((d) => d.path)).toEqual([
       "facts/deploy-day.md",
@@ -197,7 +195,6 @@ describe("consolidation", () => {
       "memory/document/versions",
       {
         scope: "channel",
-        botId: stage.botId,
         channelId,
         path: "facts/deploy-day.md",
       },
@@ -215,7 +212,6 @@ describe("consolidation", () => {
     const channelId = await channelOf(id);
     await writeMemory(stage, {
       scope: "channel",
-      botId: stage.botId,
       channelId,
       path: "facts/deploy-day.md",
       content: "Deploys happen on Tuesdays.",
@@ -236,7 +232,6 @@ describe("consolidation", () => {
       "memory/document/versions",
       {
         scope: "channel",
-        botId: stage.botId,
         channelId,
         path: "facts/deploy-day.md",
       },

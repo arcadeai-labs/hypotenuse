@@ -169,7 +169,6 @@ describe("channel isolation", () => {
       {
         query: "launch code",
         scope: "both",
-        botId: stage.botId,
         channelId: a.channelId,
       },
     );
@@ -177,7 +176,6 @@ describe("channel isolation", () => {
     const inB = await getMemory<{ hits: unknown[] }>(stage, "memory/search", {
       query: "launch code",
       scope: "both",
-      botId: stage.botId,
       channelId: b,
     });
     expect(inB.body.hits).toEqual([]);
@@ -185,10 +183,10 @@ describe("channel isolation", () => {
 });
 
 describe("the boundary is in the SQL", () => {
-  test("the channel condition names the bot and the channel, and the plan filters on both", async () => {
+  test("the channel condition names the channel, and the plan filters on it", async () => {
     const readSet = {
       projectId: stage.u.projectId,
-      channel: { botId: 1, channelId: 2 },
+      channel: { channelId: 2 },
       halfLifeDays: { channel: 30, project: 180 },
     };
     const query = api.db.db
@@ -196,10 +194,10 @@ describe("the boundary is in the SQL", () => {
       .from(memoryDocuments)
       .where(scopeCondition(readSet, "both"));
     const { sql: text, params } = query.toSQL();
-    expect(text).toContain('"memory_documents"."bot_id" = $');
+    expect(text).not.toContain("bot_id");
     expect(text).toContain('"memory_documents"."channel_id" = $');
     expect(params).toEqual(
-      expect.arrayContaining([stage.u.projectId, "channel", 1, 2, "project"]),
+      expect.arrayContaining([stage.u.projectId, "channel", 2, "project"]),
     );
     const plan = await api.db.db.execute(
       // biome-ignore lint/suspicious/noExplicitAny: EXPLAIN over the built query.
@@ -211,7 +209,6 @@ describe("the boundary is in the SQL", () => {
     const lines = (plan as unknown as { rows: { "QUERY PLAN": string }[] }).rows
       .map((r) => r["QUERY PLAN"])
       .join("\n");
-    expect(lines).toMatch(/bot_id = 1/);
     expect(lines).toMatch(/channel_id = 2/);
     expect(lines).toMatch(/scope = 'project'/);
   });

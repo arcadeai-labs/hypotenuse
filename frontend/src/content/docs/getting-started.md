@@ -37,7 +37,7 @@ Every conversation is in one of four states, and the dashboard and the CLI draw 
 - **⌘K** (Ctrl+K on Windows and Linux) opens the command palette. It reaches every page and every action you are
   allowed to take.
 - **?** lists every keyboard shortcut. **g** then a letter goes to a page: **g h** Home, **g c** Conversations,
-  **g b** Bots, **g m** Memory, **g s** Sandboxes.
+  **g b** Bots, **g m** Memory, **g e** Events, **g s** Sandboxes.
 - **[** collapses the sidebar to icons.
 - The sidebar shows every destination from the start. One whose page has not shipped yet reads *Not available yet*.
 

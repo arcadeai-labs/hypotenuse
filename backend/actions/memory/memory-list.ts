@@ -13,7 +13,7 @@ import {
 import type { SessionImpl } from "../../middleware/session";
 import { idInput } from "../../ops/InputOps";
 import {
-  botChannelInputs,
+  channelInputs,
   queryBoolean,
   resolveMemoryAccess,
   scopeChoiceParam,
@@ -29,21 +29,21 @@ import {
 import { embeddingModel } from "../../ops/ModelOps";
 
 /**
- * `memory:list` — the documents in a project's memory, or in one bot's memory
- * of one channel, by path, each with how much it has faded. Also says whether
+ * `memory:list` — the documents in a project's memory, or in one channel's
+ * memory, by path, each with how much it has faded. Also says whether
  * the project has an embedding model and how many chunks still wait for a
  * vector, so the explorer can warn that search is keyword-only.
  */
 export class MemoryList implements Action {
   name = "memory:list";
   description =
-    "List memory documents by path, with each one's description, version, pin, and decay (1 = fresh, near 0 = faded). scope project lists the project's shared memory; scope channel (with botId and channelId) one bot's memory of one channel; both lists the two. Also reports the embedding model and how many chunks are not embedded yet. Requires membership; channel memory also needs read access to the bot. Paginated.";
+    "List memory documents by path, with each one's description, version, pin, and decay (1 = fresh, near 0 = faded). scope project lists the project's shared memory; scope channel (with channelId) the memory of one channel, which every bot working there shares; both lists the two. Also reports the embedding model and how many chunks are not embedded yet. Requires membership; channel memory also needs read access to a bot working in the channel. Paginated.";
   middleware = [ProjectMemberMiddleware()];
   web = { route: "/project/:projectId/memory", method: HTTP_METHOD.GET };
   inputs = paginationInputs({ defaultLimit: 25 }).extend({
     projectId: idInput("The project"),
     scope: scopeChoiceParam.default("project"),
-    ...botChannelInputs,
+    ...channelInputs,
     pathPrefix: memoryPathPrefixInput.optional(),
     includeForgotten: queryBoolean("Include forgotten (tombstoned) documents"),
   });

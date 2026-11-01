@@ -1,4 +1,3 @@
-import type { BotView } from "@backend/actions/bot/bot-view";
 import type { MembershipList } from "@backend/actions/membership/membership-list";
 import type { ActionResponse } from "keryx";
 import { useMemo, useState } from "react";
@@ -42,23 +41,26 @@ import { DecayMeter } from "../../components/surfaces/DecayMeter";
 import { useAuth } from "../../context/AuthContext";
 import { useMay } from "../../hooks/useMay";
 import { Alert, Button, Chip, Form, PropertiesPanel, Property } from "../../ui";
-import { BOT_WRITE_DENIED } from "../../utils/bots";
 import { apiFetch } from "../../utils/client";
-import { PROJECT_WRITE_DENIED } from "./MemoryExplorerPage";
+import {
+  botsSentence,
+  channelWriteDenied,
+  PROJECT_WRITE_DENIED,
+} from "./MemoryExplorerPage";
 
 /** Why Promote is refused to someone the server says may not promote. */
 const PROMOTE_DENIED =
-  "Promoting into project memory takes write access to the bot and admin standing in the project.";
+  "Promoting into project memory takes write access to a bot working in the channel and admin standing in the project.";
 
 /** Why a forgotten document offers only a restore. */
 const FORGOTTEN =
   "It is forgotten. Restore an earlier version, or write it again, first.";
 
-/** The half-lives a bot fades memory with when it does not say. */
+/** The half-lives memory fades with in the dashboard's view of it. */
 const DEFAULT_HALF_LIVES = { channel: 30, project: 180 };
 
 /**
- * `/memory/document` and `/bots/:botId/memory/:channelId/document` — one
+ * `/memory/document` and `/memory/channels/:channelId/document` — one
  * memory document, by `?path=` (and `?version=` for an earlier one): its
  * text, rendered or raw; its history, with a line diff between any version
  * and the current one; where it came from, linking into the transcript; and
@@ -72,7 +74,7 @@ const DEFAULT_HALF_LIVES = { channel: 30, project: 180 };
  * @returns The page.
  */
 export function MemoryDocumentPage() {
-  const { botId: botParam, channelId: channelParam } = useParams();
+  const { channelId: channelParam } = useParams();
   const [params] = useSearchParams();
   const path = params.get("path") ?? "";
   const versionParam = Number(params.get("version"));
@@ -83,14 +85,9 @@ export function MemoryDocumentPage() {
   const { activeProjectId, user } = useAuth();
   const { reason } = useMay();
   const navigate = useNavigate();
-  const where: MemoryWhere =
-    botParam && channelParam
-      ? {
-          scope: "channel",
-          botId: Number(botParam),
-          channelId: Number(channelParam),
-        }
-      : { scope: "project" };
+  const where: MemoryWhere = channelParam
+    ? { scope: "channel", channelId: Number(channelParam) }
+    : { scope: "project" };
 
   const view = useRead<MemoryViewResponse>(
     activeProjectId && path
@@ -102,14 +99,9 @@ export function MemoryDocumentPage() {
       ? memoryDocumentPath(activeProjectId, where, path, { versions: true })
       : null,
   );
-  const bot = useRead<ActionResponse<BotView>>(
-    activeProjectId && where.scope === "channel"
-      ? `/project/${activeProjectId}/bot/${where.botId}`
-      : null,
-  );
   const channels = useRead<MemoryChannelsResponse>(
     activeProjectId && where.scope === "channel"
-      ? `/project/${activeProjectId}/bot/${where.botId}/memory/channels?limit=100`
+      ? `/project/${activeProjectId}/memory/channels?limit=100`
       : null,
   );
   const members = useRead<ActionResponse<MembershipList>>(
@@ -194,7 +186,7 @@ export function MemoryDocumentPage() {
       <div className="page" data-testid="memory-document-page">
         <Alert variant="warning" data-testid="memory-document-missing">
           {view.error}. It may have been forgotten and swept away, or belong to
-          a bot limited to tags you do not hold.{" "}
+          a channel whose bots are limited to tags you do not hold.{" "}
           <Link to={explorerHref(where)}>Back to memory</Link>
         </Alert>
       </div>
@@ -206,19 +198,16 @@ export function MemoryDocumentPage() {
   const channel = channels.data?.channels.find(
     (c) => where.scope === "channel" && c.id === where.channelId,
   );
-  const halfLives = bot.data
-    ? {
-        channel: bot.data.bot.memoryChannelHalfLifeDays,
-        project: bot.data.bot.memoryProjectHalfLifeDays,
-      }
-    : DEFAULT_HALF_LIVES;
+  const halfLives = DEFAULT_HALF_LIVES;
   const halfLife =
     doc.scope === "channel" ? halfLives.channel : halfLives.project;
   const notWriter = standing.canWrite
     ? undefined
     : where.scope === "project"
       ? PROJECT_WRITE_DENIED
-      : BOT_WRITE_DENIED;
+      : channel
+        ? channelWriteDenied(channel)
+        : "You may not change this channel's memory.";
   const editDenied = reason("memory:write") ?? notWriter;
   const pinDenied =
     reason("memory:pin") ??
@@ -364,7 +353,6 @@ export function MemoryDocumentPage() {
         {
           method: "POST",
           body: JSON.stringify({
-            botId: where.botId,
             channelId: where.channelId,
             path: doc.path,
             ...(viewingOld ? { versionId: doc.versionId } : {}),
@@ -386,27 +374,20 @@ export function MemoryDocumentPage() {
     <span className="bot-page-title">
       {where.scope === "channel" ? (
         <>
-          <Link to="/bots" className="shell-page-crumb">
-            Bots
-          </Link>
-          <span className="shell-page-subtitle" aria-hidden="true">
-            {" "}
-            /{" "}
-          </span>
-          <Link to={`/bots/${where.botId}`} className="shell-page-crumb">
-            {bot.data?.bot.name ?? "Bot"}
+          <Link to="/memory" className="shell-page-crumb">
+            Channel memory
           </Link>
           <span className="shell-page-subtitle" aria-hidden="true">
             {" "}
             /{" "}
           </span>
           <Link to={explorerHref(where)} className="shell-page-crumb">
-            {channel ? `${channel.name} memory` : "Memory"}
+            {channel?.name ?? "Channel"}
           </Link>
         </>
       ) : (
         <Link to="/memory" className="shell-page-crumb">
-          Memory
+          Project memory
         </Link>
       )}
       <span className="shell-page-subtitle" aria-hidden="true">
@@ -483,8 +464,8 @@ export function MemoryDocumentPage() {
                 "Project — every bot, every channel"
               ) : (
                 <span>
-                  {bot.data?.bot.name ?? "The bot"} in{" "}
-                  {channel?.name ?? "this channel"}
+                  {channel?.name ?? "This channel"} — shared by{" "}
+                  {channel ? botsSentence(channel) : "every bot working here"}
                 </span>
               )}
             </Property>
@@ -510,11 +491,7 @@ export function MemoryDocumentPage() {
               </span>
             </Property>
             <Property label="From">
-              <Provenance
-                doc={doc}
-                personName={personName}
-                botName={bot.data?.bot.name}
-              />
+              <Provenance doc={doc} personName={personName} />
             </Property>
             <Property label="Version">
               <span
@@ -768,17 +745,14 @@ export function MemoryDocumentPage() {
  * promoted from.
  * @param props.doc - The version.
  * @param props.personName - A user id's display name.
- * @param props.botName - The bot's name, for a channel's memory.
  * @returns The links.
  */
 function Provenance({
   doc,
   personName,
-  botName,
 }: {
   doc: MemoryDocumentView;
   personName: (userId: number | null | undefined) => string;
-  botName?: string;
 }) {
   const p = doc.provenance;
   const parts = [];
@@ -796,13 +770,12 @@ function Provenance({
       </Link>,
     );
   }
-  if (p.promotedFromBotId && p.promotedFromChannelId) {
+  if (p.promotedFromChannelId) {
     parts.push(
       <Link
         key="promoted"
         to={explorerHref({
           scope: "channel",
-          botId: p.promotedFromBotId,
           channelId: p.promotedFromChannelId,
         })}
         data-testid="memory-provenance-promoted"
@@ -816,11 +789,7 @@ function Provenance({
   if (parts.length === 0) {
     parts.push(
       <span key="none">
-        {doc.sourceType === "decay"
-          ? "The decay clock"
-          : doc.sourceType === "agent" && botName
-            ? botName
-            : "—"}
+        {doc.sourceType === "decay" ? "The decay clock" : "—"}
       </span>,
     );
   }

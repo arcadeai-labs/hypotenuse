@@ -27,16 +27,16 @@ import { customerNamedIn } from "../../ops/PromotionGuardOps";
 import { channels } from "../../schema/channels";
 
 /**
- * `memory:promote` — copy a bot's channel memory into project memory, where
+ * `memory:promote` — copy a channel's memory into project memory, where
  * every bot in every channel reads it. **The** way channel content reaches
  * project scope: a person's decision, audited, made by someone who may both
- * change the bot and administer the project. The new project version cites
+ * change the channel's memory and administer the project. The new project version cites
  * the channel version it came from; the channel document stays.
  */
 export class MemoryPromote extends AuditedAction {
   name = "memory:promote";
   description =
-    "Promote a bot's channel memory document to project memory, so every bot in every channel of the project sees it. The project copy cites the channel version it came from, and the channel copy stays. Requires write access to the bot and admin standing in the project.";
+    "Promote a channel memory document to project memory, so every bot in every channel of the project sees it. The project copy cites the channel version it came from, and the channel copy stays. Requires write access to a bot working in the channel and admin standing in the project.";
   middleware = [ProjectMemberMiddleware()];
   web = {
     route: "/project/:projectId/memory/document/promote",
@@ -44,7 +44,6 @@ export class MemoryPromote extends AuditedAction {
   };
   inputs = z.object({
     projectId: idInput("The project"),
-    botId: idInput("The bot whose channel memory it is"),
     channelId: idInput("The channel"),
     path: memoryPathInput,
     versionId: z.coerce
@@ -117,11 +116,10 @@ export class MemoryPromote extends AuditedAction {
       description: source.description,
       changeNote:
         params.changeNote ??
-        `Promoted from ${access.bot?.name ?? "a bot"}'s channel memory`,
+        `Promoted from ${access.channel?.name ?? "a channel"}'s memory`,
       sourceType: "promotion",
       sourceRef: {
         promotedFromId: source.id,
-        promotedFromBotId: params.botId,
         promotedFromChannelId: params.channelId,
         ...(userId ? { userId } : {}),
       },

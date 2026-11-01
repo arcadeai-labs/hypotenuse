@@ -1,5 +1,5 @@
 {
-  "id": "965b6df9-dc6c-4754-9317-4baa5024c6b7",
+  "id": "5cfb4489-396e-45b8-93ea-fe80f30f76fe",
   "prevId": "fd5086b8-c0e4-4392-97de-90dcd7f01fb7",
   "version": "7",
   "dialect": "postgresql",
@@ -1394,13 +1394,6 @@
           "primaryKey": false,
           "notNull": true,
           "default": false
-        },
-        "details": {
-          "name": "details",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'{}'::jsonb"
         },
         "created_at": {
           "name": "created_at",
@@ -3502,12 +3495,6 @@
           "primaryKey": false,
           "notNull": true
         },
-        "bot_id": {
-          "name": "bot_id",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
         "channel_id": {
           "name": "channel_id",
           "type": "integer",
@@ -3622,12 +3609,6 @@
               "nulls": "last"
             },
             {
-              "expression": "coalesce(\"bot_id\", 0)",
-              "asc": true,
-              "isExpression": true,
-              "nulls": "last"
-            },
-            {
               "expression": "coalesce(\"channel_id\", 0)",
               "asc": true,
               "isExpression": true,
@@ -3667,12 +3648,6 @@
               "nulls": "last"
             },
             {
-              "expression": "coalesce(\"bot_id\", 0)",
-              "asc": true,
-              "isExpression": true,
-              "nulls": "last"
-            },
-            {
               "expression": "coalesce(\"channel_id\", 0)",
               "asc": true,
               "isExpression": true,
@@ -3695,12 +3670,6 @@
           "name": "memory_documents_channel_idx",
           "columns": [
             {
-              "expression": "bot_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
               "expression": "channel_id",
               "isExpression": false,
               "asc": true,
@@ -3719,15 +3688,6 @@
           "tableFrom": "memory_documents",
           "tableTo": "projects",
           "columnsFrom": ["project_id"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "memory_documents_bot_id_bots_id_fk": {
-          "name": "memory_documents_bot_id_bots_id_fk",
-          "tableFrom": "memory_documents",
-          "tableTo": "bots",
-          "columnsFrom": ["bot_id"],
           "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"

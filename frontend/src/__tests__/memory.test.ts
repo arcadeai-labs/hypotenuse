@@ -24,8 +24,12 @@ import {
   aliasKindFor,
   EMBEDDING_ALIAS,
 } from "../components/models/AliasesCard";
+import {
+  botsSentence,
+  channelWriteDenied,
+} from "../pages/memory/MemoryExplorerPage";
 
-const channel = { scope: "channel", botId: 4, channelId: 9 } as const;
+const channel = { scope: "channel", channelId: 9 } as const;
 const project = { scope: "project" } as const;
 
 describe("the line diff", () => {
@@ -110,16 +114,16 @@ describe("decay on hover", () => {
 describe("addresses", () => {
   test("the explorer and a document, for the project and a channel", () => {
     expect(explorerHref(project)).toBe("/memory");
-    expect(explorerHref(channel)).toBe("/bots/4/memory/9");
+    expect(explorerHref(channel)).toBe("/memory/channels/9");
     expect(documentHref(project, "facts/a b.md")).toBe(
       "/memory/document?path=facts%2Fa+b.md",
     );
     expect(documentHref(channel, "people/kim.md", 1700000000000)).toBe(
-      "/bots/4/memory/9/document?path=people%2Fkim.md&version=1700000000000",
+      "/memory/channels/9/document?path=people%2Fkim.md&version=1700000000000",
     );
   });
 
-  test("the API routes name the scope, the bot, and the channel", () => {
+  test("the API routes name the scope and the channel", () => {
     expect(memoryListPath(7, project, {})).toBe(
       "/project/7/memory?scope=project&limit=25",
     );
@@ -130,7 +134,7 @@ describe("addresses", () => {
         includeForgotten: true,
       }),
     ).toBe(
-      "/project/7/memory?scope=channel&botId=4&channelId=9&limit=25&page=2&pathPrefix=facts%2F&includeForgotten=true",
+      "/project/7/memory?scope=channel&channelId=9&limit=25&page=2&pathPrefix=facts%2F&includeForgotten=true",
     );
     expect(memorySearchPath(7, project, "deploy day")).toBe(
       "/project/7/memory/search?scope=project&query=deploy+day&limit=20",
@@ -139,18 +143,17 @@ describe("addresses", () => {
     expect(memorySearchPath(7, channel, "kim", true)).toContain("scope=both");
     expect(memorySearchPath(7, channel, "kim")).toContain("scope=channel");
     expect(memoryDocumentPath(7, channel, "a.md", { versions: true })).toBe(
-      "/project/7/memory/document/versions?scope=channel&botId=4&channelId=9&path=a.md&limit=50",
+      "/project/7/memory/document/versions?scope=channel&channelId=9&path=a.md&limit=50",
     );
     expect(memoryDocumentPath(7, project, "a.md", { versionId: 5 })).toBe(
       "/project/7/memory/document?scope=project&path=a.md&versionId=5",
     );
   });
 
-  test("a write's body names the bot and channel only for channel memory", () => {
+  test("a write's body names the channel only for channel memory", () => {
     expect(whereBody(project)).toEqual({ scope: "project" });
     expect(whereBody(channel)).toEqual({
       scope: "channel",
-      botId: 4,
       channelId: 9,
     });
   });
@@ -216,5 +219,36 @@ describe("the embedding model name", () => {
     expect(aliasKindFor(" embedding ")).toBe("embedding");
     expect(aliasKindFor("default")).toBe("language");
     expect(aliasKindFor("embeddings")).toBe("language");
+  });
+});
+
+describe("a channel's memory is shared by the bots working there", () => {
+  const withBots = (...names: string[]) => ({
+    id: 3,
+    projectId: 1,
+    type: "webhook",
+    name: "general",
+    botId: null,
+    externalId: "acme/C-general",
+    isPrivate: false,
+    createdAt: 0,
+    documents: 2,
+    bots: names.map((name, i) => ({ id: i + 1, name, slug: name })),
+    canWrite: false,
+  });
+
+  test("the bots are named in a sentence", () => {
+    expect(botsSentence(withBots())).toBe("No bot works here yet");
+    expect(botsSentence(withBots("Ada"))).toBe("Ada");
+    expect(botsSentence(withBots("Ada", "Kamek", "Toad"))).toBe(
+      "Ada, Kamek and Toad",
+    );
+  });
+
+  test("a refused write says whose access it takes", () => {
+    expect(channelWriteDenied(withBots("Ada", "Kamek"))).toContain(
+      "write access to a bot working in it (Ada, Kamek)",
+    );
+    expect(channelWriteDenied(withBots())).toContain("none works here yet");
   });
 });

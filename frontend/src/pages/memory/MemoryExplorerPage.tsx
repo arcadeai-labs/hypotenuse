@@ -1,10 +1,7 @@
-import type { BotView } from "@backend/actions/bot/bot-view";
-import type { ActionResponse } from "keryx";
 import { Search } from "lucide-react";
 import { type FormEvent, useEffect, useState } from "react";
 import {
   Link,
-  Navigate,
   useNavigate,
   useParams,
   useSearchParams,
@@ -22,6 +19,7 @@ import {
   explorerHref,
   formatScore,
   halfLifeOf,
+  type MemoryChannel,
   type MemoryChannelsResponse,
   type MemoryDocumentRow,
   type MemoryListResponse,
@@ -49,7 +47,6 @@ import {
   Pagination,
   PlatformChip,
 } from "../../ui";
-import { botWriteDenied } from "../../utils/bots";
 import { apiFetch } from "../../utils/client";
 
 /** Why a member who is not an admin may not write project memory. */
@@ -65,9 +62,34 @@ const BLANK: MemoryDraft = {
 };
 
 /**
- * `/memory`, `/bots/:botId/memory`, and `/bots/:botId/memory/:channelId` — a
- * memory explorer. The project's shared memory, or one bot's memory of one
- * of its channels, chosen beside the list.
+ * Why a member may not write a channel's memory: it takes write access to a
+ * bot working in the channel.
+ * @param channel - The channel, with its bots.
+ * @returns The sentence.
+ */
+export function channelWriteDenied(channel: MemoryChannel): string {
+  const names = channel.bots.map((b) => b.name);
+  return names.length > 0
+    ? `Changing this channel's memory takes write access to a bot working in it (${names.join(", ")}). Ask someone who may change one of them, or an admin.`
+    : "Changing this channel's memory takes write access to a bot working in it, and none works here yet. Ask an admin.";
+}
+
+/**
+ * Who shares a channel's memory, in words: the bots working in it.
+ * @param channel - The channel, with its bots.
+ * @returns E.g. `Toad and Peach`.
+ */
+export function botsSentence(channel: MemoryChannel): string {
+  const names = channel.bots.map((b) => b.name);
+  if (names.length === 0) return "No bot works here yet";
+  if (names.length === 1) return names[0];
+  return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+}
+
+/**
+ * `/memory` and `/memory/channels/:channelId` — the memory explorer. Project
+ * memory, or one channel's memory (shared by every bot working there), chosen
+ * beside the list.
  *
  * Both have the bot's own search — semantic and keyword ranking fused and
  * weighed by decay, with each part of the score shown — and the documents by
@@ -78,8 +100,7 @@ const BLANK: MemoryDraft = {
  * @returns The page.
  */
 export function MemoryExplorerPage() {
-  const { botId: botParam, channelId: channelParam } = useParams();
-  const botId = botParam ? Number(botParam) : null;
+  const { channelId: channelParam } = useParams();
   const channelId = channelParam ? Number(channelParam) : null;
   const { activeProjectId, activeOrganizationId } = useAuth();
   const { reason } = useMay();
@@ -99,23 +120,14 @@ export function MemoryExplorerPage() {
 
   useEffect(() => setTyped(query), [query]);
 
-  const where: MemoryWhere | null =
-    botId === null
-      ? { scope: "project" }
-      : channelId !== null
-        ? { scope: "channel", botId, channelId }
-        : null;
-  const filterKey = `${botId}:${channelId}:${prefix}:${forgotten}`;
+  const where: MemoryWhere =
+    channelId === null ? { scope: "project" } : { scope: "channel", channelId };
+  const filterKey = `${channelId}:${prefix}:${forgotten}`;
   const page = chosen.key === filterKey ? chosen.page : 1;
 
-  const bot = useRead<ActionResponse<BotView>>(
-    activeProjectId !== null && botId !== null
-      ? `/project/${activeProjectId}/bot/${botId}`
-      : null,
-  );
   const channels = useRead<MemoryChannelsResponse>(
-    activeProjectId !== null && botId !== null
-      ? `/project/${activeProjectId}/bot/${botId}/memory/channels?limit=100`
+    activeProjectId !== null
+      ? `/project/${activeProjectId}/memory/channels?limit=100`
       : null,
   );
   const list = useRead<MemoryListResponse>(
@@ -150,29 +162,16 @@ export function MemoryExplorerPage() {
     );
   }
 
-  // A bot's explorer opens on its first channel.
-  if (botId !== null && channelId === null && channels.data?.channels[0]) {
-    return (
-      <Navigate
-        to={explorerHref({
-          scope: "channel",
-          botId,
-          channelId: channels.data.channels[0].id,
-        })}
-        replace
-      />
-    );
-  }
-
-  const botName = bot.data?.bot.name;
   const channel = channels.data?.channels.find((c) => c.id === channelId);
   const writeDenied =
-    where?.scope === "channel"
-      ? botWriteDenied(reason("memory:write"), bot.data?.standing ?? null)
-      : (reason("memory:write") ??
-        (projectStanding && !projectStanding.isAdmin
-          ? PROJECT_WRITE_DENIED
-          : undefined));
+    reason("memory:write") ??
+    (where.scope === "channel"
+      ? channel && !channel.canWrite
+        ? channelWriteDenied(channel)
+        : undefined
+      : projectStanding && !projectStanding.isAdmin
+        ? PROJECT_WRITE_DENIED
+        : undefined);
   const reindexDenied = reason("memory:reindex");
   const pages = list.data?.pagination.pages ?? 0;
 
@@ -215,7 +214,6 @@ export function MemoryExplorerPage() {
    * @param draft - What the editor holds.
    */
   async function onWrite(draft: MemoryDraft) {
-    if (!where) return;
     setBusy(true);
     setWriteError(null);
     try {
@@ -244,29 +242,20 @@ export function MemoryExplorerPage() {
   }
 
   const title =
-    botId === null ? (
-      "Memory"
+    where.scope === "project" ? (
+      "Project memory"
     ) : (
       <span className="bot-page-title">
-        <Link to="/bots" className="shell-page-crumb">
-          Bots
+        <Link to="/memory" className="shell-page-crumb">
+          Channel memory
         </Link>
         <span className="shell-page-subtitle" aria-hidden="true">
           {" "}
           /{" "}
         </span>
-        {bot.data ? (
-          <Link to={`/bots/${botId}`} className="shell-page-crumb">
-            {botName}
-          </Link>
-        ) : (
-          <span>Bot</span>
-        )}
-        <span className="shell-page-subtitle" aria-hidden="true">
-          {" "}
-          /{" "}
+        <span data-testid="memory-channel-title">
+          {channel?.name ?? "Channel"}
         </span>
-        <span>Memory</span>
       </span>
     );
 
@@ -274,78 +263,82 @@ export function MemoryExplorerPage() {
     <ListLayout
       title={title}
       actions={
-        where && (
-          <GatedButton
-            size="sm"
-            variant="secondary"
-            deniedReason={writeDenied}
-            disabled={writing}
-            onClick={() => {
-              setWriting(true);
-              setWriteError(null);
-            }}
-            data-testid="memory-new-document"
-          >
-            New document
-          </GatedButton>
-        )
+        <GatedButton
+          size="sm"
+          variant="secondary"
+          deniedReason={writeDenied}
+          disabled={writing}
+          onClick={() => {
+            setWriting(true);
+            setWriteError(null);
+          }}
+          data-testid="memory-new-document"
+        >
+          New document
+        </GatedButton>
       }
     >
       <div
-        className={botId === null ? "memory-page" : "memory-page has-scopes"}
+        className="memory-page has-scopes"
         data-testid="memory-explorer"
-        data-scope={where?.scope ?? "bot"}
+        data-scope={where.scope}
       >
-        {botId !== null && (
-          <nav
-            className="memory-scopes"
-            aria-label="Memory scopes"
-            data-testid="memory-scopes"
+        <nav
+          className="memory-scopes"
+          aria-label="Memory scopes"
+          data-testid="memory-scopes"
+        >
+          <Link
+            to="/memory"
+            className="memory-scope memory-scope-project"
+            aria-current={where.scope === "project" ? "page" : undefined}
+            data-testid="memory-scope-project"
           >
-            <Link to="/memory" className="memory-scope memory-scope-project">
-              <span>Project memory</span>
+            <span className="memory-scope-name">Project memory</span>
+          </Link>
+          <span className="memory-scopes-heading">Channel memory</span>
+          {channels.data?.channels.map((c) => (
+            <Link
+              key={c.id}
+              to={explorerHref({ scope: "channel", channelId: c.id })}
+              className="memory-scope"
+              aria-current={c.id === channelId ? "page" : undefined}
+              title={botsSentence(c)}
+              data-testid={`memory-channel-${c.id}`}
+            >
+              <PlatformChip platform={platformOf(c.type)} />
+              <span className="memory-scope-name">{c.name}</span>
+              <span className="text-meta tabular">{c.documents}</span>
             </Link>
-            <span className="memory-scopes-heading">
-              {botName ? `${botName}'s channels` : "Channels"}
+          ))}
+          {channels.data?.channels.length === 0 && (
+            <span
+              className="memory-scopes-empty text-meta"
+              data-testid="memory-no-channels"
+            >
+              No channels yet. One appears once someone talks to a bot — over
+              the API, in the dashboard, in Slack, or in Linear.
             </span>
-            {channels.data?.channels.map((c) => (
-              <Link
-                key={c.id}
-                to={explorerHref({ scope: "channel", botId, channelId: c.id })}
-                className="memory-scope"
-                aria-current={c.id === channelId ? "page" : undefined}
-                data-testid={`memory-channel-${c.id}`}
-              >
-                <PlatformChip platform={platformOf(c.type)} />
-                <span className="memory-scope-name">{c.name}</span>
-                <span className="text-meta tabular">{c.documents}</span>
-              </Link>
-            ))}
-          </nav>
-        )}
+          )}
+        </nav>
         <div className="memory-main">
-          {(bot.error || channels.error) && (
-            <Alert variant="warning" data-testid="bot-missing">
-              {bot.error ?? channels.error}.{" "}
-              <Link to="/bots">Back to bots</Link>
+          {channels.error && (
+            <Alert variant="warning" data-testid="memory-channels-error">
+              {channels.error}
             </Alert>
           )}
-          {botId !== null &&
-            channels.data &&
-            channels.data.channels.length === 0 && (
-              <div className="shell-empty" data-testid="memory-no-channels">
-                {botName ?? "This bot"} has no channels yet. A channel appears
-                once someone talks to it — over the API, in a Slack channel or
-                DM, a Linear project, or a Pylon account — and its memory of
-                each is kept apart.
-              </div>
-            )}
-          {where && (
+          {where.scope === "channel" && channels.data && !channel && (
+            <Alert variant="warning" data-testid="channel-missing">
+              This channel does not exist, or no bot working in it is one you
+              can read. <Link to="/memory">Back to project memory</Link>
+            </Alert>
+          )}
+          {(where.scope === "project" || channel) && (
             <>
               <p className="memory-intro text-meta">
                 {where.scope === "project"
                   ? "What every bot in every channel of this project shares. It fades slowly and only a person changes it."
-                  : `What ${botName ?? "this bot"} remembers about ${channel ? channel.name : "this channel"}: only it, and only here, reads it. Unused, it fades.`}
+                  : `What is remembered about ${channel?.name ?? "this channel"}, shared by every bot working here (${channel ? botsSentence(channel) : "…"}). No other channel sees it. Unused, it fades.`}
               </p>
               <IndexBanner
                 list={list.data}
@@ -470,7 +463,7 @@ export function MemoryExplorerPage() {
                     ? `Nothing under ${prefix.trim()}.`
                     : where.scope === "project"
                       ? "Project memory is empty. An admin writes it here, or promotes a fact a bot learned in one channel."
-                      : "Nothing remembered here yet. The bot writes what it learns as it works, and after a conversation comes to rest it keeps the facts worth keeping."}
+                      : "Nothing remembered here yet. The bots working here write what they learn, and after a conversation comes to rest they keep the facts worth keeping."}
                 </div>
               )}
               {list.data && list.data.documents.length > 0 && (
@@ -605,8 +598,8 @@ function DocumentRow({
     <ListRow
       as={Link}
       to={documentHref(
-        doc.scope === "channel" && doc.botId && doc.channelId
-          ? { scope: "channel", botId: doc.botId, channelId: doc.channelId }
+        doc.scope === "channel" && doc.channelId
+          ? { scope: "channel", channelId: doc.channelId }
           : where.scope === "project"
             ? where
             : { scope: "project" },

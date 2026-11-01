@@ -4,7 +4,12 @@ import { api, config } from "keryx";
 import type {} from "../config/memory";
 import { bots } from "../schema/bots";
 import { memoryDocuments } from "../schema/memory_documents";
-import { enqueueEmbed, lockDocument, writeVersion } from "./MemoryOps";
+import {
+  DEFAULT_HALF_LIFE_DAYS,
+  enqueueEmbed,
+  lockDocument,
+  writeVersion,
+} from "./MemoryOps";
 
 /**
  * **The decay clock's work.** Ranking already weighs every memory by how
@@ -47,18 +52,19 @@ export interface DecayResult {
  */
 export async function decayProject(projectId: number): Promise<DecayResult> {
   // decay = exp(−ln 2 · age / halfLife), age from the newer of the version and
-  // its last use, half-life from the bot whose channel memory it is.
+  // its last use. Every bot in a channel shares its memory and each ranks it
+  // by its own half-life, so a memory is forgotten only once it has faded for
+  // all of them: the longest channel half-life of the project's bots.
+  const halfLifeDays = sql`coalesce((select max(${bots.memoryChannelHalfLifeDays}) from ${bots} where ${bots.projectId} = ${projectId}), ${DEFAULT_HALF_LIFE_DAYS.channel})`;
   const ageSeconds = sql`extract(epoch from (now() - greatest(${memoryDocuments.createdAt}, coalesce(${memoryDocuments.lastAccessedAt}, ${memoryDocuments.createdAt}))))`;
-  const decay = sql`exp(-ln(2) * ${ageSeconds} / (greatest(${bots.memoryChannelHalfLifeDays}, 1) * 86400.0))`;
+  const decay = sql`exp(-ln(2) * ${ageSeconds} / (greatest(${halfLifeDays}, 1) * 86400.0))`;
   const faded = await api.db.db
     .select({
       id: memoryDocuments.id,
-      botId: memoryDocuments.botId,
       channelId: memoryDocuments.channelId,
       path: memoryDocuments.logicalPath,
     })
     .from(memoryDocuments)
-    .innerJoin(bots, eq(bots.id, memoryDocuments.botId))
     .where(
       and(
         eq(memoryDocuments.projectId, projectId),
@@ -78,7 +84,6 @@ export async function decayProject(projectId: number): Promise<DecayResult> {
       const key = {
         projectId,
         scope: "channel" as const,
-        botId: doc.botId,
         channelId: doc.channelId,
         path: doc.path,
       };
@@ -89,7 +94,6 @@ export async function decayProject(projectId: number): Promise<DecayResult> {
       const [still] = await tx
         .select({ id: memoryDocuments.id })
         .from(memoryDocuments)
-        .innerJoin(bots, eq(bots.id, memoryDocuments.botId))
         .where(
           and(
             eq(memoryDocuments.id, doc.id),
@@ -99,7 +103,7 @@ export async function decayProject(projectId: number): Promise<DecayResult> {
             sql`${decay} < ${config.memory.fadeThreshold}`,
           ),
         )
-        .for("update", { of: memoryDocuments });
+        .for("update");
       if (!still) return;
       await writeVersion(tx, key, {
         content: "",
@@ -108,7 +112,7 @@ export async function decayProject(projectId: number): Promise<DecayResult> {
         sourceType: "decay",
         sourceRef: {},
       });
-      tombstoned.push(`${doc.botId}/${doc.channelId}/${doc.path}`);
+      tombstoned.push(`${doc.channelId}/${doc.path}`);
     });
   }
 

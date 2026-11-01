@@ -128,8 +128,8 @@ async function json(
   return JSON.parse(out.stdout);
 }
 
-/** The flags that name Toadsworth's memory of the war room. */
-const inWarRoom = () => ["--bot", "toadsworth", "--channel", String(channelId)];
+/** The flags that name the war room's memory. */
+const inWarRoom = () => ["--channel", String(channelId)];
 
 const DEPLOY =
   "# Deploys\n\nDeploys go out on Tuesdays after the castle standup.\n";
@@ -313,18 +313,20 @@ describe("project memory", () => {
 });
 
 describe("channel memory", () => {
-  test("channels lists the bot's channels; write and list act on its memory of one", async () => {
-    const before = await json(stage.u.mario, [
-      "memory",
-      "channels",
-      "--bot",
-      "toadsworth",
-    ]);
+  test("channels lists the channels with their bots; write and list act on one's memory", async () => {
+    const before = await json(stage.u.mario, ["memory", "channels"]);
     expect(before.channels).toEqual([
-      expect.objectContaining({ id: channelId, documents: 0 }),
+      expect.objectContaining({
+        id: channelId,
+        documents: 0,
+        bots: [expect.objectContaining({ id: stage.botId })],
+        canWrite: true,
+      }),
     ]);
+    const table = await as(stage.u.mario, ["memory", "channels"]);
+    expect(table.stdout).toContain("toadsworth");
 
-    // Anyone who may change the bot may change its channel memory.
+    // Anyone who may change a bot working there may change the channel's memory.
     const written = await json(stage.u.mario, [
       "memory",
       "write",
@@ -344,12 +346,7 @@ describe("channel memory", () => {
       "facts/cannon.md",
     ]);
     expect(list.halfLifeDays).toEqual({ channel: 30, project: 180 });
-    const after = await json(stage.u.mario, [
-      "memory",
-      "channels",
-      "--bot",
-      String(stage.botId),
-    ]);
+    const after = await json(stage.u.mario, ["memory", "channels"]);
     expect(after.channels[0].documents).toBe(1);
   });
 
@@ -407,7 +404,6 @@ describe("channel memory", () => {
       content: "The castle cannon fires at noon.",
     });
     expect(view.document.provenance).toMatchObject({
-      promotedFromBotId: stage.botId,
       promotedFromChannelId: channelId,
     });
     // The channel copy stays.
@@ -421,7 +417,7 @@ describe("channel memory", () => {
     expect(channel.standing).toEqual({ canWrite: true, canPromote: true });
   });
 
-  test("promote needs admin standing as well as the bot's write access", async () => {
+  test("promote needs admin standing as well as write access to the channel's memory", async () => {
     const out = await as(stage.u.mario, [
       "memory",
       "promote",
@@ -434,22 +430,10 @@ describe("channel memory", () => {
 });
 
 describe("refusals before any request", () => {
-  test("--bot without --channel, a bad --channel, and an unknown --scope", async () => {
-    const half = await as(stage.u.peach, [
-      "memory",
-      "view",
-      "facts/cannon.md",
-      "--bot",
-      "toadsworth",
-    ]);
-    expect(half.code).toBe(1);
-    expect(half.stderr).toContain("pass both --bot and --channel");
-
+  test("a bad --channel, an unknown --scope, and a channel scope without --channel", async () => {
     const word = await as(stage.u.peach, [
       "memory",
       "list",
-      "--bot",
-      "toadsworth",
       "--channel",
       "war-room",
     ]);
@@ -474,7 +458,7 @@ describe("refusals before any request", () => {
       "both",
     ]);
     expect(lonely.code).toBe(1);
-    expect(lonely.stderr).toContain("pass --bot and --channel too");
+    expect(lonely.stderr).toContain("pass --channel too");
 
     const empty = await as(
       stage.u.peach,
@@ -531,8 +515,10 @@ describe("bot half-lives and alias kinds", () => {
     expect(view.stdout).toContain(
       "half-life     7 days channel memory, 365 days project memory",
     );
+    // A channel's memory is shared by every bot working there, so a person's
+    // view of it ranks with the defaults, not one bot's half-lives.
     const list = await json(stage.u.peach, ["memory", "list", ...inWarRoom()]);
-    expect(list.halfLifeDays).toEqual({ channel: 7, project: 365 });
+    expect(list.halfLifeDays).toEqual({ channel: 30, project: 180 });
 
     const tooLong = await as(stage.u.peach, [
       "bot",

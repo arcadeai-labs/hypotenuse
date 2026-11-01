@@ -71,6 +71,10 @@ a.memory-scope {
   font-weight: 500;
 }
 
+.memory-scopes-empty {
+  padding: var(--space-1) var(--space-2);
+}
+
 .memory-banner {
   display: flex;
   flex-wrap: wrap;
