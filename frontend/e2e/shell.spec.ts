@@ -40,6 +40,7 @@ test("the sidebar lists 2.0's destinations in order, each disabled until its pag
     "nav-memory",
     "nav-events",
     "nav-sandboxes",
+    "nav-repositories",
     "nav-settings",
     "nav-docs",
   ]);

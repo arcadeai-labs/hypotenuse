@@ -1,5 +1,6 @@
 import type { ConversationLive } from "@backend/actions/conversation/conversation-live";
 import type { ActionResponse } from "keryx";
+import { pullRequestFromText } from "../../utils/repositories";
 import type { Entry } from "../transcript/model";
 
 /** `conversation:live`'s answer: the status line, streamed text, and plan. */
@@ -106,6 +107,17 @@ export type ChatItem =
       warning: boolean;
       /** A call among them has not finished. */
       running: boolean;
+    }
+  | {
+      /** A link the conversation was handed: a pull request a sandbox job opened. */
+      kind: "link";
+      key: string;
+      seq: number;
+      label: string;
+      /** What it links to, e.g. `acme/api#12`. */
+      text: string;
+      url: string;
+      createdAt: number;
     }
   | {
       kind: "compaction";
@@ -385,6 +397,20 @@ export function buildChat(
             tone: "error",
             createdAt: entry.createdAt,
           });
+        } else if (reason === "pull_request") {
+          const pull = pullRequestFromText(str(content, "text"));
+          if (pull) {
+            flush();
+            items.push({
+              kind: "link",
+              key,
+              seq: entry.seq,
+              label: "Pull Request",
+              text: pull.name,
+              url: pull.url,
+              createdAt: entry.createdAt,
+            });
+          }
         } else if (
           to === "ended" &&
           (outcome === "cancelled" || reason === "cancelled")

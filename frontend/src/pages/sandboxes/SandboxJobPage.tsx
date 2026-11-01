@@ -1,3 +1,4 @@
+import { GitPullRequest } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useRead } from "../../components/bots/data";
@@ -13,6 +14,7 @@ import { useAuth } from "../../context/AuthContext";
 import { useMay } from "../../hooks/useMay";
 import {
   Alert,
+  Badge,
   BotBadge,
   Button,
   Chip,
@@ -23,6 +25,17 @@ import {
 } from "../../ui";
 import { BOT_WRITE_DENIED } from "../../utils/bots";
 import { apiFetch } from "../../utils/client";
+import {
+  HANDOUT_OUTCOME_TONE,
+  handoutOutcomeLabel,
+  jobModeDetail,
+  jobModeWords,
+  jobRepository,
+  jobRepositoryWords,
+  PULL_REQUEST_STATE_TONE,
+  pullRequestStateLabel,
+  repositoryUrl,
+} from "../../utils/repositories";
 import {
   answeredByWords,
   durationWords,
@@ -317,7 +330,10 @@ export function SandboxJobPage() {
     );
   }
 
-  const { questions, messages, canWrite } = read.data;
+  const { questions, messages, canWrite, gitHandouts, pullRequests } =
+    read.data;
+  const repo = jobRepository(job.repository);
+  const repository = jobRepositoryWords(repo);
   const writeDenied =
     reason("sandbox-job:cancel") ?? (canWrite ? undefined : BOT_WRITE_DENIED);
   const answerDenied =
@@ -396,6 +412,32 @@ export function SandboxJobPage() {
                 Conversation #{job.parentConversationId}
               </Link>
             </Property>
+            <Property label="Repository">
+              {repository && repo ? (
+                <a
+                  href={repositoryUrl(`${repo.owner}/${repo.name}`, repo.host)}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mono"
+                  data-testid="sandbox-job-repository"
+                >
+                  {repository}
+                </a>
+              ) : (
+                "None"
+              )}
+            </Property>
+            {repo && (
+              <Property label="Mode">
+                <span
+                  data-testid="sandbox-job-mode"
+                  data-mode={repo.mode}
+                  title={jobModeDetail(repo.mode)}
+                >
+                  {jobModeWords(repo.mode)}
+                </span>
+              </Property>
+            )}
             <Property label="Kind">
               {job.interactive ? "Interactive" : "One task"}
             </Property>
@@ -498,6 +540,48 @@ export function SandboxJobPage() {
               <MarkdownBlock>{job.closingText}</MarkdownBlock>
             </section>
           )}
+          {pullRequests.length > 0 && (
+            <section
+              className="sandbox-block"
+              data-testid="sandbox-job-pull-requests"
+            >
+              <h2 className="sandbox-block-title">Pull requests</h2>
+              <ul className="sandbox-pulls">
+                {pullRequests.map((pr) => (
+                  <li
+                    key={pr.id}
+                    className="sandbox-pull"
+                    data-testid={`sandbox-pull-${pr.id}`}
+                    data-state={pr.state}
+                  >
+                    <GitPullRequest size={14} aria-hidden="true" />
+                    <a
+                      href={pr.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="mono"
+                    >
+                      {pr.repository}#{pr.number}
+                    </a>
+                    {pr.title && (
+                      <span className="sandbox-pull-title">{pr.title}</span>
+                    )}
+                    <Badge
+                      bg={PULL_REQUEST_STATE_TONE[pr.state] ?? "secondary"}
+                      data-testid={`sandbox-pull-state-${pr.id}`}
+                    >
+                      {pullRequestStateLabel(pr.state)}
+                    </Badge>
+                    {pr.headRef && (
+                      <span className="text-meta">
+                        from <span className="mono">{pr.headRef}</span>
+                      </span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
           {artifacts.length > 0 && (
             <section
               className="sandbox-block"
@@ -559,6 +643,47 @@ export function SandboxJobPage() {
                   {m.body}
                 </div>
               ))}
+            </section>
+          )}
+          {gitHandouts.length > 0 && (
+            <section className="sandbox-block" data-testid="sandbox-job-git">
+              <h2 className="sandbox-block-title">Git</h2>
+              <p className="text-meta mb-0">
+                Every credential the job asked for, one repository at a time.
+                Each is revoked when the job ends.
+              </p>
+              <ul className="sandbox-handouts">
+                {gitHandouts.map((h) => (
+                  <li
+                    key={h.id}
+                    className="sandbox-handout"
+                    data-testid={`sandbox-handout-${h.id}`}
+                    data-outcome={h.outcome}
+                  >
+                    <Badge bg={HANDOUT_OUTCOME_TONE[h.outcome] ?? "secondary"}>
+                      {handoutOutcomeLabel(h.outcome)}
+                    </Badge>
+                    <span className="mono">{h.repository}</span>
+                    {h.permission && (
+                      <Chip>{h.permission === "write" ? "Write" : "Read"}</Chip>
+                    )}
+                    <span
+                      className="text-meta tabular"
+                      title={new Date(h.createdAt).toLocaleString()}
+                    >
+                      {relativeTime(h.createdAt)}
+                    </span>
+                    {h.outcome !== "refused" && (
+                      <span className="text-meta">
+                        {h.revokedAt ? "revoked" : "not revoked yet"}
+                      </span>
+                    )}
+                    {h.reason && (
+                      <span className="sandbox-handout-reason">{h.reason}</span>
+                    )}
+                  </li>
+                ))}
+              </ul>
             </section>
           )}
           <section

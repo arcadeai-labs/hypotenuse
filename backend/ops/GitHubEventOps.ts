@@ -54,7 +54,7 @@ import type { ProcessResult } from "./TriggerEventOps";
  * | `pull_request_review_comment` (`created`) | `review_comment` | yes |
  * | `check_suite` (`completed`), conclusion `failure` / `timed_out` / `cancelled` / `action_required` | `check_failed` (each PR in `check_suite.pull_requests`) | yes |
  * | `check_suite` (`completed`), conclusion `success` | `check_passed` | yes |
- * | `pull_request` (`closed`) | `merged` / `closed`; the row's `state` follows | never: recorded in the inbox for the next turn |
+ * | `pull_request` (`closed`) | `merged` / `closed`; the row's `state` follows | yes (neither is in the default) |
  * | `installation` (`deleted` / `suspend` / `unsuspend`) | sets `revokedAt` / `suspendedAt` on every attached row of the installation; `processed: installation:<action>` | — |
  * | anything else | `ignored: unhandled:<event>.<action>` | — |
  *
