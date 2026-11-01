@@ -1,4 +1,4 @@
-import { and, eq, isNull, lte, or, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, lte, or, sql } from "drizzle-orm";
 import { api, config } from "keryx";
 // Type-only, purely for the `declare module "keryx"` augmentation inside.
 import type {} from "../config/platforms";
@@ -39,9 +39,9 @@ import {
   requestCancel,
 } from "./ConversationOps";
 import type { TxHandle } from "./DbOps";
-import { openInstallation } from "./InstallationOps";
+import { openInstallation, sealCredentials } from "./InstallationOps";
 import { enqueueDelivery } from "./OutboxOps";
-import { emitStatus } from "./SurfaceOps";
+import { emit, emitStatus } from "./SurfaceOps";
 
 /**
  * **Processing a trigger event**: what one verified platform delivery means
@@ -53,20 +53,26 @@ import { emitStatus } from "./SurfaceOps";
  *
  * | # | Condition | Outcome |
  * |---|---|---|
+ * | 0 | the body names a workspace other than the installation's (`workspaceOf`) | `ignored: unknown-installation` (the whole event) |
  * | 1 | `sender.isSelf` or `sender.isBot`, or an edit or delete | `ignored: loop` |
- * | 2 | `kind: lifecycle` | `applyLifecycle`: uninstall, archive, join, leave; `processed: lifecycle` |
+ * | 2 | `kind: lifecycle` | `applyLifecycle`: uninstall, archive, join, leave, disengage, settings; `processed: lifecycle` (`noted` is `ignored: <its note>`) |
  * | 3 | the channel is externally shared, unless the binding allows it | `ignored: shared-channel` |
  * | 4 | no binding for (bot, channel), and the bot's `autoBind` is off for this kind of channel | `ignored: unbound`; the channel is upserted so a person can bind it |
  * | 5 | no binding, and `autoBind` is on | create an enabled binding with the bot's defaults (`autoBound: true`, recorded on the event); continue |
  * | 6 | the binding is disabled, or the bot is | `ignored: disabled` |
  * | 7 | `kind: message`, not addressed, mode `mentions`, and no conversation for this thread yet | `ignored: not-addressed` |
- * | 8 | `kind: signal` (`stop`, `disengage`) | cancel the conversation; `processed: signal` (`ignored: no-conversation` without one) |
+ * | 8 | `kind: signal` (`stop`, `disengage`) | cancel the conversation, then write the platform's expected answer (`reply`) if it names one; `processed: signal` (`ignored: no-conversation` without one) |
  * | 9 | `kind: interaction`, or a message reading `approve <id>` / `deny <id>` under an in-channel approval policy | resolve the question or approval it targets (`InteractionOps`); `processed: interaction` or `ignored: <why>` |
  * | 10 | the participant's or the channel's rate limit is exceeded | `ignored: rate-limited` |
  * | 11 | otherwise | upsert the participant; find or create the conversation by (bot, channel, thread); insert the inbox row keyed by the message; wake; write the acknowledgement `status` row (priority `ack`) in the same transaction; `processed: message` |
  *
  * Lifecycle comes before the channel rules because an uninstall is about the
  * installation, not a channel: it must apply wherever it was sent from.
+ *
+ * On a platform whose conversation keys are global (`globalConversationKeys`,
+ * a Linear session), an existing conversation for the key decides the
+ * channel: the issue may have moved since, and a conversation never changes
+ * its memory boundary mid-way.
  */
 
 /** What processing decided, written on the event. */
@@ -291,6 +297,17 @@ async function applyRules(
   const adapter = platformAdapter(row.installation.type);
   if (!adapter) return { ...result, outcome: "no-adapter" };
   const inst = openInstallation(row.installation);
+  const workspace = adapter.workspaceOf?.(event.payload) ?? null;
+  if (
+    workspace !== null &&
+    workspace !== row.installation.externalWorkspaceId
+  ) {
+    return {
+      ...result,
+      outcome: "unknown-installation",
+      detail: { workspace },
+    };
+  }
   for (const inbound of adapter.parseInbound(event.payload, inst)) {
     const one = await applyOne(tx, adapter, inst, row.bot, inbound, result);
     result.status = one.status;
@@ -341,7 +358,10 @@ async function applyOne(
     return applyLifecycle(tx, adapter, inst, bot, inbound, acc);
   }
 
-  const channel = await upsertPlatformChannel(tx, installation, ref);
+  const channel =
+    (adapter.globalConversationKeys && inbound.conversationKey
+      ? await channelOfKey(tx, bot.id, installation, inbound.conversationKey)
+      : undefined) ?? (await upsertPlatformChannel(tx, installation, ref));
   let binding = await bindingFor(tx, bot.id, channel.id);
   const detail: Record<string, unknown> = { channelId: channel.id };
 
@@ -401,6 +421,15 @@ async function applyOne(
     if (!locked) return ignored("no-conversation", detail);
     const cancelled = await requestCancel(tx, locked.conversation);
     if (cancelled.kind === "requested") acc.wake.push(cancelled.conversation);
+    if (inbound.reply) {
+      const answered = await emit(tx, cancelled.conversation, {
+        kind: "message",
+        payload: { messageKind: "reply", text: inbound.reply },
+        priority: "ack",
+        acknowledgesAnswer: true,
+      });
+      if (answered) acc.deliver.push(existing.id);
+    }
     acc.ping.push({ projectId: bot.projectId, conversationId: existing.id });
     return {
       status: "processed",
@@ -419,6 +448,7 @@ async function applyOne(
     const interaction = inbound.interaction ?? typedApproval;
     if (!interaction) return ignored("malformed-interaction", detail);
     return applyInteraction(tx, {
+      adapter,
       inst,
       bot,
       channel,
@@ -462,7 +492,13 @@ async function applyOne(
   const participant = await upsertParticipant(tx, installation, inbound.sender);
   const conversation =
     existing ??
-    (await createConversation(tx, bot, channel, inbound.conversationKey));
+    (await createConversation(
+      tx,
+      bot,
+      channel,
+      inbound.conversationKey,
+      inbound.conversationDetails,
+    ));
   const locked = await lockConversation(tx, conversation.id);
   if (!locked) throw new Error("The conversation vanished while processing");
   const received = await receiveMessage(tx, locked.conversation, {
@@ -474,7 +510,13 @@ async function applyOne(
   });
   if (received.woke) acc.wake.push(received.conversation);
   if (!received.duplicate) {
-    const ack = await emitStatus(tx, received.conversation, "Thinking…", "ack");
+    const ack = await emitStatus(
+      tx,
+      received.conversation,
+      "Thinking…",
+      "ack",
+      inbound.ackPayload,
+    );
     if (ack) acc.deliver.push(conversation.id);
   }
   acc.ping.push({ projectId: bot.projectId, conversationId: conversation.id });
@@ -501,6 +543,9 @@ async function applyOne(
  * | `channel_archived` | the channel is marked archived |
  * | `channel_joined` (the bot was invited) | the channel is recorded; with no binding, one is created when the bot's `autoBind` covers this kind of channel (`autoBound`) |
  * | `channel_left` (the bot was removed) | an auto-created binding is deleted, a person's is disabled; the bot's live conversations in the channel are cancelled |
+ * | `disengage` (an issue completed, deleted, or taken from the bot) | the bot's live conversations in the workspace whose `details` match are cancelled |
+ * | `settings` (the platform changed what the app may see) | the settings are merged into the installation's config |
+ * | `noted` | nothing; `ignored` with the note as its outcome |
  * @param tx - The event's transaction.
  * @param adapter - The platform.
  * @param inst - The installation.
@@ -524,10 +569,67 @@ async function applyLifecycle(
     outcome: "lifecycle",
     detail,
   });
-  if (inbound.lifecycle === "uninstall") {
+  if (inbound.lifecycle === "noted") {
+    return {
+      status: "ignored",
+      outcome: inbound.note ?? "noted",
+      detail,
+    };
+  }
+  if (inbound.lifecycle === "settings") {
     await tx
       .update(botInstallations)
-      .set({ status: "uninstalled" })
+      .set({
+        config: sql`${botInstallations.config} || ${JSON.stringify(inbound.settings ?? {})}::jsonb`,
+      })
+      .where(eq(botInstallations.id, installation.id));
+    detail.settings = Object.keys(inbound.settings ?? {});
+    return done();
+  }
+  if (inbound.lifecycle === "disengage") {
+    const match = inbound.disengage;
+    if (!match || match.values.length === 0) return done();
+    const live = await tx
+      .select({ id: conversations.id })
+      .from(conversations)
+      .innerJoin(channels, eq(channels.id, conversations.channelId))
+      .where(
+        and(
+          eq(conversations.botId, bot.id),
+          eq(channels.type, installation.type),
+          sql`${channels.externalId} like ${`${installation.externalWorkspaceId}/%`}`,
+          sql`${conversations.state} <> 'ended'`,
+          inArray(sql`${conversations.details}->>${match.key}`, match.values),
+        ),
+      );
+    detail.match = match;
+    detail.cancelled = await disengage(
+      tx,
+      bot,
+      live.map((c) => c.id),
+      acc,
+    );
+    return done();
+  }
+  if (inbound.lifecycle === "uninstall") {
+    // The tokens the install granted are forgotten (never revoked: revoking
+    // a Linear app's token uninstalls it); the client credentials stay, so
+    // the app can be installed again.
+    const forget = adapter.oauth?.tokenKeys ?? [];
+    const kept =
+      forget.length > 0
+        ? Object.fromEntries(
+            Object.entries(inst.credentials).filter(
+              ([k]) => !forget.includes(k),
+            ),
+          )
+        : null;
+    await tx
+      .update(botInstallations)
+      .set({
+        status: "uninstalled",
+        ...(kept ? { credentials: sealCredentials(kept) } : {}),
+      })
       .where(eq(botInstallations.id, installation.id));
     const live = await tx
       .select({ id: conversations.id })
@@ -639,6 +741,37 @@ async function disengage(
 }
 
 /**
+ * The channel a bot's existing conversation for a global key lives in: on a
+ * platform whose keys name one conversation everywhere (a Linear session).
+ * @param tx - A transaction.
+ * @param botId - The bot.
+ * @param installation - The installation, whose workspace the channel is in.
+ * @param key - The conversation key.
+ * @returns The channel, or `undefined` for a new conversation.
+ */
+async function channelOfKey(
+  tx: TxHandle,
+  botId: number,
+  installation: BotInstallation,
+  key: string,
+): Promise<Channel | undefined> {
+  const [row] = await tx
+    .select({ channel: channels })
+    .from(conversations)
+    .innerJoin(channels, eq(channels.id, conversations.channelId))
+    .where(
+      and(
+        eq(conversations.botId, botId),
+        eq(conversations.externalConversationKey, key),
+        eq(channels.type, installation.type),
+        sql`${channels.externalId} like ${`${installation.externalWorkspaceId}/%`}`,
+      ),
+    )
+    .limit(1);
+  return row?.channel;
+}
+
+/**
  * A bot's conversation for a thread in a channel.
  * @param tx - A transaction.
  * @param botId - The bot.
@@ -674,6 +807,7 @@ async function findConversation(
  * @param bot - The bot.
  * @param channel - The channel.
  * @param key - The thread, session, or issue.
+ * @param details - What the platform knows about the thread.
  * @returns The conversation.
  */
 async function createConversation(
@@ -681,6 +815,7 @@ async function createConversation(
   bot: Bot,
   channel: Channel,
   key: string,
+  details: Record<string, unknown> = {},
 ): Promise<Conversation> {
   await tx
     .insert(conversations)
@@ -691,6 +826,7 @@ async function createConversation(
       externalConversationKey: key,
       title: null,
       state: "hibernating",
+      details,
     })
     .onConflictDoNothing();
   const found = await findConversation(tx, bot.id, channel.id, key);
@@ -713,6 +849,7 @@ export function parseApprovalReply(
 
 /** Everything an interaction is resolved with. */
 interface InteractionInput {
+  adapter: PlatformAdapter;
   inst: OpenInstallation;
   bot: Bot;
   channel: Channel;
@@ -779,6 +916,7 @@ async function applyInteraction(
       metadata: { source: "interaction", targetId: i.interaction.targetId },
     });
     if (received.woke) i.acc.wake.push(received.conversation);
+    await acknowledgeInteraction(tx, i, received.conversation);
     i.acc.ping.push({
       projectId: conversation.projectId,
       conversationId: conversation.id,
@@ -837,6 +975,7 @@ async function applyInteraction(
     after: { approval: serializeApproval(decided.approval) },
   });
   if (decided.woke) i.acc.wake.push(decided.woke);
+  await acknowledgeInteraction(tx, i, decided.woke ?? conversation);
   i.acc.ping.push({
     projectId: conversation.projectId,
     conversationId: conversation.id,
@@ -846,6 +985,25 @@ async function applyInteraction(
     outcome: "interaction",
     detail: { ...detail, approvalId: approval.id, decision: approve },
   };
+}
+
+/**
+ * Acknowledge an interaction on a platform where a person's answer reopens a
+ * thread that must hear back promptly (Linear expects an activity within
+ * seconds of a person's prompt, and an elicitation is answered by one).
+ * Elsewhere the woken tick's own status is enough.
+ * @param tx - The event's transaction.
+ * @param i - The interaction.
+ * @param conversation - The conversation, as it now is.
+ */
+async function acknowledgeInteraction(
+  tx: TxHandle,
+  i: InteractionInput,
+  conversation: Conversation,
+): Promise<void> {
+  if (!i.adapter.capabilities.elicitation) return;
+  const ack = await emitStatus(tx, conversation, "Thinking…", "ack");
+  if (ack) i.acc.deliver.push(conversation.id);
 }
 
 /**

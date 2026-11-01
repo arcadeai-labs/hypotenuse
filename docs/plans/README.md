@@ -163,6 +163,16 @@ text, a plan message, question and approval buttons, and `mrkdwn` answers that n
 uninstall, and token revocation disengage; Slack Connect refused; a per-installation token bucket; the Slack fake
 validating every call against Slack's pinned spec; the Slack block on the Channels section, `hypotenuse slack`, and
 the Slack user docs.
+**[Phase 15](./phase-15-linear.md) is built**: Linear as a platform — one Linear OAuth app per bot, created from a
+pre-filled link and installed with `actor=app` and PKCE through the generic OAuth hops; `webhooks:linear` verifying
+`Linear-Signature` and the signed `webhookTimestamp`, never refusing a workspace that installed the bot; agent
+sessions as conversations, the issue's project (or team) as the channel; an acknowledging `thought` within Linear's
+ten seconds and issue hygiene; status as ephemeral thoughts, the plan as the session's checklist with actions,
+questions and approvals as elicitations with `select` options, answers as responses; Stop answered once, and
+un-delegation, completion, deletion, unassignment, lost team access, and revocation disengaging silently; tokens
+refreshed under the row lock with the replay grace and never revoked; `linear_issue_view` and an approval-gated
+`linear_comment_create`; finear as the test Linear; the Linear block on the Channels section, `hypotenuse linear`,
+and the Linear user docs.
 No other phase is built; every later plan's **Learnings from the
 build** section reads "Not built yet." until its phase lands.
 

@@ -1,4 +1,5 @@
 import { apiAdapter } from "./api/adapter";
+import { linearAdapter } from "./linear/adapter";
 import { slackAdapter } from "./slack/adapter";
 import type { PlatformAdapter, SurfaceAdapter } from "./types";
 import { webAdapter } from "./web/adapter";
@@ -15,6 +16,7 @@ import { webhookAdapter } from "./webhook/adapter";
 export const PLATFORM_ADAPTERS: Record<string, PlatformAdapter> = {
   webhook: webhookAdapter,
   slack: slackAdapter,
+  linear: linearAdapter,
 };
 
 /** Every surface, keyed by channel type. */

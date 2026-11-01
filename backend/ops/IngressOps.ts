@@ -11,7 +11,10 @@ import { enqueueProcessing, recordTriggerEvent } from "./TriggerEventOps";
  * answers within the platform's clock and never calls the platform inline:
  *
  * 1. Read the routing key from the raw path and find the installation by its
- *    hash. Unknown, pending, errored, or uninstalled: **the 404**.
+ *    hash. Unknown, pending, errored, or uninstalled: **the 404** — except
+ *    on a platform that must never see a refusal (`acknowledgeWhileInactive`,
+ *    Linear), where an installation that still holds its signing secret is
+ *    verified and answered 200, and the delivery dropped.
  * 2. Verify the signature over the raw bytes (constant time, a timestamp
  *    window). A failure: **the same 404**, byte for byte, so a prober learns
  *    nothing about which keys exist.
@@ -59,6 +62,7 @@ export async function handleDelivery(
     type,
     routingKey,
     adapter.handshakeWhilePending === true,
+    adapter.acknowledgeWhileInactive === true,
   );
   if (!installation) {
     // Drain the body so a keep-alive connection stays usable.

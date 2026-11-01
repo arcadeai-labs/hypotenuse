@@ -4,6 +4,8 @@ import { escalateToHuman } from "./escalate-to-human";
 import { fail } from "./fail";
 import { goalList } from "./goal-list";
 import { goalUpdate } from "./goal-update";
+import { linearCommentCreate } from "./linear-comment-create";
+import { linearIssueView } from "./linear-issue-view";
 import { mcpExec } from "./mcp-exec";
 import { mcpInfo } from "./mcp-info";
 import { mcpListTools } from "./mcp-list-tools";
@@ -30,7 +32,8 @@ import { waitFor } from "./wait-for";
 /**
  * The tool registry: every tool a bot may be offered, by name. The built-in
  * tools, the memory tools, the MCP meta-tools, the prompt, goal, and skill
- * tools, and code mode's `run_code` register here.
+ * tools, code mode's `run_code`, and — in a Linear session only — the
+ * `linear_*` tools register here.
  */
 
 /** Every registered tool. */
@@ -122,6 +125,8 @@ for (const tool of [
   useSkill,
   runCode,
   escalateToHuman,
+  linearIssueView,
+  linearCommentCreate,
 ] as ToolDefinition[]) {
   registerTool(tool);
 }

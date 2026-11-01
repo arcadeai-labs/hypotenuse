@@ -130,6 +130,8 @@ export interface AppManifest {
   instructions: string;
   /** The definition itself, in the platform's own format. */
   manifest: Record<string, unknown>;
+  /** A link to the platform's own form, pre-filled with the definition (Linear). */
+  link?: string;
 }
 
 /** A request as it arrived: the raw bytes are what platforms sign. */
@@ -184,13 +186,42 @@ export interface NormalizedInbound {
   /**
    * `uninstall` — the app was removed or its token revoked; `channel_archived`;
    * `channel_joined` — the bot was invited to the channel; `channel_left` —
-   * the bot was removed from it.
+   * the bot was removed from it; `disengage` — the conversations matching
+   * {@link NormalizedInbound.disengage} end (an issue completed, deleted, or
+   * taken away from the bot); `settings` — {@link NormalizedInbound.settings}
+   * are merged into the installation's config; `noted` — recorded with the
+   * decided outcome {@link NormalizedInbound.note}, changing nothing.
    */
   lifecycle?:
     | "uninstall"
     | "channel_archived"
     | "channel_joined"
-    | "channel_left";
+    | "channel_left"
+    | "disengage"
+    | "settings"
+    | "noted";
+  /**
+   * For `disengage`: the bot's live conversations in this workspace whose
+   * `details[key]` is one of `values` end, silently.
+   */
+  disengage?: { key: string; values: string[] };
+  /** For `settings`: non-secret settings to merge into the installation's config. */
+  settings?: Record<string, unknown>;
+  /** For `noted`: the outcome recorded, e.g. `assigned-not-delegated`. */
+  note?: string;
+  /**
+   * What the platform knows about the thread, stored on a new conversation's
+   * `details` (a Linear session's issue, team, and project).
+   */
+  conversationDetails?: Record<string, unknown>;
+  /** Extra payload on the acknowledgement row (the platform's own bookkeeping). */
+  ackPayload?: Record<string, unknown>;
+  /**
+   * For a `stop` signal: the answer the platform expects once the
+   * conversation is cancelled (Linear keeps a stopped session `stopping`
+   * until the agent says something final).
+   */
+  reply?: string;
   /** The platform's acknowledgement clock. */
   ackDeadlineMs?: number;
 }
@@ -215,28 +246,43 @@ export interface OAuthResult {
 /** A platform whose app is installed into a workspace by OAuth. */
 export interface OAuthInstall {
   /**
+   * Whether the install uses PKCE (S256): the verifier is kept with the
+   * install's state and given to {@link OAuthInstall.exchange}.
+   */
+  pkce?: boolean;
+  /**
+   * The credential keys an install grants (OAuth tokens), forgotten when the
+   * platform says the app was uninstalled. The client credentials stay, so
+   * the app can be installed again.
+   */
+  tokenKeys?: string[];
+  /**
    * Where a person approves the install.
    * @param inst - The installation, with its client credentials.
    * @param redirectUri - Where the platform sends the browser back.
    * @param state - The single-use state that names this install.
+   * @param codeChallenge - The PKCE challenge (S256), when {@link OAuthInstall.pkce}.
    * @returns The URL.
    */
   authorizeUrl(
     inst: OpenInstallation,
     redirectUri: string,
     state: string,
+    codeChallenge?: string,
   ): string;
   /**
    * Exchange the code the platform returned for the installation's token.
    * @param inst - The installation.
    * @param code - The authorization code.
    * @param redirectUri - The redirect the code was issued for.
+   * @param codeVerifier - The PKCE verifier, when {@link OAuthInstall.pkce}.
    * @returns What to store.
    */
   exchange(
     inst: OpenInstallation,
     code: string,
     redirectUri: string,
+    codeVerifier?: string,
   ): Promise<OAuthResult>;
 }
 
@@ -275,6 +321,27 @@ export interface PlatformAdapter extends SurfaceAdapter {
    * created, before anyone installs it). Its other deliveries are dropped.
    */
   handshakeWhilePending?: boolean;
+  /**
+   * Whether a signed delivery to an installation that is not active (waiting
+   * to be installed, errored, or uninstalled) is still answered 200 and
+   * dropped, never refused: Linear disables a webhook whose deliveries keep
+   * failing, for every workspace of the app.
+   */
+  acknowledgeWhileInactive?: boolean;
+  /**
+   * Whether a conversation key names one conversation across the platform
+   * (a Linear agent session id), so a conversation keeps its channel even
+   * when the thing it is about moves (an issue moved to another project).
+   */
+  globalConversationKeys?: boolean;
+  /**
+   * The workspace a delivery says it is from, when the platform names it in
+   * the body. A delivery from a workspace other than the installation's is
+   * recorded `unknown-installation` and changes nothing.
+   * @param body - The parsed body.
+   * @returns The workspace id, or `null` when the body does not say.
+   */
+  workspaceOf?(body: unknown): string | null;
   /** The OAuth install, for platforms whose app is installed that way. */
   oauth?: OAuthInstall;
   /**

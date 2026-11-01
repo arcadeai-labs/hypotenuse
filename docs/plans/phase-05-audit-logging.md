@@ -358,6 +358,11 @@ Edit a project name in the browser, then open Audit log: one row, actor you, bef
   Redis and answers the install URL — so it is a read. Creating the app (`slack:app-create`) and the install the
   OAuth callback completes (`bot-installation:oauth-callback`, audited as the person who started it, like
   `mcp-server:oauth-callback`) are audited.
+- **Linear added one unaudited writer**, `webhooks:linear` (signed machine ingress for each bot's Linear app,
+  recorded as a `trigger_events` row), and one clock, `installations:refresh-tokens` (refreshing Linear access
+  tokens before they expire, recorded on the installation). The `linear_*` tools are tools a bot runs, covered by
+  the `agent:tick` row; a comment one writes waits for an approval a person decides, audited. Connecting the app
+  and its install are the generic `bot-installation:*` actions, audited as for Slack.
 - **Rule 13: no CLI command wraps `audit:list` or `organization:audit-list` yet** — deferred, not out of scope, as
   with phase 04's actions: [phase 06](./phase-06-operator-cli.md) is the CLI's sign-in.
 

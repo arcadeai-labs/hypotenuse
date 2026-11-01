@@ -2,7 +2,7 @@
 
 > **Goal:** A bot is its own Linear agent. A workspace admin creates the bot's Linear OAuth app from a link Hypotenuse pre-fills, then installs it. After that, anyone in the workspace can delegate an issue to the bot or mention it. The bot acknowledges within seconds, then thinks, plans, calls tools, and answers inside the Linear agent session. It remembers the issue's Linear project.
 
-> **Status: planned, not built.** Builds on [the channel framework](./phase-13-channel-framework.md) (adapter registry, `bot_installations`, `channels`, `channel_bindings`, `participants`, `trigger_events`, `outbox_messages`), the [durable agent loop](./phase-08-durable-agent-loop.md), and [memory](./phase-09-memory.md). Most of the Linear code already exists on the archived [`v1` branch](https://github.com/arcadeai-labs/hypotenuse/tree/v1) and is ported, not rewritten. [Slack](./phase-14-slack.md) and [Pylon](./phase-16-pylon.md) are siblings.
+> **Status: built.** Builds on [the channel framework](./phase-13-channel-framework.md) (adapter registry, `bot_installations`, `channels`, `channel_bindings`, `participants`, `trigger_events`, `outbox_messages`), the [durable agent loop](./phase-08-durable-agent-loop.md), and [memory](./phase-09-memory.md). Most of the Linear code already exists on the archived [`v1` branch](https://github.com/arcadeai-labs/hypotenuse/tree/v1) and is ported, not rewritten. [Slack](./phase-14-slack.md) and [Pylon](./phase-16-pylon.md) are siblings.
 
 v1 *was* a Linear agent. Twenty-one phases taught it how Linear's agent sessions behave, where finear differs from real Linear, and which mistakes cost an uninstall. Two things change in 2.0:
 
@@ -326,15 +326,15 @@ By hand: create a bot's Linear app from the link; install it in a test workspace
 
 ## Definition of done
 
-- [ ] Each bot has its own Linear OAuth app, created from a pre-filled link and installed per workspace with `actor=app`
-- [ ] `webhooks:linear` verifies per app, answers within 5 s, never refuses a workspace, and dedupes on `Linear-Delivery`
-- [ ] Every `created` session is acknowledged within 10 s
-- [ ] Sessions are conversations; activities, plan, elicitation, and `externalUrls` render the interactive surface
-- [ ] Every disengagement cancels silently; nothing follows an elicitation
-- [ ] Channel memory is the issue's Linear project, falling back to its team
-- [ ] Linear tools re-derive their scope from the conversation; no Linear credential leaves the server
-- [ ] `docs/LINEAR_COVERAGE.md` is back, every row has its test, and the docs test is green
-- [ ] Bot Linear tab, CLI, and `linear.md` ship in the same PR
+- [x] Each bot has its own Linear OAuth app, created from a pre-filled link and installed per workspace with `actor=app`
+- [x] `webhooks:linear` verifies per app, answers within 5 s, never refuses a workspace, and dedupes on `Linear-Delivery`
+- [x] Every `created` session is acknowledged within 10 s
+- [x] Sessions are conversations; activities, plan, elicitation, and `externalUrls` render the interactive surface
+- [x] Every disengagement cancels silently; nothing follows an elicitation
+- [x] Channel memory is the issue's Linear project, falling back to its team
+- [x] Linear tools re-derive their scope from the conversation; no Linear credential leaves the server
+- [x] `docs/LINEAR_COVERAGE.md` is back, every row has its test, and the docs test is green
+- [x] Bot Linear tab, CLI, and `linear.md` ship in the same PR
 
 ## Open questions
 
@@ -345,4 +345,78 @@ By hand: create a bot's Linear app from the link; install it in a test workspace
 
 ## Learnings from the build
 
-Not built yet.
+### What is built
+
+| Piece | Where |
+|---|---|
+| The adapter: `Linear-Signature` verification with the previous secret and the signed `webhookTimestamp` (60 s), the OAuth install with `actor=app` and PKCE, and the activities out | `backend/platforms/linear/{adapter,events}.ts`, registered in `backend/platforms/registry.ts` |
+| The API client (GraphQL and the token endpoint, `RATELIMITED`, refresh under the row lock with the replay grace, never revoke) and the per-installation bucket with a reserve | `backend/ops/LinearOps.ts`, `backend/lua/linear-bucket.lua`, `config.platforms.linear` |
+| The manifest and its pre-filled creation link; mention-safe, size-capped bodies | `backend/ops/LinearManifestOps.ts`, `backend/ops/LinearMarkdownOps.ts` |
+| Contract additions: `acknowledgeWhileInactive`, `globalConversationKeys`, `workspaceOf`, `oauth.pkce` and `oauth.tokenKeys`, a manifest's `link`; inbound `conversationDetails`, `ackPayload`, a stop's `reply`, and the lifecycles `disengage`, `settings`, `noted` | `backend/platforms/types.ts`, `backend/ops/{TriggerEventOps,IngressOps,InstallationOps}.ts`, the generic OAuth hops |
+| `conversations.details` (a session's issue, team, and project) | `backend/schema/conversations.ts`, migration `0013` |
+| Actions: `webhooks:linear`; the clock `installations:refresh-tokens` | `backend/actions/webhooks/webhooks-linear.ts`, `backend/actions/installations/` |
+| Tools: `linear_issue_view`, `linear_comment_create` (gated), offered only in a Linear session | `backend/tools/linear-*.ts` |
+| finear as the test Linear, fetched at the pinned commit (`bun run finear:fetch`, run by `bun run test`), behind a recording proxy that also answers `RATELIMITED` and loses responses | `backend/scripts/fetch-finear.ts`, `backend/__tests__/linear/{finear,harness}.ts` |
+| Proof | `backend/__tests__/linear/{install,session,conformance-linear}.test.ts`, `backend/__tests__/cli/linear-commands.test.ts`; the coverage matrix [`docs/platform-coverage/linear.md`](../platform-coverage/linear.md) |
+| Dashboard | the Linear block on the bot's Channels section (`frontend/src/components/bots/LinearPlatformBlock.tsx`) |
+| CLI 2.10.0 | `hypotenuse linear link\|connect\|install` (`cli/src/commands/linear.ts`); `installation manifest` prints a platform's `link`; `installation test`, `view`, and `disconnect` serve Linear |
+| User docs | `frontend/src/content/docs/linear.md`; `connecting-a-platform.md` and `cli.md` updated |
+
+### Decisions the plan left open, and where the build differs
+
+| The plan says | As built |
+|---|---|
+| `backend/channels/linear/`, `backend/tools/linear/*.ts` | `backend/platforms/linear/` ([channel framework learnings](./phase-13-channel-framework.md#decisions-the-plan-left-open-and-where-the-build-differs)); `backend/tools/linear-*.ts`, beside every other tool |
+| `linear:manifest-url`, `linear:app-register`, `linear:install-url`, `linear:callback`, `linear:uninstall` | the framework's `bot-installation:manifest` (answering the creation `link`), `:connect`, `:oauth-start` / `:oauth-callback` (now with PKCE for a platform that asks for it), and `:disconnect`. Linear has no action of its own but its webhook |
+| a second workspace is a second installation under the same app credentials | one installation per bot per workspace, as Slack: the first install sets the workspace, and a delivery naming another `organizationId` is recorded `unknown-installation` with the 200 it already got. A second workspace needs a second app (a new creation link). The routing key names one installation, and an app's webhook URL is one URL, so serving many workspaces from one app needs routing by `organizationId` after verification — not built |
+| a bad signature and a stale timestamp get byte-identical **401**s; an unknown or disconnected workspace gets 200 | every routing or signature failure is the framework's byte-identical 404. An installation that is not active but still holds its webhook secret (pending, errored, uninstalled) is verified and answered 200 (`acknowledgeWhileInactive`), so Linear never sees a failure from a workspace that once installed the bot. A disconnected one forgets its secret and is the 404 |
+| body cap 5 MiB | the framework's `PLATFORM_MAX_BODY_BYTES` (1 MiB) |
+| `AppUserNotification` `issueStatusChanged` sets `checkAfter` for `triggers:check-notifications` | not built: the app subscribes to `Issue` events, whose `update` carries the new state's `type` and the `updatedFrom` it changed, so completion, cancellation, and un-delegation (the delegate taken away, which a dismissed session also does) are read from that one event. Every notification starts nothing and is recorded with a decided outcome (`assigned-not-delegated`, `notification-<type>`) |
+| the acknowledgement, a server-emitted `thought` ("On it.") | the framework's acknowledgement row (`Thinking…`, priority `ack`), which Linear renders as a non-ephemeral `thought` on the bucket's reserve. A person's prompt that answers an elicitation or decides an approval is acknowledged too (`acknowledgeInteraction`, on a platform with `elicitation`), because Linear clears a session's acknowledgement on every human prompt |
+| issue hygiene at the bot's first tick; set a missing delegate | after the acknowledgement is delivered, by the adapter (the ack row carries `hygiene` when the issue's delegate is the bot): no tick waits on it and it never fails one. A missing delegate is not set: a session the bot was delegated already names it |
+| `step` → `action` | an `action` (with its `result`) for each plan step that finished since the last plan row sent, with an id derived from the conversation and the step, so redelivery adds none |
+| approvals by option or by free text the `fast` model reads; `requester` / `anyone-in-channel` / `project-members` / `dashboard-only` | the framework's binding policies: under `participants` (or `listed`), the elicitation offers `Approve #<id>` / `Deny #<id>` as `select` options, read by the existing `approve <id>` reply rule; under `dashboard`, it links to the request. Free text is a message to the bot, not a decision |
+| session title from the `fast` model (`agentSessionUpdate(summary)`); a sandbox PR as `addedExternalUrls` | not built: no summary is written, and sandboxes do not exist yet |
+| Linear tools `linear_issue_view`, `_search`, `linear_comment_create`, `linear_issue_create`, `_relation_create`, `linear_document_*` | `linear_issue_view` and `linear_comment_create`. A comment always waits for an approval (there is no Linear allowlist); reads run. The rest wait on whether a bot should reach Linear beyond its session through these tools or through Linear's own MCP server registered as a shared MCP server (the plan's open question) |
+| `docs/LINEAR_COVERAGE.md` keeping v1's `LC-*` ids | [`docs/platform-coverage/linear.md`](../platform-coverage/linear.md) with `linear.*` ids, beside Slack's, read by the same `coverage.test.ts`; v1's runner and dispatch rows have nothing to point at |
+| one finear OAuth client per bot fixture | finear takes clients only at boot; the harness registers each bot's at run time through finear's own exported `registerClient` |
+
+- **A stop is answered.** finear (and Linear's docs) keep a stopped session `stopping` until the agent writes a
+  `response` or `error`, and refuse anything else. A `stop` signal cancels the conversation and writes one
+  `response` — the inbound's `reply`, quoting the person's note without acting on it — on the reserve.
+- **A retried activity asks first.** finear refuses any app activity on a session a `response` completed, a replay of
+  that same `response` included, before it checks the activity's id. An outbox row's second attempt therefore asks
+  `agentActivity(id)` and counts it sent when it is there. Whether real Linear refuses the replay or answers the
+  duplicate id is unconfirmed; asking first is right either way.
+- **An issue that moves keeps its session's channel.** A Linear session id names one conversation everywhere
+  (`globalConversationKeys`), so a `prompted` for an existing session reads its channel from the conversation, not
+  from the issue's project now. The next session on the issue uses the new project.
+- **Uninstall forgets the tokens and keeps the client credentials** (`oauth.tokenKeys`), so `oauth-start` installs
+  the same app again. Nothing calls `oauth/revoke`.
+- **Two finear quirks the tests read through:** the `plan` and `signalMetadata` fields are Linear's `JSON` scalar
+  and come back as strings; and the fixture "projects" in finear's seed are project *statuses* — tests create
+  projects with `projectCreate`.
+
+### Upstream: finear gaps
+
+Each is driven another way meanwhile — the test signs the body with the app's real secret, or the harness's proxy
+answers — never by faking Linear in `backend/`. None is filed yet: a person files each at
+[`pmdroid/finear`](https://github.com/pmdroid/finear/issues) and records the number here and in AGENTS.md rule 4.
+
+| Gap | Meanwhile |
+|---|---|
+| No `AppUserNotification`, `PermissionChange`, `OAuthApp revoked`, or `Issue remove` delivery to an app's webhook | signed injection (`inject` in `__tests__/linear/harness.ts`) |
+| No `RATELIMITED` and no `X-RateLimit-*` headers | the proxy answers one request with Linear's documented refusal |
+| OAuth clients only at boot | `registerClient` in process |
+| One person per workspace, so no listed or second approver | the conformance suite's `listed` case is not run for Linear |
+
+### Traps found while building
+
+- **An import cycle through the registry.** `platforms/registry.ts` → the Linear adapter → `LinearOps` →
+  `InstallationOps` → the registry left `linearAdapter` uninitialized at boot. The credential helpers moved to
+  `ops/InstallationCredentialOps.ts`, which reads no registry; `InstallationOps` re-exports them.
+- **Two suites on one test database** — a third time: running one file while the full backend suite ran truncated
+  its tables and failed unrelated CLI suites. One run at a time, or `bun run workspace:setup`.
+- **`settle()` runs ticks before deliveries**, so a turn's acknowledgement and plan rows are superseded by its answer
+  before the outbox walks. The acknowledgement test runs the tick on a hanging model and delivers while it hangs;
+  the plan test writes rows (`emit`) and delivers between them, as Slack's do.

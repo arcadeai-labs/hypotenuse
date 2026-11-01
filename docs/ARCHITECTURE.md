@@ -258,7 +258,11 @@ the dashboard reads Postgres), and the generic signed `webhook` platform. **Slac
 configuration token and installed by OAuth (`bot-installation:oauth-start` / `:oauth-callback`, generic for any OAuth
 platform); v0-signed events and `block_actions` in; `assistant.threads.setStatus`, streamed `markdown_text`, a plan
 message edited in place, and Block Kit buttons out, through one Web API client with a per-installation token bucket.
-Linear and Pylon are next.
+**Linear** is built ([phase 15](./plans/phase-15-linear.md)): one Linear OAuth app per bot, created from a pre-filled
+link and installed with `actor=app` and PKCE; signed webhooks in, answered 200 even for an installation that is not
+active; an agent session is a conversation and the issue's project (or team) its channel; thoughts, the session's
+plan, actions, elicitations, and responses out, through one GraphQL client that refreshes tokens under the row lock
+and paces each installation with a bucket that keeps a reserve for acknowledgements. Pylon is next.
 
 - **Ingress** (`webhooks:<type>`) reads the routing key from the raw path, verifies the signature over the raw bytes,
   records a `trigger_events` row deduped on the platform's delivery id, answers, and enqueues; every routing or

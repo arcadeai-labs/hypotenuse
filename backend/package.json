@@ -1,7 +1,7 @@
 {
   "name": "hypotenuse-backend",
   "version": "0.0.1",
-  "description": "Hypotenuse \u2014 a persistent multiplayer, multichannel agent for your team, powered by Keryx",
+  "description": "Hypotenuse — a persistent multiplayer, multichannel agent for your team, powered by Keryx",
   "module": "index.ts",
   "type": "module",
   "private": true,
@@ -14,10 +14,11 @@
     "dev": "bun --watch keryx.ts start",
     "migrations": "bun run migrations.ts",
     "workspace:setup": "bun run scripts/setup-workspace.ts",
-    "test": "bun test",
+    "test": "bun run finear:fetch && bun test",
     "lint": "tsc && biome check .",
     "format": "tsc && biome check --write .",
-    "slack:fetch-spec": "bun run scripts/fetch-slack-spec.ts"
+    "slack:fetch-spec": "bun run scripts/fetch-slack-spec.ts",
+    "finear:fetch": "bun run scripts/fetch-finear.ts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "4.0.91",
@@ -36,9 +37,11 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.8",
+    "@linear/sdk": "97.1.0",
     "@types/bun": "latest",
     "@types/nodemailer": "^8.0.2",
     "drizzle-kit": "^0.31.10",
+    "graphql": "16.11.0",
     "typescript": "^7.0.2"
   }
 }

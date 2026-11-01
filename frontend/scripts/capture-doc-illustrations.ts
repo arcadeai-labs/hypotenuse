@@ -256,6 +256,14 @@ const ILLUSTRATIONS: Illustration[] = [
     signedIn: true,
   },
   {
+    name: "bot-linear",
+    path: ({ botId }) => `/bots/${botId}`,
+    selector: "[data-testid=bot-channels-platform-linear]",
+    width: 1280,
+    height: 6400,
+    signedIn: true,
+  },
+  {
     name: "help",
     path: "/help",
     width: 1280,
@@ -465,6 +473,7 @@ async function seed(request: APIRequestContext): Promise<Seeded> {
   if (!chatted) throw new Error(`the ${CHAT_TITLE} conversation is missing`);
   await seedChannels(request, support.id, botId);
   await seedSlack(request, support.id, botId);
+  await seedLinear(request, support.id, botId);
   return {
     organizationId: organization.id,
     projectId: support.id,
@@ -1606,6 +1615,48 @@ async function seedSlack(
   );
   if (connected.error)
     throw new Error(`slack connect: ${connected.error.message}`);
+}
+
+/**
+ * Give Ada what the Linear illustration shows: an app created in Linear from
+ * the creation link, its credentials connected, waiting to be installed.
+ * Nothing here calls Linear — installing would — so the picture needs no
+ * workspace. Made only when Ada has no Linear app yet.
+ * @param request - The browser context's request client.
+ * @param projectId - The Support project.
+ * @param botId - Ada.
+ */
+async function seedLinear(
+  request: APIRequestContext,
+  projectId: number,
+  botId: number,
+): Promise<void> {
+  const { installations } = await call<{
+    installations: { type: string; status: string }[];
+  }>(request, "GET", `/project/${projectId}/bot/${botId}/installations`);
+  if (installations.some((i) => i.type === "linear")) return;
+  const manifest = await call(
+    request,
+    "POST",
+    `/project/${projectId}/bot/${botId}/installation/linear/manifest`,
+  );
+  if (manifest.error)
+    throw new Error(`linear manifest: ${manifest.error.message}`);
+  const connected = await call(
+    request,
+    "PUT",
+    `/project/${projectId}/bot/${botId}/installation`,
+    {
+      type: "linear",
+      config: { clientId: "ada-lovelace-linear-client-0000" },
+      credentials: {
+        clientSecret: "illustration-client-secret",
+        webhookSecret: "illustration-webhook-secret",
+      },
+    },
+  );
+  if (connected.error)
+    throw new Error(`linear connect: ${connected.error.message}`);
 }
 
 /** The webhook app's delivery address: never called, since nobody mentions Ada in these channels. */

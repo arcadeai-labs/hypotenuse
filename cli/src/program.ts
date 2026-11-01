@@ -24,6 +24,7 @@ import { registerHelpRequestCommands } from "./commands/help-request";
 import { registerInstallationCommands } from "./commands/installation";
 import { registerInviteCommands } from "./commands/invite";
 import { registerLargeResultCommands } from "./commands/large-result";
+import { registerLinearCommands } from "./commands/linear";
 import { registerMcpServerCommands } from "./commands/mcp-server";
 import { registerMemberCommands } from "./commands/member";
 import { registerMemoryCommands } from "./commands/memory";
@@ -92,6 +93,7 @@ export function buildProgram(): Command {
   registerSkillCommands(program);
   registerInstallationCommands(program);
   registerSlackCommands(program);
+  registerLinearCommands(program);
   registerChannelCommands(program);
   registerBindingCommands(program);
   registerConversationCommands(program);

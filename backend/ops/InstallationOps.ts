@@ -4,13 +4,12 @@ import { api, config, ErrorType, TypedError } from "keryx";
 // Type-only, purely for the `declare module "keryx"` augmentation inside.
 import type {} from "../config/platforms";
 import { platformAdapter } from "../platforms/registry";
-import type { InstallationUrls, OpenInstallation } from "../platforms/types";
+import type { InstallationUrls } from "../platforms/types";
 import {
   type BotInstallation,
   botInstallations,
 } from "../schema/bot_installations";
 import type { Bot } from "../schema/bots";
-import { decryptSecret, encryptSecret } from "./CryptoOps";
 import type { DbHandle } from "./DbOps";
 
 /**
@@ -57,31 +56,7 @@ export function installationUrls(
   };
 }
 
-/**
- * Open an installation's sealed credentials.
- * @param installation - The row.
- * @returns The row and its credentials (`{}` when none are set yet).
- */
-export function openInstallation(
-  installation: BotInstallation,
-): OpenInstallation {
-  const credentials = installation.credentials
-    ? (JSON.parse(decryptSecret(installation.credentials)) as Record<
-        string,
-        unknown
-      >)
-    : {};
-  return { installation, credentials };
-}
-
-/**
- * Seal credentials for storage.
- * @param credentials - The adapter's credential document.
- * @returns The sealed record.
- */
-export function sealCredentials(credentials: Record<string, unknown>) {
-  return encryptSecret(JSON.stringify(credentials));
-}
+export { openInstallation, sealCredentials } from "./InstallationCredentialOps";
 
 /**
  * The installation a routing key names, if it may take deliveries.
@@ -89,12 +64,16 @@ export function sealCredentials(credentials: Record<string, unknown>) {
  * @param routingKey - The plaintext key from the path.
  * @param handshakeWhilePending - Also answer for an installation that has its
  *   signing credentials but is not installed yet (Slack verifies the URL then).
+ * @param acknowledgeWhileInactive - Also answer for one that is errored or
+ *   uninstalled but still holds its signing secret (Linear disables a webhook
+ *   whose deliveries keep failing).
  * @returns The installation, or `null` for unknown, disabled, or uninstalled.
  */
 export async function installationForRoutingKey(
   type: string,
   routingKey: string,
   handshakeWhilePending = false,
+  acknowledgeWhileInactive = false,
 ): Promise<BotInstallation | null> {
   if (!routingKey.startsWith(ROUTING_KEY_PREFIX)) return null;
   const [row] = await api.db.db
@@ -109,6 +88,7 @@ export async function installationForRoutingKey(
     .limit(1);
   if (!row) return null;
   if (row.status === "active") return row;
+  if (acknowledgeWhileInactive && row.credentials !== null) return row;
   if (
     handshakeWhilePending &&
     row.credentials !== null &&
@@ -220,6 +200,18 @@ export interface PendingInstall {
   projectId: number;
   botId: number;
   userId: number;
+  /** The PKCE verifier, for a platform whose install uses PKCE. */
+  codeVerifier?: string;
+}
+
+/**
+ * A fresh PKCE verifier and its S256 challenge.
+ * @returns Both.
+ */
+export function pkcePair(): { verifier: string; challenge: string } {
+  const verifier = randomBytes(32).toString("base64url");
+  const challenge = createHash("sha256").update(verifier).digest("base64url");
+  return { verifier, challenge };
 }
 
 /**
