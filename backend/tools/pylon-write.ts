@@ -256,7 +256,7 @@ export const pylonReplyToCustomer: ToolDefinition<
           message_id: answering,
           custom_source: { external_id: ctx.idempotencyKey },
         },
-        { write: true, reserved: true },
+        { write: true },
       );
       messageId = sent.id;
     } catch (e) {

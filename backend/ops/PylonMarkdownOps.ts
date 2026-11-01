@@ -157,11 +157,14 @@ export function pylonHtmlToText(html: string | null | undefined): string {
     .replace(/&(#\d+|#x[0-9a-f]+|[a-z]+);/gi, (m, e: string) => {
       const lower = e.toLowerCase();
       if (ENTITIES[lower] !== undefined) return ENTITIES[lower];
-      if (lower.startsWith("#x"))
-        return String.fromCodePoint(Number.parseInt(lower.slice(2), 16));
-      if (lower.startsWith("#"))
-        return String.fromCodePoint(Number.parseInt(lower.slice(1), 10));
-      return m;
+      const code = lower.startsWith("#x")
+        ? Number.parseInt(lower.slice(2), 16)
+        : lower.startsWith("#")
+          ? Number.parseInt(lower.slice(1), 10)
+          : Number.NaN;
+      // Not a code point (past U+10FFFF, or NUL): keep the entity as written.
+      if (!Number.isInteger(code) || code < 1 || code > 0x10ffff) return m;
+      return String.fromCodePoint(code);
     })
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
