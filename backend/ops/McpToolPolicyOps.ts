@@ -53,7 +53,8 @@
 
 /**
  * **The closed list** of actions a sandbox job token may call — and the only
- * ones: the supervisor's three, the in-sandbox tools, and the two proxies.
+ * ones: the supervisor's three, the in-sandbox tools, git's credential
+ * handout (HTTP only, never an MCP tool), and the two proxies.
  * `rbac.test.ts` asserts it by name, both directions.
  */
 export const SANDBOX_ONLY_ACTION_NAMES = [
@@ -66,6 +67,7 @@ export const SANDBOX_ONLY_ACTION_NAMES = [
   "sandbox:request-help",
   "sandbox:submit-artifact",
   "sandbox:memory-search",
+  "sandbox:git-credential",
   "proxy:model",
   "proxy:mcp",
 ] as const;

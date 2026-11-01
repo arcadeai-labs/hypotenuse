@@ -98,7 +98,7 @@ async function open(token: string): Promise<string> {
 }
 
 describe("the closed list", () => {
-  test("is exactly the supervisor's three, the in-sandbox tools, and the proxies", () => {
+  test("is exactly the supervisor's three, the in-sandbox tools, the git credential, and the proxies", () => {
     expect([...SANDBOX_ONLY_ACTION_NAMES].sort() as string[]).toEqual(
       [
         "proxy:mcp",
@@ -107,6 +107,7 @@ describe("the closed list", () => {
         "sandbox:check-answer",
         "sandbox:complete",
         "sandbox:events",
+        "sandbox:git-credential",
         "sandbox:heartbeat",
         "sandbox:memory-search",
         "sandbox:report-status",

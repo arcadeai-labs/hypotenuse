@@ -263,6 +263,7 @@ const EXPECTED_LEVELS: Record<string, RbacLevel> = {
   "sandbox-job:answer": "member",
   // The sandbox's machine half and the proxies: the job token is the caller.
   "sandbox:events": "none",
+  "sandbox:git-credential": "none",
   "sandbox:heartbeat": "none",
   "sandbox:complete": "none",
   "sandbox:report-status": "none",
