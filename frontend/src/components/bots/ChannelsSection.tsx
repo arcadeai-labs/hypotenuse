@@ -25,6 +25,7 @@ import { SectionCard } from "../sections/SectionCard";
 import { useSectionSave } from "../sections/useSectionSave";
 import { platformOf } from "../transcript/model";
 import { type Bot, useRead } from "./data";
+import { SlackPlatformBlock } from "./SlackPlatformBlock";
 
 /** An installation, as `bot-installation:list` serializes it. */
 type Installation =
@@ -681,19 +682,31 @@ export function ChannelsSection({
     >
       <div className="channels-section">
         <h3 className="channels-heading">Platforms</h3>
-        {INSTALLABLE_PLATFORMS.map((platform) => (
-          <PlatformBlock
-            key={platform.type}
-            platform={platform}
-            installation={installations.data?.installations.find(
-              (i) => i.type === platform.type && i.status !== "uninstalled",
-            )}
-            projectId={projectId}
-            bot={bot}
-            denied={denied}
-            onChanged={reload}
-          />
-        ))}
+        {INSTALLABLE_PLATFORMS.map((platform) => {
+          const Block =
+            platform.type === "slack" ? SlackPlatformBlock : PlatformBlock;
+          return (
+            <Block
+              key={platform.type}
+              platform={platform}
+              installation={
+                installations.data?.installations.find(
+                  (i) => i.type === platform.type && i.status !== "uninstalled",
+                ) ??
+                // An uninstalled Slack app keeps its credentials: offer to install it again.
+                (platform.type === "slack"
+                  ? installations.data?.installations.find(
+                      (i) => i.type === "slack",
+                    )
+                  : undefined)
+              }
+              projectId={projectId}
+              bot={bot}
+              denied={denied}
+              onChanged={reload}
+            />
+          );
+        })}
         <h3 className="channels-heading">Bound channels</h3>
         {bound.length === 0 ? (
           <p className="text-meta" data-testid="bot-channels-none-bound">

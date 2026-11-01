@@ -67,6 +67,8 @@ const READS = new Set([
   "bot-skill:list",
   "bot-installation:list",
   "bot-installation:view",
+  // Mints a ten-minute OAuth state in Redis and answers the install URL; no row.
+  "bot-installation:oauth-start",
   "channel:list",
   "channel:view",
   "channel-binding:list",
@@ -104,6 +106,7 @@ const UNAUDITED_WRITERS = new Set([
   // and the participant are the record (an approval a participant decides
   // is audited inside, as a participant row).
   "webhooks:webhook",
+  "webhooks:slack",
   "triggers:process-event",
   // Memory's machine work: each version's source and provenance, and each
   // chunk's embedding revision, are the record.
@@ -138,6 +141,7 @@ const UNAUDITED_WRITERS = new Set([
 const AUDITED_BROWSER_HOPS = new Set([
   "mcp-server:oauth-start",
   "mcp-server:oauth-callback",
+  "bot-installation:oauth-callback",
 ]);
 
 beforeAll(async () => {

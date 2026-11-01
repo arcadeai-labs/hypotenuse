@@ -15,7 +15,9 @@ import { enqueueProcessing, recordTriggerEvent } from "./TriggerEventOps";
  * 2. Verify the signature over the raw bytes (constant time, a timestamp
  *    window). A failure: **the same 404**, byte for byte, so a prober learns
  *    nothing about which keys exist.
- * 3. Answer a handshake the platform expects, only after verification.
+ * 3. Answer a handshake the platform expects, only after verification —
+ *    for Slack, even before the app is installed. Anything else sent to an
+ *    installation that is not active is acknowledged and dropped.
  * 4. Record a `trigger_events` row, `ON CONFLICT DO NOTHING` on the
  *    platform's delivery id, and answer 200.
  * 5. Enqueue `triggers:process-event`; `triggers:process-pending` sweeps what
@@ -53,7 +55,11 @@ export async function handleDelivery(
   if (!adapter) return refusal();
   const segments = requestPath(req).split("/").filter(Boolean);
   const routingKey = segments[2] ?? "";
-  const installation = await installationForRoutingKey(type, routingKey);
+  const installation = await installationForRoutingKey(
+    type,
+    routingKey,
+    adapter.handshakeWhilePending === true,
+  );
   if (!installation) {
     // Drain the body so a keep-alive connection stays usable.
     await req.body?.cancel().catch(() => {});
@@ -75,9 +81,10 @@ export async function handleDelivery(
   );
   if (!verified.ok) return refusal();
 
+  const raw = { bytes: body.bytes, text, headers: req.headers };
   let parsed: unknown;
   try {
-    parsed = JSON.parse(text);
+    parsed = adapter.decodeBody ? adapter.decodeBody(raw) : JSON.parse(text);
   } catch {
     return new Response('{"error":"not JSON"}\n', {
       status: 400,
@@ -86,6 +93,8 @@ export async function handleDelivery(
   }
   const handshake = adapter.handshake?.(parsed);
   if (handshake) return handshake;
+  // Not installed yet: only the handshake is answered; the rest is dropped.
+  if (installation.status !== "active") return ok();
 
   let messageKey: string | null = null;
   try {
@@ -93,11 +102,7 @@ export async function handleDelivery(
   } catch {
     // Processing records why it cannot be read; ingress only records it.
   }
-  const eventId = adapter.eventId(parsed, {
-    bytes: body.bytes,
-    text,
-    headers: req.headers,
-  });
+  const eventId = adapter.eventId(parsed, raw);
   const id = await recordTriggerEvent(
     installation,
     eventId,
@@ -105,6 +110,14 @@ export async function handleDelivery(
     parsed,
   );
   if (id !== null) await enqueueProcessing(id);
+  return ok();
+}
+
+/**
+ * The acknowledgement: 200, the same body for a new delivery and a retry.
+ * @returns A fresh response.
+ */
+function ok(): Response {
   return new Response('{"ok":true}\n', {
     status: 200,
     headers: { "content-type": "application/json" },

@@ -353,6 +353,11 @@ Edit a project name in the browser, then open Audit log: one row, actor you, bef
   minting an installation's manifest (it mints a routing key, so it answers `POST`), connecting, testing, and
   disconnecting it; creating, editing, and deleting a channel binding (its approval policy included); answering and
   cancelling a help request; a bot's `autoBind` and rate limits through `bot:edit` — is audited.
+- **Slack added one unaudited writer**, `webhooks:slack` (signed machine ingress for each bot's Slack app, recorded
+  as a `trigger_events` row). `bot-installation:oauth-start` writes no row — it mints a ten-minute OAuth `state` in
+  Redis and answers the install URL — so it is a read. Creating the app (`slack:app-create`) and the install the
+  OAuth callback completes (`bot-installation:oauth-callback`, audited as the person who started it, like
+  `mcp-server:oauth-callback`) are audited.
 - **Rule 13: no CLI command wraps `audit:list` or `organization:audit-list` yet** — deferred, not out of scope, as
   with phase 04's actions: [phase 06](./phase-06-operator-cli.md) is the CLI's sign-in.
 

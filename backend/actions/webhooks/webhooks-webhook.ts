@@ -1,4 +1,4 @@
-import { type Action, type Connection, HTTP_METHOD } from "keryx";
+import { type Action, type Connection, HTTP_METHOD, secret } from "keryx";
 import { z } from "zod";
 import { handleDelivery } from "../../ops/IngressOps";
 import { rawRequestOf } from "../../ops/RawRequestOps";
@@ -22,7 +22,9 @@ export class WebhooksWebhook implements Action {
     rawBody: true,
   };
   inputs = z.object({
-    routingKey: z.string().max(200).describe("The installation's routing key"),
+    routingKey: secret(z.string().max(200)).describe(
+      "The installation's routing key",
+    ),
   });
 
   /**

@@ -1,0 +1,240 @@
+{
+  "source": "https://raw.githubusercontent.com/slackapi/slack-api-specs/master/web-api/slack_web_openapi_v2.json",
+  "sha256": "742a5c977180a829df8767cf57bc417d99b3713583aee83741efb9c08ca731e7",
+  "methods": {
+    "auth.test": {
+      "token": true,
+      "params": {}
+    },
+    "oauth.v2.access": {
+      "token": false,
+      "params": {
+        "client_id": {
+          "type": "string",
+          "required": false
+        },
+        "client_secret": {
+          "type": "string",
+          "required": false
+        },
+        "code": {
+          "type": "string",
+          "required": true
+        },
+        "redirect_uri": {
+          "type": "string",
+          "required": false
+        }
+      }
+    },
+    "chat.postMessage": {
+      "token": true,
+      "params": {
+        "as_user": {
+          "type": "string",
+          "required": false
+        },
+        "attachments": {
+          "type": "string",
+          "required": false
+        },
+        "blocks": {
+          "type": "string",
+          "required": false
+        },
+        "channel": {
+          "type": "string",
+          "required": true
+        },
+        "icon_emoji": {
+          "type": "string",
+          "required": false
+        },
+        "icon_url": {
+          "type": "string",
+          "required": false
+        },
+        "link_names": {
+          "type": "boolean",
+          "required": false
+        },
+        "mrkdwn": {
+          "type": "boolean",
+          "required": false
+        },
+        "parse": {
+          "type": "string",
+          "required": false
+        },
+        "reply_broadcast": {
+          "type": "boolean",
+          "required": false
+        },
+        "text": {
+          "type": "string",
+          "required": false
+        },
+        "thread_ts": {
+          "type": "string",
+          "required": false
+        },
+        "unfurl_links": {
+          "type": "boolean",
+          "required": false
+        },
+        "unfurl_media": {
+          "type": "boolean",
+          "required": false
+        },
+        "username": {
+          "type": "string",
+          "required": false
+        }
+      }
+    },
+    "chat.update": {
+      "token": true,
+      "params": {
+        "as_user": {
+          "type": "string",
+          "required": false
+        },
+        "attachments": {
+          "type": "string",
+          "required": false
+        },
+        "blocks": {
+          "type": "string",
+          "required": false
+        },
+        "channel": {
+          "type": "string",
+          "required": true
+        },
+        "link_names": {
+          "type": "string",
+          "required": false
+        },
+        "parse": {
+          "type": "string",
+          "required": false
+        },
+        "text": {
+          "type": "string",
+          "required": false
+        },
+        "ts": {
+          "type": "string",
+          "required": true
+        }
+      }
+    },
+    "chat.postEphemeral": {
+      "token": true,
+      "params": {
+        "as_user": {
+          "type": "boolean",
+          "required": false
+        },
+        "attachments": {
+          "type": "string",
+          "required": false
+        },
+        "blocks": {
+          "type": "string",
+          "required": false
+        },
+        "channel": {
+          "type": "string",
+          "required": true
+        },
+        "icon_emoji": {
+          "type": "string",
+          "required": false
+        },
+        "icon_url": {
+          "type": "string",
+          "required": false
+        },
+        "link_names": {
+          "type": "boolean",
+          "required": false
+        },
+        "parse": {
+          "type": "string",
+          "required": false
+        },
+        "text": {
+          "type": "string",
+          "required": false
+        },
+        "thread_ts": {
+          "type": "string",
+          "required": false
+        },
+        "user": {
+          "type": "string",
+          "required": true
+        },
+        "username": {
+          "type": "string",
+          "required": false
+        }
+      }
+    },
+    "users.info": {
+      "token": false,
+      "params": {
+        "token": {
+          "type": "string",
+          "required": true
+        },
+        "include_locale": {
+          "type": "boolean",
+          "required": false
+        },
+        "user": {
+          "type": "string",
+          "required": false
+        }
+      }
+    },
+    "conversations.replies": {
+      "token": false,
+      "params": {
+        "token": {
+          "type": "string",
+          "required": false
+        },
+        "channel": {
+          "type": "string",
+          "required": false
+        },
+        "ts": {
+          "type": "number",
+          "required": false
+        },
+        "latest": {
+          "type": "number",
+          "required": false
+        },
+        "oldest": {
+          "type": "number",
+          "required": false
+        },
+        "inclusive": {
+          "type": "boolean",
+          "required": false
+        },
+        "limit": {
+          "type": "integer",
+          "required": false
+        },
+        "cursor": {
+          "type": "string",
+          "required": false
+        }
+      }
+    }
+  }
+}

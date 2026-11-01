@@ -19,6 +19,7 @@ import {
   channelBindings,
 } from "../schema/channel_bindings";
 import { type Channel, channels } from "../schema/channels";
+import { conversationInbox } from "../schema/conversation_inbox";
 import { type Conversation, conversations } from "../schema/conversations";
 import { type TriggerEvent, triggerEvents } from "../schema/trigger_events";
 import { decideApproval, serializeApproval } from "./ApprovalOps";
@@ -53,7 +54,7 @@ import { emitStatus } from "./SurfaceOps";
  * | # | Condition | Outcome |
  * |---|---|---|
  * | 1 | `sender.isSelf` or `sender.isBot`, or an edit or delete | `ignored: loop` |
- * | 2 | `kind: lifecycle` (uninstall, channel archived) | mark the installation or the channel; `processed: lifecycle` |
+ * | 2 | `kind: lifecycle` | `applyLifecycle`: uninstall, archive, join, leave; `processed: lifecycle` |
  * | 3 | the channel is externally shared, unless the binding allows it | `ignored: shared-channel` |
  * | 4 | no binding for (bot, channel), and the bot's `autoBind` is off for this kind of channel | `ignored: unbound`; the channel is upserted so a person can bind it |
  * | 5 | no binding, and `autoBind` is on | create an enabled binding with the bot's defaults (`autoBound: true`, recorded on the event); continue |
@@ -337,23 +338,7 @@ async function applyOne(
 
   // 2. Lifecycle: about the installation or the channel, wherever it came from.
   if (inbound.kind === "lifecycle") {
-    if (inbound.lifecycle === "uninstall") {
-      await tx
-        .update(botInstallations)
-        .set({ status: "uninstalled" })
-        .where(eq(botInstallations.id, installation.id));
-    } else {
-      const channel = await upsertPlatformChannel(tx, installation, ref);
-      await tx
-        .update(channels)
-        .set({ archived: true })
-        .where(eq(channels.id, channel.id));
-    }
-    return {
-      status: "processed",
-      outcome: "lifecycle",
-      detail: { lifecycle: inbound.lifecycle },
-    };
+    return applyLifecycle(tx, adapter, inst, bot, inbound, acc);
   }
 
   const channel = await upsertPlatformChannel(tx, installation, ref);
@@ -446,9 +431,25 @@ async function applyOne(
     });
   }
 
-  // 10. Rate limits.
+  // 10. Rate limits — counted once per message: a message carried by two
+  // events (Slack's `app_mention` and `message`) is already in the inbox.
   const participantKey = `${installation.type}:${installation.externalWorkspaceId}:${inbound.sender.externalUserId}`;
-  const rate = await countMessage(bot, channel.id, participantKey);
+  const seen = existing
+    ? await tx
+        .select({ id: conversationInbox.id })
+        .from(conversationInbox)
+        .where(
+          and(
+            eq(conversationInbox.conversationId, existing.id),
+            eq(conversationInbox.deliveryKey, inbound.messageKey),
+          ),
+        )
+        .limit(1)
+    : [];
+  const rate =
+    seen.length > 0
+      ? { limited: false as const }
+      : await countMessage(bot, channel.id, participantKey);
   if (rate.limited) {
     return ignored("rate-limited", {
       ...detail,
@@ -487,6 +488,154 @@ async function applyOne(
       inboxId: received.inbox.id,
     },
   };
+}
+
+/**
+ * **Apply a lifecycle event**: something happened to the installation or to
+ * the bot's place in a channel. Removal is disengagement: the bot's live
+ * conversations there are cancelled, silently, and nothing more is sent.
+ *
+ * | Lifecycle | Then |
+ * |---|---|
+ * | `uninstall` (the app removed, its token revoked) | the installation is `uninstalled`; every live conversation of the bot in its workspace is cancelled |
+ * | `channel_archived` | the channel is marked archived |
+ * | `channel_joined` (the bot was invited) | the channel is recorded; with no binding, one is created when the bot's `autoBind` covers this kind of channel (`autoBound`) |
+ * | `channel_left` (the bot was removed) | an auto-created binding is deleted, a person's is disabled; the bot's live conversations in the channel are cancelled |
+ * @param tx - The event's transaction.
+ * @param adapter - The platform.
+ * @param inst - The installation.
+ * @param bot - Its bot.
+ * @param inbound - The lifecycle event.
+ * @param acc - Where ticks and pings owed after commit collect.
+ * @returns The verdict.
+ */
+async function applyLifecycle(
+  tx: TxHandle,
+  adapter: PlatformAdapter,
+  inst: OpenInstallation,
+  bot: Bot,
+  inbound: NormalizedInbound,
+  acc: ProcessResult,
+): Promise<Verdict> {
+  const installation = inst.installation;
+  const detail: Record<string, unknown> = { lifecycle: inbound.lifecycle };
+  const done = (): Verdict => ({
+    status: "processed",
+    outcome: "lifecycle",
+    detail,
+  });
+  if (inbound.lifecycle === "uninstall") {
+    await tx
+      .update(botInstallations)
+      .set({ status: "uninstalled" })
+      .where(eq(botInstallations.id, installation.id));
+    const live = await tx
+      .select({ id: conversations.id })
+      .from(conversations)
+      .innerJoin(channels, eq(channels.id, conversations.channelId))
+      .where(
+        and(
+          eq(conversations.botId, bot.id),
+          eq(channels.type, installation.type),
+          sql`${channels.externalId} like ${`${installation.externalWorkspaceId}/%`}`,
+          sql`${conversations.state} <> 'ended'`,
+        ),
+      );
+    detail.cancelled = await disengage(
+      tx,
+      bot,
+      live.map((c) => c.id),
+      acc,
+    );
+    return done();
+  }
+  const ref = adapter.resolveChannel(inbound);
+  const channel = await upsertPlatformChannel(tx, installation, ref);
+  detail.channelId = channel.id;
+  if (inbound.lifecycle === "channel_archived") {
+    await tx
+      .update(channels)
+      .set({ archived: true })
+      .where(eq(channels.id, channel.id));
+    return done();
+  }
+  const binding = await bindingFor(tx, bot.id, channel.id);
+  if (inbound.lifecycle === "channel_joined") {
+    if (!binding && autoBinds(bot, ref) && !ref.isShared) {
+      const [created] = await tx
+        .insert(channelBindings)
+        .values({
+          projectId: bot.projectId,
+          botId: bot.id,
+          channelId: channel.id,
+          mode: ref.isDm ? "dm" : "mentions",
+          enabled: true,
+          autoBound: true,
+        })
+        .onConflictDoNothing()
+        .returning();
+      if (created) {
+        detail.autoBound = true;
+        detail.bindingId = created.id;
+      }
+    }
+    return done();
+  }
+  // channel_left: the bot was removed from the channel.
+  if (binding?.autoBound) {
+    await tx.delete(channelBindings).where(eq(channelBindings.id, binding.id));
+    detail.binding = "deleted";
+  } else if (binding) {
+    await tx
+      .update(channelBindings)
+      .set({ enabled: false })
+      .where(eq(channelBindings.id, binding.id));
+    detail.binding = "disabled";
+  }
+  const live = await tx
+    .select({ id: conversations.id })
+    .from(conversations)
+    .where(
+      and(
+        eq(conversations.botId, bot.id),
+        eq(conversations.channelId, channel.id),
+        sql`${conversations.state} <> 'ended'`,
+      ),
+    );
+  detail.cancelled = await disengage(
+    tx,
+    bot,
+    live.map((c) => c.id),
+    acc,
+  );
+  return done();
+}
+
+/**
+ * Cancel a bot's conversations, each under its own lock.
+ * @param tx - The event's transaction.
+ * @param bot - The bot.
+ * @param ids - The conversations.
+ * @param acc - Where ticks and pings owed after commit collect.
+ * @returns How many were cancelled.
+ */
+async function disengage(
+  tx: TxHandle,
+  bot: Bot,
+  ids: number[],
+  acc: ProcessResult,
+): Promise<number> {
+  let n = 0;
+  for (const id of ids) {
+    const locked = await lockConversation(tx, id);
+    if (!locked) continue;
+    const cancelled = await requestCancel(tx, locked.conversation);
+    if (cancelled.kind === "noop") continue;
+    n++;
+    if (cancelled.kind === "requested") acc.wake.push(cancelled.conversation);
+    acc.ping.push({ projectId: bot.projectId, conversationId: id });
+  }
+  return n;
 }
 
 /**

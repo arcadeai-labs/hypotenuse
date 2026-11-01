@@ -34,7 +34,10 @@ one app per bot (`bot_installations`), byte-identical signed ingress into `trigg
 a bot listens and who may approve in the channel, platform `participants`, an interactive surface (status, streamed
 text, plan, questions, approvals) on an outbox delivered in order per conversation, escalation to the help inbox, and
 per-participant and per-channel rate limits. The generic signed `webhook` platform and the dashboard's own Chat
-(`web`) are its first platforms; Slack, Linear, and Pylon are not connected yet. The build order and every
+(`web`) are its first platforms. Bots **are in Slack**: each bot is its own Slack app, created from a manifest Hypotenuse
+generates (or with an app configuration token) and installed by OAuth; a mention or a DM starts a thread the bot
+answers in with Slack's status line, streamed text, a plan message, and buttons for questions and approvals, through a
+Slack fake that validates every call against Slack's published spec. Linear and Pylon are not connected yet. The build order and every
 > plan are in
 > [`docs/plans/README.md`](./docs/plans/README.md); the system on one page is
 > [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md). Hypotenuse **v1** — local coding agents answering
@@ -89,7 +92,7 @@ These bind from the first line of code. A rule that names a thing not built yet 
    [`phase-05-audit-logging.md`](./docs/plans/phase-05-audit-logging.md), and this list and that table change
    together: reads and `actions:permissions`; `session:create` / `session:destroy`; `notification:mark-read`;
    clocks and sweeps; the CLI's sign-in ingress (`cli-auth:device` / `cli-auth:exchange`, a token's sliding
-   expiry); machine ingress (`webhooks:*` — `webhooks:webhook` so far — recorded in `trigger_events`) and its processing
+   expiry); machine ingress (`webhooks:*` — `webhooks:webhook` and `webhooks:slack` — recorded in `trigger_events`) and its processing
    (`triggers:process-event`, `triggers:process-pending`, recorded in `trigger_events` and `conversation_inbox`);
    `agent:tick`, `conversation:compact`, and every tool a bot runs (recorded in `conversation_entries`, and a
    prompt or goal edit also in `prompt_section_versions` and `goals`, a program in `code_runs`); memory's

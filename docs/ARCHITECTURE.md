@@ -253,7 +253,12 @@ Built ([phase 13](./plans/phase-13-channel-framework.md)). Each place a bot talk
 and a platform people reach the bot from also defines the per-bot app (`bot_installations`, one per bot per
 workspace, its routing key hashed and its credentials sealed), verifies and parses deliveries, and names the channel.
 The first three are the API's signed callback, the dashboard's Chat (`web`, whose rows are settled at enqueue because
-the dashboard reads Postgres), and the generic signed `webhook` platform; Slack, Linear, and Pylon are next.
+the dashboard reads Postgres), and the generic signed `webhook` platform. **Slack** is built
+([phase 14](./plans/phase-14-slack.md)): one Slack app per bot, created from a generated manifest or with a
+configuration token and installed by OAuth (`bot-installation:oauth-start` / `:oauth-callback`, generic for any OAuth
+platform); v0-signed events and `block_actions` in; `assistant.threads.setStatus`, streamed `markdown_text`, a plan
+message edited in place, and Block Kit buttons out, through one Web API client with a per-installation token bucket.
+Linear and Pylon are next.
 
 - **Ingress** (`webhooks:<type>`) reads the routing key from the raw path, verifies the signature over the raw bytes,
   records a `trigger_events` row deduped on the platform's delivery id, answers, and enqueues; every routing or

@@ -1,7 +1,7 @@
 {
   "name": "hypotenuse-backend",
   "version": "0.0.1",
-  "description": "Hypotenuse — a persistent multiplayer, multichannel agent for your team, powered by Keryx",
+  "description": "Hypotenuse \u2014 a persistent multiplayer, multichannel agent for your team, powered by Keryx",
   "module": "index.ts",
   "type": "module",
   "private": true,
@@ -16,7 +16,8 @@
     "workspace:setup": "bun run scripts/setup-workspace.ts",
     "test": "bun test",
     "lint": "tsc && biome check .",
-    "format": "tsc && biome check --write ."
+    "format": "tsc && biome check --write .",
+    "slack:fetch-spec": "bun run scripts/fetch-slack-spec.ts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "4.0.91",

@@ -36,6 +36,7 @@ import {
 import { registerProjectCommands } from "./commands/project";
 import { registerPromptCommands } from "./commands/prompt";
 import { registerSkillCommands } from "./commands/skill";
+import { registerSlackCommands } from "./commands/slack";
 import { registerTagCommands } from "./commands/tag";
 import { registerUpgradeCommand } from "./commands/upgrade";
 import { banner } from "./output/theme";
@@ -90,6 +91,7 @@ export function buildProgram(): Command {
   registerGoalCommands(program);
   registerSkillCommands(program);
   registerInstallationCommands(program);
+  registerSlackCommands(program);
   registerChannelCommands(program);
   registerBindingCommands(program);
   registerConversationCommands(program);

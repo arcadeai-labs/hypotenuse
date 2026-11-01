@@ -23,6 +23,7 @@ const EXPECTED_SENSITIVE_KEYS = [
   "webhookSecret",
   "botToken",
   "appToken",
+  "configToken",
   "privateKey",
   "code",
   "codeVerifier",

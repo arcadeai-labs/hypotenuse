@@ -15,6 +15,12 @@ export interface InstallablePlatform {
 /** The platforms with an installation today, in the order they are drawn. */
 export const INSTALLABLE_PLATFORMS: readonly InstallablePlatform[] = [
   {
+    type: "slack",
+    label: "Slack",
+    summary:
+      "The bot as its own Slack app: create it from a manifest, install it into your workspace, and invite it to channels with /invite.",
+  },
+  {
     type: "webhook",
     label: "Webhook",
     summary:

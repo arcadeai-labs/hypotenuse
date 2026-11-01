@@ -49,6 +49,35 @@ export const configPlatforms = {
   ),
   /** The window the per-participant and per-channel limits count in. */
   rateWindowSeconds: await loadFromEnvIfSet("PLATFORM_RATE_WINDOW_SECONDS", 60),
+  /** Slack: the Web API, where its OAuth sends a person, and its limits. */
+  slack: {
+    /** The Web API's base URL; the test suite points it at the Slack fake. */
+    apiUrl: await loadFromEnvIfSet("SLACK_API_URL", "https://slack.com/api"),
+    /** Where a person approves an install (`oauth/v2/authorize`). */
+    authorizeUrl: await loadFromEnvIfSet(
+      "SLACK_AUTHORIZE_URL",
+      "https://slack.com/oauth/v2/authorize",
+    ),
+    /** How long one Web API call may take. */
+    requestTimeoutMs: await loadFromEnvIfSet(
+      "SLACK_REQUEST_TIMEOUT_MS",
+      10_000,
+    ),
+    /** The per-installation token bucket: its size… */
+    bucketCapacity: await loadFromEnvIfSet("SLACK_BUCKET_CAPACITY", 20),
+    /** …and how many calls it refills each second (Slack's Tier 3 is ~50/min). */
+    bucketRefillPerSecond: await loadFromEnvIfSet(
+      "SLACK_BUCKET_REFILL_PER_SECOND",
+      1,
+    ),
+    /** How long an install link (its OAuth `state`) lives, in seconds. */
+    installStateTtlSeconds: await loadFromEnvIfSet(
+      "SLACK_INSTALL_STATE_TTL_SECONDS",
+      600,
+    ),
+    /** A stream older than this is closed and a new one started (Slack's limit is 10 minutes). */
+    streamMaxAgeMs: await loadFromEnvIfSet("SLACK_STREAM_MAX_AGE_MS", 540_000),
+  },
 };
 
 declare module "keryx" {
