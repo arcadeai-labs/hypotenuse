@@ -355,7 +355,7 @@ promotion, it is found in both.
 >
 > | Below | Now |
 > |---|---|
-> | `memory_documents.bot_id`; the key `(project, scope, bot, channel, path)` | no `bot_id`; the key is `(project, scope, channel, path)`. The migration kept, where two bots held the same path in one channel, the newest live version current and the others as history, and the document keeps any pin |
+> | `memory_documents.bot_id`; the key `(project, scope, bot, channel, path)` | no `bot_id`; the key is `(project, scope, channel, path)`. The migration kept, where two bots held the same path in one channel, the newest live version current and the others as history, and the document keeps any pin. Where two bots' versions shared a millisecond, every version of that document moves later by its place in order (`v + i` ms), which keeps them distinct — a flat 1 ms nudge could land on a neighbour |
 > | `MemoryReadSet.channel = { botId, channelId }`; `DocumentKey.botId` | `{ channelId }`; no `botId` |
 > | Channel reads need `canReadBot`, writes `canWriteBot`, of *the* bot | of **any** bot working in the channel — a bot's own channel's owner, or every bot bound to a platform channel or with a conversation in it (`MemoryAccessOps.botsByChannel`); admins always. Promotion: channel write + admin |
 > | `memory:channels` at `GET /project/:projectId/bot/:botId/memory/channels`, a bot's channels | `GET /project/:projectId/memory/channels`: every channel the caller may read, with its bots and `canWrite` |
