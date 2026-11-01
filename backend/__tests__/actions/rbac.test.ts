@@ -192,6 +192,7 @@ const EXPECTED_LEVELS: Record<string, RbacLevel> = {
   "mcp-server:refresh-catalog": "none",
   "bot:capabilities": "none",
   "approvals:expire": "none",
+  "installations:refresh-tokens": "none",
   "large-results:sweep": "none",
   "bot-installation:manifest": "member",
   "bot-installation:connect": "member",
@@ -220,6 +221,7 @@ const EXPECTED_LEVELS: Record<string, RbacLevel> = {
   // Signed machine ingress for a platform: the signature is the caller.
   "webhooks:webhook": "none",
   "webhooks:slack": "none",
+  "webhooks:linear": "none",
   // Event processing and escalation's machine work: task-only, no caller.
   "triggers:process-event": "none",
   "triggers:process-pending": "none",
@@ -265,6 +267,7 @@ const CLOCKS = [
   "large-results:sweep",
   "triggers:process-pending",
   "help:expire",
+  "installations:refresh-tokens",
 ];
 
 /** Every action published as an MCP tool for a person's client. */

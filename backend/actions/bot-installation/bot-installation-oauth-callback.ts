@@ -40,7 +40,7 @@ import { bots } from "../../schema/bots";
 export class BotInstallationOauthCallback extends AuditedAction {
   name = "bot-installation:oauth-callback";
   description =
-    "Where a platform (Slack) returns after a person installs a bot's app. Exchanges the code for the bot token, stores it encrypted, and redirects to the dashboard.";
+    "Where a platform (Slack, Linear) returns after a person installs a bot's app. Exchanges the code for the bot token, stores it encrypted, and redirects to the dashboard.";
   middleware = [RateLimitMiddleware];
   web = { route: "/installation/oauth/callback", method: HTTP_METHOD.GET };
   inputs = z.object({
@@ -103,6 +103,7 @@ export class BotInstallationOauthCallback extends AuditedAction {
           inst,
           params.code,
           installationUrls(existing.type, "").oauthRedirect,
+          pending.codeVerifier,
         );
         // The workspace becomes the installation's on its first install; a
         // reinstall must land in the same one, or channels would split.

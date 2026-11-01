@@ -256,6 +256,7 @@ export async function emitOutbound(
  * @param conversation - The conversation.
  * @param text - The line.
  * @param priority - `ack` for the acknowledgement of a message.
+ * @param extra - More payload, for the platform's own bookkeeping.
  * @returns The row, or `null`.
  */
 export async function emitStatus(
@@ -263,11 +264,12 @@ export async function emitStatus(
   conversation: Conversation,
   text: string,
   priority: OutboxPriority = "normal",
+  extra: Record<string, unknown> = {},
 ): Promise<OutboxMessage | null> {
   try {
     return await emit(db, conversation, {
       kind: "status",
-      payload: { text },
+      payload: { ...extra, text },
       priority,
       acknowledgesAnswer: priority === "ack",
     });

@@ -80,6 +80,9 @@ export type WaitingOn =
  * - `memoryConsolidatedSeq` — the last `seq` whose entries consolidation has
  *   read into channel memory; `memory:consolidate` starts after it.
  * - `requestId` — the client's dedupe key for `conversation:create`.
+ * - `details` — what the platform knows about the thread, written when the
+ *   conversation is created: a Linear session's issue, team, and project,
+ *   which un-delegation and a completed issue disengage by.
  * - `forkedFrom*` — reserved for forking a conversation; nothing writes them.
  */
 export const conversations = pgTable(
@@ -119,6 +122,10 @@ export const conversations = pgTable(
       .notNull()
       .default(0),
     requestId: text("request_id"),
+    details: jsonb("details")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default({}),
     callbackUrl: text("callback_url"),
     createdByUserId: integer("created_by_user_id").references(() => users.id, {
       onDelete: "set null",

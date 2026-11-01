@@ -78,6 +78,55 @@ export const configPlatforms = {
     /** A stream older than this is closed and a new one started (Slack's limit is 10 minutes). */
     streamMaxAgeMs: await loadFromEnvIfSet("SLACK_STREAM_MAX_AGE_MS", 540_000),
   },
+  /** Linear: the GraphQL API, where its OAuth sends a person, and its limits. */
+  linear: {
+    /** The API origin (`/graphql`, `/oauth/token`); the test suite points it at finear. */
+    apiUrl: await loadFromEnvIfSet("LINEAR_API_URL", "https://api.linear.app"),
+    /** Where a person approves an install (`oauth/authorize`). */
+    authorizeUrl: await loadFromEnvIfSet(
+      "LINEAR_AUTHORIZE_URL",
+      "https://linear.app/oauth/authorize",
+    ),
+    /** Where a person creates an app from a manifest (`?manifest=` pre-fills it). */
+    appCreationUrl: await loadFromEnvIfSet(
+      "LINEAR_APP_CREATION_URL",
+      "https://linear.app/settings/api/applications/new",
+    ),
+    /** How far a delivery's signed `webhookTimestamp` may be from now. */
+    timestampToleranceSeconds: await loadFromEnvIfSet(
+      "LINEAR_TIMESTAMP_TOLERANCE_SECONDS",
+      60,
+    ),
+    /** How long one API call may take. */
+    requestTimeoutMs: await loadFromEnvIfSet(
+      "LINEAR_REQUEST_TIMEOUT_MS",
+      10_000,
+    ),
+    /** The per-installation token bucket: its size… */
+    bucketCapacity: await loadFromEnvIfSet("LINEAR_BUCKET_CAPACITY", 30),
+    /** …how many calls it refills each second (Linear allows 5,000 an hour per app user)… */
+    bucketRefillPerSecond: await loadFromEnvIfSet(
+      "LINEAR_BUCKET_REFILL_PER_SECOND",
+      1,
+    ),
+    /** …and how many tokens only acknowledgements and stops may take. */
+    bucketReserve: await loadFromEnvIfSet("LINEAR_BUCKET_RESERVE", 5),
+    /** Refresh an access token this long before it expires (Linear's last 24 hours). */
+    refreshBeforeMs: await loadFromEnvIfSet(
+      "LINEAR_REFRESH_BEFORE_MS",
+      21_600_000,
+    ),
+    /** How long a refresh whose answer was lost may be retried with the old refresh token. */
+    refreshReplayGraceMs: await loadFromEnvIfSet(
+      "LINEAR_REFRESH_REPLAY_GRACE_MS",
+      1_800_000,
+    ),
+    /** How often `installations:refresh-tokens` looks for tokens to refresh. */
+    refreshFrequencyMs: await loadFromEnvIfSet(
+      "LINEAR_REFRESH_FREQUENCY_MS",
+      600_000,
+    ),
+  },
 };
 
 declare module "keryx" {

@@ -34,12 +34,13 @@ import { botInstallations } from "../../schema/bot_installations";
  * completes — or until the credentials include a bot token pasted from the
  * platform. Connecting again keeps what the install stored (the bot token)
  * unless replaced, and a changed signing secret keeps the old one as
- * `signingSecretPrevious`, so deliveries signed during the rotation verify.
+ * `signingSecretPrevious` (Linear: `webhookSecretPrevious`), so deliveries
+ * signed during the rotation verify.
  */
 export class BotInstallationConnect extends AuditedAction {
   name = "bot-installation:connect";
   description =
-    "Connect a bot's platform app: paste the credentials the platform showed (webhook: the signing secret both sides share; slack: clientSecret and signingSecret, and botToken if you installed the app in Slack yourself) and its settings (webhook: the delivery URL the bot's messages are POSTed to; slack: clientId and appId). Activates the installation the manifest created — for slack, once it is installed (bot-installation:oauth-start) or given a bot token. Credentials are stored sealed and never shown again. Needs the bot's write access.";
+    "Connect a bot's platform app: paste the credentials the platform showed (webhook: the signing secret both sides share; slack: clientSecret and signingSecret, and botToken if you installed the app in Slack yourself; linear: clientSecret and webhookSecret) and its settings (webhook: the delivery URL the bot's messages are POSTed to; slack: clientId and appId; linear: clientId). Activates the installation the manifest created — for slack and linear, once it is installed (bot-installation:oauth-start), or for slack given a bot token. Credentials are stored sealed and never shown again. Needs the bot's write access.";
   middleware = [ProjectMemberMiddleware()];
   web = {
     route: "/project/:projectId/bot/:botId/installation",
@@ -61,10 +62,10 @@ export class BotInstallationConnect extends AuditedAction {
     config: z
       .record(z.string(), z.unknown())
       .describe(
-        "The platform's settings: {deliveryUrl} for webhook, {clientId, appId} for slack",
+        "The platform's settings: {deliveryUrl} for webhook, {clientId, appId} for slack, {clientId} for linear",
       ),
     credentials: secret(z.record(z.string(), z.unknown())).describe(
-      "The platform's secrets: {signingSecret} for webhook, {clientSecret, signingSecret, botToken?} for slack",
+      "The platform's secrets: {signingSecret} for webhook, {clientSecret, signingSecret, botToken?} for slack, {clientSecret, webhookSecret} for linear",
     ),
     botUserId: z
       .string()
@@ -127,12 +128,16 @@ export class BotInstallationConnect extends AuditedAction {
     const merged: Record<string, unknown> = adapter.oauth
       ? { ...previous, ...params.credentials }
       : { ...params.credentials };
-    if (
-      adapter.oauth &&
-      typeof previous.signingSecret === "string" &&
-      previous.signingSecret !== merged.signingSecret
-    ) {
-      merged.signingSecretPrevious = previous.signingSecret;
+    // A rotated signing secret keeps verifying until the platform stops
+    // using it (Slack's `signingSecret`, Linear's `webhookSecret`).
+    for (const key of ["signingSecret", "webhookSecret"]) {
+      if (
+        adapter.oauth &&
+        typeof previous[key] === "string" &&
+        previous[key] !== merged[key]
+      ) {
+        merged[`${key}Previous`] = previous[key];
+      }
     }
     const secrets = adapter.credentialSchema.safeParse(merged);
     if (!secrets.success) {

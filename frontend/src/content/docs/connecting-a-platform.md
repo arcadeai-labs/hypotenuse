@@ -2,9 +2,9 @@
 
 Each bot has **its own app** on each platform, with its own name and avatar there, so people see which bot they are
 talking to. Connecting one takes a few minutes on the bot's page, under **Channels → Platforms**, and needs the
-bot's write access. Today you can connect [Slack](/docs/slack) — which has its own steps, on its own page — and the
-[webhook platform](/docs/webhook-platform): any system that can send and receive signed JSON. The steps below are the
-webhook platform's.
+bot's write access. Today you can connect [Slack](/docs/slack) and [Linear](/docs/linear) — each with its own
+steps, on its own page — and the [webhook platform](/docs/webhook-platform): any system that can send and receive
+signed JSON. The steps below are the webhook platform's.
 
 ## 1. Get the manifest
 

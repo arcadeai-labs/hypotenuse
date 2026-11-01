@@ -50,6 +50,8 @@ interface ManifestResult {
   urls: { events: string; oauthRedirect: string };
   instructions: string;
   manifest: unknown;
+  /** The platform's own form, pre-filled (Linear's app-creation link). */
+  link?: string;
 }
 
 /** What `bot-installation:view` answers. */
@@ -194,6 +196,14 @@ export function registerInstallationCommands(program: Command): void {
             `installation  ${i.id} (${i.type}, workspace ${i.externalWorkspaceId}) — ${i.status}`,
             "",
             result.instructions,
+            ...(result.link
+              ? [
+                  "",
+                  "Create the app here:",
+                  "",
+                  `  ${color("accent", result.link)}`,
+                ]
+              : []),
             "",
             "manifest:",
             JSON.stringify(result.manifest, null, 2),

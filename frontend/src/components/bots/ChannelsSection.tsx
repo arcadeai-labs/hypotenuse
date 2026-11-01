@@ -25,6 +25,7 @@ import { SectionCard } from "../sections/SectionCard";
 import { useSectionSave } from "../sections/useSectionSave";
 import { platformOf } from "../transcript/model";
 import { type Bot, useRead } from "./data";
+import { LinearPlatformBlock } from "./LinearPlatformBlock";
 import { SlackPlatformBlock } from "./SlackPlatformBlock";
 
 /** An installation, as `bot-installation:list` serializes it. */
@@ -684,7 +685,12 @@ export function ChannelsSection({
         <h3 className="channels-heading">Platforms</h3>
         {INSTALLABLE_PLATFORMS.map((platform) => {
           const Block =
-            platform.type === "slack" ? SlackPlatformBlock : PlatformBlock;
+            platform.type === "slack"
+              ? SlackPlatformBlock
+              : platform.type === "linear"
+                ? LinearPlatformBlock
+                : PlatformBlock;
+          const oauth = platform.type === "slack" || platform.type === "linear";
           return (
             <Block
               key={platform.type}
@@ -693,10 +699,10 @@ export function ChannelsSection({
                 installations.data?.installations.find(
                   (i) => i.type === platform.type && i.status !== "uninstalled",
                 ) ??
-                // An uninstalled Slack app keeps its credentials: offer to install it again.
-                (platform.type === "slack"
+                // An uninstalled OAuth app keeps its client credentials: offer to install it again.
+                (oauth
                   ? installations.data?.installations.find(
-                      (i) => i.type === "slack",
+                      (i) => i.type === platform.type,
                     )
                   : undefined)
               }

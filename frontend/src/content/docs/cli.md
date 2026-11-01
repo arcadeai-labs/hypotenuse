@@ -90,6 +90,7 @@ invites), and `audit list`.
 | `hypotenuse skill attach <skill> --bot [--pin]`, `skill detach <skill> --bot` | Let a bot use a skill — at its latest version, or pinned to one — or take it away |
 | `hypotenuse installation manifest --bot`, `installation connect --bot --delivery-url`, `installation test <id>`, `installation list --bot`, `installation view <id>`, `installation disconnect <id> --yes` | A bot's platform apps: get the events URL the platform delivers to, connect its credentials, check it works, and disconnect it. See **Platforms and channels from the command line** below |
 | `hypotenuse slack create --bot`, `slack connect --bot --client-id`, `slack install <id>` | A bot's own [Slack](/docs/slack) app: create it with a configuration token, or connect one made from the manifest; then print the link that installs it into the workspace |
+| `hypotenuse linear link --bot`, `linear connect --bot --client-id`, `linear install <id>` | A bot's own [Linear](/docs/linear) app: print the pre-filled link that creates it in Linear, connect its credentials, then print the link that installs it into the workspace |
 | `hypotenuse channel list [--bot]`, `channel view <id>` | The platform channels the project's bots hear from, and how each bot is bound there |
 | `hypotenuse binding list --bot`, `binding create --bot --channel`, `binding edit <id>`, `binding delete <id> --yes` | Where a bot listens: bind it to a channel, change how it listens, or unbind it. Changing needs write access to the bot |
 | `hypotenuse help-request list`, `help-request view <id>`, `help-request answer <id> --text`, `help-request cancel <id>` | The help inbox: questions bots escalated to the team, and your answers. See **The help inbox from the command line** below |
@@ -248,6 +249,20 @@ hypotenuse binding edit 5 --mode all --approval-policy participants
   `--client-id` and `--app-id`, its secrets from `--client-secret-env` and `--signing-secret-env`, and, if you
   installed it from Slack's own settings, `--bot-token-env`. `slack install` prints a link that works once, for ten
   minutes.
+- **Linear** has its own commands too: Linear has no API that creates an app, so a workspace admin creates it from a
+  pre-filled link.
+
+  ```bash
+  hypotenuse linear link --bot ada    # prints the creation link; open it in Linear and create the app
+  LIN_CS=… LIN_WH=… hypotenuse linear connect --bot ada --client-id <id> \
+    --client-secret-env LIN_CS --webhook-secret-env LIN_WH
+  hypotenuse linear install 5         # prints the install link: a workspace admin opens it and approves
+  hypotenuse installation test 5
+  ```
+
+  `linear link` mints the app's webhook URL, which is in the link and shown once; asking again makes a new one.
+  `linear connect` reads the Client Secret and the webhook signing secret from the named environment variables, or a
+  hidden prompt. `linear install` prints a link that works once, for ten minutes.
 - A channel appears once the bot hears from it. `channel list --bot` shows each one with the bot's binding, or
   `unbound`.
 - `binding create` lets the bot listen in a channel. Everyone who can read the bot in Hypotenuse can then read that

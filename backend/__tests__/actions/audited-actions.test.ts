@@ -107,6 +107,7 @@ const UNAUDITED_WRITERS = new Set([
   // is audited inside, as a participant row).
   "webhooks:webhook",
   "webhooks:slack",
+  "webhooks:linear",
   "triggers:process-event",
   // Memory's machine work: each version's source and provenance, and each
   // chunk's embedding revision, are the record.
@@ -128,6 +129,7 @@ const UNAUDITED_WRITERS = new Set([
   "memory:decay",
   "memory:consolidate-due",
   "mcp-servers:refresh",
+  "installations:refresh-tokens",
   "approvals:expire",
   "large-results:sweep",
   "triggers:process-pending",

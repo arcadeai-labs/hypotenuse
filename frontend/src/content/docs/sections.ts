@@ -13,6 +13,7 @@ import conversations from "./conversations.md?raw";
 import escalation from "./escalation.md?raw";
 import gettingStarted from "./getting-started.md?raw";
 import goals from "./goals.md?raw";
+import linear from "./linear.md?raw";
 import mcpServers from "./mcp-servers.md?raw";
 import members from "./members.md?raw";
 import memory from "./memory.md?raw";
@@ -71,6 +72,11 @@ export const DOCS_SECTIONS: DocsSection[] = [
     slug: "slack",
     title: "Slack",
     markdown: slack,
+  },
+  {
+    slug: "linear",
+    title: "Linear",
+    markdown: linear,
   },
   {
     slug: "webhook-platform",

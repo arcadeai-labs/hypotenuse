@@ -16,15 +16,18 @@ import {
   installationUrls,
   loadInstallation,
   openInstallation,
+  pkcePair,
   requirePlatform,
   startInstall,
 } from "../../ops/InstallationOps";
 
 /**
  * `bot-installation:oauth-start` — the first hop of installing a bot's
- * platform app into a workspace by OAuth (Slack's `oauth/v2/authorize`). It
- * mints a single-use `state` bound to the installation and the person (in
- * Redis, for ten minutes) and sends the browser to the platform, or with
+ * platform app into a workspace by OAuth (Slack's `oauth/v2/authorize`,
+ * Linear's `oauth/authorize` with `actor=app`). It mints a single-use `state`
+ * bound to the installation and the person — and a PKCE verifier, for a
+ * platform that uses one — (in Redis, for ten minutes) and sends the browser
+ * to the platform, or with
  * `format=json` answers the URL. Writes no row, so it is not audited: the
  * callback that completes the install is. A browser hop, never an MCP tool.
  * Needs the bot's write access.
@@ -32,7 +35,7 @@ import {
 export class BotInstallationOauthStart implements Action {
   name = "bot-installation:oauth-start";
   description =
-    "Begin installing a bot's platform app (Slack) into a workspace: redirects the browser to the platform's install page (or, with format json, answers its URL). The app must be created and its client credentials connected first. Needs the bot's write access.";
+    "Begin installing a bot's platform app (Slack, Linear) into a workspace: redirects the browser to the platform's install page (or, with format json, answers its URL). The app must be created and its client credentials connected first. Needs the bot's write access.";
   middleware = [ProjectMemberMiddleware()];
   web = {
     route: "/project/:projectId/bot-installation/:installationId/oauth",
@@ -90,16 +93,19 @@ export class BotInstallationOauthStart implements Action {
         key: "installationId",
       });
     }
+    const pkce = adapter.oauth.pkce ? pkcePair() : null;
     const state = await startInstall({
       installationId: row.id,
       projectId: row.projectId,
       botId: row.botId,
       userId: connection.session?.data.userId as number,
+      ...(pkce ? { codeVerifier: pkce.verifier } : {}),
     });
     const url = adapter.oauth.authorizeUrl(
       openInstallation(row),
       installationUrls(row.type, "").oauthRedirect,
       state,
+      pkce?.challenge,
     );
     if (params.format === "json") return { url };
     return new Response(null, { status: 302, headers: { location: url } });

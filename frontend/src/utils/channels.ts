@@ -21,6 +21,12 @@ export const INSTALLABLE_PLATFORMS: readonly InstallablePlatform[] = [
       "The bot as its own Slack app: create it from a manifest, install it into your workspace, and invite it to channels with /invite.",
   },
   {
+    type: "linear",
+    label: "Linear",
+    summary:
+      "The bot as its own Linear app: create it from a pre-filled link, install it into your workspace, and delegate issues to it or mention it.",
+  },
+  {
     type: "webhook",
     label: "Webhook",
     summary:
