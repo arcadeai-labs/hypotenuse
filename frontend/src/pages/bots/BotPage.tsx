@@ -22,6 +22,7 @@ import { MemorySection } from "../../components/bots/MemorySection";
 import { MissingAliasesBanner } from "../../components/bots/MissingAliasesBanner";
 import { ModelSection } from "../../components/bots/ModelSection";
 import { PromptSettingsSection } from "../../components/bots/PromptSettingsSection";
+import { RepositoriesSection } from "../../components/bots/RepositoriesSection";
 import { SandboxSection } from "../../components/bots/SandboxSection";
 import { SkillsSection } from "../../components/bots/SkillsSection";
 import { ToolsSection } from "../../components/bots/ToolsSection";
@@ -54,7 +55,8 @@ type Loaded =
  * `/bots/:botId` — one bot: who it is, which models it uses, who may read
  * and change it, its budget, the size of its prompt, its goals, its skills,
  * how fast its memory fades, its MCP servers and what runs without asking,
- * who decides what waits, where it listens on platforms and how much it
+ * the repositories it can reach and which pull-request events wake it, who
+ * decides what waits, where it listens on platforms and how much it
  * takes there, each section saving on its own; then the parts of a bot this
  * page does not configure yet, disabled. The properties panel says the same
  * at a glance, and the header opens its chat and links to its prompt, its
@@ -355,6 +357,7 @@ export function BotPage() {
           />
           <CodeSection {...sectionProps} />
           <SandboxSection {...sectionProps} />
+          <RepositoriesSection {...sectionProps} />
           <ApprovalSettingsSection {...sectionProps} tags={tags} />
           <ChannelsSection
             projectId={activeProjectId}

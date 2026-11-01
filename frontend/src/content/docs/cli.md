@@ -424,6 +424,9 @@ hypotenuse bot repos ada
 - Anyone in the project can list installations and grants, and `bot repos` for a bot they can read; changing them
   takes an admin.
 
+The same is on the **Repositories** page in the dashboard; [Repositories](/docs/repositories) explains grants, push,
+and rulesets.
+
 ### Prompts, goals, and skills from the command line
 
 A bot's system prompt is built from sections. See which ones a message would bring in, and the exact text the bot
