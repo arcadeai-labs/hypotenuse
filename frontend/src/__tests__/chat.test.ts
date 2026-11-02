@@ -356,6 +356,40 @@ describe("buildChat: what else a person must see", () => {
     ]);
   });
 
+  test("a pull request a sandbox job opened is a link card, in the order it arrived", () => {
+    const items = buildChat([
+      entry(1, {
+        kind: "status_change",
+        content: {
+          from: "waiting",
+          to: "waiting",
+          reason: "pull_request",
+          text: 'sandbox job #3 ("Fix the login bug") opened pull request acme/api#12: https://github.com/acme/api/pull/12',
+        },
+      }),
+      entry(2, {
+        kind: "status_change",
+        content: {
+          from: "waiting",
+          to: "waiting",
+          reason: "pull_request",
+          text: null,
+        },
+      }),
+    ]);
+    expect(only(items, "link")).toEqual([
+      {
+        kind: "link",
+        key: expect.any(String),
+        seq: 1,
+        label: "Pull Request",
+        text: "acme/api#12",
+        url: "https://github.com/acme/api/pull/12",
+        createdAt: 1_001,
+      },
+    ]);
+  });
+
   test("a call with no result spins while the conversation works", () => {
     const entries = [
       step(1, "s1"),

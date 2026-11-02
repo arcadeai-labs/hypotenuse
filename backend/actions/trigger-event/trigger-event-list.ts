@@ -1,4 +1,4 @@
-import { and, count, desc, eq, like } from "drizzle-orm";
+import { and, count, desc, eq, like, ne } from "drizzle-orm";
 import {
   type Action,
   type ActionParams,
@@ -20,11 +20,17 @@ import {
  * `trigger-event:list` — every platform delivery the project's bots
  * received, newest first, with what processing decided. Project admins only:
  * the payloads are what people wrote.
+ *
+ * A `github` event's `botInstallationId` column holds a
+ * `github_installations` id, not a bot installation's, so the
+ * `botInstallationId` filter never matches one (a bot installation and a
+ * GitHub installation can share a number); `githubInstallationId` filters
+ * GitHub's, and `type` filters by platform.
  */
 export class TriggerEventList implements Action {
   name = "trigger-event:list";
   description =
-    "List the platform deliveries this project's bots received, newest first, each with its outcome (processed: message, ignored: unbound, ignored: loop, ignored: rate-limited…). Filter by status, outcome, or installation. Project admins only. Paginated.";
+    "List the platform deliveries this project's bots received, newest first, each with its outcome (processed: message, ignored: unbound, ignored: loop, ignored: rate-limited…). Filter by status, outcome, platform type, a bot installation, or a GitHub installation. Project admins only. Paginated.";
   middleware = [AdminMiddleware()];
   web = {
     route: "/project/:projectId/trigger-events",
@@ -44,7 +50,19 @@ export class TriggerEventList implements Action {
       .describe(
         "Only this outcome, or outcomes starting with it, e.g. unbound",
       ),
-    botInstallationId: idInput("Only this installation's").optional(),
+    type: z
+      .string()
+      .trim()
+      .regex(/^[a-z][a-z0-9_-]*$/)
+      .max(40)
+      .optional()
+      .describe("Only this platform's: slack, linear, pylon, webhook, github…"),
+    botInstallationId: idInput(
+      "Only this bot installation's (never a github event)",
+    ).optional(),
+    githubInstallationId: idInput(
+      "Only this attached GitHub installation's github events",
+    ).optional(),
   });
 
   /**
@@ -58,8 +76,19 @@ export class TriggerEventList implements Action {
       params.outcome
         ? like(triggerEvents.outcome, `${params.outcome.replace(/[%_]/g, "")}%`)
         : undefined,
+      params.type ? eq(triggerEvents.type, params.type) : undefined,
+      // The column means a bot installation on every type but github.
       params.botInstallationId
-        ? eq(triggerEvents.botInstallationId, params.botInstallationId)
+        ? and(
+            eq(triggerEvents.botInstallationId, params.botInstallationId),
+            ne(triggerEvents.type, "github"),
+          )
+        : undefined,
+      params.githubInstallationId
+        ? and(
+            eq(triggerEvents.botInstallationId, params.githubInstallationId),
+            eq(triggerEvents.type, "github"),
+          )
         : undefined,
     );
     const result = await paginate(

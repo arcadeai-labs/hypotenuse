@@ -9,6 +9,12 @@
 # asserts the orchestration with no model, no key, and no network beyond us.
 FROM oven/bun:1
 
+# git and curl, so a job on a repository clones through the credential
+# helper exactly as it does in the development image.
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ca-certificates curl git \
+  && rm -rf /var/lib/apt/lists/*
+
 COPY stub-claude.sh /usr/local/bin/claude
 COPY stub-claude.ts /usr/local/lib/hypotenuse/stub-claude.ts
 RUN chmod 0755 /usr/local/bin/claude \

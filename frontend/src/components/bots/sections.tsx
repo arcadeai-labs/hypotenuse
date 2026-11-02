@@ -14,6 +14,7 @@ import { ListeningSection } from "./ListeningSection";
 import { MemorySection } from "./MemorySection";
 import { ModelSection } from "./ModelSection";
 import { PromptSettingsSection } from "./PromptSettingsSection";
+import { RepositoriesSection } from "./RepositoriesSection";
 import { SandboxSection } from "./SandboxSection";
 import { SkillsSection } from "./SkillsSection";
 import { ToolsSection } from "./ToolsSection";
@@ -153,6 +154,12 @@ export const BOT_SECTIONS: readonly BotSection[] = [
         <SandboxSection {...editProps(ctx)} />
       </>
     ),
+  },
+  {
+    slug: "repositories",
+    label: "Repositories",
+    group: "Tools",
+    render: (ctx) => <RepositoriesSection {...editProps(ctx)} />,
   },
   {
     slug: "approvals",

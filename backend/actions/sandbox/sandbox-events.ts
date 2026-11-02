@@ -7,6 +7,11 @@ import {
   JobTokenMiddleware,
   JobTokenRateLimitMiddleware,
 } from "../../middleware/jobToken";
+import {
+  announcedPullRequests,
+  pullRequestCreateResults,
+  recordJobPullRequest,
+} from "../../ops/PullRequestOps";
 import { jobTokenInput } from "../../ops/SandboxInputOps";
 import { redactJobTokens } from "../../ops/SandboxJobOps";
 import { sandboxJobEvents } from "../../schema/sandbox_job_events";
@@ -48,7 +53,8 @@ const eventInput = z.object({
  * `sandbox:events` — the supervisor's batched transcript of the coding CLI,
  * appended to `sandbox_job_events`. A retried batch is an upsert on
  * `(jobId, seq)`, so nothing is recorded twice. Bumps the job's activity
- * clock. Job token only; not audited (the sandbox's machine half, recorded
+ * clock. A pull request URL in the result of a `gh pr create` call is
+ * recorded through `recordJobPullRequest`, which asks GitHub first. Job token only; not audited (the sandbox's machine half, recorded
  * in `sandbox_job_events`).
  */
 export class SandboxEvents implements Action {
@@ -95,6 +101,23 @@ export class SandboxEvents implements Action {
         ...(init?.text ? { cliSessionId: init.text } : {}),
       })
       .where(eq(sandboxJobs.id, job.id));
+    // What a `gh pr create` call printed — only that call's result, never
+    // `gh pr view`'s or a file's — recorded best effort, and only once
+    // GitHub confirms the job opened it. The transcript is stored whatever
+    // happens here.
+    const announced = (
+      await pullRequestCreateResults(job.id, params.events)
+    ).flatMap((text) => announcedPullRequests(text));
+    for (const pr of announced) {
+      try {
+        await recordJobPullRequest(job, pr.url);
+      } catch (e) {
+        api.logger.warn("could not record a pull request from a transcript", {
+          jobId: job.id,
+          error: e instanceof Error ? e.message : String(e),
+        });
+      }
+    }
     return { stored: rows.length };
   }
 }

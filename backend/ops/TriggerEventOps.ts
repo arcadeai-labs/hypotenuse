@@ -39,6 +39,7 @@ import {
   requestCancel,
 } from "./ConversationOps";
 import type { TxHandle } from "./DbOps";
+import { processGitHubEvent } from "./GitHubEventOps";
 import { openInstallation, sealCredentials } from "./InstallationOps";
 import { enqueueDelivery } from "./OutboxOps";
 import { emit, emitStatus } from "./SurfaceOps";
@@ -73,6 +74,10 @@ import { emit, emitStatus } from "./SurfaceOps";
  * Lifecycle comes before the channel rules because an uninstall is about the
  * installation, not a channel: it must apply wherever it was sent from.
  *
+ * An event of `type: "github"` (the deployment's GitHub App, whose
+ * `botInstallationId` is a `github_installations` row) skips the table:
+ * `GitHubEventOps.processGitHubEvent` decides it.
+ *
  * On a platform whose conversation keys are global (`globalConversationKeys`,
  * a Linear session), an existing conversation for the key decides the
  * channel: the issue may have moved since, and a conversation never changes
@@ -90,6 +95,11 @@ export interface ProcessResult {
   deliver: number[];
   /** Conversations whose transcript page should re-read. */
   ping: { projectId: number; conversationId: number }[];
+  /**
+   * Work owed after commit that calls out (revoking the GitHub tokens a
+   * suspended or removed installation's jobs still hold). Never throws.
+   */
+  afterCommit?: (() => Promise<unknown>)[];
 }
 
 /**
@@ -247,6 +257,7 @@ export async function processTriggerEvent(
     for (const p of result.ping) {
       await pingConversation(p.projectId, p.conversationId);
     }
+    for (const work of result.afterCommit ?? []) await work();
     return { status: result.status, outcome: result.outcome };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -280,6 +291,8 @@ export async function processTriggerEvent(
  * @param event - The claimed event.
  */
 async function hydrateEvent(event: TriggerEvent): Promise<void> {
+  // A GitHub event names no bot installation (`GitHubEventOps`).
+  if (event.type === "github") return;
   const payload = (event.payload ?? {}) as Record<string, unknown>;
   if (payload.hydrated !== undefined) return;
   const [installation] = await api.db.db
@@ -311,6 +324,8 @@ async function applyRules(
   tx: TxHandle,
   event: TriggerEvent,
 ): Promise<ProcessResult> {
+  // GitHub's App webhooks belong to no bot: their own processing.
+  if (event.type === "github") return processGitHubEvent(tx, event);
   const result: ProcessResult = {
     status: "ignored",
     outcome: "empty",
@@ -1066,16 +1081,20 @@ async function acknowledgeInteraction(
 }
 
 /**
- * Shape an event for any answer.
+ * Shape an event for any answer. A `github` event's installation column is a
+ * `github_installations` id, so it is answered as `githubInstallationId`,
+ * and `botInstallationId` is `null`: no bot installation received it.
  * @param e - The row.
  * @returns The serialized event.
  */
 export function serializeTriggerEvent(e: TriggerEvent) {
+  const github = e.type === "github";
   return {
     id: e.id,
     projectId: e.projectId,
     type: e.type,
-    botInstallationId: e.botInstallationId,
+    botInstallationId: github ? null : e.botInstallationId,
+    githubInstallationId: github ? e.botInstallationId : null,
     externalEventId: e.externalEventId,
     messageKey: e.messageKey,
     status: e.status,
