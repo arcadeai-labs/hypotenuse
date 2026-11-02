@@ -1,8 +1,8 @@
 # Command line
 
 `hypotenuse` is the command line for Hypotenuse. It signs in through your browser and then does what the
-dashboard does — organizations, projects, members, invites, tags, model connections and aliases, bots, and the
-audit log — over the same API, as you.
+dashboard does — organizations, projects, members, invites, tags, model connections and aliases, bots, the
+accounts sandboxes run on, and the audit log — over the same API, as you.
 Everything it can do, your role must already allow; it never adds permissions of its own.
 
 ## Installing
@@ -101,6 +101,8 @@ invites), and `audit list`.
 | `hypotenuse event list`, `event view <id>` | Every platform delivery the bots received and what became of it — answered, ignored because the channel is unbound, rate-limited (`--status`, `--outcome`, `--installation` narrow the list). Admins only |
 | `hypotenuse approval list`, `approval view <id>`, `approval approve <id>`, `approval deny <id>` | Tool calls bots are waiting on ([approvals](/docs/approvals)): list them (`--status pending`, `--bot`, `--conversation` narrow it), read one, and decide it. See **Approvals from the command line** below |
 | `hypotenuse sandbox list`, `sandbox view <jobId>`, `sandbox events <jobId>`, `sandbox cancel <jobId>`, `sandbox answer <jobId> <questionId> <answer>` | Code work bots handed to a coding agent in a sandbox: list jobs (`--bot`, `--conversation`, `--status` narrow it), read one, read its transcript, stop it, and answer its questions. See **Sandbox jobs from the command line** below |
+| `hypotenuse sandbox ledger [--live]`, `sandbox destroy <sandboxId>` | Every sandbox the project asked a provider for, with its job and what it was given; destroy one nothing else will collect. Admins only to destroy |
+| `hypotenuse connection list`, `connection view <connection>`, `connection create`, `connection edit <connection>`, `connection test <connection>`, `connection delete <connection>` | The accounts the project's sandboxes run on — a Vercel team and project. Admins only to change; see **Sandbox jobs from the command line** below |
 | `hypotenuse repo install`, `repo installations`, `repo detach <installationId> --yes` | Attach the deployment's GitHub App to the project — print the link that installs it — list the attached installations, or detach one with its grants. Admins only to change. See **Repositories from the command line** below |
 | `hypotenuse repo grants`, `repo view <grantId>`, `repo grant <owner/name> --installation`, `repo grant-edit <grantId>`, `repo revoke <grantId> --yes` | The repositories the project's bots are granted: list them, read one, grant one (read only, or with `--push`), change one, or revoke one. Admins only to change |
 | `hypotenuse large-result view <lr_id>` | A tool result too long to show in a transcript, which the transcript names `lr_<id>`: a page at a time (`--offset`, `--limit`) or `--all` |
@@ -184,6 +186,9 @@ hypotenuse bot edit ada --disable
 - `bot edit --sandbox off|approve|allow` decides whether the bot may hand code work to a sandbox job; with `approve`
   (the default) each job waits for a person's approval first. `--sandbox-token-budget <tokens>` caps the model tokens
   one job may use before it is stopped; `--no-sandbox-token-budget` lifts the cap.
+- `bot edit --require-egress-allowlist` refuses the bot's sandbox jobs unless they run behind a deny-by-default
+  egress allowlist, whatever the project's egress mode; `--no-require-egress-allowlist` turns that off, which takes an
+  admin.
 - `bot edit --github-wake <events>` sets which events on a pull request the bot's sandbox job opened wake the
   conversation that asked for it: any of `changes_requested`, `approved`, `commented`, `review_comment`,
   `check_failed`, `check_passed`, `closed`, and `merged`, comma-separated, or `none`. A new bot wakes on
@@ -387,11 +392,51 @@ hypotenuse project settings --sandbox-provider docker --sandbox-concurrency 2 --
 hypotenuse project settings --no-sandbox-image
 ```
 
-- `--sandbox-provider` names where jobs run (`docker` is for development only), `--sandbox-image` the image a job's
-  sandbox runs, `--sandbox-concurrency` how many run at once (1–50), and `--sandbox-max-duration` the longest one
-  may run (seconds, or `30m`, `2h`; only lower than the deployment's ceiling).
-- Each has a `--no-*` form that goes back to the deployment's default. The answer says which settings are the
-  project's own and which are defaults.
+- `--sandbox-provider` names where jobs run (`docker` is for development only; `vercel` runs each job in a Vercel
+  Sandbox on the project's own Vercel account), `--sandbox-image` the image a Docker job's sandbox runs,
+  `--sandbox-concurrency` how many run at once (1–50), and `--sandbox-max-duration` the longest one may run (seconds,
+  or `30m`, `2h`; only lower than the deployment's ceiling).
+- For Vercel, `--sandbox-runtime` picks the stock runtime a sandbox boots (`node24`, `node22`, or `python3.13`) and
+  `--sandbox-vcpus` its size (1–8 vCPUs, 2 GiB of memory each).
+- `--sandbox-egress open-world|allowlist` decides how a job's network is held. `open-world` (the default) leaves it
+  open; `allowlist` narrows every job to this server and its git hosts before the coding agent starts, and needs a
+  provider that can enforce it (Vercel can; Docker cannot).
+- Each has a `--no-*` form that goes back to the default. The answer says which settings are the project's own and
+  which are defaults, lists the providers this server offers and what each needs, and ends with a warning for
+  anything the change leaves broken — a bot that requires an egress allowlist on a provider that cannot hold one.
+
+Vercel runs on the project's own account, so connect it first. The token is read like an API key — from standard
+input, an environment variable, or a prompt that does not echo — and the server checks it against Vercel before
+saving it:
+
+```bash
+hypotenuse connection create --team-id team_abc123 --vercel-project-id prj_def456 --token-env VERCEL_TOKEN
+hypotenuse project settings --sandbox-provider vercel --sandbox-runtime node24 --sandbox-vcpus 4 --sandbox-egress allowlist
+hypotenuse connection test vercel
+pbpaste | hypotenuse connection edit vercel --token-stdin
+```
+
+- `connection list` shows each connection's kind, name, the last four characters of its token, and whether it last
+  worked, and the kinds that may be added. `view` prints one with its team and project ids.
+- `create` takes `--kind` (`vercel`, the default), `--name`, `--team-id`, and `--vercel-project-id`. `edit` changes
+  any of them, or replaces the token with `--token-stdin` or `--token-env <NAME>`; a new id or token is checked
+  first, and the old one stays when the check fails.
+- `test` checks a connection again and records the result; it exits non-zero when the check fails.
+- `delete` removes a connection and its token. It is refused while the project's sandbox provider runs on it.
+- A connection is named by its id, its name, or its kind. Changing one takes an admin.
+
+The ledger is every sandbox the project asked a provider for, whatever became of its job:
+
+```bash
+hypotenuse sandbox ledger --live
+hypotenuse sandbox destroy 14
+```
+
+- `ledger` lists each sandbox's provider, its id there, its status, its job, and what it was given (vCPUs, memory,
+  runtime or image), newest first; `--live` keeps only those that may still be running.
+- `destroy` destroys one at its provider and marks it destroyed — for one nothing else will collect soon, such as a
+  sandbox left by a failed start. A sandbox whose job is still running is refused: cancel the job instead, which
+  ends its sandbox and tells the conversation. Destroying takes an admin.
 
 ### Repositories from the command line
 

@@ -3,7 +3,10 @@
  * ephemeral sandbox (`sandbox-job:list`, `sandbox-job:view`,
  * `sandbox-job:events`, `sandbox-job:cancel`, `sandbox-job:answer`): each
  * job's status, what the agent reported and asked, its transcript, and a
- * person's two moves on it — stopping it and answering its questions.
+ * person's two moves on it — stopping it and answering its questions — plus
+ * the project's sandbox ledger (`sandbox-ledger:list`,
+ * `sandbox-ledger:destroy`): every sandbox asked of a provider, and an
+ * admin's way to end one nothing else will collect.
  *
  * Out of scope: the `sandbox:*` actions a job's own token calls from inside
  * its sandbox, the `proxy:*` routes it reaches models and MCP through, and the
@@ -109,6 +112,41 @@ interface JobEvent {
   toolName: string | null;
   text: string | null;
   occurredAt: number;
+}
+
+/** A sandbox as the ledger actions answer it. */
+export interface LedgerSandbox {
+  id: number;
+  projectId: number;
+  jobId: number | null;
+  provider: string;
+  externalId: string | null;
+  status: string;
+  resources: {
+    vcpus?: number;
+    memoryMiB?: number;
+    timeoutMs?: number;
+    image?: string;
+  } | null;
+  error: string | null;
+  createdAt: number;
+  destroyedAt: number | null;
+  job?: { id: number; title: string | null; status: string | null } | null;
+}
+
+/**
+ * What a ledgered sandbox was given, for a person.
+ * @param r - Its resources.
+ * @returns e.g. `2 vCPU, 4096 MiB, node24`, or `-`.
+ */
+export function resourcesText(r: LedgerSandbox["resources"]): string {
+  if (!r) return "-";
+  const parts = [
+    r.vcpus !== undefined ? `${r.vcpus} vCPU` : null,
+    r.memoryMiB !== undefined ? `${r.memoryMiB} MiB` : null,
+    r.image ?? null,
+  ].filter(Boolean);
+  return parts.length ? parts.join(", ") : "-";
 }
 
 /**
@@ -240,14 +278,14 @@ export function eventLine(e: JobEvent): string {
 }
 
 /**
- * Register `sandbox list|view|events|cancel|answer`.
+ * Register `sandbox list|view|events|cancel|answer|ledger|destroy`.
  * @param program - The root program.
  */
 export function registerSandboxCommands(program: Command): void {
   const sandbox = program
     .command("sandbox")
     .description(
-      "Code work bots handed to sandbox jobs: list, view, events, cancel, answer",
+      "Code work bots handed to sandbox jobs: list, view, events, cancel, answer; and the sandboxes they ran in: ledger, destroy",
     );
 
   withPaging(
@@ -432,6 +470,78 @@ export function registerSandboxCommands(program: Command): void {
           result,
           () =>
             `Answered question ${questionId} of sandbox job ${jobId}; the agent reads it the next time it checks.`,
+        );
+      });
+    });
+
+  withPaging(
+    sandbox
+      .command("ledger")
+      .description(
+        "List every sandbox the project asked a provider for, newest first: its job, status, and what it was given",
+      )
+      .option("--live", "only sandboxes that may still be running"),
+  ).action(async function (this: Command) {
+    await runCommand(this, async (ctx) => {
+      const o = this.opts() as { live?: boolean };
+      const client = ctx.signedInClient();
+      const projectId = await ctx.projectId();
+      const result = await client.request<
+        Paginated<"sandboxes", LedgerSandbox>
+      >("GET", `/project/${projectId}/sandboxes`, {
+        query: { live: o.live ? "true" : undefined, ...pageQuery(this) },
+      });
+      emit(ctx, result, () =>
+        result.sandboxes.length === 0
+          ? o.live
+            ? "No sandboxes are running."
+            : "No sandboxes yet."
+          : table(
+              result.sandboxes.map((s) => ({
+                id: s.id,
+                provider: s.provider,
+                status: s.status,
+                job: s.job
+                  ? `${s.job.id} ${s.job.status ?? ""} ${s.job.title ?? ""}`.trim()
+                  : "-",
+                resources: resourcesText(s.resources),
+                "provider id": s.externalId ?? "-",
+                created: when(s.createdAt),
+              })),
+              [
+                { key: "id" },
+                { key: "provider" },
+                { key: "status" },
+                { key: "job", maxWidth: 40 },
+                { key: "resources" },
+                { key: "provider id", maxWidth: 30 },
+                { key: "created" },
+              ],
+            ) + pageFooter(result.pagination),
+      );
+    });
+  });
+
+  sandbox
+    .command("destroy")
+    .description(
+      "Destroy a sandbox at its provider and close its ledger row (admin); a running job's sandbox ends by cancelling the job",
+    )
+    .argument("<sandboxId>", "the sandbox's id in `sandbox ledger`")
+    .action(async function (this: Command, raw: string) {
+      await runCommand(this, async (ctx) => {
+        const sandboxId = parseNumber(raw, "<sandboxId>");
+        const client = ctx.signedInClient();
+        const projectId = await ctx.projectId();
+        const result = await client.request<{ sandbox: LedgerSandbox }>(
+          "DELETE",
+          `/project/${projectId}/sandbox/${sandboxId}`,
+        );
+        emit(
+          ctx,
+          result,
+          () =>
+            `Sandbox ${sandboxId} is ${result.sandbox.status} (${result.sandbox.provider}${result.sandbox.externalId ? ` ${result.sandbox.externalId}` : ""}).`,
         );
       });
     });
