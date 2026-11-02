@@ -7,6 +7,7 @@ import type {} from "../config/platforms";
 import type { GithubWakeEvent } from "../schema/bots";
 import type { Conversation } from "../schema/conversations";
 import { githubInstallations } from "../schema/github_installations";
+import { repositoryGrants } from "../schema/repository_grants";
 import {
   type SandboxJobPullRequest,
   sandboxJobPullRequests,
@@ -15,6 +16,7 @@ import { type TriggerEvent, triggerEvents } from "../schema/trigger_events";
 import { lockConversation, receiveMessage, wake } from "./ConversationOps";
 import type { TxHandle } from "./DbOps";
 import { GITHUB_HOST } from "./GitAccessOps";
+import { revokeLiveJobRepositoryTokens } from "./GitCredentialOps";
 import { refusal } from "./IngressOps";
 import { pullRequestName } from "./PullRequestOps";
 import { readCappedBody } from "./RawRequestOps";
@@ -490,7 +492,11 @@ function statusFor(
 async function applyInstallationEvent(
   tx: TxHandle,
   body: Record<string, unknown>,
-): Promise<{ status: "processed" | "ignored"; outcome: string }> {
+): Promise<{
+  status: "processed" | "ignored";
+  outcome: string;
+  afterCommit?: (() => Promise<unknown>)[];
+}> {
   const action = str(body.action);
   const installationId = String(
     (body.installation as { id?: unknown } | undefined)?.id ?? "",
@@ -507,11 +513,46 @@ async function applyInstallationEvent(
   if (!set || !installationId) {
     return { status: "ignored", outcome: `installation:${action || "-"}` };
   }
-  await tx
+  const attached = await tx
     .update(githubInstallations)
     .set(set)
-    .where(eq(githubInstallations.installationId, installationId));
-  return { status: "processed", outcome: `installation:${action}` };
+    .where(eq(githubInstallations.installationId, installationId))
+    .returning({ id: githubInstallations.id });
+  // The tokens running jobs already hold through this installation go too,
+  // as for a detach: a suspended or removed installation's tokens are dead or
+  // should be, and after an unsuspend a cached pre-suspend token must not be
+  // handed out again — the next command mints a fresh one.
+  const grants =
+    attached.length === 0
+      ? []
+      : await tx
+          .select({
+            projectId: repositoryGrants.projectId,
+            owner: repositoryGrants.owner,
+            name: repositoryGrants.name,
+          })
+          .from(repositoryGrants)
+          .where(
+            inArray(
+              repositoryGrants.githubInstallationId,
+              attached.map((a) => a.id),
+            ),
+          );
+  const byProject = new Map<number, string[]>();
+  for (const g of grants) {
+    const list = byProject.get(g.projectId) ?? [];
+    list.push(`${g.owner}/${g.name}`);
+    byProject.set(g.projectId, list);
+  }
+  return {
+    status: "processed",
+    outcome: `installation:${action}`,
+    afterCommit: [...byProject].map(
+      ([projectId, repositories]) =>
+        () =>
+          revokeLiveJobRepositoryTokens(projectId, repositories),
+    ),
+  };
 }
 
 /**

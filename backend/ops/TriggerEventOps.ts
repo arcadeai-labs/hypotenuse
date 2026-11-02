@@ -95,6 +95,11 @@ export interface ProcessResult {
   deliver: number[];
   /** Conversations whose transcript page should re-read. */
   ping: { projectId: number; conversationId: number }[];
+  /**
+   * Work owed after commit that calls out (revoking the GitHub tokens a
+   * suspended or removed installation's jobs still hold). Never throws.
+   */
+  afterCommit?: (() => Promise<unknown>)[];
 }
 
 /**
@@ -252,6 +257,7 @@ export async function processTriggerEvent(
     for (const p of result.ping) {
       await pingConversation(p.projectId, p.conversationId);
     }
+    for (const work of result.afterCommit ?? []) await work();
     return { status: result.status, outcome: result.outcome };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

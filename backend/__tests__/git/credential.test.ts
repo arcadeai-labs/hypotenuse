@@ -10,7 +10,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { and, eq } from "drizzle-orm";
-import { api } from "keryx";
+import { api, config } from "keryx";
 import {
   GITHUB_CLI_PATH_PROFILE_MARK,
   gitCredentialHelperScript,
@@ -31,7 +31,11 @@ import { githubInstallations } from "../../schema/github_installations";
 import { repositoryGrants } from "../../schema/repository_grants";
 import { sandboxJobGitTokens } from "../../schema/sandbox_job_git_tokens";
 import { sandboxJobs } from "../../schema/sandbox_jobs";
-import { type AgentStage, startConversation } from "../agent/harness";
+import {
+  type AgentStage,
+  drainQueue,
+  startConversation,
+} from "../agent/harness";
 import { tryGit } from "../fakes/github/server";
 import { asJob, buildSandboxStage, mintJob } from "../sandbox/harness";
 import { call, HOOK_TIMEOUT } from "../setup";
@@ -515,6 +519,51 @@ describe("revocation", () => {
     expect(git.github.revocations).toContain(held);
     expect(git.github.revocations).not.toContain(kept);
     expect((await ask(token, "beta/tool")).status).toBe(403);
+  });
+
+  test("GitHub suspending an installation revokes live jobs' tokens for its repositories", async () => {
+    git.github.install({ id: "7003", login: "gamma", repositories: ["kit"] });
+    await git.github.createRepository("gamma", "kit");
+    const [installation] = await api.db.db
+      .insert(githubInstallations)
+      .values({
+        projectId: stage.u.projectId,
+        installationId: "7003",
+        accountLogin: "gamma",
+        accountType: "Organization",
+      })
+      .returning();
+    await api.db.db.insert(repositoryGrants).values({
+      projectId: stage.u.projectId,
+      githubInstallationId: installation.id,
+      owner: "gamma",
+      name: "kit",
+      push: true,
+      botIds: null,
+    });
+    const res = await startConversation(stage, "Fix it", {
+      channelType: "web",
+    });
+    const { token } = await mintJob(stage, res.body.conversation.id, {
+      repository: {
+        host: "github.com",
+        owner: "gamma",
+        name: "kit",
+        ref: null,
+        mode: "write",
+      },
+    });
+    const held = (await ask(token, "gamma/kit")).body.credential.password;
+    const kept = (await ask(token, "acme/api")).body.credential.password;
+    git.github.webhookUrl = `${stage.u.url}${config.server.web.apiRoute}/webhooks/github`;
+    const delivered = await git.github.installationEvent("7003", "suspend");
+    expect(delivered.status).toBe(200);
+    expect(await drainQueue("ingress")).toContain("triggers:process-event");
+    expect(git.github.revocations).toContain(held);
+    expect(git.github.revocations).not.toContain(kept);
+    // The next command is refused with the suspension, not handed the cache.
+    const after = await ask(token, "gamma/kit");
+    expect(after.status).not.toBe(200);
   });
 });
 

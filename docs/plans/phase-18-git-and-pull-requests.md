@@ -293,7 +293,9 @@ By hand: install the App on a test org; grant a scratch repository with push; as
   `installationUnavailableReason` is the one wording; `sandbox_start` and provisioning refuse with it up front.
 - **Narrowing a grant now reaches running jobs.** Push turned off, bots removed, a grant deleted, or an installation
   detached revokes those repositories' tokens in live jobs after commit (`revokeLiveJobRepositoryTokens`, via a
-  token → repository hash per job in Redis).
+  token → repository hash per job in Redis). So does GitHub's `installation` event (`suspend`, `deleted`,
+  `unsuspend` — the last so a pre-suspend token is never handed out again), as `afterCommit` work on the event's
+  `ProcessResult`.
 - **Read jobs park for approval** under `approve`: they push nothing, but they run untrusted repository code with a
   credential and egress.
 - **The clone prologue validates `ref`** (`gitRefProblem`; a leading `-` is an option to git) and passes `--`; a
