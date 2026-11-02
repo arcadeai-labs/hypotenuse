@@ -1,8 +1,9 @@
-import { and, eq } from "drizzle-orm";
-import { api } from "keryx";
+import { and, eq, sql } from "drizzle-orm";
+import { api, config } from "keryx";
 // Type-only, purely for the `declare module "keryx"` augmentation inside.
 import type {} from "../config/github";
 import type { Conversation } from "../schema/conversations";
+import { sandboxJobEvents } from "../schema/sandbox_job_events";
 import {
   type SandboxJobPullRequest,
   sandboxJobPullRequests,
@@ -15,7 +16,7 @@ import {
 } from "./ConversationOps";
 import type { DbHandle } from "./DbOps";
 import { GITHUB_HOST } from "./GitAccessOps";
-import { grantForBot } from "./GitCredentialOps";
+import { grantForBot, jobPermissionFor } from "./GitCredentialOps";
 import {
   appForInstallation,
   githubRest,
@@ -33,29 +34,41 @@ import { appendEntries } from "./TranscriptOps";
  * against the job, and relaying it to the conversation that asked for the
  * work. Two ways in, one way through:
  *
- * | Way in | Caller | On a URL that is not a pull request, or a repository the bot is not granted |
+ * | Way in | Caller | When it is not recorded |
  * |---|---|---|
  * | the agent submits it, `sandbox:submit-artifact { name: "pull_request", content: <url> }` | the coding agent | refused with a sentence it can act on; the artifact is still stored |
- * | the supervisor's transcript carries it — a tool result with a line that is only a pull request URL, which is what `gh pr create` prints | `sandbox:events` | skipped silently |
+ * | the supervisor's transcript carries it — the result of a `gh pr create` call (paired with its call by Claude Code's `tool_use_id`, or Codex's `command` on the result), a line that is only a pull request URL | `sandbox:events` | skipped silently |
  *
- * Recording, once a URL names a granted repository:
+ * A URL proves nothing — `gh pr view`, `gh pr list`, and `cat` print pull
+ * request URLs too, and a job may simply type one. So a pull request is
+ * recorded only when **GitHub confirms the job could have opened it**:
  *
- * 1. If the pull request is already recorded (for this or an earlier job),
- *    nothing happens: a pull request stays with the job that first opened it.
- * 2. Outside any transaction, read its title and head branch from GitHub's
- *    REST API with a token minted for that one repository at
- *    `pull_requests: read`, then revoke the token. **Best effort**: GitHub
- *    being down never fails the record; the title is then unknown.
- * 3. In one transaction, lock the conversation, then the job (the one lock
+ * 1. The URL names a repository the bot is granted, **and the job holds
+ *    write on it** (`jobPermissionFor`: a push grant, and the job was started
+ *    in `write` mode on that very repository). Only such a job's credential
+ *    carries `pull_requests: write`, so no other job can have opened it.
+ * 2. Already recorded for this job: nothing happens. Recorded for another
+ *    job: refused — a pull request stays with the job that opened it.
+ * 3. Outside any transaction, GitHub's REST API is read
+ *    (`GET /repos/:owner/:name/pulls/:number`) with a token minted for that
+ *    one repository at `pull_requests: read`, revoked after. The pull
+ *    request must exist, be **authored by the App's bot user**
+ *    (`<config.github.appSlug>[bot]`, which is who a sandbox's `gh` acts
+ *    as), have **its head on the granted repository** (not a fork), and —
+ *    when the grant names a branch prefix — **a head branch under it**.
+ *    GitHub unreachable, or an App slug not configured, is a refusal: an
+ *    unconfirmed pull request is never recorded.
+ * 4. In one transaction, lock the conversation, then the job (the one lock
  *    order), and insert the row `ON CONFLICT DO NOTHING`. Only the insert
  *    that wins relays:
  *    - a transcript `status_change` naming the job and the pull request;
  *    - a `link` surface row, label "Pull Request", the title as its text —
  *      a Slack message, a Linear session's `externalUrls`, a Pylon note;
- *    - a quiet inbox `system` message to the bot (fenced, `answers: false`):
- *      it reads it at its next step, and it wakes nobody;
+ *    - a quiet inbox `system` message to the bot (title and branch fenced,
+ *      `answers: false`): it waits for the turn's boundary, wakes nobody,
+ *      and never answers a question;
  *    - `relayedAt` stamped.
- * 4. After commit, the relay's owed delivery and ping (`afterRelay`).
+ * 5. After commit, the relay's owed delivery and ping (`afterRelay`).
  *
  * A conversation a person disengaged (`ended`, `cancelled`) gets the row and
  * the transcript entry, and nothing on its surface.
@@ -158,6 +171,92 @@ export function announcedPullRequests(text: string): ParsedPullRequest[] {
   return [...out.values()];
 }
 
+/** One transcript event, as the supervisor posts it. */
+interface TranscriptEvent {
+  type: string;
+  toolName?: string;
+  text?: string;
+  payload?: unknown;
+}
+
+/**
+ * Read a property of an unknown value.
+ * @param v - The value.
+ * @param key - The property.
+ * @returns It, or `undefined`.
+ */
+function prop(v: unknown, key: string): unknown {
+  return v && typeof v === "object"
+    ? (v as Record<string, unknown>)[key]
+    : undefined;
+}
+
+/**
+ * Whether a shell command creates a pull request: `gh pr create` as one of
+ * its commands.
+ * @param command - The command line.
+ * @returns `true` for `gh pr create …`, alone or chained.
+ */
+export function createsPullRequest(command: unknown): boolean {
+  return (
+    typeof command === "string" &&
+    /(^|[\s;&|(`])gh\s+pr\s+create(\s|$)/.test(command)
+  );
+}
+
+/**
+ * The tool results in a batch that are the output of a `gh pr create` call.
+ * A result is paired with its call the way the CLI records it: Claude Code's
+ * `tool_result` block names its `tool_use_id`, the `id` of a `tool_use` block
+ * in this batch or an earlier one (read from `sandbox_job_events`); Codex's
+ * `command_execution` result carries its own `command`. A result that cannot
+ * be paired is not one: transcript detection is the fallback, and the
+ * agent's `pull_request` artifact is the way in that always works.
+ * @param jobId - The job, whose stored events hold earlier calls.
+ * @param events - The batch.
+ * @returns The texts of the results of `gh pr create` calls.
+ */
+export async function pullRequestCreateResults(
+  jobId: number,
+  events: TranscriptEvent[],
+): Promise<string[]> {
+  const results = events.filter(
+    (e) => e.type === "tool_result" && e.text && /\/pull\/\d/.test(e.text),
+  );
+  if (results.length === 0) return [];
+  const out: string[] = [];
+  for (const e of results) {
+    const text = String(e.text);
+    const ownCommand = prop(prop(e.payload, "item"), "command");
+    if (createsPullRequest(ownCommand)) {
+      out.push(text);
+      continue;
+    }
+    const useId = prop(e.payload, "tool_use_id");
+    if (typeof useId !== "string" || !useId) continue;
+    const inBatch = events.find(
+      (u) => u.type === "tool_use" && prop(u.payload, "id") === useId,
+    );
+    let input = inBatch ? prop(inBatch.payload, "input") : undefined;
+    if (!inBatch) {
+      const [stored] = await api.db.db
+        .select({ payload: sandboxJobEvents.payload })
+        .from(sandboxJobEvents)
+        .where(
+          and(
+            eq(sandboxJobEvents.jobId, jobId),
+            eq(sandboxJobEvents.kind, "tool_use"),
+            sql`${sandboxJobEvents.payload}->>'id' = ${useId}`,
+          ),
+        )
+        .limit(1);
+      input = prop(stored?.payload, "input");
+    }
+    if (createsPullRequest(prop(input, "command"))) out.push(text);
+  }
+  return out;
+}
+
 /** What recording a pull request did. */
 export type RecordOutcome =
   | { recorded: true; pullRequest: SandboxJobPullRequest; created: boolean }
@@ -191,20 +290,35 @@ async function existingPullRequest(
   return row;
 }
 
+/** What GitHub said about a pull request, or why it could not be read. */
+type PullRequestRead =
+  | {
+      ok: true;
+      title: string | null;
+      headRef: string | null;
+      author: string;
+      headRepository: string;
+    }
+  | { ok: false; reason: string };
+
 /**
- * Read a pull request's title and head branch from GitHub, best effort: a
- * token for the one repository at `pull_requests: read`, revoked after.
+ * Read a pull request from GitHub: a token for the one repository at
+ * `pull_requests: read`, revoked after. Anything short of a 200 with a
+ * pull request in it is a refusal, with a sentence.
  * @param installation - The attached installation the grant reaches it through.
  * @param pr - The pull request.
- * @returns What GitHub said, or empty fields.
+ * @returns What GitHub said, or why it could not be read.
  */
 async function readPullRequest(
   installation: Parameters<typeof appForInstallation>[0],
   pr: ParsedPullRequest,
-): Promise<{ title: string | null; headRef: string | null }> {
-  const none = { title: null, headRef: null };
+): Promise<PullRequestRead> {
+  const unreachable = {
+    ok: false as const,
+    reason: `GitHub could not be asked about ${pullRequestName(pr)}, so it was not recorded. Submit it again in a moment.`,
+  };
   const app = appForInstallation(installation);
-  if (!app) return none;
+  if (!app) return unreachable;
   let token: string | null = null;
   try {
     const minted = await mintInstallationToken(app, {
@@ -216,24 +330,83 @@ async function readPullRequest(
       token,
       `/repos/${encodeURIComponent(pr.owner)}/${encodeURIComponent(pr.name)}/pulls/${pr.number}`,
     );
-    if (res.status !== 200 || !res.body || typeof res.body !== "object") {
-      return none;
+    if (res.status === 404) {
+      return {
+        ok: false,
+        reason: `GitHub has no pull request ${pullRequestName(pr)}, so it was not recorded. Submit the URL gh pr create printed.`,
+      };
     }
-    const body = res.body as { title?: unknown; head?: { ref?: unknown } };
+    if (res.status !== 200 || !res.body || typeof res.body !== "object") {
+      return unreachable;
+    }
+    const body = res.body as {
+      title?: unknown;
+      user?: { login?: unknown };
+      head?: { ref?: unknown; repo?: { full_name?: unknown } | null };
+    };
     return {
+      ok: true,
       title: typeof body.title === "string" ? body.title.slice(0, 500) : null,
       headRef:
         typeof body.head?.ref === "string" ? body.head.ref.slice(0, 255) : null,
+      author: typeof body.user?.login === "string" ? body.user.login : "",
+      headRepository:
+        typeof body.head?.repo?.full_name === "string"
+          ? body.head.repo.full_name
+          : "",
     };
   } catch (e) {
     api.logger.warn("could not read a pull request from GitHub", {
       pullRequest: pr.url,
       error: e instanceof Error ? e.message : String(e),
     });
-    return none;
+    return unreachable;
   } finally {
     if (token) await revokeInstallationToken(token);
   }
+}
+
+/**
+ * The login GitHub gives the App's bot user, which a sandbox's `gh` acts as.
+ * @returns `<appSlug>[bot]`, lowercased, or `null` when no slug is configured.
+ */
+export function appBotLogin(): string | null {
+  const slug = String(config.github.appSlug ?? "")
+    .trim()
+    .toLowerCase();
+  return slug ? `${slug}[bot]` : null;
+}
+
+/**
+ * Whether what GitHub said about a pull request shows this job opened it:
+ * the App's bot authored it, its head is on the granted repository, and its
+ * branch is under the grant's prefix when the grant names one.
+ * @param pr - The pull request.
+ * @param read - What GitHub said.
+ * @param branchPrefix - The grant's configured branch prefix, if any.
+ * @returns `null` when it checks out, otherwise the sentence why not.
+ */
+function confirmOpenedByJob(
+  pr: ParsedPullRequest,
+  read: Extract<PullRequestRead, { ok: true }>,
+  branchPrefix: string | null,
+): string | null {
+  const name = pullRequestName(pr);
+  const bot = appBotLogin();
+  if (!bot) {
+    return `The GitHub App's slug is not configured, so who opened ${name} cannot be confirmed; it was not recorded.`;
+  }
+  if (read.author.toLowerCase() !== bot) {
+    return `${name} was opened by ${read.author || "someone else"}, not by this job (${bot}), so it was not recorded. Submit only a pull request your job opened with gh pr create.`;
+  }
+  if (read.headRepository.toLowerCase() !== `${pr.owner}/${pr.name}`) {
+    return `${name}'s branch is not on ${pr.owner}/${pr.name}, so it was not recorded. Push your branch to ${pr.owner}/${pr.name} and open the pull request from it.`;
+  }
+  const prefix = branchPrefix?.trim();
+  if (prefix && !read.headRef?.startsWith(prefix)) {
+    return `${name}'s branch is not under ${prefix}, the branch prefix this repository's grant names, so it was not recorded. Push a branch under ${prefix} and open the pull request from it.`;
+  }
+  return null;
 }
 
 /**
@@ -285,8 +458,17 @@ async function relayPullRequest(
   }
   await receiveMessage(tx, conversation, {
     text: [
-      `${jobLabel(job)} opened pull request ${name}: ${pr.url}${pr.headRef ? ` (branch ${pr.headRef})` : ""}.`,
-      pr.title ? `Its title:\n${fenced(pr.title)}` : "",
+      `${jobLabel(job)} opened pull request ${name}: ${pr.url}.`,
+      pr.title || pr.headRef
+        ? `Its ${pr.title && pr.headRef ? "title and branch" : pr.title ? "title" : "branch"}:\n${fenced(
+            [
+              pr.title ? `Title: ${pr.title}` : "",
+              pr.headRef ? `Branch: ${pr.headRef}` : "",
+            ]
+              .filter(Boolean)
+              .join("\n"),
+          )}`
+        : "",
       "The link is already shown to the people here. Reviews and CI results on it will reach you in this conversation.",
     ]
       .filter(Boolean)
@@ -315,7 +497,10 @@ async function relayPullRequest(
  * @returns The row (and whether this call created it), or why it was not recorded.
  */
 export async function recordJobPullRequest(
-  job: Pick<SandboxJob, "id" | "projectId" | "botId" | "parentConversationId">,
+  job: Pick<
+    SandboxJob,
+    "id" | "projectId" | "botId" | "parentConversationId" | "repository"
+  >,
   url: string,
 ): Promise<RecordOutcome> {
   const parsed = parsePullRequestUrl(url);
@@ -336,11 +521,34 @@ export async function recordJobPullRequest(
       reason: `This bot is not granted ${parsed.owner}/${parsed.name}, so the pull request was not recorded. Open pull requests only on a repository your job can reach.`,
     };
   }
+  // Only a job holding write on the repository can have opened a pull
+  // request there: no other job's credential carries `pull_requests: write`.
+  if (
+    jobPermissionFor(job, grant.grant.push, {
+      owner: parsed.owner,
+      repo: parsed.name,
+    }) !== "write"
+  ) {
+    return {
+      recorded: false,
+      reason: `This job was not started to change ${parsed.owner}/${parsed.name}, so it cannot have opened ${pullRequestName(parsed)}; it was not recorded.`,
+    };
+  }
   const existing = await existingPullRequest(api.db.db, job.projectId, parsed);
-  if (existing)
-    return { recorded: true, pullRequest: existing, created: false };
+  if (existing) {
+    if (existing.jobId === job.id) {
+      return { recorded: true, pullRequest: existing, created: false };
+    }
+    return {
+      recorded: false,
+      reason: `${pullRequestName(parsed)} is already recorded for another sandbox job, so it was not recorded for this one.`,
+    };
+  }
 
   const details = await readPullRequest(grant.installation, parsed);
+  if (!details.ok) return { recorded: false, reason: details.reason };
+  const refused = confirmOpenedByJob(parsed, details, grant.grant.branchPrefix);
+  if (refused) return { recorded: false, reason: refused };
 
   let relay: RelayResult | null = null;
   const row = await api.db.db.transaction(async (tx) => {
@@ -378,7 +586,15 @@ export async function recordJobPullRequest(
   await afterRelay(job, relay);
   if (row) return { recorded: true, pullRequest: row, created: true };
   const winner = await existingPullRequest(api.db.db, job.projectId, parsed);
-  if (winner) return { recorded: true, pullRequest: winner, created: false };
+  if (winner?.jobId === job.id) {
+    return { recorded: true, pullRequest: winner, created: false };
+  }
+  if (winner) {
+    return {
+      recorded: false,
+      reason: `${pullRequestName(parsed)} is already recorded for another sandbox job, so it was not recorded for this one.`,
+    };
+  }
   return { recorded: false, reason: "The job is gone." };
 }
 

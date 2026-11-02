@@ -96,7 +96,7 @@ function pull() {
     body: "",
     head: "hypotenuse/toadsworth/flaky",
     base: "main",
-    author: "hypotenuse[bot]",
+    author: `${github.appSlug}[bot]`,
   });
 }
 
@@ -225,6 +225,53 @@ describe("recording", () => {
       status: "ignored",
       outcome: "no-pull-request",
     });
+  });
+
+  test("trigger-event:list: a bot installation filter never matches a github event that shares its number; type and githubInstallationId do", async () => {
+    const attachedId = await attach(u.projectId);
+    await github.review(pull(), "commented", "Fine.");
+    // A bot installation's delivery whose installation id is the same number.
+    await api.db.db.insert(triggerEvents).values({
+      projectId: u.projectId,
+      type: "webhook",
+      botInstallationId: attachedId,
+      externalEventId: "webhook-1",
+      payload: {},
+      status: "ignored",
+      outcome: "unbound",
+    });
+    /** List the project's events with a query string. */
+    const list = async (query: string) => {
+      const res = await call<{
+        triggerEvents: {
+          type: string;
+          botInstallationId: number | null;
+          githubInstallationId: number | null;
+        }[];
+        pagination: { total: number };
+      }>(
+        u.url,
+        u.peach,
+        "GET",
+        `/project/${u.projectId}/trigger-events?${query}`,
+      );
+      expect(res.status).toBe(200);
+      return res.body.triggerEvents;
+    };
+    const byBot = await list(`botInstallationId=${attachedId}`);
+    expect(byBot.map((e) => e.type)).toEqual(["webhook"]);
+    expect(byBot[0].botInstallationId).toBe(attachedId);
+    const byGithub = await list(`githubInstallationId=${attachedId}`);
+    expect(byGithub.map((e) => e.type)).toEqual(["github"]);
+    expect(byGithub[0]).toMatchObject({
+      botInstallationId: null,
+      githubInstallationId: attachedId,
+    });
+    expect((await list("type=github")).map((e) => e.type)).toEqual(["github"]);
+    expect((await list("")).map((e) => e.type).sort()).toEqual([
+      "github",
+      "webhook",
+    ]);
   });
 
   // Coverage: `github.in.unknown-installation`.

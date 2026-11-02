@@ -26,6 +26,7 @@ import {
   gitCredentialHelperScript,
   gitCredentialUrl,
   githubCliWrapperScript,
+  gitRefProblem,
   gitSandboxConfigCommands,
   persistGithubCliPathScript,
 } from "./GitAccessOps";
@@ -34,7 +35,7 @@ import {
   type JobRepository,
   jobRepository,
 } from "./GitCredentialOps";
-import { githubWebOrigin } from "./GitHubAppOps";
+import { githubWebOrigin, installationUnavailableReason } from "./GitHubAppOps";
 import { botServers } from "./McpCatalogOps";
 import {
   effectiveSandboxSettings,
@@ -370,12 +371,19 @@ export function repositorySection(r: BriefingRepository): string {
 }
 
 /**
- * Where a job's repository is checked out.
+ * Where a job's repository is checked out: `/work/<name>`, except for a name
+ * that would land on the control directory or outside a directory of its own
+ * (`.hypotenuse`, `.`, `..` — GitHub allows the first), which clones into
+ * `/work/repo` instead. A clone into the control directory would put the
+ * repository's files beside the prompt, the supervisor, and the credential
+ * helper — files the repository could then overwrite.
  * @param repo - The job's repository.
  * @returns The directory, under the sandbox's working directory.
  */
 export function repositoryDir(repo: Pick<JobRepository, "name">): string {
-  return `${SANDBOX_CWD}/${repo.name}`;
+  const reserved = new Set([".", "..", CONTROL_DIR.split("/").pop()]);
+  const name = reserved.has(repo.name.toLowerCase()) ? "repo" : repo.name;
+  return `${SANDBOX_CWD}/${name}`;
 }
 
 /**
@@ -391,6 +399,31 @@ export function gitIdentity(bot: Pick<Bot, "displayName" | "slug">): {
   return {
     name: `${bot.displayName} (Hypotenuse)`,
     email: `${bot.slug}@users.noreply.hypotenuse`,
+  };
+}
+
+/**
+ * The egress a sandbox is narrowed to, for a provider that can hold one to a
+ * list — **only for a job on a repository**, where repository content is the
+ * untrusted input and must not coexist with open egress. A job without one
+ * keeps the provider's default egress (`null`), so it can still reach a
+ * package registry or whatever its task needs.
+ * @param apiUrl - The URL the sandbox reaches this API at.
+ * @param hasRepository - Whether the job was started on a repository.
+ * @param github - GitHub's origins; `config.github` by default.
+ * @param github.webUrl - Where git clones from.
+ * @param github.apiUrl - Where `gh` calls the REST API.
+ * @returns `setEgress`'s argument, or `null` to leave egress alone.
+ */
+export function sandboxEgressPolicy(
+  apiUrl: string,
+  hasRepository: boolean,
+  github: { webUrl: string; apiUrl: string } = config.github,
+): { mode: "deny-all"; allowDomains: string[] } | null {
+  if (!hasRepository) return null;
+  return {
+    mode: "deny-all",
+    allowDomains: sandboxEgressHosts(apiUrl, true, github),
   };
 }
 
@@ -537,12 +570,19 @@ export async function prepareRepository(
     "-c",
     persistGithubCliPathScript(SANDBOX_PATHS.binDir),
   ]);
+  // `sandbox_start` refuses a bad ref; this is the last place before git's
+  // command line, where a ref starting with `-` would be an option.
+  const refProblem = repo.ref ? gitRefProblem(repo.ref) : null;
+  if (refProblem) {
+    throw new Error(`"${repo.ref}" is not a ref to check out: ${refProblem}`);
+  }
   const dir = repositoryDir(repo);
   const origin = webOrigin.replace(/\/+$/, "");
   await mustExec(sandbox, `cloning ${repo.owner}/${repo.name}`, [
     "git",
     "clone",
     "--quiet",
+    "--",
     `${origin}/${repo.owner}/${repo.name}.git`,
     dir,
   ]);
@@ -552,14 +592,14 @@ export async function prepareRepository(
     // fetched and checked out detached.
     const direct = await sandbox.exec(
       "git",
-      ["checkout", "--quiet", repo.ref],
+      ["checkout", "--quiet", repo.ref, "--"],
       { cwd: dir, env: { GIT_TERMINAL_PROMPT: "0" } },
     );
     if (direct.exitCode !== 0) {
       await mustExec(
         sandbox,
         `fetching ${repo.ref}`,
-        ["git", "fetch", "--quiet", "origin", repo.ref],
+        ["git", "fetch", "--quiet", "--", "origin", repo.ref],
         dir,
       );
       await mustExec(
@@ -678,6 +718,12 @@ async function briefingRepository(
   if (!found) {
     throw new Error(
       `${bot.displayName} no longer has access to ${repo.owner}/${repo.name}; a project admin can grant it under Repositories.`,
+    );
+  }
+  const unavailable = installationUnavailableReason(found.installation);
+  if (unavailable) {
+    throw new Error(
+      `${repo.owner}/${repo.name} cannot be cloned: ${unavailable}.`,
     );
   }
   let coAuthor: string | null = null;
@@ -820,12 +866,14 @@ export async function startSandboxJob(jobId: number): Promise<StartOutcome> {
     ]);
     if (!(await stillWanted())) return "cancelled";
 
-    // 5. Narrow egress where the provider can hold a sandbox to a list.
-    if (buildSandboxProvider(provider).capabilities.domainEgressAllowlist) {
-      await sandbox.setEgress({
-        mode: "deny-all",
-        allowDomains: sandboxEgressHosts(apiUrl, repo !== null),
-      });
+    // 5. Narrow a repository job's egress where the provider can hold a
+    //    sandbox to a list; any other job keeps the provider's default.
+    const egress = sandboxEgressPolicy(apiUrl, repo !== null);
+    if (
+      egress &&
+      buildSandboxProvider(provider).capabilities.domainEgressAllowlist
+    ) {
+      await sandbox.setEgress(egress);
     }
 
     // 6. A repository job's prologue: git configured, the managed gh on

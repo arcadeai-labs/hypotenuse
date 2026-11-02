@@ -1075,16 +1075,20 @@ async function acknowledgeInteraction(
 }
 
 /**
- * Shape an event for any answer.
+ * Shape an event for any answer. A `github` event's installation column is a
+ * `github_installations` id, so it is answered as `githubInstallationId`,
+ * and `botInstallationId` is `null`: no bot installation received it.
  * @param e - The row.
  * @returns The serialized event.
  */
 export function serializeTriggerEvent(e: TriggerEvent) {
+  const github = e.type === "github";
   return {
     id: e.id,
     projectId: e.projectId,
     type: e.type,
-    botInstallationId: e.botInstallationId,
+    botInstallationId: github ? null : e.botInstallationId,
+    githubInstallationId: github ? e.botInstallationId : null,
     externalEventId: e.externalEventId,
     messageKey: e.messageKey,
     status: e.status,

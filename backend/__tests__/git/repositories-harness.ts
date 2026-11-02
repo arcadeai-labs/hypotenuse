@@ -75,7 +75,16 @@ export async function attachInstallation(
 ): Promise<number> {
   const { state } = await installUrl(url, admin, projectId);
   if (!state) throw new Error("no install state");
-  const code = github.authorizeUser(`${admin.name}-gh`, [installationId]);
+  // GitHub's answer the callback needs: the person administers the
+  // installation's account — an owner of the organization, or the user
+  // account itself.
+  const account = github.installations.get(installationId)?.account;
+  const code =
+    account?.type === "User"
+      ? github.authorizeUser(account.login, [installationId])
+      : github.authorizeUser(`${admin.name}-gh`, [installationId], {
+          ...(account ? { [account.login]: "admin" as const } : {}),
+        });
   const { location } = await installCallback(url, admin, {
     state,
     installation_id: installationId,

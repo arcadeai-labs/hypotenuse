@@ -1597,7 +1597,9 @@ async function applyTransition(
  * @param tx - A transaction.
  * @param conversationId - The conversation.
  * @param answering - Count only rows that may answer a question to people:
- *   not text a sandbox job relayed.
+ *   not a row `receiveMessage` took with `answers: false` (a sandbox's or
+ *   GitHub's relayed text, an untrusted customer's), whose metadata says so,
+ *   nor any text a sandbox job relayed.
  * @returns `true` if any.
  */
 async function pendingInbox(
@@ -1612,9 +1614,10 @@ async function pendingInbox(
       and(
         eq(conversationInbox.conversationId, conversationId),
         isNull(conversationInbox.deliveredAt),
-        // A sandbox's relayed text is never a person's answer.
+        // A message taken with `answers: false` — a sandbox's or GitHub's
+        // relayed text — is never a person's answer.
         answering
-          ? sql`not (${conversationInbox.metadata} ? 'sandboxJobId')`
+          ? sql`not (${conversationInbox.metadata} ? 'sandboxJobId') and (${conversationInbox.metadata}->>'answers') is distinct from 'false'`
           : undefined,
       ),
     )

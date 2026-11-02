@@ -33,7 +33,9 @@ import type { DbHandle } from "./DbOps";
  * Attaching an installation goes through the install flow's user-to-server
  * OAuth (`GITHUB_APP_CLIENT_ID` / `GITHUB_APP_CLIENT_SECRET`): GitHub
  * documents that a Setup URL's `installation_id` can be spoofed, so a new
- * install confirms the installing user can see it via `GET /user/installations`.
+ * install confirms the installing user can see it via `GET /user/installations`
+ * **and administers the account it is on** — see
+ * {@link assertUserAdministersInstallation}.
  *
  * Ported from ToolExec's `GitHubAppOps`; the reuse-from-another-project path
  * is not carried, since an installation is attached per project here.
@@ -608,6 +610,109 @@ export async function assertUserCanAccessInstallation(
   });
 }
 
+/** The account an installation is on, as the App itself read it. */
+export interface InstallationAccount {
+  /** The account's login. */
+  login: string;
+  /** GitHub's numeric id for the account; `null` when GitHub did not say. */
+  id: number | null;
+  /** `Organization` or `User`. */
+  type: string;
+}
+
+/**
+ * GitHub's REST call with a user-to-server token.
+ * @param userToken - The token.
+ * @param path - The path under the API origin.
+ * @param apiOrigin - GitHub's API origin.
+ * @returns The response.
+ */
+function userGet(
+  userToken: string,
+  path: string,
+  apiOrigin: string,
+): Promise<Response> {
+  return fetch(`${apiOrigin}${path}`, {
+    headers: {
+      authorization: `Bearer ${userToken}`,
+      accept: "application/vnd.github+json",
+      "x-github-api-version": "2022-11-28",
+    },
+  });
+}
+
+/**
+ * Refuse unless the user behind `userToken` **administers** the account an
+ * installation is on — the standing it takes to attach that installation, and
+ * with it every repository the App can see there, to a project.
+ *
+ * Seeing an installation is not enough: `GET /user/installations` lists every
+ * installation the user has any read access to, so somebody with read on one
+ * repository in an organization would otherwise attach the organization's
+ * whole installation to their own project, grant themselves push on every
+ * repository, and receive its webhooks. So, after the visibility check:
+ *
+ * - a `User` account must **be** the authenticated user — compared by
+ *   GitHub's numeric id (`GET /user`), since a login can be renamed and then
+ *   taken by somebody else;
+ * - an `Organization` must answer `GET /user/memberships/orgs/{org}` with
+ *   `state: "active"` and `role: "admin"` (an owner). A member, a pending
+ *   invitation, or a 404 is a refusal.
+ *
+ * The account is the one the App read with its own JWT, never the query string.
+ * @param userToken - A user-to-server token from {@link exchangeGitHubUserCode}.
+ * @param installationId - The candidate installation id.
+ * @param account - The installation's account, from `GET /app/installations/:id`.
+ * @param apiOrigin - GitHub's API origin, injectable for tests.
+ * @throws {TypedError} When the user cannot see the installation or does not administer its account.
+ */
+export async function assertUserAdministersInstallation(
+  userToken: string,
+  installationId: string,
+  account: InstallationAccount,
+  apiOrigin: string = githubApiOrigin(),
+): Promise<void> {
+  await assertUserCanAccessInstallation(userToken, installationId, apiOrigin);
+  const refuse = (message: string) =>
+    new TypedError({
+      message,
+      type: ErrorType.CONNECTION_CHANNEL_AUTHORIZATION,
+    });
+  if (account.type === "User") {
+    const response = await userGet(userToken, "/user", apiOrigin);
+    if (!response.ok) {
+      throw new TypedError({
+        message: `GitHub would not say who the installing user is (${response.status}). Start again from Repositories.`,
+        type: ErrorType.CONNECTION_ACTION_RUN,
+      });
+    }
+    const me = (await response.json()) as { id?: number | string };
+    if (
+      account.id === null ||
+      me.id === undefined ||
+      String(me.id) !== String(account.id)
+    ) {
+      throw refuse(
+        `That GitHub App installation is on the personal account ${account.login}, and only ${account.login} can attach it. Sign in to GitHub as ${account.login}, or install the App on an account you own.`,
+      );
+    }
+    return;
+  }
+  const response = await userGet(
+    userToken,
+    `/user/memberships/orgs/${encodeURIComponent(account.login)}`,
+    apiOrigin,
+  );
+  const membership = response.ok
+    ? ((await response.json()) as { state?: string; role?: string })
+    : null;
+  if (membership?.state !== "active" || membership.role !== "admin") {
+    throw refuse(
+      `Only an owner of the GitHub organization ${account.login} can attach its installation of the App: it reaches every repository the App was granted there. Ask an owner of ${account.login} to attach it from Repositories.`,
+    );
+  }
+}
+
 /** One shared-App installation the authorized GitHub user can access. */
 export interface UserGitHubInstallation {
   /** GitHub's installation id. */
@@ -707,6 +812,28 @@ export function isUsableInstallation(
   inst: Pick<GithubInstallation, "suspendedAt" | "revokedAt">,
 ): boolean {
   return inst.suspendedAt === null && inst.revokedAt === null;
+}
+
+/**
+ * Why an attached installation cannot be used right now, as a clause a
+ * refusal finishes — the one wording `sandbox_start`, provisioning, the
+ * credential handout, and the read tools share.
+ * @param inst - The attached installation.
+ * @returns e.g. `the GitHub App installation on acme is suspended on GitHub`, or `null` when usable.
+ */
+export function installationUnavailableReason(
+  inst: Pick<GithubInstallation, "accountLogin" | "suspendedAt" | "revokedAt">,
+): string | null {
+  if (inst.revokedAt !== null) {
+    return `the GitHub App installation on ${inst.accountLogin} was removed on GitHub`;
+  }
+  if (inst.suspendedAt !== null) {
+    return `the GitHub App installation on ${inst.accountLogin} is suspended on GitHub`;
+  }
+  if (!platformGitHubApp()) {
+    return "this deployment's GitHub App is not configured";
+  }
+  return null;
 }
 
 /**

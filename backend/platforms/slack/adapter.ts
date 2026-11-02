@@ -53,7 +53,7 @@ import { approvalBlocks, planMessage, questionBlocks } from "./render";
  * | `message` | `chat.stopStream` of an open stream, then `chat.postMessage` | `mrkdwn` from markdown, sanitized; past 40,000 characters, truncated with a link to the transcript |
  * | `question` | `chat.postMessage` with buttons (a menu past five options) | `action_id` `q:<question>:<option>` |
  * | `approval` | `chat.postMessage` with Approve / Deny, or a dashboard link | `action_id` `a:<approval>:approve\|deny` |
- * | `link` | `chat.postMessage` of `<url\|label: text>` in the thread | a pull request a sandbox job opened; unfurls off, like every message |
+ * | `link` | `chat.postMessage` of `<url\|label: text>` in the thread | a pull request a sandbox job opened; unfurls off, like every message. An open stream stays open: the link is posted beside it, and the stream's next row appends as before |
  *
  * | Slack answers | Then |
  * |---|---|
@@ -414,7 +414,11 @@ async function sendFinal(
 ): Promise<string> {
   const id = inst.installation.id;
   const self = inst.installation.externalBotUserId;
-  await closeStream(target, token, id, row);
+  // A link is its own thread message beside an open stream, which stays
+  // open: `previousStreamOrFinal` does not count a link, so the stream's
+  // next row appends to it. Closing it here stranded that row on a stopped
+  // message.
+  if (row.kind !== "link") await closeStream(target, token, id, row);
   const p = row.payload as Record<string, unknown>;
   const thread = target.threadTs ? { thread_ts: target.threadTs } : {};
   let body: Record<string, unknown>;

@@ -4,9 +4,10 @@
  *
  * A sandbox's git asks for a password, this mints one: a GitHub App
  * installation token scoped to the single repository git named, carrying
- * every **repository** permission the installation currently has — capped to
- * `write` only when the repository's grant allows a push *and* the job was
- * started to change that repository, otherwise `read` — plus the mandatory
+ * only the permissions on {@link SANDBOX_GITHUB_PERMISSIONS} the installation
+ * currently has — `contents`, `pull_requests`, and `issues` at `write` only
+ * when the repository's grant allows a push *and* the job was started to
+ * change that repository, otherwise `read`; CI at `read` — plus the mandatory
  * `metadata: read`. Two bounds apply and they are not the same bound: the
  * **installation** says what is possible on GitHub, and the bot's **grants**
  * say what this job may ask for. A repository the installation can see but no
@@ -26,19 +27,24 @@
  */
 
 import { createHash } from "node:crypto";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull, notInArray } from "drizzle-orm";
 import { api, ErrorType, TypedError } from "keryx";
 import { githubInstallations } from "../schema/github_installations";
 import { repositoryGrants } from "../schema/repository_grants";
 import { sandboxJobGitTokens } from "../schema/sandbox_job_git_tokens";
-import type { SandboxJob } from "../schema/sandbox_jobs";
+import {
+  type SandboxJob,
+  sandboxJobs,
+  TERMINAL_SANDBOX_JOB_STATUSES,
+} from "../schema/sandbox_jobs";
 import type { DbHandle } from "./DbOps";
-import { findGrant, GITHUB_HOST, type GrantLevel } from "./GitAccessOps";
+import { findGrant, GITHUB_HOST } from "./GitAccessOps";
 import {
   appForInstallation,
   fetchInstallationPermissions,
   githubAppFingerprint,
   INSTALLATION_TOKEN_TTL_SECONDS,
+  installationUnavailableReason,
   mintInstallationToken,
   revokeInstallationToken,
 } from "./GitHubAppOps";
@@ -77,10 +83,38 @@ export function jobRepository(
 }
 
 /**
+ * **The only GitHub permissions a sandbox token ever carries**, and the most
+ * it may hold of each. An allowlist, not a denylist: GitHub adds repository
+ * permissions every year (`repository_hooks`, `dependabot_secrets`,
+ * `codespaces_secrets`, `actions_variables`, `secret_scanning_alerts`, …),
+ * and a denylist hands each new one to the next job the day an App owner
+ * ticks the box. `job` means the job's level — `write` only for the
+ * repository a write job was started on with a push grant, otherwise `read`;
+ * `read` means `read` whatever the job.
+ *
+ * - `contents`, `pull_requests`, `issues` — clone and push, open and comment
+ *   on a pull request, read the issue it fixes.
+ * - `checks`, `statuses`, `actions` — read the pull request's CI.
+ * - `metadata` — mandatory on every token.
+ */
+export const SANDBOX_GITHUB_PERMISSIONS: Readonly<
+  Record<string, "job" | "read">
+> = {
+  contents: "job",
+  pull_requests: "job",
+  issues: "job",
+  checks: "read",
+  statuses: "read",
+  actions: "read",
+  metadata: "read",
+};
+
+/**
  * Permissions asked of GitHub when the installation's own map could not be
- * read: `contents`, `issues`, and `pull_requests` at the grant's level, so a
- * pushable checkout can also open pull requests with `gh`, `checks: read` so
- * a job can read its CI, and the mandatory `metadata: read`.
+ * read: `contents`, `issues`, and `pull_requests` at the job's level and
+ * `checks: read` — a subset of {@link SANDBOX_GITHUB_PERMISSIONS} every
+ * installation of the App is expected to hold — and the mandatory
+ * `metadata: read`.
  * @param permission - `write` when the job may push, otherwise `read`.
  * @returns The permission map passed to `mintInstallationToken`.
  */
@@ -97,49 +131,10 @@ export function sandboxInstallationPermissions(
 }
 
 /**
- * GitHub App permissions that attach to an account or organization, not a
- * repository. Requesting them on a mint would give the sandbox those APIs even
- * when `repositories` names one repo.
- */
-const ORGANIZATION_GITHUB_PERMISSIONS = new Set([
-  "members",
-  "team_discussions",
-]);
-
-/**
- * Permissions GitHub only offers at `write`. Asking for `read` on a read-only
- * grant 422s the mint, so they are omitted instead of capped.
- */
-const WRITE_ONLY_GITHUB_PERMISSIONS = new Set(["workflows"]);
-
-/**
- * Permissions a sandbox never holds above `read`, whatever its grant:
- * `checks` (a job reads its CI; it does not write check runs), and the
- * repository's own administration and secrets.
- */
-const READ_CAPPED_GITHUB_PERMISSIONS = new Set(["checks", "statuses"]);
-
-/** Repository permissions a sandbox is never handed at all. */
-const NEVER_GITHUB_PERMISSIONS = new Set([
-  "administration",
-  "secrets",
-  "environments",
-  "workflows",
-]);
-
-/**
- * Whether a GitHub App permission is organization- or account-scoped.
- * @param name - GitHub's permission key.
- * @returns `true` when it must not appear on a per-repository sandbox token.
- */
-export function isOrganizationGitHubPermission(name: string): boolean {
-  return (
-    name.startsWith("organization") || ORGANIZATION_GITHUB_PERMISSIONS.has(name)
-  );
-}
-
-/**
- * Cap one installation permission to what this job may hold.
+ * Cap one installation permission to what this job may hold: `null` for a
+ * permission outside {@link SANDBOX_GITHUB_PERMISSIONS} or one the
+ * installation does not have, otherwise the allowlist's level for this job,
+ * never above the installation's own.
  * @param name - GitHub's permission key.
  * @param installed - The level the installation currently has.
  * @param grant - `write` when the job may push, otherwise `read`.
@@ -150,27 +145,22 @@ export function capSandboxGitHubPermission(
   installed: string,
   grant: GitPermission,
 ): string | null {
+  const allowed = Object.hasOwn(SANDBOX_GITHUB_PERMISSIONS, name)
+    ? SANDBOX_GITHUB_PERMISSIONS[name]
+    : undefined;
+  if (!allowed) return null;
   const installedLevel = installed.trim().toLowerCase();
-  if (installedLevel === "") return null;
-  if (name === "metadata") return "read";
-  if (NEVER_GITHUB_PERMISSIONS.has(name)) return null;
-
-  if (grant === "read" || READ_CAPPED_GITHUB_PERMISSIONS.has(name)) {
-    if (WRITE_ONLY_GITHUB_PERMISSIONS.has(name)) return null;
-    return "read";
-  }
-
-  if (installedLevel === "admin" || installedLevel === "write") return "write";
-  if (installedLevel === "read") return "read";
-  return null;
+  if (!["read", "write", "admin"].includes(installedLevel)) return null;
+  if (allowed === "read" || grant === "read") return "read";
+  return installedLevel === "read" ? "read" : "write";
 }
 
 /**
- * Permissions asked of GitHub for one sandbox repository credential, taken
- * from the installation's live map: every repository permission the App was
- * granted, at `read` or `write` matching the job, never above what the
- * installation has. Organization permissions are dropped so the
- * `repositories` scope remains the bound. `metadata: read` is always present.
+ * Permissions asked of GitHub for one sandbox repository credential: the
+ * installation's live map filtered to {@link SANDBOX_GITHUB_PERMISSIONS},
+ * each at the job's level or `read` as the allowlist says, never above what
+ * the installation has, and omitted when it has none. `metadata: read` is
+ * always present.
  * @param permission - `write` when the job may push, otherwise `read`.
  * @param installed - `permissions` from `GET /app/installations/{id}`.
  * @returns The permission map passed to `mintInstallationToken`.
@@ -181,7 +171,6 @@ export function installationSandboxPermissions(
 ): Record<string, string> {
   const permissions: Record<string, string> = {};
   for (const [name, level] of Object.entries(installed)) {
-    if (isOrganizationGitHubPermission(name)) continue;
     const capped = capSandboxGitHubPermission(name, level, permission);
     if (capped) permissions[name] = capped;
   }
@@ -302,7 +291,11 @@ async function recordHandout(row: {
 
 /**
  * The grant covering a repository for a bot, with the installation it is
- * reached through.
+ * reached through. An installation removed on GitHub is no grant at all; a
+ * **suspended** one is returned, because each caller says so in its own
+ * words — and every caller must check it with
+ * `installationUnavailableReason` (`sandbox_start` and provisioning refuse
+ * up front; the credential handout and the read tools refuse before a mint).
  * @param db - A database handle.
  * @param projectId - The project.
  * @param botId - The bot.
@@ -339,31 +332,6 @@ export async function grantForBot(
   if (!grant) return null;
   const row = rows.find((r) => r.grant.id === grant.id);
   return row ?? null;
-}
-
-/**
- * What a bot may do with a repository: `none`, `read`, or `write`. The same
- * answer drives `sandbox_start`'s check, the token's permission, and the read
- * tools.
- * @param db - A database handle.
- * @param projectId - The project.
- * @param botId - The bot.
- * @param target - The repository.
- * @returns The level.
- */
-export async function botRepositoryAccess(
-  db: DbHandle,
-  projectId: number,
-  botId: number,
-  target: { host?: string; owner: string; repo: string },
-): Promise<GrantLevel> {
-  const found = await grantForBot(db, projectId, botId, {
-    host: target.host ?? GITHUB_HOST,
-    owner: target.owner,
-    repo: target.repo,
-  });
-  if (!found) return "none";
-  return found.grant.push ? "write" : "read";
 }
 
 /**
@@ -455,7 +423,7 @@ export async function issueJobGitCredential(input: {
   const app = appForInstallation(found.installation);
   if (!app) {
     return refuse(
-      `GitHub is not available for ${repository}: the project's GitHub App installation for ${found.installation.accountLogin} is suspended or removed, or this deployment's GitHub App is not configured. Tell the person; a project admin can reattach it under Repositories.`,
+      `GitHub is not available for ${repository}: ${installationUnavailableReason(found.installation) ?? "the installation cannot be used"}. Tell the person; an owner of the GitHub account can unsuspend or reinstall the App, and a project admin can reattach it under Repositories.`,
       ErrorType.CONNECTION_SERVER_ERROR,
       permission,
     );
@@ -514,7 +482,7 @@ export async function issueJobGitCredential(input: {
     );
   }
 
-  await rememberToken(job.id, key, minted);
+  await rememberToken(job.id, key, repository.toLowerCase(), minted);
   await recordHandout({
     jobId: job.id,
     projectId: job.projectId,
@@ -525,6 +493,20 @@ export async function issueJobGitCredential(input: {
     expiresAtMs: minted.expiresAtMs,
   });
 
+  // The job was live when the request arrived, but a mint takes a while and
+  // the job may have ended meanwhile — after its ending had already revoked
+  // the job's set. Re-read it now the token is in the set: an ending that
+  // read the set before this token joined committed before this read, so it
+  // is seen here, and the token goes back to GitHub at once.
+  if (await jobHasEnded(job.id)) {
+    await revokeTokens(job.id, [minted.token]);
+    await api.redis.redis.del(key);
+    throw new TypedError({
+      message: `this job ended while its credential for ${repository} was being issued, so the credential was revoked.`,
+      type: ErrorType.CONNECTION_SESSION_NOT_FOUND,
+    });
+  }
+
   return {
     username: "x-access-token",
     password: minted.token,
@@ -532,6 +514,20 @@ export async function issueJobGitCredential(input: {
     repository,
     permission,
   };
+}
+
+/**
+ * Whether a job has reached a terminal status, read from Postgres now.
+ * @param jobId - The job.
+ * @returns `true` when it has ended (or no longer exists).
+ */
+async function jobHasEnded(jobId: number): Promise<boolean> {
+  const [row] = await api.db.db
+    .select({ status: sandboxJobs.status })
+    .from(sandboxJobs)
+    .where(eq(sandboxJobs.id, jobId))
+    .limit(1);
+  return !row || TERMINAL_SANDBOX_JOB_STATUSES.includes(row.status);
 }
 
 /**
@@ -554,14 +550,27 @@ async function readCachedToken(key: string): Promise<CachedToken | null> {
 }
 
 /**
+ * The Redis hash naming, for each of a job's live tokens, the repository it
+ * was minted for — what lets a grant change revoke one repository's tokens
+ * and leave the rest.
+ * @param jobId - The job.
+ * @returns The key.
+ */
+function tokenRepositoryKey(jobId: number): string {
+  return `hypotenuse:job-git-token-repos:${jobId}`;
+}
+
+/**
  * Cache a minted token for this job, and add it to the job's revocation set.
  * @param jobId - The job.
  * @param key - The cache key.
+ * @param repository - `owner/repo`, lowercased.
  * @param minted - The token and its expiry.
  */
 async function rememberToken(
   jobId: number,
   key: string,
+  repository: string,
   minted: { token: string; expiresAtMs: number },
 ): Promise<void> {
   const payload: CachedToken = {
@@ -578,10 +587,122 @@ async function rememberToken(
   await api.redis.redis.expire(tokenSetKey(jobId), TOKEN_SET_TTL_SECONDS);
   await api.redis.redis.sadd(tokenKeySetKey(jobId), key);
   await api.redis.redis.expire(tokenKeySetKey(jobId), TOKEN_SET_TTL_SECONDS);
+  await api.redis.redis.hset(
+    tokenRepositoryKey(jobId),
+    minted.token,
+    repository,
+  );
+  await api.redis.redis.expire(
+    tokenRepositoryKey(jobId),
+    TOKEN_SET_TTL_SECONDS,
+  );
 }
 
 /**
- * Hand every token this job was issued back to GitHub, and stamp the ledger.
+ * Hand some of a job's tokens back to GitHub, drop them from the job's sets,
+ * and stamp `revokedAt` on exactly the ledger rows GitHub confirmed — matched
+ * by the token's hash. A token GitHub did not confirm stays unstamped and
+ * expires on its own within the hour.
+ * @param jobId - The job.
+ * @param tokens - The tokens.
+ * @returns How many GitHub confirmed revoked.
+ */
+async function revokeTokens(jobId: number, tokens: string[]): Promise<number> {
+  const confirmed: string[] = [];
+  for (const token of tokens) {
+    if (await revokeInstallationToken(token)) confirmed.push(token);
+  }
+  if (tokens.length > 0) {
+    await api.redis.redis.srem(tokenSetKey(jobId), ...tokens);
+    await api.redis.redis.hdel(tokenRepositoryKey(jobId), ...tokens);
+  }
+  if (confirmed.length > 0) {
+    await api.db.db
+      .update(sandboxJobGitTokens)
+      .set({ revokedAt: new Date() })
+      .where(
+        and(
+          eq(sandboxJobGitTokens.jobId, jobId),
+          eq(sandboxJobGitTokens.outcome, "issued"),
+          inArray(sandboxJobGitTokens.tokenHash, confirmed.map(hashToken)),
+          isNull(sandboxJobGitTokens.revokedAt),
+        ),
+      );
+  }
+  return confirmed.length;
+}
+
+/**
+ * Revoke the GitHub tokens live jobs hold for some repositories, after a
+ * grant was narrowed or removed: a push grant turned read-only, bots taken
+ * off a grant, a grant deleted, an installation detached. Without this a
+ * running job keeps working with the access it was handed until it ends.
+ * The next credential request is answered from the grants as they now stand
+ * (a read token, or a refusal).
+ *
+ * Called after the change commits. **Never throws**: the change is already
+ * made, and a token this could not revoke expires within the hour.
+ * @param projectId - The project whose grants changed.
+ * @param repositories - `owner/repo` names whose tokens to revoke.
+ * @param botIds - Only jobs of these bots; `null` for every live job in the project.
+ * @returns How many tokens GitHub confirmed revoked.
+ */
+export async function revokeLiveJobRepositoryTokens(
+  projectId: number,
+  repositories: string[],
+  botIds: number[] | null = null,
+): Promise<number> {
+  try {
+    const wanted = new Set(repositories.map((r) => r.toLowerCase()));
+    if (wanted.size === 0 || botIds?.length === 0) return 0;
+    const live = await api.db.db
+      .select({ id: sandboxJobs.id })
+      .from(sandboxJobs)
+      .where(
+        and(
+          eq(sandboxJobs.projectId, projectId),
+          notInArray(sandboxJobs.status, TERMINAL_SANDBOX_JOB_STATUSES),
+          ...(botIds ? [inArray(sandboxJobs.botId, botIds)] : []),
+        ),
+      );
+    let revoked = 0;
+    for (const { id } of live) {
+      const held = await api.redis.redis.hgetall(tokenRepositoryKey(id));
+      const tokens = Object.entries(held)
+        .filter(([, repository]) => wanted.has(repository))
+        .map(([token]) => token);
+      if (tokens.length === 0) continue;
+      revoked += await revokeTokens(id, tokens);
+      // The cache keys name their repository: `…:<owner/repo>:<permission>`.
+      const keys = (await api.redis.redis.smembers(tokenKeySetKey(id))).filter(
+        (key) => wanted.has(key.split(":").slice(-2, -1)[0] ?? ""),
+      );
+      if (keys.length > 0) {
+        await api.redis.redis.del(...keys);
+        await api.redis.redis.srem(tokenKeySetKey(id), ...keys);
+      }
+      api.logger.info(
+        "revoked a live job's GitHub credentials after a grant change",
+        {
+          jobId: id,
+          tokens: tokens.length,
+        },
+      );
+    }
+    return revoked;
+  } catch (e) {
+    api.logger.warn("could not revoke live jobs' GitHub credentials", {
+      projectId,
+      error: e instanceof Error ? e.message : String(e),
+    });
+    return 0;
+  }
+}
+
+/**
+ * Hand every token this job was issued back to GitHub, and stamp the ledger
+ * rows of the ones GitHub confirmed (by token hash — a row whose token
+ * GitHub did not confirm is left unstamped, because it may still work).
  *
  * Called after `finalizeSandboxJob` commits, beside revoking the job token
  * and for the same reason: a finished job holds no live credential. A token
@@ -599,25 +720,17 @@ export async function revokeJobGitTokens(
     const tokens = await api.redis.redis.smembers(key);
     if (tokens.length === 0) return { issued: 0, revoked: 0 };
 
-    let revoked = 0;
-    for (const token of tokens) {
-      if (await revokeInstallationToken(token)) revoked += 1;
-    }
-    await api.db.db
-      .update(sandboxJobGitTokens)
-      .set({ revokedAt: new Date() })
-      .where(
-        and(
-          eq(sandboxJobGitTokens.jobId, jobId),
-          eq(sandboxJobGitTokens.outcome, "issued"),
-          isNull(sandboxJobGitTokens.revokedAt),
-        ),
-      );
+    const revoked = await revokeTokens(jobId, tokens);
 
     // The cached entries go with them: a key naming a token GitHub has
     // already rejected should not outlive the call that rejected it.
     const cacheKeys = await api.redis.redis.smembers(tokenKeySetKey(jobId));
-    await api.redis.redis.del(key, tokenKeySetKey(jobId), ...cacheKeys);
+    await api.redis.redis.del(
+      key,
+      tokenKeySetKey(jobId),
+      tokenRepositoryKey(jobId),
+      ...cacheKeys,
+    );
 
     api.logger.info("revoked a sandbox job's GitHub credentials", {
       jobId,

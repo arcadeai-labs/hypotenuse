@@ -5,6 +5,7 @@ import {
   appForInstallation,
   githubRest,
   githubWebOrigin,
+  installationUnavailableReason,
   mintInstallationToken,
   revokeInstallationToken,
 } from "../ops/GitHubAppOps";
@@ -115,8 +116,8 @@ export async function withRepositoryToken<T>(
   if (!app) {
     throw new ToolError(
       "github_unavailable",
-      `GitHub is not available for ${target.fullName}: the project's GitHub App installation on ${found.installation.accountLogin} is suspended or removed, or this deployment's GitHub App is not configured.`,
-      "Tell the person; a project admin can reattach the installation under Repositories.",
+      `GitHub is not available for ${target.fullName}: ${installationUnavailableReason(found.installation) ?? "the installation cannot be used"}.`,
+      "Tell the person; an owner of the GitHub account can unsuspend or reinstall the App, and a project admin can reattach it under Repositories.",
     );
   }
   let token: string;

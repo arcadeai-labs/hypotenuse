@@ -26,6 +26,8 @@ import {
  */
 
 const github = new FakeGitHub();
+/** Peach's GitHub user is an owner of the Acme organization. */
+const ACME_OWNER = { Acme: "admin" } as const;
 let u: TestUniverse;
 let restore: () => void;
 
@@ -35,6 +37,12 @@ beforeAll(async () => {
   restore = useFakeGitHub(github);
   github.install({ id: "7001", login: "Acme", repositories: ["api", "web"] });
   github.install({ id: "8002", login: "koopa", repositories: ["castle"] });
+  github.install({
+    id: "9003",
+    login: "daisy-gh",
+    type: "User",
+    repositories: ["garden"],
+  });
 }, HOOK_TIMEOUT);
 
 afterAll(async () => {
@@ -97,7 +105,7 @@ describe("github:install-callback", () => {
   // github.install.callback
   test("a person who can see the installation attaches it, and lands on Repositories", async () => {
     const { state } = await installUrl(u.url, u.peach, u.projectId);
-    const code = github.authorizeUser("peach-gh", ["7001"]);
+    const code = github.authorizeUser("peach-gh", ["7001"], ACME_OWNER);
     const res = await installCallback(u.url, u.peach, {
       state: state!,
       installation_id: "7001",
@@ -151,7 +159,7 @@ describe("github:install-callback", () => {
     const query = {
       state: state!,
       installation_id: "7001",
-      code: github.authorizeUser("peach-gh", ["7001"]),
+      code: github.authorizeUser("peach-gh", ["7001"], ACME_OWNER),
     };
     expect(
       (await installCallback(u.url, u.peach, query)).location?.searchParams.get(
@@ -160,7 +168,7 @@ describe("github:install-callback", () => {
     ).toBeTruthy();
     const again = await installCallback(u.url, u.peach, {
       ...query,
-      code: github.authorizeUser("peach-gh", ["7001"]),
+      code: github.authorizeUser("peach-gh", ["7001"], ACME_OWNER),
     });
     expect(again.status).toBe(302);
     expect(again.location?.searchParams.get("error")).toContain(
@@ -187,7 +195,7 @@ describe("github:install-callback", () => {
     const peach = await installCallback(u.url, u.peach, {
       state: state!,
       installation_id: "7001",
-      code: github.authorizeUser("peach-gh", ["7001"]),
+      code: github.authorizeUser("peach-gh", ["7001"], ACME_OWNER),
     });
     expect(peach.location?.searchParams.get("installed")).toBe(
       String(attachedId),
@@ -202,7 +210,7 @@ describe("github:install-callback", () => {
       state: state!,
       installation_id: "8002",
       setup_action: "install",
-      code: github.authorizeUser("peach-gh", ["7001"]),
+      code: github.authorizeUser("peach-gh", ["7001"], ACME_OWNER),
     });
     expect(res.status).toBe(302);
     expect(res.location?.pathname).toBe(
@@ -218,6 +226,82 @@ describe("github:install-callback", () => {
       .where(eq(githubInstallations.installationId, "8002"));
     expect(rows).toHaveLength(0);
     expect((await lastAudit("github:install-callback"))?.id).toBe(before?.id);
+  });
+
+  // github.install.spoofed, github.out.org-membership
+  test("a member of the organization who can see the installation, but is not an owner, writes nothing", async () => {
+    const before = await lastAudit("github:install-callback");
+    const rowsBefore = await api.db.db.select().from(githubInstallations);
+    const { state } = await installUrl(u.url, u.peach, u.projectId);
+    const res = await installCallback(u.url, u.peach, {
+      state: state!,
+      installation_id: "7001",
+      setup_action: "install",
+      // Read on one repository is enough to see the installation.
+      code: github.authorizeUser("toad-gh", ["7001"], { Acme: "member" }),
+    });
+    expect(res.location?.searchParams.get("installed")).toBeNull();
+    expect(res.location?.searchParams.get("error")).toContain(
+      "Only an owner of the GitHub organization Acme can attach",
+    );
+    expect(await api.db.db.select().from(githubInstallations)).toEqual(
+      rowsBefore,
+    );
+    expect((await lastAudit("github:install-callback"))?.id).toBe(before?.id);
+    expect(
+      github.requests.some((r) => r.path === "/user/memberships/orgs/Acme"),
+    ).toBe(true);
+  });
+
+  // github.out.user
+  test("a personal account's installation attaches for that account, and nobody else", async () => {
+    const { state } = await installUrl(u.url, u.peach, u.projectId);
+    const stranger = await installCallback(u.url, u.peach, {
+      state: state!,
+      installation_id: "9003",
+      setup_action: "install",
+      code: github.authorizeUser("peach-gh", ["9003"], ACME_OWNER),
+    });
+    expect(stranger.location?.searchParams.get("error")).toContain(
+      "only daisy-gh can attach it",
+    );
+    expect(
+      await api.db.db
+        .select()
+        .from(githubInstallations)
+        .where(eq(githubInstallations.installationId, "9003")),
+    ).toHaveLength(0);
+
+    const again = await installUrl(u.url, u.peach, u.projectId);
+    const owner = await installCallback(u.url, u.peach, {
+      state: again.state!,
+      installation_id: "9003",
+      setup_action: "install",
+      code: github.authorizeUser("daisy-gh", ["9003"]),
+    });
+    const installed = Number(owner.location?.searchParams.get("installed"));
+    expect(installed).toBeGreaterThan(0);
+    // Leave the project with the one installation the suites below expect.
+    await api.db.db
+      .delete(githubInstallations)
+      .where(eq(githubInstallations.id, installed));
+  });
+
+  test("GitHub's update redirect, which carries no state, lands on Repositories with a notice", async () => {
+    const res = await installCallback(u.url, u.peach, {
+      installation_id: "7001",
+      setup_action: "update",
+    });
+    expect(res.status).toBe(302);
+    expect(res.location?.pathname).toBe("/repositories");
+    expect(res.location?.searchParams.get("notice")).toContain(
+      "updated on GitHub",
+    );
+    const bare = await installCallback(u.url, u.peach, {});
+    expect(bare.status).toBe(302);
+    expect(bare.location?.searchParams.get("error")).toContain(
+      "Start the install from Repositories",
+    );
   });
 
   test("a requested install says an organization owner must approve it", async () => {

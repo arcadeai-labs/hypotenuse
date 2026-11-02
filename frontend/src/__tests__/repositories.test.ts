@@ -3,6 +3,7 @@ import { DESTINATIONS } from "../components/shell/destinations";
 import {
   BRANCH_PREFIX_PLACEHOLDER,
   DEFAULT_WAKE_EVENTS,
+  detachNotice,
   EMPTY_GRANT_DRAFT,
   GITHUB_WAKE_EVENTS,
   grantAccessWords,
@@ -26,6 +27,7 @@ import {
   repositoryUrl,
   rulesetJson,
   sameWakeEvents,
+  withoutArrival,
 } from "../utils/repositories";
 
 /**
@@ -158,6 +160,12 @@ describe("arriving from GitHub's install flow", () => {
     ).toEqual({ tone: "danger", text: "Expired" });
     expect(installNotice(new URLSearchParams(""))).toBeNull();
   });
+
+  test("GitHub's update redirect shows the server's notice", () => {
+    expect(
+      installNotice(new URLSearchParams("notice=Repositories+updated")),
+    ).toEqual({ tone: "success", text: "Repositories updated" });
+  });
 });
 
 describe("the grant form", () => {
@@ -273,5 +281,35 @@ describe("a job's repository, handouts, and pull requests", () => {
       url: "https://github.com/acme/api/pull/12",
     });
     expect(pullRequestFromText("The job ended.")).toBeNull();
+  });
+});
+
+describe("detaching an installation", () => {
+  test("the notice counts the grants the server answered, as a list, and pluralizes", () => {
+    expect(detachNotice("acme", [])).toBe(
+      "Detached acme. No grants were made through it.",
+    );
+    expect(detachNotice("acme", [{ id: 1, fullName: "acme/api" }])).toBe(
+      "Detached acme, and revoked 1 grant made through it.",
+    );
+    const two = detachNotice("acme", [
+      { id: 1, fullName: "acme/api" },
+      { id: 2, fullName: "acme/web" },
+    ]);
+    expect(two).toBe("Detached acme, and revoked 2 grants made through it.");
+    expect(two).not.toContain("[object Object]");
+  });
+});
+
+describe("dismissing the arrival notice", () => {
+  test("removes installed, error, and notice — every parameter installNotice reads — and keeps the rest", () => {
+    const search = new URLSearchParams(
+      "installed=1&error=x&notice=Attached&tab=grants",
+    );
+    expect(installNotice(search)).not.toBeNull();
+    const next = withoutArrival(search);
+    expect(installNotice(next)).toBeNull();
+    expect(next.toString()).toBe("tab=grants");
+    expect(search.get("notice")).toBe("Attached");
   });
 });

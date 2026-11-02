@@ -1,5 +1,6 @@
 import type { BotRepositories } from "@backend/actions/bot/bot-repositories";
 import type { GithubInstallUrl } from "@backend/actions/github/github-install-url";
+import type { GithubInstallationDetach } from "@backend/actions/github/github-installation-detach";
 import type { GithubInstallationList } from "@backend/actions/github/github-installation-list";
 import type { RepositoryGrantList } from "@backend/actions/repository-grant/repository-grant-list";
 import type { ActionResponse } from "keryx";
@@ -13,6 +14,9 @@ export type GithubInstallation =
 /** A repository grant, as `repository-grant:list` serializes it. */
 export type RepositoryGrant =
   ActionResponse<RepositoryGrantList>["repositoryGrants"][number];
+
+/** `github:installation-detach`'s answer: the row, and the grants revoked with it. */
+export type InstallationDetached = ActionResponse<GithubInstallationDetach>;
 
 /** `github:install-url`'s answer. */
 export type InstallUrl = ActionResponse<GithubInstallUrl>;
@@ -271,6 +275,8 @@ export function installNotice(
 ): { tone: "success" | "danger"; text: string } | null {
   const error = search.get("error");
   if (error) return { tone: "danger", text: error };
+  const notice = search.get("notice");
+  if (notice) return { tone: "success", text: notice };
   if (search.get("installed")) {
     return {
       tone: "success",
@@ -278,6 +284,37 @@ export function installNotice(
     };
   }
   return null;
+}
+
+/**
+ * What the Repositories page says after detaching an installation.
+ * @param accountLogin - The installation's account.
+ * @param removedGrants - The grants revoked with it, as the server answered them.
+ * @returns The sentence.
+ */
+export function detachNotice(
+  accountLogin: string,
+  removedGrants: InstallationDetached["removedGrants"],
+): string {
+  const n = removedGrants.length;
+  if (n === 0)
+    return `Detached ${accountLogin}. No grants were made through it.`;
+  return `Detached ${accountLogin}, and revoked ${n === 1 ? "1 grant" : `${n} grants`} made through it.`;
+}
+
+/** The query parameters GitHub's install flow, and the page's own redirects, arrive with. */
+export const ARRIVAL_PARAMS = ["installed", "error", "notice"] as const;
+
+/**
+ * The page's query string once its arrival notice is dismissed: every
+ * parameter {@link installNotice} reads removed, everything else kept.
+ * @param search - The page's query string.
+ * @returns A new query string.
+ */
+export function withoutArrival(search: URLSearchParams): URLSearchParams {
+  const next = new URLSearchParams(search);
+  for (const key of ARRIVAL_PARAMS) next.delete(key);
+  return next;
 }
 
 /** The grant form, as typed. */

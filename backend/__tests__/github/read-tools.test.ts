@@ -299,6 +299,30 @@ describe("github.out.contents — github_file_read", () => {
     expect(out.message).toContain("src/nope.ts");
     expectScopedAndRevoked(mark, "api", "contents");
   });
+
+  test("a '.', '..', or empty segment is invalid_path, and never reaches GitHub", async () => {
+    const mints = github.mints.length;
+    const requests = github.requests.length;
+    for (const path of [
+      "../../installation/repositories",
+      "src/../../../installation/repositories",
+      "./README.md",
+      "src//app.ts",
+    ]) {
+      const out = await runTool("github_file_read", {
+        repository: "acme/api",
+        path,
+      });
+      expect(out).toMatchObject({ is_error: true, error_type: "invalid_path" });
+    }
+    expect(github.mints.length).toBe(mints);
+    expect(
+      github.requests
+        .slice(requests)
+        .some((r) => r.path.includes("installation/repositories")),
+    ).toBe(false);
+    expect(github.requests.length).toBe(requests);
+  });
 });
 
 describe("github.out.search-code — github_search_code", () => {

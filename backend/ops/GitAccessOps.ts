@@ -178,9 +178,22 @@ export function branchPrefixFor(
 }
 
 /**
+ * GitHub's ids for its base repository roles, as a ruleset's
+ * `RepositoryRole` bypass actor names them.
+ */
+export const REPOSITORY_ROLE_IDS = { maintain: 2, write: 4, admin: 5 } as const;
+
+/**
  * A recommended repository ruleset for a grant: pushes by the App are allowed
  * only under the branch prefix. Shown to people as copyable JSON; nothing in
  * Hypotenuse enforces a ref, and this is what does.
+ *
+ * **It binds the App, not the team.** A ruleset applies to everyone it does
+ * not list as a bypass actor, so one with none blocks every person's branch
+ * too — and a ruleset that gets in the team's way is one nobody adds. People
+ * with the write, maintain, or admin role bypass it (`bypass_mode: always`);
+ * the App holds no repository role, so it is the one actor left bound to the
+ * prefix.
  * @param prefix - The branch prefix.
  * @returns The ruleset body for `POST /repos/{owner}/{repo}/rulesets`.
  */
@@ -193,8 +206,47 @@ export function recommendedRuleset(prefix: string): Record<string, unknown> {
       ref_name: { include: ["~ALL"], exclude: [`refs/heads/${prefix}**`] },
     },
     rules: [{ type: "update" }, { type: "deletion" }, { type: "creation" }],
-    bypass_actors: [],
+    bypass_actors: [
+      REPOSITORY_ROLE_IDS.admin,
+      REPOSITORY_ROLE_IDS.maintain,
+      REPOSITORY_ROLE_IDS.write,
+    ].map((actor_id) => ({
+      actor_type: "RepositoryRole",
+      actor_id,
+      bypass_mode: "always",
+    })),
   };
+}
+
+/**
+ * What is wrong with a ref a job was asked to check out, by the rules of
+ * `git check-ref-format` that matter for a value that ends up on git's
+ * command line — above all, it may not start with `-`, where git would read
+ * it as an option.
+ * @param ref - A branch, tag, commit, or `refs/…` path.
+ * @returns A clause saying what is wrong, or `null` when it is acceptable.
+ */
+export function gitRefProblem(ref: string): string | null {
+  if (ref === "") return "it is empty";
+  if (ref.startsWith("-")) return "it starts with '-'";
+  if (ref === "@") return "it is '@'";
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: the rule is about control characters.
+  if (/[\x00-\x20\x7f~^:?*[\\]/.test(ref)) {
+    return "it holds a space, a control character, or one of ~ ^ : ? * [ \\";
+  }
+  if (ref.includes("..")) return "it holds '..'";
+  if (ref.includes("@{")) return "it holds '@{'";
+  if (ref.includes("//")) return "it holds '//'";
+  if (ref.startsWith("/") || ref.endsWith("/")) {
+    return "it starts or ends with '/'";
+  }
+  if (ref.endsWith(".") || ref.endsWith(".lock")) {
+    return "it ends with '.' or '.lock'";
+  }
+  if (ref.split("/").some((part) => part.startsWith("."))) {
+    return "a component starts with '.'";
+  }
+  return null;
 }
 
 /** Where a sandbox's credential helper lives, and what it is called. */

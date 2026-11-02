@@ -7,6 +7,7 @@ import {
   type TxHandle,
 } from "../../classes/AuditedAction";
 import { AdminMiddleware } from "../../middleware/rbac";
+import { revokeLiveJobRepositoryTokens } from "../../ops/GitCredentialOps";
 import { idInput } from "../../ops/InputOps";
 import { serializeGithubInstallation } from "../../ops/RepositoryOps";
 import { githubInstallations } from "../../schema/github_installations";
@@ -17,8 +18,9 @@ import { repositoryGrants } from "../../schema/repository_grants";
  * installation. **Deleting the row deletes every repository grant made
  * through it** (the grants cascade), which is the point: no bot in the
  * project can reach those repositories afterwards. The App stays installed on
- * GitHub, where only the account's owners can remove it. Requires admin
- * standing; audited with the grants it took away.
+ * GitHub, where only the account's owners can remove it. Once it commits,
+ * the GitHub tokens live jobs hold for those repositories are revoked.
+ * Requires admin standing; audited with the grants it took away.
  */
 export class GithubInstallationDetach extends AuditedAction {
   name = "github:installation-detach";
@@ -98,5 +100,23 @@ export class GithubInstallationDetach extends AuditedAction {
       removedGrants,
     };
     return { installation: serialized, removedGrants };
+  }
+
+  /**
+   * Revoke the tokens live jobs hold for the repositories it took away.
+   * @param result - The response, naming the removed grants.
+   * @param params - The inputs.
+   */
+  async afterCommit(
+    result: unknown,
+    params: ActionParams<GithubInstallationDetach>,
+  ) {
+    const { removedGrants } = result as {
+      removedGrants: { fullName: string }[];
+    };
+    await revokeLiveJobRepositoryTokens(
+      params.projectId,
+      removedGrants.map((g) => g.fullName),
+    );
   }
 }

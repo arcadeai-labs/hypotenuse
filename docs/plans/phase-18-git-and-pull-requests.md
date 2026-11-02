@@ -228,13 +228,13 @@ By hand: install the App on a test org; grant a scratch repository with push; as
 | `sandbox_jobs.pullRequest jsonb` | A table, `sandbox_job_pull_requests`, unique on (project, host, owner, name, number). A job can open more than one, and a webhook event must find its conversation with one indexed read; a later job that pushes to the same branch leaves the pull request with the job that opened it |
 | `sandbox_job_git_tokens { tokenHash, expiresAt }` | The same table carries every request: `outcome` `issued` / `reused` / `refused` and the refusal's `reason`, so the job page shows what git asked for and why it was told no. The plan's "a `sandbox_job_events` row per handout" would have collided with the supervisor's own `seq` |
 | A token's permission is the grant's level | `write` only when the grant allows a push **and** the job was started in `write` mode on that repository. A job may read any repository its bot is granted (a submodule, a library) and write only the one it was started to change |
-| `contents`, `pull_requests`, `issues`, `checks:read` at the grant's level | The installation's live permission map, capped to the job's level, with `checks` and `statuses` held at `read`, and `administration`, `secrets`, `environments`, and `workflows` never handed out. The read tools mint narrower still: `metadata` plus the one permission the call needs, because asking for `issues` on an installation without it 422s the mint |
+| `contents`, `pull_requests`, `issues`, `checks:read` at the grant's level | An allowlist (`SANDBOX_GITHUB_PERMISSIONS`): `contents`, `pull_requests`, `issues` at the job's level, `checks`, `statuses`, `actions` at `read`, and `metadata: read` — each only when the installation holds it, never above its level. Nothing else is ever asked for. The read tools mint narrower still: `metadata` plus the one permission the call needs, because asking for `issues` on an installation without it 422s the mint |
 | The PR relayed as "a Slack link block / Linear `addedExternalUrls` / a Pylon note" | One new surface kind, `link` (`{ label, url, text }`), that each adapter renders its way. It is exempt from "nothing follows a question": it is not part of a turn (on Linear it is `externalUrls`, not an activity), and a pull request must reach a conversation that waits on a person |
-| `webhooks:github` records "the event" | One `trigger_events` row per project that attached the installation (`botInstallationId` holds the `github_installations` row id for this type); an installation no project attached is one row, `projectId: null`, `ignored: unknown_installation` |
+| `webhooks:github` records "the event" | One `trigger_events` row per project that attached the installation (`botInstallationId` holds the `github_installations` row id for this type, answered as `githubInstallationId` with `botInstallationId: null`); an installation no project attached is one row, `projectId: null`, `ignored: unknown_installation` |
 | Open question: one App or one per project | One App for the deployment. Commits are authored as the bot by name (`<bot> (Hypotenuse)`), with a `Co-authored-by:` line for the requester only when they are a linked user with an email |
 | Open question: wake on PR events by default | Changes requested and failed checks wake; everything else waits in the inbox for the next turn. Per bot, `githubWakeEvents` widens it — merged and closed included, though neither is in the default. A conversation a person stopped hears nothing |
 | Open question: forks | No. A read-only grant cannot open a pull request |
-| `sandbox_start` `mode: "read"` "no approval by default" | Under the `approve` policy a read job skips approval; `off` still refuses it. A read job runs at most 15 minutes |
+| `sandbox_start` `mode: "read"` "no approval by default" | Under the `approve` policy a read job parks for approval like a write job — it still runs the repository's code; `off` refuses it, `allow` runs it. A read job runs at most 15 minutes |
 
 ### Decisions the plan left open
 
@@ -246,9 +246,10 @@ By hand: install the App on a test org; grant a scratch repository with push; as
 - **A grant is proven before it is saved**: `repository-grant:create` mints a `metadata: read` token for the
   repository and revokes it at once, so a repository the installation cannot see is refused where a person can fix it,
   not in a sandbox later.
-- **Pull requests are detected two ways**: the `pull_request` artifact the briefing asks for, and a transcript
-  `tool_result` that is nothing but a pull request URL on the configured origin (what `gh pr create` prints). A URL in
-  prose is not recorded, so an old pull request mentioned in passing does not attach itself.
+- **Pull requests are detected two ways**: the `pull_request` artifact the briefing asks for, and the result of a
+  `gh pr create` call in the transcript (paired to its call by Claude Code's `tool_use_id`, or Codex's `command`), a
+  line that is nothing but a pull request URL. Either way, GitHub must confirm the job opened it before it is recorded
+  (see below).
 - **Merges and closes update the row's `state`** whether or not they wake the bot.
 
 ### Traps found while building
@@ -275,3 +276,61 @@ By hand: install the App on a test org; grant a scratch repository with push; as
   this plan — install on a test org, a one-line README change from Slack, a review — waits for staging's App.
 - **The docs illustrations** do not include the Repositories page: they seed over the API, and an installation cannot
   be attached without a real App. The screenshots under `docs/screenshots/repositories/` were taken from seeded rows.
+
+### What the review found, and what changed
+
+- **Attaching took visibility, not ownership.** `GET /user/installations` lists every installation the person can
+  read anything in. `assertUserAdministersInstallation` now also requires `GET /user` to *be* a user account (by id) or
+  `GET /user/memberships/orgs/{org}` to answer `active` / `admin`. Whether a user token needs the App's **Members:
+  read** for that call is unverified until staging's App.
+- **Token permissions are an allowlist** (`SANDBOX_GITHUB_PERMISSIONS`). The denylist it replaced handed a job every
+  repository permission GitHub added after it was written — `repository_hooks`, `dependabot_secrets`, and so on.
+- **A mint can outlive its job.** `issueJobGitCredential` re-reads the job after the token joins the job's set; an
+  ending that read the set first has committed by then, so the token is revoked at once and the request refused.
+  `holdNextMint` on the fake is how the suite puts the ending inside the mint.
+- **The ledger stamps only what GitHub confirmed**, by token hash, so an unrevoked token does not read as revoked.
+- **A suspended installation was found by `grantForBot`**, so `sandbox_start` accepted a job that failed at clone.
+  `installationUnavailableReason` is the one wording; `sandbox_start` and provisioning refuse with it up front.
+- **Narrowing a grant now reaches running jobs.** Push turned off, bots removed, a grant deleted, or an installation
+  detached revokes those repositories' tokens in live jobs after commit (`revokeLiveJobRepositoryTokens`, via a
+  token → repository hash per job in Redis).
+- **Read jobs park for approval** under `approve`: they push nothing, but they run untrusted repository code with a
+  credential and egress.
+- **The clone prologue validates `ref`** (`gitRefProblem`; a leading `-` is an option to git) and passes `--`; a
+  repository named `.hypotenuse`, `.`, or `..` clones into `/work/repo`. Deny-all egress applies only to repository
+  jobs (`sandboxEgressPolicy`); other jobs keep the provider's default.
+- **The install callback's inputs are all optional**: GitHub's `setup_action=update` redirect has no `state`, and a
+  missing input failed validation as a raw 406 before `run` could redirect.
+- **`github_file_read` refuses `.`, `..`, and empty segments** before minting: `fetch` resolves `..`, so a path could
+  leave `contents` and reach another endpoint with the call's token.
+- **The recommended ruleset bypasses the admin (5), maintain (2), and write (4) roles**, so it binds the App, which
+  has no role, without blocking the team.
+- **Redaction is best-effort.** `redactGitHubTokens` catches tokens an agent prints in events and artifacts, but
+  not an encoded or split one. The bound on a leaked token is the revocation when the job ends, not the redaction.
+- **A job could claim any pull request.** A URL proved nothing, GitHub unreadable recorded anyway, and the first
+  claim won forever, so a read-only job could squat `…/pull/N` before it existed and take its reviews and CI.
+  `recordJobPullRequest` now records only for a job holding write on the repository, after GitHub confirms the pull
+  request exists, is authored by `<appSlug>[bot]`, has its head on that repository, and sits under a configured
+  branch prefix; GitHub unreachable refuses. Transcript detection reads only `gh pr create` results.
+  `pull-requests.test.ts` ("only a pull request GitHub says the job opened is recorded").
+- **An untrusted fence could be closed from inside.** Text carrying `<<<end of …>>>` ended the fence and spoke
+  outside it. One helper, `UntrustedTextOps.fenceUntrusted`, rewrites every run of three `<` or `>` to `‹`/`›` before
+  wrapping — deterministic, so redelivery dedupe and scripted expectations hold. The wake message now fences the
+  title, branch, file path, and a check suite's app name too. `pull-requests.test.ts` ("untrusted text stays fenced").
+- **A GitHub event queued mid-turn answered the bot's question.** `pendingInbox(…, answering)` excluded only
+  `metadata.sandboxJobId`. `receiveMessage` now writes `metadata.answers: false` for every `answers: false` message,
+  and the answering check excludes those rows — sandbox, GitHub, and an untrusted customer's alike. No migration.
+  `pull-requests.test.ts` ("a GitHub event mid-turn is never the person's answer").
+- **A `link` broke an open Slack stream**: `sendFinal` stopped the stream, but `previousStreamOrFinal` does not count
+  `link`, so the next stream row appended to a stopped message (`message_not_in_streaming_state`). A link no longer
+  closes the stream. `slack/thread.test.ts` ("a link mid-stream …").
+- **Cancelled or superseded CI woke "CI failed".** `cancelled`, `stale`, `skipped`, and `neutral` are ignored; a
+  suite whose `head_sha` is not the listed pull request's `head.sha` is `check:superseded`. That compares against the
+  payload, not a stored head or a REST read: processing runs inside the event's transaction and must not call GitHub,
+  and a `headSha` column would have been a migration for one comparison GitHub already makes in the payload.
+  `pull-requests.test.ts` ("a cancelled, skipped, or neutral suite …").
+- **`trigger-event:list?botInstallationId=N` mixed in GitHub events** whose column holds a `github_installations` id.
+  That filter now excludes `type: github`; `githubInstallationId` and `type` filters were added, and the serializer
+  answers a GitHub event's id as `githubInstallationId`. `github/webhooks.test.ts` ("trigger-event:list …").
+- **The detach notice read "revoked [object Object] grants"**: the page typed `removedGrants` as a number. It now uses
+  `ActionResponse<GithubInstallationDetach>` and `detachNotice` counts the list. `frontend/src/__tests__/repositories.test.ts`.

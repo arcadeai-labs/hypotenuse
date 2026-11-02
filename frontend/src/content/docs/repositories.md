@@ -15,11 +15,18 @@ organization or account and attaches that installation to the project:
 1. On **Repositories**, choose **Install the GitHub App**. GitHub asks which organization or account to install it on,
    and which of its repositories the App may see.
 2. GitHub sends you back to **Repositories**, which says the installation is attached. It is attached only if your
-   own GitHub account can see that installation, and the link is good for ten minutes.
+   own GitHub account **administers** the account it is on — an owner of the GitHub organization, or the personal
+   account itself — because an installation reaches every repository the App was granted there. A member who can
+   only see some of its repositories is refused, and asked to have an owner attach it. The link is good for ten
+   minutes.
+
+When an owner later changes which repositories the App may see, GitHub sends them back to **Repositories** with a note
+that the installation was updated; grant any new repositories there.
 
 The **GitHub App** card lists every attached installation: the account it is on, and whether it is **Active**,
 **Suspended on GitHub**, or **Removed from GitHub** — GitHub tells Hypotenuse when an account's owner suspends or
-uninstalls it, and its repositories stop working at once. **Detach** removes an installation from the project and
+uninstalls it, and its repositories stop working at once: a bot asked to start a job on one says the installation is
+suspended rather than starting a job that cannot clone. **Detach** removes an installation from the project and
 revokes every grant made through it. The App stays installed on GitHub, where the account's owners remove it.
 
 ### What the operator configures
@@ -44,7 +51,8 @@ repository**, choose the installation, write the repository, and decide:
 The repository must belong to the installation's account, and GitHub must let the App see it; otherwise the grant
 is refused, saying to add the repository to the App's installation on GitHub. A grant's **Edit** changes the push
 setting, the prefix, and the bots; **Revoke** removes it, and bots can no longer read the repository or start jobs on
-it.
+it. Turning pushes off, taking a bot off a grant, revoking it, or detaching its installation also revokes the GitHub
+tokens running jobs already hold for that repository, so the change applies to them at once.
 
 A bot's page lists, under **Repositories**, every repository it can reach and whether it may push.
 
@@ -56,8 +64,9 @@ instruction to the coding agent, and a **repository ruleset** on GitHub is what 
 without a branch prefix saves with a warning saying exactly this.
 
 For every grant with a branch prefix, **Repositories** shows a recommended ruleset as JSON to copy. Add it under the
-repository's **Settings → Rules → Rulesets** on GitHub (or `POST /repos/{owner}/{name}/rulesets`), and make the App the
-only actor it applies to. For the prefix `hypotenuse/ada/`:
+repository's **Settings → Rules → Rulesets** on GitHub (or `POST /repos/{owner}/{name}/rulesets`). People with the
+write, maintain, or admin role bypass it, so it binds the App without getting in your team's way. For the prefix
+`hypotenuse/ada/`:
 
 ```json
 {
@@ -68,11 +77,16 @@ only actor it applies to. For the prefix `hypotenuse/ada/`:
     "ref_name": { "include": ["~ALL"], "exclude": ["refs/heads/hypotenuse/ada/**"] }
   },
   "rules": [{ "type": "update" }, { "type": "deletion" }, { "type": "creation" }],
-  "bypass_actors": []
+  "bypass_actors": [
+    { "actor_type": "RepositoryRole", "actor_id": 5, "bypass_mode": "always" },
+    { "actor_type": "RepositoryRole", "actor_id": 2, "bypass_mode": "always" },
+    { "actor_type": "RepositoryRole", "actor_id": 4, "bypass_mode": "always" }
+  ]
 }
 ```
 
-It blocks creating, updating, and deleting every branch outside the prefix, so the App can only touch its own.
+It blocks creating, updating, and deleting every branch outside the prefix for everyone but the admin (`5`), maintain
+(`2`), and write (`4`) roles — so the App, which holds no role, can only touch its own branches.
 
 ## Read jobs and write jobs
 
@@ -82,10 +96,13 @@ clones it before the coding agent starts, and is one of two kinds:
 | Job | For | What it may do |
 |---|---|---|
 | **write** | changing the code | push a branch under the prefix and open a pull request. Needs a grant that allows pushes, and follows the bot's **Sandboxes** setting (by default, a person approves it first) |
-| **read** | questions about the code | read and run it, never push. Runs without approval, for at most 15 minutes |
+| **read** | questions about the code | read and run it, never push. Follows the same **Sandboxes** setting — it still runs the repository's code — for at most 15 minutes |
 
 Each `git` or `gh` command in the sandbox gets a token for one repository, good for that command, and every token is
-revoked when the job ends. A job's page lists them under **Git** — handed out, reused, or refused with the reason —
+revoked when the job ends. A token carries only what a job needs: the repository's contents, pull requests, and
+issues (written only by a write job on its own repository) and its checks, statuses, and Actions runs to read — never
+its settings, webhooks, secrets, or deployments, whatever else the App was granted. A ref to check out must be a
+branch, tag, or commit; one starting with `-` is refused. A job's page lists them under **Git** — handed out, reused, or refused with the reason —
 next to the job's repository and mode.
 
 ## Reading without a sandbox
@@ -114,6 +131,11 @@ best:
 | [Pylon](/docs/pylon) | an internal note on the issue — never a reply to the customer |
 | The dashboard [chat](/docs/chat) | a **Pull Request** card with the link |
 
+Hypotenuse asks GitHub before it believes a job opened a pull request: it is recorded only when GitHub says the
+App's bot opened it, from a branch on the granted repository (under the grant's branch prefix, when you set one), and
+only for a job started to change that repository. A pull request a person opened, one from a fork, or a link a job
+merely printed is never attached to a conversation, and if GitHub cannot be reached the job is told to report it again.
+
 The job's page lists every pull request it opened under **Pull requests**: its number, title, state (open, merged, or
 closed), and branch.
 
@@ -121,9 +143,11 @@ closed), and branch.
 
 After that, what happens on the pull request is told to the bot. Some events **wake** it, so it acts — for example
 by starting a job to address a review; the rest are recorded and it reads them at its next turn. By default a bot
-wakes for **changes requested** in a review and **a failed check**. On its page, under **Repositories**, anyone who
+wakes for **changes requested** in a review and **a failed check** — a check suite that failed, timed out, or needs
+action; a cancelled, skipped, or neutral one, or one on a commit a newer push replaced, is not a failure. On its page, under **Repositories**, anyone who
 may change the bot picks from: changes requested, approved, commented on, a review comment, a check failed, checks
 passed, closed without merging, and merged.
 
 A conversation someone **stopped** stays silent: nothing on its pull requests wakes it or writes into it again. A
-conversation waiting on a person — an answer or an approval — keeps waiting; an event never stands in for a person.
+conversation waiting on a person — an answer or an approval — keeps waiting; an event never stands in for a person,
+even one that arrives while the bot is still asking.

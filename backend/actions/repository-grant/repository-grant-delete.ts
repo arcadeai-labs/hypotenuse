@@ -7,6 +7,7 @@ import {
   type TxHandle,
 } from "../../classes/AuditedAction";
 import { AdminMiddleware } from "../../middleware/rbac";
+import { revokeLiveJobRepositoryTokens } from "../../ops/GitCredentialOps";
 import { idInput } from "../../ops/InputOps";
 import { loadGrant } from "../../ops/RepositoryGrantOps";
 import { serializeRepositoryGrant } from "../../ops/RepositoryOps";
@@ -14,13 +15,14 @@ import { repositoryGrants } from "../../schema/repository_grants";
 
 /**
  * `repository-grant:delete` — take a repository away from the project's bots.
- * A job already running keeps the tokens it holds until it ends (each expires
- * within the hour); no new one is handed out. Requires admin standing.
+ * Once the delete commits, the GitHub tokens live jobs hold for the
+ * repository are revoked, and no new one is handed out. Requires admin
+ * standing.
  */
 export class RepositoryGrantDelete extends AuditedAction {
   name = "repository-grant:delete";
   description =
-    "Delete a repository grant: no bot in the project can reach the repository afterwards (a job already running keeps its short-lived token until it ends). Requires admin standing.";
+    "Delete a repository grant: no bot in the project can reach the repository afterwards, and the GitHub tokens running jobs hold for it are revoked. Requires admin standing.";
   middleware = [AdminMiddleware()];
   web = {
     route: "/project/:projectId/repository-grant/:grantId",
@@ -56,5 +58,22 @@ export class RepositoryGrantDelete extends AuditedAction {
     connection.metadata.auditTargetType = "repository-grant";
     connection.metadata.auditTargetPath = serialized.fullName;
     return { repositoryGrant: serialized };
+  }
+
+  /**
+   * Revoke the tokens live jobs hold for the repository.
+   * @param result - The response, naming the repository.
+   * @param params - The inputs.
+   */
+  async afterCommit(
+    result: unknown,
+    params: ActionParams<RepositoryGrantDelete>,
+  ) {
+    const { repositoryGrant } = result as {
+      repositoryGrant: { fullName: string };
+    };
+    await revokeLiveJobRepositoryTokens(params.projectId, [
+      repositoryGrant.fullName,
+    ]);
   }
 }

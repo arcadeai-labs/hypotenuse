@@ -2,12 +2,16 @@ import { api } from "keryx";
 import { z } from "zod";
 import { approvalForIntent, outcomeOfApproval } from "../ops/ApprovalOps";
 import { callKey } from "../ops/ApprovalPatternOps";
-import { GITHUB_HOST, parseRepositoryName } from "../ops/GitAccessOps";
 import {
-  botRepositoryAccess,
-  type JobRepository,
-} from "../ops/GitCredentialOps";
-import { githubWebOrigin } from "../ops/GitHubAppOps";
+  GITHUB_HOST,
+  gitRefProblem,
+  parseRepositoryName,
+} from "../ops/GitAccessOps";
+import { grantForBot, type JobRepository } from "../ops/GitCredentialOps";
+import {
+  githubWebOrigin,
+  installationUnavailableReason,
+} from "../ops/GitHubAppOps";
 import {
   effectiveSandboxSettings,
   getOrCreateSettings,
@@ -56,7 +60,7 @@ const input = z.object({
     .enum(["write", "read"])
     .optional()
     .describe(
-      'With a repository: "write" (the default) to change it — push a branch, open a pull request — or "read" for questions about the code: no push, a shorter limit, and no approval',
+      'With a repository: "write" (the default) to change it — push a branch, open a pull request — or "read" for questions about the code: no push and a shorter limit',
     ),
   ref: z
     .string()
@@ -116,17 +120,36 @@ export async function requestedRepository(
   }
   const name = `${parsed.owner}/${parsed.repo}`;
   const mode = args.mode ?? "write";
-  const access = await botRepositoryAccess(
+  if (args.ref !== undefined) {
+    const problem = gitRefProblem(args.ref);
+    if (problem) {
+      throw new ToolError(
+        "invalid_input",
+        `"${args.ref}" is not a ref git can check out: ${problem}.`,
+        "Pass a branch, tag, or commit, e.g. main or a pull request's head branch.",
+      );
+    }
+  }
+  const found = await grantForBot(
     ctx.db,
     ctx.conversation.projectId,
     ctx.bot.id,
     { host: GITHUB_HOST, owner: parsed.owner, repo: parsed.repo },
   );
-  if (access === "none") {
+  const access = found ? (found.grant.push ? "write" : "read") : "none";
+  if (!found) {
     throw new ToolError(
       "repository_not_granted",
       `This bot has no access to ${name}.`,
       `Tell the person; a project admin can grant ${name} to this bot under Repositories.`,
+    );
+  }
+  const unavailable = installationUnavailableReason(found.installation);
+  if (unavailable) {
+    throw new ToolError(
+      "repository_unavailable",
+      `${name} cannot be reached: ${unavailable}.`,
+      "Tell the person; an owner of the GitHub account can unsuspend or reinstall the App, and a project admin can reattach it under Repositories.",
     );
   }
   if (mode === "write" && access !== "write") {
@@ -156,11 +179,13 @@ export async function requestedRepository(
  *
  * Gated by the bot's `sandboxPolicy`: `approve` (the default) waits for a
  * person's approval of each job, the same gate as an MCP tool outside its
- * allowlist; `allow` runs it. A job on a repository in `mode: "read"` runs
- * without approval under `approve` (it can push nothing, and is capped at
- * {@link READ_JOB_MAX_DURATION_MS}); `off` refuses it like any other. The
- * repository must be granted to the bot — at push for `write` — which is
- * checked before an approval is asked for. Not replayed after a crash: a
+ * allowlist; `allow` runs it. A job on a repository in `mode: "read"` parks
+ * for approval under `approve` like any other — it pushes nothing, but it
+ * still runs code from the repository with a credential that reads it — and
+ * is capped at {@link READ_JOB_MAX_DURATION_MS}; `off` refuses it. The
+ * repository must be granted to the bot — at push for `write` — through an
+ * installation that is not suspended, which is checked before an approval
+ * is asked for. Not replayed after a crash: a
  * replayed intent finds the job it started instead of starting a second.
  */
 export const sandboxStart: ToolDefinition<
@@ -169,17 +194,16 @@ export const sandboxStart: ToolDefinition<
 > = {
   name: "sandbox_start",
   description:
-    'Hand work that needs a real machine — reading or changing a repository, running tests or scripts, anything that takes a filesystem, a shell, or a long time — to a coding agent in a fresh sandbox. Write the task in full: the agent sees nothing of this conversation. With repository (owner/name, one this bot was granted) the sandbox starts with it cloned: mode "write" (the default) lets the agent push a branch under the bot\'s branch prefix and open a pull request, whose link comes back here; mode "read" is for questions about the code — no push, a shorter limit, and no approval; ref checks out a branch, tag, or commit (a pull request\'s branch, to address its review). It reports progress here, may ask you questions (answer with sandbox_message), and its result arrives as a message when it ends. Then end your turn with sandbox_wait to wait for it. A job may need a person\'s approval first.',
+    'Hand work that needs a real machine — reading or changing a repository, running tests or scripts, anything that takes a filesystem, a shell, or a long time — to a coding agent in a fresh sandbox. Write the task in full: the agent sees nothing of this conversation. With repository (owner/name, one this bot was granted) the sandbox starts with it cloned: mode "write" (the default) lets the agent push a branch under the bot\'s branch prefix and open a pull request, whose link comes back here; mode "read" is for questions about the code — no push and a shorter limit; ref checks out a branch, tag, or commit (a pull request\'s branch, to address its review). It reports progress here, may ask you questions (answer with sandbox_message), and its result arrives as a message when it ends. Then end your turn with sandbox_wait to wait for it. A job may need a person\'s approval first.',
   inputSchema: input,
   outputSchema: output,
   replay: "unsafe",
   parallelSafe: false,
   available: (ctx) => ctx.bot.sandboxPolicy !== "off",
   gate: async (args, ctx) => {
-    const repository = await requestedRepository(args, ctx);
+    // Refuses an unusable repository before anybody is asked to approve it.
+    await requestedRepository(args, ctx);
     if (ctx.bot.sandboxPolicy === "allow") return { kind: "run" };
-    // A read-only job changes nothing anywhere: it runs without approval.
-    if (repository?.mode === "read") return { kind: "run" };
     const key = callKey(SERVER, TOOL, args);
     const existing = await approvalForIntent(ctx.db, ctx.intentEntryId);
     if (existing) return outcomeOfApproval(ctx.db, existing, key);
@@ -203,7 +227,7 @@ export const sandboxStart: ToolDefinition<
       );
     }
     const repository = await requestedRepository(args, ctx);
-    if (ctx.bot.sandboxPolicy === "approve" && repository?.mode !== "read") {
+    if (ctx.bot.sandboxPolicy === "approve") {
       const approval = await approvalForIntent(ctx.db, ctx.intentEntryId);
       // Defense in depth: the tick runs this only after the gate said so.
       if (

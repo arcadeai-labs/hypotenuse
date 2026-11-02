@@ -381,7 +381,9 @@ export interface InboundResult {
  * @param message - The text, how it enters a turn, its dedupe key, and who
  *   wrote it; `answers: false` for a message that may not answer a question
  *   the conversation waits on (a support customer's, when the bot asked its
- *   team): it waits in the inbox for the turn the answer starts; `quiet`
+ *   team; a sandbox's or GitHub's relayed text): it waits in the inbox for
+ *   the turn the answer starts, and the row's `metadata.answers` is `false`
+ *   so a turn that ends on a question while it is pending still waits; `quiet`
  *   for a message that never wakes the conversation by itself (a sandbox's
  *   non-blocking question): it waits for the next turn. A person's message
  *   wakes a conversation waiting on a sandbox job — the bot may check on
@@ -414,7 +416,12 @@ export async function receiveMessage(
       userId: message.userId ?? null,
       participantId: message.participantId ?? null,
       text: message.text,
-      metadata: message.metadata ?? {},
+      // `answers: false` is kept on the row, so the tick that ends a turn on
+      // a question never takes this message for its answer.
+      metadata:
+        message.answers === false
+          ? { ...(message.metadata ?? {}), answers: false }
+          : (message.metadata ?? {}),
     })
     .onConflictDoNothing()
     .returning();

@@ -7,6 +7,8 @@ import {
   type TxHandle,
 } from "../../classes/AuditedAction";
 import { AdminMiddleware } from "../../middleware/rbac";
+import { grantCoversBot } from "../../ops/GitAccessOps";
+import { revokeLiveJobRepositoryTokens } from "../../ops/GitCredentialOps";
 import { idInput } from "../../ops/InputOps";
 import {
   assertGrantBots,
@@ -16,6 +18,7 @@ import {
   loadGrant,
 } from "../../ops/RepositoryGrantOps";
 import { serializeRepositoryGrant } from "../../ops/RepositoryOps";
+import { bots } from "../../schema/bots";
 import {
   type NewRepositoryGrant,
   repositoryGrants,
@@ -26,7 +29,10 @@ import {
  * prefix, or which bots may use it. Only the fields sent change; the
  * repository and installation do not (delete the grant and make another).
  * Turning `push` on is an admin's decision like any other here, and a push
- * grant left without a branch prefix answers a warning.
+ * grant left without a branch prefix answers a warning. A change that
+ * narrows the grant — `push` turned off, bots taken off it — revokes the
+ * GitHub tokens live jobs already hold for the repository once it commits,
+ * so the narrower grant applies to running jobs too.
  */
 export class RepositoryGrantEdit extends AuditedAction {
   name = "repository-grant:edit";
@@ -93,10 +99,68 @@ export class RepositoryGrantEdit extends AuditedAction {
             .returning()
         : [grant];
 
+    // Who lost access: every job, when the grant can no longer push; the
+    // bots no longer covered, when its bots changed.
+    const lostPush = grant.push && !updated.push;
+    const lostBots =
+      params.botIds !== undefined && updated.botIds !== null
+        ? await projectBotIds(tx, params.projectId).then((ids) =>
+            ids.filter(
+              (id) => grantCoversBot(grant, id) && !grantCoversBot(updated, id),
+            ),
+          )
+        : [];
+    if (lostPush || lostBots.length > 0) {
+      connection.metadata.afterCommitData = {
+        repository: `${grant.owner}/${grant.name}`,
+        botIds: lostPush ? null : lostBots,
+      };
+    }
+
     const serialized = serializeRepositoryGrant(updated, installation);
     connection.metadata.auditAfter = serialized;
     connection.metadata.auditTargetType = "repository-grant";
     connection.metadata.auditTargetPath = serialized.fullName;
     return { repositoryGrant: serialized, warnings: grantWarnings(updated) };
   }
+
+  /**
+   * Revoke the tokens live jobs hold for the repository, when the edit
+   * narrowed who may do what with it.
+   * @param _result - The response.
+   * @param params - The inputs.
+   * @param connection - What {@link runWithAudit} found narrowed.
+   */
+  async afterCommit(
+    _result: unknown,
+    params: ActionParams<RepositoryGrantEdit>,
+    connection: AuditedConnection,
+  ) {
+    const narrowed = connection.metadata.afterCommitData as
+      | { repository: string; botIds: number[] | null }
+      | undefined;
+    if (!narrowed) return;
+    await revokeLiveJobRepositoryTokens(
+      params.projectId,
+      [narrowed.repository],
+      narrowed.botIds,
+    );
+  }
+}
+
+/**
+ * Every bot id in a project.
+ * @param tx - The transaction.
+ * @param projectId - The project.
+ * @returns The ids.
+ */
+async function projectBotIds(
+  tx: TxHandle,
+  projectId: number,
+): Promise<number[]> {
+  const rows = await tx
+    .select({ id: bots.id })
+    .from(bots)
+    .where(eq(bots.projectId, projectId));
+  return rows.map((r) => r.id);
 }

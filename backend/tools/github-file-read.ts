@@ -9,6 +9,32 @@ import {
 } from "./github-shared";
 import { type ToolDefinition, ToolError } from "./types";
 
+/**
+ * A path in a repository, checked before any token is minted: leading and
+ * trailing slashes dropped, and **no `.`, `..`, or empty segment**. The path
+ * is joined into a REST URL, and a URL resolves `..` — so
+ * `../../installation/repositories` would leave the repository's `contents`
+ * and reach another endpoint with the call's token.
+ * @param raw - The path the model wrote.
+ * @returns The path, `""` for the root.
+ * @throws {ToolError} `invalid_path`.
+ */
+export function repositoryPath(raw: string): string {
+  const path = raw.replace(/^\/+|\/+$/g, "");
+  if (path === "") return "";
+  const bad = path
+    .split("/")
+    .find((segment) => segment === "" || segment === "." || segment === "..");
+  if (bad !== undefined) {
+    throw new ToolError(
+      "invalid_path",
+      `"${raw.slice(0, 200)}" is not a path in the repository: it has ${bad === "" ? "an empty" : `a '${bad}'`} segment.`,
+      "Name the file from the repository's root, e.g. src/app.ts, with no '.' or '..' segments.",
+    );
+  }
+  return path;
+}
+
 const input = z.object({
   repository: z.string().min(1).describe(REPOSITORY_DESCRIPTION),
   path: z
@@ -114,68 +140,74 @@ export const githubFileRead: ToolDefinition<
   replay: "safe",
   parallelSafe: true,
   available: hasGitHubRepositories,
-  run: async (args, ctx) =>
-    withRepositoryToken(ctx, args.repository, "contents", async (token, t) => {
-      const path = args.path.replace(/^\/+|\/+$/g, "");
-      const query = args.ref ? `?ref=${encodeURIComponent(args.ref)}` : "";
-      const where = `${path || "/"} in ${t.fullName}${args.ref ? ` at ${args.ref}` : ""}`;
-      const body = await githubGet<ContentsFile | ContentsEntry[]>(
-        token,
-        `/repos/${encodeURIComponent(t.owner)}/${encodeURIComponent(t.repo)}/contents/${encodePath(path)}${query}`,
-        `There is no ${where}.`,
-        "Check the path and ref; list the parent directory with an empty or shorter path to see what is there.",
-      );
-      if (Array.isArray(body)) {
+  run: async (args, ctx) => {
+    const path = repositoryPath(args.path);
+    return withRepositoryToken(
+      ctx,
+      args.repository,
+      "contents",
+      async (token, t) => {
+        const query = args.ref ? `?ref=${encodeURIComponent(args.ref)}` : "";
+        const where = `${path || "/"} in ${t.fullName}${args.ref ? ` at ${args.ref}` : ""}`;
+        const body = await githubGet<ContentsFile | ContentsEntry[]>(
+          token,
+          `/repos/${encodeURIComponent(t.owner)}/${encodeURIComponent(t.repo)}/contents/${encodePath(path)}${query}`,
+          `There is no ${where}.`,
+          "Check the path and ref; list the parent directory with an empty or shorter path to see what is there.",
+        );
+        if (Array.isArray(body)) {
+          return {
+            kind: "dir" as const,
+            repository: t.fullName,
+            path,
+            entries: body.slice(0, MAX_ENTRIES).map((e) => ({
+              name: e.name,
+              path: e.path,
+              type: e.type,
+            })),
+            truncated: body.length > MAX_ENTRIES,
+          };
+        }
+        if (body.type !== "file") {
+          throw new ToolError(
+            "not_a_file",
+            `${where} is a ${body.type}, not a file.`,
+            "Read a regular file, or list a directory.",
+          );
+        }
+        if (body.encoding !== "base64" || typeof body.content !== "string") {
+          throw new ToolError(
+            "file_too_large",
+            `GitHub does not return the content of ${where} (${body.size} bytes) through its API.`,
+            "Read it in a sandbox (sandbox_start), or search for the part you need with github_search_code.",
+          );
+        }
+        const all = Buffer.from(body.content.replace(/\s+/g, ""), "base64");
+        const cap = maxFileBytes();
+        const cut = all.length > cap;
+        const bytes = cut ? all.subarray(0, cap) : all;
+        if (looksBinary(bytes, cut)) {
+          throw new ToolError(
+            "binary_file",
+            `${where} is a binary file (${all.length} bytes), which this tool does not return.`,
+            "Read text files only; work with binary files in a sandbox (sandbox_start).",
+          );
+        }
         return {
-          kind: "dir" as const,
+          kind: "file" as const,
           repository: t.fullName,
-          path,
-          entries: body.slice(0, MAX_ENTRIES).map((e) => ({
-            name: e.name,
-            path: e.path,
-            type: e.type,
-          })),
-          truncated: body.length > MAX_ENTRIES,
+          path: body.path,
+          size: all.length,
+          text: bytes.toString("utf8"),
+          truncated: cut,
+          ...(cut
+            ? {
+                note: `Cut: this is the first ${cap} of ${all.length} bytes. The rest is not shown; read the whole file in a sandbox, or search it with github_search_code.`,
+              }
+            : {}),
+          ...(body.html_url ? { url: body.html_url } : {}),
         };
-      }
-      if (body.type !== "file") {
-        throw new ToolError(
-          "not_a_file",
-          `${where} is a ${body.type}, not a file.`,
-          "Read a regular file, or list a directory.",
-        );
-      }
-      if (body.encoding !== "base64" || typeof body.content !== "string") {
-        throw new ToolError(
-          "file_too_large",
-          `GitHub does not return the content of ${where} (${body.size} bytes) through its API.`,
-          "Read it in a sandbox (sandbox_start), or search for the part you need with github_search_code.",
-        );
-      }
-      const all = Buffer.from(body.content.replace(/\s+/g, ""), "base64");
-      const cap = maxFileBytes();
-      const cut = all.length > cap;
-      const bytes = cut ? all.subarray(0, cap) : all;
-      if (looksBinary(bytes, cut)) {
-        throw new ToolError(
-          "binary_file",
-          `${where} is a binary file (${all.length} bytes), which this tool does not return.`,
-          "Read text files only; work with binary files in a sandbox (sandbox_start).",
-        );
-      }
-      return {
-        kind: "file" as const,
-        repository: t.fullName,
-        path: body.path,
-        size: all.length,
-        text: bytes.toString("utf8"),
-        truncated: cut,
-        ...(cut
-          ? {
-              note: `Cut: this is the first ${cap} of ${all.length} bytes. The rest is not shown; read the whole file in a sandbox, or search it with github_search_code.`,
-            }
-          : {}),
-        ...(body.html_url ? { url: body.html_url } : {}),
-      };
-    }),
+      },
+    );
+  },
 };

@@ -3,6 +3,7 @@ import { createVerify, generateKeyPairSync } from "node:crypto";
 import { api, config } from "keryx";
 import {
   findGrant,
+  gitRefProblem,
   grantLevel,
   parseCredentialRepository,
   parseRepositoryName,
@@ -13,6 +14,7 @@ import {
   installationSandboxPermissions,
   jobPermissionFor,
   redactGitHubTokens,
+  sandboxInstallationPermissions,
 } from "../../ops/GitCredentialOps";
 import {
   assertUserCanAccessInstallation,
@@ -272,11 +274,121 @@ describe("grants and permissions, pure", () => {
     expect(capSandboxGitHubPermission("contents", "", "write")).toBeNull();
   });
 
-  test("the recommended ruleset blocks every branch outside the prefix", () => {
+  test("a token carries an allowlist: every other permission an installation holds is never asked for", () => {
+    // Every repository permission GitHub offers an App, at its highest level.
+    const everything = {
+      actions: "write",
+      actions_variables: "write",
+      administration: "write",
+      attestations: "write",
+      checks: "write",
+      codespaces: "write",
+      codespaces_lifecycle_admin: "write",
+      codespaces_metadata: "read",
+      codespaces_secrets: "write",
+      contents: "write",
+      custom_properties: "write",
+      dependabot_secrets: "write",
+      deployments: "write",
+      discussions: "write",
+      environments: "write",
+      issues: "write",
+      merge_queues: "write",
+      metadata: "read",
+      packages: "write",
+      pages: "write",
+      pull_requests: "write",
+      repository_advisories: "write",
+      repository_hooks: "write",
+      repository_projects: "admin",
+      secret_scanning_alerts: "write",
+      secrets: "write",
+      security_events: "write",
+      single_file: "write",
+      statuses: "write",
+      vulnerability_alerts: "write",
+      workflows: "write",
+      members: "read",
+      organization_administration: "write",
+    };
+    expect(installationSandboxPermissions("write", everything)).toEqual({
+      actions: "read",
+      checks: "read",
+      contents: "write",
+      issues: "write",
+      metadata: "read",
+      pull_requests: "write",
+      statuses: "read",
+    });
+    expect(installationSandboxPermissions("read", everything)).toEqual({
+      actions: "read",
+      checks: "read",
+      contents: "read",
+      issues: "read",
+      metadata: "read",
+      pull_requests: "read",
+      statuses: "read",
+    });
+    // Capped by what the installation actually has; omitted when it has none.
+    expect(
+      installationSandboxPermissions("write", {
+        contents: "read",
+        metadata: "read",
+      }),
+    ).toEqual({ contents: "read", metadata: "read" });
+    // The fallback map, used when the installation cannot be read, is a
+    // subset of the allowlist at the same levels.
+    for (const level of ["read", "write"] as const) {
+      const fallback = sandboxInstallationPermissions(level);
+      for (const [name, value] of Object.entries(fallback)) {
+        expect(capSandboxGitHubPermission(name, "write", level)).toBe(value);
+      }
+    }
+  });
+
+  test("the recommended ruleset blocks every branch outside the prefix, for the App and not the team", () => {
     const ruleset = recommendedRuleset("hypotenuse/toadsworth/");
-    expect(JSON.stringify(ruleset)).toContain(
-      "refs/heads/hypotenuse/toadsworth/**",
-    );
+    expect(ruleset.conditions).toEqual({
+      ref_name: {
+        include: ["~ALL"],
+        exclude: ["refs/heads/hypotenuse/toadsworth/**"],
+      },
+    });
+    expect(ruleset.bypass_actors).toEqual([
+      { actor_type: "RepositoryRole", actor_id: 5, bypass_mode: "always" },
+      { actor_type: "RepositoryRole", actor_id: 2, bypass_mode: "always" },
+      { actor_type: "RepositoryRole", actor_id: 4, bypass_mode: "always" },
+    ]);
+  });
+
+  test("a ref git would read as an option, or cannot name, is a problem", () => {
+    for (const good of [
+      "main",
+      "feature/x",
+      "v1.2.0",
+      "a".repeat(40),
+      "refs/pull/1/head",
+    ]) {
+      expect(gitRefProblem(good)).toBeNull();
+    }
+    for (const bad of [
+      "-x",
+      "--upload-pack=touch /tmp/p",
+      "a..b",
+      "a b",
+      "x~1",
+      "x^",
+      "a:b",
+      "@",
+      "a@{1}",
+      "/a",
+      "a/",
+      "a.lock",
+      "a/.hidden",
+      "",
+    ]) {
+      expect(gitRefProblem(bad)).not.toBeNull();
+    }
   });
 
   test("a GitHub token printed by an agent is redacted", () => {

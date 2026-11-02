@@ -14,6 +14,7 @@ import { Alert, Badge, BotBadge, Button, Chip, Form, Table } from "../../ui";
 import { apiFetch } from "../../utils/client";
 import {
   BRANCH_PREFIX_PLACEHOLDER,
+  detachNotice,
   EMPTY_GRANT_DRAFT,
   type GithubInstallation,
   type GrantDraft,
@@ -23,12 +24,14 @@ import {
   grantDraftOf,
   grantEditBody,
   INSTALLATION_STATUS_TONE,
+  type InstallationDetached,
   type InstallUrl,
   installationStatusLabel,
   installNotice,
   type RepositoryGrant,
   repositoryUrl,
   rulesetJson,
+  withoutArrival,
 } from "../../utils/repositories";
 
 /** What the grant form is doing: adding a grant, or changing one. */
@@ -68,18 +71,12 @@ function InstallationsCard({
     setBusy(true);
     setFailure(null);
     try {
-      const res = await apiFetch<{ removedGrants: number }>(
+      const res = await apiFetch<InstallationDetached>(
         `/project/${projectId}/github/installation/${confirm.id}`,
         { method: "DELETE" },
       );
-      const grants =
-        res.removedGrants === 1
-          ? "1 grant"
-          : `${res.removedGrants ?? 0} grants`;
       setConfirm(null);
-      await onDetached(
-        `Detached ${confirm.accountLogin}, and revoked ${grants} made through it.`,
-      );
+      await onDetached(detachNotice(confirm.accountLogin, res.removedGrants));
     } catch (err) {
       setFailure(err instanceof Error ? err.message : "Could not detach it.");
       setConfirm(null);
@@ -611,10 +608,7 @@ export function RepositoriesPage() {
 
   /** Clear the notice GitHub's install flow left in the address. */
   function dismissArrival() {
-    const next = new URLSearchParams(search);
-    next.delete("installed");
-    next.delete("error");
-    setSearch(next, { replace: true });
+    setSearch(withoutArrival(search), { replace: true });
   }
 
   const header = (

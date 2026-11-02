@@ -60,8 +60,8 @@ Whether a bot may start jobs is its **Sandboxes** setting, on [its page](/docs/b
 | **Allow** | the job starts at once |
 | **Off** | the bot cannot start jobs |
 
-A job on a repository in **read** mode runs without asking even under **Ask first**: it can push nothing. **Off**
-still refuses it.
+A job on a repository in **read** mode asks first too: it pushes nothing, but it still runs the repository's code.
+**Off** refuses it.
 
 Setting **Allow**, or removing a bot's token budget, takes admin standing in the project: either one lets the bot spend
 the project's money with nobody asked. Anyone who may change the bot can tighten them.
@@ -75,7 +75,7 @@ agent works in that checkout. A bot holding no grant for the repository is told 
 | Mode | For | What the job may do |
 |---|---|---|
 | **write** (the default) | changing the code | push a branch and open a pull request. Needs a grant that allows pushes, and follows the bot's **Sandboxes** setting |
-| **read** | questions about the code ("how does auth work in `acme/api`?") | read and run it, never push. Runs without approval, and for at most 15 minutes |
+| **read** | questions about the code ("how does auth work in `acme/api`?") | read and run it, never push. Waits for approval like any job under **Ask first**, and runs for at most 15 minutes |
 
 The bot can also name a branch, tag, or commit to check out — a pull request's branch, to address its review.
 

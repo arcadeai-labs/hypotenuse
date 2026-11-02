@@ -53,7 +53,7 @@ reports status, asks the conversation questions (the bot answers), or asks the t
 sandbox holds one credential, its job token: models through the model proxy, the bot's allowlisted MCP tools through
 the gateway, our own sandbox tools on `/mcp`; a reaper ends dead, stalled, stuck, overlong, unacknowledged, and idle
 jobs, and an orphan sweep collects what the `sandboxes` ledger does not account for. Bots **work in repositories**:
-one GitHub App for the deployment, its installations attached per project by a person GitHub says can see them, and
+one GitHub App for the deployment, its installations attached per project by a person GitHub says administers their account, and
 repository grants (read or push, a branch prefix, which bots) a project admin makes; a sandbox's git and managed `gh`
 trade the job token for an installation token scoped to one repository on every command, revoked when the job ends;
 a job's pull request comes back to the conversation as a link (Slack, Linear's external URL, a Pylon note), and review

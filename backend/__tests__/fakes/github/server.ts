@@ -34,8 +34,11 @@ import { join } from "node:path";
  *   contents, code search, a pull request, an issue, creating a pull request
  *   — under the same token scope.
  * - **User OAuth.** `POST /login/oauth/access_token` exchanges a code issued
- *   by {@link FakeGitHub.authorizeUser}, and `GET /user/installations` lists
- *   what that user can see.
+ *   by {@link FakeGitHub.authorizeUser}; `GET /user/installations` lists
+ *   what that user can see, `GET /user` says who they are (login and a
+ *   numeric id stable per login, the same id an account carries on an
+ *   installation), and `GET /user/memberships/orgs/:org` answers their role
+ *   in an organization (404 when they hold none).
  * - **Webhooks.** {@link FakeGitHub.deliver} signs a payload with
  *   `X-Hub-Signature-256` (hex HMAC-SHA256 of the raw body under the App's
  *   webhook secret) and posts it with `X-GitHub-Event` and
@@ -55,7 +58,7 @@ export interface GitHubRequest {
 /** An installation of the App, as the fake keeps it. */
 export interface FakeInstallation {
   id: string;
-  account: { login: string; type: "Organization" | "User" };
+  account: { login: string; id: number; type: "Organization" | "User" };
   permissions: Record<string, string>;
   repositories: string[];
   suspended: boolean;
@@ -82,13 +85,20 @@ export interface FakePullRequest {
   base: string;
   state: "open" | "closed";
   merged: boolean;
+  /** Who opened it: a person's login, or `<appSlug>[bot]` for the App. */
   author: string;
+  /** The head branch's repository, `owner/name`; the base repository unless a fork's. */
+  headRepo?: string;
+  /** The head commit; `a` × 40 unless a test pushes another. */
+  headSha?: string;
 }
 
 /** A user who can authorize the App, and the installations they can see. */
 interface FakeUser {
   login: string;
   installationIds: string[];
+  /** Organization login (lowercased) → their role there. */
+  orgRoles: Record<string, "admin" | "member">;
 }
 
 /** The levels GitHub orders permissions by. */
@@ -117,6 +127,8 @@ export class FakeGitHub {
   tokens: FakeToken[] = [];
   /** Every token revoked with `DELETE /installation/token`. */
   revocations: string[] = [];
+  /** Tokens whose `DELETE /installation/token` answers 503, as an outage would. */
+  unrevokable = new Set<string>();
   /** Every scoped mint request body, oldest first. */
   mints: {
     installationId: string;
@@ -129,6 +141,10 @@ export class FakeGitHub {
   webhookUrl: string | null = null;
 
   private users = new Map<string, FakeUser>();
+  /** Account login (lowercased) → GitHub's numeric id for it. */
+  private accountIds = new Map<string, number>();
+  /** Mint holds a suite armed with {@link holdNextMint}, oldest first. */
+  private mintHolds: { arrived: () => void; released: Promise<void> }[] = [];
   private codes = new Map<string, string>();
   private userTokens = new Map<string, string>();
   private root = mkdtempSync(join(tmpdir(), "hypotenuse-github-"));
@@ -207,7 +223,11 @@ export class FakeGitHub {
   }): FakeInstallation {
     const inst: FakeInstallation = {
       id: input.id,
-      account: { login: input.login, type: input.type ?? "Organization" },
+      account: {
+        login: input.login,
+        id: this.accountId(input.login),
+        type: input.type ?? "Organization",
+      },
       permissions: input.permissions ?? {
         contents: "write",
         metadata: "read",
@@ -288,13 +308,62 @@ export class FakeGitHub {
    * GitHub would put on the install callback.
    * @param login - The user.
    * @param installationIds - The installations they can see.
+   * @param orgRoles - Organization login → their role there; none by default.
    * @returns The OAuth code.
    */
-  authorizeUser(login: string, installationIds: string[]): string {
-    this.users.set(login, { login, installationIds });
+  authorizeUser(
+    login: string,
+    installationIds: string[],
+    orgRoles: Record<string, "admin" | "member"> = {},
+  ): string {
+    this.users.set(login, {
+      login,
+      installationIds,
+      orgRoles: Object.fromEntries(
+        Object.entries(orgRoles).map(([org, role]) => [
+          org.toLowerCase(),
+          role,
+        ]),
+      ),
+    });
     const code = `code-${randomBytes(6).toString("hex")}`;
     this.codes.set(code, login);
     return code;
+  }
+
+  /**
+   * GitHub's numeric id for an account (a user or an organization), stable
+   * per login for the fake's life.
+   * @param login - The account.
+   * @returns Its id.
+   */
+  accountId(login: string): number {
+    const key = login.toLowerCase();
+    let id = this.accountIds.get(key);
+    if (id === undefined) {
+      id = 5000 + this.accountIds.size;
+      this.accountIds.set(key, id);
+    }
+    return id;
+  }
+
+  /**
+   * Hold the next `POST /app/installations/:id/access_tokens` until the suite
+   * releases it: the way to put something between a mint's request and its
+   * answer (a job ending while its token is minted).
+   * @returns `arrived` resolves when the mint reaches the fake; `release` lets it answer.
+   */
+  holdNextMint(): { arrived: Promise<void>; release: () => void } {
+    let arrived!: () => void;
+    let release!: () => void;
+    const reached = new Promise<void>((r) => {
+      arrived = r;
+    });
+    const released = new Promise<void>((r) => {
+      release = r;
+    });
+    this.mintHolds.push({ arrived, released });
+    return { arrived: reached, release };
   }
 
   /**
@@ -405,9 +474,24 @@ export class FakeGitHub {
       state: pr.state,
       merged: pr.merged,
       draft: false,
-      user: { login: pr.author, type: "Bot" },
-      head: { ref: pr.head, sha: "a".repeat(40) },
-      base: { ref: pr.base, sha: "b".repeat(40) },
+      user: {
+        login: pr.author,
+        type: pr.author.endsWith("[bot]") ? "Bot" : "User",
+      },
+      head: {
+        ref: pr.head,
+        sha: pr.headSha ?? "a".repeat(40),
+        repo: {
+          full_name: pr.headRepo ?? `${pr.owner}/${pr.name}`,
+          name: (pr.headRepo ?? `${pr.owner}/${pr.name}`).split("/")[1],
+          owner: { login: (pr.headRepo ?? pr.owner).split("/")[0] },
+        },
+      },
+      base: {
+        ref: pr.base,
+        sha: "b".repeat(40),
+        repo: { full_name: `${pr.owner}/${pr.name}` },
+      },
     };
   }
 
@@ -468,25 +552,36 @@ export class FakeGitHub {
   }
 
   /**
-   * Deliver `check_suite` (`completed`) for the pull request's head.
+   * Deliver `check_suite` (`completed`). By default the suite ran on the
+   * pull request's head; `suiteSha` makes it a suite on another commit (one
+   * a newer push superseded), still listing the pull request at its head.
    * @param pr - The pull request.
-   * @param conclusion - `success`, `failure`, …
+   * @param conclusion - `success`, `failure`, `cancelled`, …
+   * @param options - The commit the suite ran on, and its app's name.
    * @returns What Hypotenuse answered.
    */
-  checkSuite(pr: FakePullRequest, conclusion: "success" | "failure") {
+  checkSuite(
+    pr: FakePullRequest,
+    conclusion: string,
+    options: { suiteSha?: string; appName?: string } = {},
+  ) {
+    const head = pr.headSha ?? "a".repeat(40);
     return this.deliver("check_suite", {
       action: "completed",
       check_suite: {
         id: Math.floor(Math.random() * 1e9),
         head_branch: pr.head,
-        head_sha: "a".repeat(40),
+        head_sha: options.suiteSha ?? head,
         status: "completed",
         conclusion,
-        app: { slug: "github-actions", name: "GitHub Actions" },
+        app: {
+          slug: "github-actions",
+          name: options.appName ?? "GitHub Actions",
+        },
         pull_requests: [
           {
             number: pr.number,
-            head: { ref: pr.head, sha: "a".repeat(40) },
+            head: { ref: pr.head, sha: head },
             base: { ref: pr.base, sha: "b".repeat(40) },
           },
         ],
@@ -669,6 +764,11 @@ export class FakeGitHub {
       if (!this.appAuthorized(req)) {
         return Response.json({ message: "Bad credentials" }, { status: 401 });
       }
+      const hold = this.mintHolds.shift();
+      if (hold) {
+        hold.arrived();
+        await hold.released;
+      }
       const inst = this.installations.get(decodeURIComponent(mint[1]));
       if (!inst) return notFound();
       if (inst.suspended) {
@@ -750,6 +850,9 @@ export class FakeGitHub {
     if (path === "/installation/token" && req.method === "DELETE") {
       const token = this.presented(req);
       if (!token) return new Response(null, { status: 401 });
+      if (this.unrevokable.has(token.token)) {
+        return Response.json({ message: "Unavailable" }, { status: 503 });
+      }
       token.revoked = true;
       this.revocations.push(token.token);
       return new Response(null, { status: 204 });
@@ -773,11 +876,37 @@ export class FakeGitHub {
       this.userTokens.set(token, login);
       return Response.json({ access_token: token, token_type: "bearer" });
     }
-    if (path === "/user/installations" && req.method === "GET") {
+    const userLogin = () => {
       const bearer = /^bearer\s+(.+)$/i.exec(
         (req.headers.get("authorization") ?? "").trim(),
       )?.[1];
-      const login = bearer ? this.userTokens.get(bearer) : undefined;
+      return bearer ? this.userTokens.get(bearer) : undefined;
+    };
+    if (path === "/user" && req.method === "GET") {
+      const login = userLogin();
+      if (!login) {
+        return Response.json({ message: "Bad credentials" }, { status: 401 });
+      }
+      return Response.json({ login, id: this.accountId(login), type: "User" });
+    }
+    const membership = /^\/user\/memberships\/orgs\/([^/]+)$/.exec(path);
+    if (membership && req.method === "GET") {
+      const login = userLogin();
+      if (!login) {
+        return Response.json({ message: "Bad credentials" }, { status: 401 });
+      }
+      const org = decodeURIComponent(membership[1]);
+      const role = this.users.get(login)?.orgRoles[org.toLowerCase()];
+      if (!role) return notFound();
+      return Response.json({
+        state: "active",
+        role,
+        organization: { login: org, id: this.accountId(org) },
+        user: { login, id: this.accountId(login) },
+      });
+    }
+    if (path === "/user/installations" && req.method === "GET") {
+      const login = userLogin();
       if (!login) {
         return Response.json({ message: "Bad credentials" }, { status: 401 });
       }
@@ -959,7 +1088,8 @@ export class FakeGitHub {
         body: b.body ?? "",
         head: b.head ?? "",
         base: b.base ?? "main",
-        author: "hypotenuse-test[bot]",
+        // An installation token acts as the App's bot user.
+        author: `${this.appSlug}[bot]`,
       });
       return Response.json(this.pullJson(pr), { status: 201 });
     }

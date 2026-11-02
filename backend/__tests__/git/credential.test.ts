@@ -9,7 +9,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { api } from "keryx";
 import {
   GITHUB_CLI_PATH_PROFILE_MARK,
@@ -23,8 +23,12 @@ import { finalizeSandboxJob } from "../../ops/SandboxJobOps";
 import {
   JOB_TOKEN_ENV,
   renderBriefing,
+  repositoryDir,
   sandboxEgressHosts,
+  sandboxEgressPolicy,
 } from "../../ops/SandboxProvisionOps";
+import { githubInstallations } from "../../schema/github_installations";
+import { repositoryGrants } from "../../schema/repository_grants";
 import { sandboxJobGitTokens } from "../../schema/sandbox_job_git_tokens";
 import { sandboxJobs } from "../../schema/sandbox_jobs";
 import { type AgentStage, startConversation } from "../agent/harness";
@@ -299,6 +303,218 @@ describe("the endpoint", () => {
     );
     const jobs = await api.db.db.select().from(sandboxJobs);
     expect(JSON.stringify(jobs)).not.toContain("ghs_");
+  });
+});
+
+describe("revocation", () => {
+  /**
+   * The ledger rows a job's issued tokens left.
+   * @param jobId - The job.
+   * @returns Its `issued` rows.
+   */
+  async function issuedRows(jobId: number) {
+    return api.db.db
+      .select()
+      .from(sandboxJobGitTokens)
+      .where(
+        and(
+          eq(sandboxJobGitTokens.jobId, jobId),
+          eq(sandboxJobGitTokens.outcome, "issued"),
+        ),
+      );
+  }
+
+  test("a token minted while its job ends is revoked at once, and the request refused", async () => {
+    const { job: j, token } = await job("api");
+    const hold = git.github.holdNextMint();
+    const pending = ask(token, "acme/api");
+    await hold.arrived;
+    // The ending runs, and revokes, while GitHub is still minting.
+    await finalizeSandboxJob(j.id, { status: "cancelled", reason: "test" });
+    hold.release();
+    const res = await pending;
+    expect(res.status).toBe(401);
+    expect(res.body.error?.message).toContain(
+      "ended while its credential for acme/api was being issued",
+    );
+    const minted = git.github.tokens.at(-1);
+    expect(minted?.revoked).toBe(true);
+    expect(git.github.revocations).toContain(minted?.token ?? "none");
+    const [row] = await issuedRows(j.id);
+    expect(row.revokedAt).not.toBeNull();
+  });
+
+  test("only the tokens GitHub confirmed revoked are stamped revoked", async () => {
+    const { job: j, token } = await job("api");
+    const write = (await ask(token, "acme/api")).body.credential.password;
+    const read = (await ask(token, "acme/lib")).body.credential.password;
+    git.github.unrevokable.add(read);
+    try {
+      await finalizeSandboxJob(j.id, { status: "succeeded", reason: "test" });
+    } finally {
+      git.github.unrevokable.delete(read);
+    }
+    const hash = (t: string) => createHash("sha256").update(t).digest("hex");
+    const rows = await issuedRows(j.id);
+    expect(rows.find((r) => r.tokenHash === hash(write))?.revokedAt).not.toBe(
+      null,
+    );
+    expect(rows.find((r) => r.tokenHash === hash(read))?.revokedAt).toBe(null);
+  });
+
+  test("an installation suspended on GitHub is refused with that sentence, before a mint", async () => {
+    const { token } = await job("api");
+    await api.db.db
+      .update(githubInstallations)
+      .set({ suspendedAt: new Date() })
+      .where(eq(githubInstallations.installationId, "7001"));
+    try {
+      const mints = git.github.mints.length;
+      const res = await ask(token, "acme/api");
+      expect(res.status).toBe(500);
+      expect(res.body.error?.message).toContain(
+        "the GitHub App installation on acme is suspended on GitHub",
+      );
+      expect(git.github.mints.length).toBe(mints);
+    } finally {
+      await api.db.db
+        .update(githubInstallations)
+        .set({ suspendedAt: null })
+        .where(eq(githubInstallations.installationId, "7001"));
+    }
+  });
+
+  describe("a grant narrowed while a job holds a write token", () => {
+    let grantId: number;
+
+    beforeAll(async () => {
+      const inst = git.github.installations.get("7001");
+      inst?.repositories.push("extra");
+      await git.github.createRepository("acme", "extra");
+      const [installation] = await api.db.db
+        .select()
+        .from(githubInstallations)
+        .where(eq(githubInstallations.installationId, "7001"));
+      const [row] = await api.db.db
+        .insert(repositoryGrants)
+        .values({
+          projectId: stage.u.projectId,
+          githubInstallationId: installation.id,
+          owner: "acme",
+          name: "extra",
+          push: true,
+          botIds: null,
+        })
+        .returning();
+      grantId = row.id;
+    });
+
+    const grantPath = () =>
+      `/project/${stage.u.projectId}/repository-grant/${grantId}`;
+
+    test("turning push off revokes it; the next request is a read token", async () => {
+      const { token } = await job("extra", "write");
+      const before = (await ask(token, "acme/extra")).body.credential;
+      expect(before.permission).toBe("write");
+      // Another repository's token is left alone.
+      const other = (await ask(token, "acme/lib")).body.credential.password;
+
+      const edit = await call(stage.u.url, stage.u.peach, "POST", grantPath(), {
+        push: false,
+      });
+      expect(edit.status).toBe(200);
+      expect(git.github.revocations).toContain(before.password);
+      expect(git.github.revocations).not.toContain(other);
+
+      const after = (await ask(token, "acme/extra")).body.credential;
+      expect(after.permission).toBe("read");
+      expect(after.password).not.toBe(before.password);
+    });
+
+    test("taking the bot off the grant revokes its tokens; another bot's list is not this bot", async () => {
+      await call(stage.u.url, stage.u.peach, "POST", grantPath(), {
+        push: true,
+      });
+      const { token } = await job("extra", "write");
+      const held = (await ask(token, "acme/extra")).body.credential.password;
+      const [otherBot] = await api.db.db
+        .select({ botIds: repositoryGrants.botIds })
+        .from(repositoryGrants)
+        .where(eq(repositoryGrants.id, grantId));
+      expect(otherBot.botIds).toBeNull();
+      const anotherBot = await call<{ bot: { id: number } }>(
+        stage.u.url,
+        stage.u.peach,
+        "PUT",
+        `/project/${stage.u.projectId}/bot`,
+        { name: "Other bot for grants", persona: "Helps." },
+      );
+      expect(anotherBot.status, JSON.stringify(anotherBot.body)).toBe(200);
+      const edit = await call(stage.u.url, stage.u.peach, "POST", grantPath(), {
+        botIds: [anotherBot.body.bot.id],
+      });
+      expect(edit.status).toBe(200);
+      expect(git.github.revocations).toContain(held);
+      expect((await ask(token, "acme/extra")).status).toBe(403);
+      await call(stage.u.url, stage.u.peach, "POST", grantPath(), {
+        botIds: null,
+      });
+    });
+
+    test("deleting the grant revokes it, and the next request is refused", async () => {
+      const { token } = await job("extra", "write");
+      const held = (await ask(token, "acme/extra")).body.credential.password;
+      const res = await call(stage.u.url, stage.u.peach, "DELETE", grantPath());
+      expect(res.status).toBe(200);
+      expect(git.github.revocations).toContain(held);
+      expect((await ask(token, "acme/extra")).status).toBe(403);
+    });
+  });
+
+  test("detaching an installation revokes live jobs' tokens for its repositories", async () => {
+    git.github.install({ id: "7002", login: "beta", repositories: ["tool"] });
+    await git.github.createRepository("beta", "tool");
+    const [installation] = await api.db.db
+      .insert(githubInstallations)
+      .values({
+        projectId: stage.u.projectId,
+        installationId: "7002",
+        accountLogin: "beta",
+        accountType: "Organization",
+      })
+      .returning();
+    await api.db.db.insert(repositoryGrants).values({
+      projectId: stage.u.projectId,
+      githubInstallationId: installation.id,
+      owner: "beta",
+      name: "tool",
+      push: true,
+      botIds: null,
+    });
+    const res = await startConversation(stage, "Fix it", {
+      channelType: "web",
+    });
+    const { token } = await mintJob(stage, res.body.conversation.id, {
+      repository: {
+        host: "github.com",
+        owner: "beta",
+        name: "tool",
+        ref: null,
+        mode: "write",
+      },
+    });
+    const held = (await ask(token, "beta/tool")).body.credential.password;
+    const kept = (await ask(token, "acme/api")).body.credential.password;
+    const detach = await call(
+      stage.u.url,
+      stage.u.peach,
+      "DELETE",
+      `/project/${stage.u.projectId}/github/installation/${installation.id}`,
+    );
+    expect(detach.status).toBe(200);
+    expect(git.github.revocations).toContain(held);
+    expect(git.github.revocations).not.toContain(kept);
+    expect((await ask(token, "beta/tool")).status).toBe(403);
   });
 });
 
@@ -634,6 +850,29 @@ describe("provisioning's pure parts", () => {
         apiUrl: "http://127.0.0.1:2",
       }),
     ).toEqual(["127.0.0.1"]);
+  });
+
+  test("only a repository job is narrowed to deny-all; any other keeps the provider's default egress", () => {
+    const github = {
+      webUrl: "https://github.com",
+      apiUrl: "https://api.github.com",
+    };
+    expect(
+      sandboxEgressPolicy("https://api.hypotenuse.cloud", false, github),
+    ).toBeNull();
+    expect(
+      sandboxEgressPolicy("https://api.hypotenuse.cloud", true, github),
+    ).toEqual({
+      mode: "deny-all",
+      allowDomains: ["api.hypotenuse.cloud", "github.com", "api.github.com"],
+    });
+  });
+
+  test("a repository named like the control directory, or . or .., clones into /work/repo", () => {
+    expect(repositoryDir({ name: "api" })).toBe("/work/api");
+    for (const name of [".hypotenuse", ".Hypotenuse", ".", ".."]) {
+      expect(repositoryDir({ name })).toBe("/work/repo");
+    }
   });
 
   test("the briefing names the repository, the mode, the branch prefix, and how to report a pull request", () => {

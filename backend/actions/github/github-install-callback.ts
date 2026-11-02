@@ -15,7 +15,7 @@ import {
   type TxHandle,
 } from "../../classes/AuditedAction";
 import {
-  assertUserCanAccessInstallation,
+  assertUserAdministersInstallation,
   exchangeGitHubUserCode,
 } from "../../ops/GitHubAppOps";
 import {
@@ -37,12 +37,19 @@ import { githubInstallations } from "../../schema/github_installations";
  * and works once. It must belong to the signed-in person, who must still be
  * an admin of that project — a fresher answer than when they started. The
  * `installation_id` can be spoofed (GitHub says so), so the `code` beside it
- * is exchanged for a user token and GitHub is asked whether that user can see
- * the installation; only then is the installation read with the App's JWT and
- * attached. A spoofed id writes nothing.
+ * is exchanged for a user token, the installation is read with the App's JWT,
+ * and GitHub is asked whether that user **administers** the installation's
+ * account — an owner of the organization, or the user account itself
+ * (`assertUserAdministersInstallation`). Seeing an installation is not
+ * enough: read access to one repository would otherwise attach a whole
+ * organization. A spoofed id, or a person who is not an owner, writes nothing.
  *
  * `setup_action=request` means an organization member asked an owner to
  * install the App; nothing is installed yet, and the browser is told so.
+ * GitHub also sends people here with no `state` at all — after an owner
+ * changes the installation's repositories on GitHub (`setup_action=update`),
+ * or from a link not started in Hypotenuse — so every input is optional and a
+ * missing one is a redirect with a sentence, never a raw validation error.
  *
  * Every outcome is a redirect to the project's Repositories page: `installed`
  * names the attached row, `error` says what went wrong. A failure rolls back
@@ -56,9 +63,11 @@ export class GithubInstallCallback extends AuditedAction {
   middleware = [RateLimitMiddleware];
   web = { route: "/github/install/callback", method: HTTP_METHOD.GET };
   inputs = z.object({
-    state: secret(z.string().min(8).max(512)).describe(
-      "The install's state, from github:install-url",
-    ),
+    state: secret(z.string().max(512))
+      .optional()
+      .describe(
+        "The install's state, from github:install-url; GitHub omits it when the installation was changed on GitHub",
+      ),
     installation_id: z
       .string()
       .max(40)
@@ -69,14 +78,16 @@ export class GithubInstallCallback extends AuditedAction {
       .max(40)
       .optional()
       .describe("install, update, or request"),
-    code: secret(z.string().min(1).max(4096))
+    code: secret(z.string().max(4096))
       .optional()
       .describe("The user-authorization code GitHub sends with the install"),
   });
 
   /**
    * Run the audited attach, and turn any refusal into a redirect that says
-   * why, so a person's browser never lands on a JSON error.
+   * why, so a person's browser never lands on a JSON error. GitHub's
+   * stateless `setup_action=update` redirect is answered with a notice
+   * before any transaction opens.
    * @param params - The inputs.
    * @param connection - The browser's connection.
    * @returns A redirect to the project's Repositories page.
@@ -85,6 +96,19 @@ export class GithubInstallCallback extends AuditedAction {
     params: Record<string, unknown>,
     connection: AuditedConnection,
   ): Promise<Awaited<ReturnType<this["runWithAudit"]>>> {
+    // GitHub's own "the installation changed" redirect carries no state:
+    // nothing to attach and nothing to audit, so it never opens a transaction.
+    if (
+      !String(params.state ?? "").trim() &&
+      params.setup_action === "update"
+    ) {
+      return redirect(
+        repositoriesPageUrl(null, {
+          notice:
+            "The GitHub App installation's repositories were updated on GitHub. Grant any new ones to your bots here.",
+        }),
+      ) as Awaited<ReturnType<this["runWithAudit"]>>;
+    }
     try {
       return await super.run(params, connection);
     } catch (e) {
@@ -112,7 +136,13 @@ export class GithubInstallCallback extends AuditedAction {
     params: ActionParams<GithubInstallCallback>,
     connection: AuditedConnection,
   ) {
-    const seen = await peekGitHubInstall(params.state);
+    const state = params.state?.trim() ?? "";
+    if (!state) {
+      throw refusal(
+        "GitHub sent no install state, so there is nothing to attach. Start the install from Repositories.",
+      );
+    }
+    const seen = await peekGitHubInstall(state);
     if (!seen) throw refusal(expired());
     connection.metadata.auditProjectId = seen.projectId;
 
@@ -130,7 +160,7 @@ export class GithubInstallCallback extends AuditedAction {
         ErrorType.CONNECTION_CHANNEL_AUTHORIZATION,
       );
     }
-    const pending = await takeGitHubInstall(params.state);
+    const pending = await takeGitHubInstall(state);
     if (!pending) throw refusal(expired());
 
     const access = await resolveProjectAccess(userId, pending.projectId, tx);
@@ -157,11 +187,15 @@ export class GithubInstallCallback extends AuditedAction {
       );
     }
 
-    // The id is the query string's; the person's own GitHub token decides
-    // whether it is one they may attach.
+    // The id is the query string's; the App reads which account it is on,
+    // and the person's own GitHub token decides whether they administer it.
     const userToken = await exchangeGitHubUserCode(params.code);
-    await assertUserCanAccessInstallation(userToken, installationId);
     const live = await readAppInstallation(installationId);
+    await assertUserAdministersInstallation(userToken, installationId, {
+      login: live.accountLogin,
+      id: live.accountId,
+      type: live.accountType,
+    });
 
     const [before] = await tx
       .select()

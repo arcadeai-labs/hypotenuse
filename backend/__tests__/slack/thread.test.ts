@@ -287,6 +287,65 @@ describe("a thread", () => {
     expect(stage.slack.calls("chat.stopStream")).toHaveLength(1);
   });
 
+  // Coverage: `slack.out.link`.
+  test("a link mid-stream is its own thread message; the stream stays open, keeps appending, and the answer closes it", async () => {
+    stage.models.play([reply("Ok.")]);
+    const said = await stage.slack.say({
+      channel: CHANNEL,
+      text: "Stream and link?",
+      mention: true,
+    });
+    await settle();
+    const conversation = await conversationRow(
+      (await conversationForThread(said.ts)).id,
+    );
+    const callsBefore = stage.slack.calls("chat.startStream").length;
+    await emitStream(conversation, "Working");
+    await deliverNow(conversation.id);
+    await api.db.db.transaction((tx) =>
+      emit(tx, conversation, {
+        kind: "link",
+        payload: {
+          label: "Pull Request",
+          url: "https://github.com/acme/api/pull/7",
+          text: "Fix it",
+        },
+      }),
+    );
+    await deliverNow(conversation.id);
+    for (const text of ["Working on it", "Working on it, done"]) {
+      await emitStream(conversation, text);
+      await deliverNow(conversation.id);
+    }
+    await api.db.db.transaction((tx) =>
+      emitOutbound(tx, conversation, conversation.lastSeq, {
+        kind: "reply",
+        text: "Final.",
+      }),
+    );
+    await deliverNow(conversation.id);
+
+    const rows = await api.db.db
+      .select()
+      .from(outboxMessages)
+      .where(eq(outboxMessages.conversationId, conversation.id));
+    expect(
+      rows.filter((r) => !["sent", "superseded"].includes(r.status)),
+    ).toEqual([]);
+    expect(stage.slack.calls("chat.startStream").length - callsBefore).toBe(1);
+    expect(
+      stage.slack.calls("chat.appendStream").map((c) => c.args.markdown_text),
+    ).toEqual([" on it", ", done"]);
+    const bot = stage.slack.botMessages(CHANNEL, said.ts);
+    expect(
+      bot.filter((m) => m.stream).map((m) => [m.text, m.stream?.open]),
+    ).toEqual([["Working on it, done", false]]);
+    expect(bot.map((m) => m.text)).toContain(
+      "<https://github.com/acme/api/pull/7|Pull Request: Fix it>",
+    );
+    expect(bot.at(-1)?.text).toBe("Final.");
+  });
+
   // Coverage: `slack.out.mrkdwn`.
   test("an answer is mrkdwn, pings no channel and never the bot, and is truncated with a link past 40,000 characters", async () => {
     stage.models.play([

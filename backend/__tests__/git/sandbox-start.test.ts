@@ -8,6 +8,7 @@ import {
 } from "bun:test";
 import { eq } from "drizzle-orm";
 import { api } from "keryx";
+import { githubInstallations } from "../../schema/github_installations";
 import { sandboxJobs } from "../../schema/sandbox_jobs";
 import { READ_JOB_MAX_DURATION_MS } from "../../tools/sandbox-start";
 import {
@@ -23,9 +24,10 @@ import { buildGitStage, type GitStage } from "./repo-harness";
 
 /**
  * **`sandbox_start` with a repository**: the bot must hold a grant for it,
- * `write` mode needs a push grant, and `read` mode is the cheap profile —
- * no approval under the `approve` policy, a capped duration — while `write`
- * still parks for a person. Nothing here starts a container.
+ * `write` mode needs a push grant, the installation must not be suspended,
+ * the ref must be one git cannot read as an option, and under the `approve`
+ * policy every job parks for a person — `read` mode too, which only caps
+ * its duration. Nothing here starts a container.
  */
 let stage: AgentStage;
 let git: GitStage;
@@ -120,14 +122,29 @@ describe("sandbox_start with a repository", () => {
     expect(await latestJob(id)).toBeUndefined();
   });
 
-  test("read mode on an approve bot runs without an approval, with a capped duration", async () => {
+  test("read mode on an approve bot parks for a person too, and runs with a capped duration", async () => {
     await policy("approve");
     const id = await start({
       repository: "https://github.com/Acme/Lib.git",
       mode: "read",
       ref: "main",
     });
-    expect(await approvalsOf(id)).toEqual([]);
+    expect((await conversation(id)).waitingOn?.kind).toBe("approval");
+    const [approval] = await approvalsOf(id);
+    expect(approval).toMatchObject({ server: "sandbox", tool: "start" });
+    expect(await latestJob(id)).toBeUndefined();
+    const decided = await call(
+      stage.u.url,
+      stage.u.peach,
+      "POST",
+      `/project/${stage.u.projectId}/approval/${approval.id}`,
+      { decision: "approve" },
+    );
+    expect(decided.status).toBe(200);
+    stage.models.play([
+      { toolCalls: [{ name: "reply_and_wait", input: { text: "Started." } }] },
+    ]);
+    await runTicks();
     const job = await latestJob(id);
     expect(job?.repository).toEqual({
       host: "github.com",
@@ -137,7 +154,52 @@ describe("sandbox_start with a repository", () => {
       mode: "read",
     });
     expect(job?.maxDurationMs).toBe(READ_JOB_MAX_DURATION_MS);
-    expect((await conversation(id)).state).toBe("hibernating");
+  });
+
+  test("read mode on an allow bot runs at once", async () => {
+    await policy("allow");
+    const id = await start({ repository: "acme/lib", mode: "read" });
+    expect(await approvalsOf(id)).toEqual([]);
+    expect((await latestJob(id))?.maxDurationMs).toBe(READ_JOB_MAX_DURATION_MS);
+  });
+
+  test("a repository behind an installation suspended on GitHub is refused up front, and no approval is asked", async () => {
+    await policy("approve");
+    await api.db.db
+      .update(githubInstallations)
+      .set({ suspendedAt: new Date() })
+      .where(eq(githubInstallations.installationId, "7001"));
+    try {
+      const id = await start({ repository: "acme/api" });
+      const [result] = await resultsOf(id, "sandbox_start");
+      expect(result).toMatchObject({
+        is_error: true,
+        error_type: "repository_unavailable",
+      });
+      expect(JSON.stringify(result)).toContain("suspended on GitHub");
+      expect(await approvalsOf(id)).toEqual([]);
+      expect(await latestJob(id)).toBeUndefined();
+    } finally {
+      await api.db.db
+        .update(githubInstallations)
+        .set({ suspendedAt: null })
+        .where(eq(githubInstallations.installationId, "7001"));
+    }
+  });
+
+  test("a ref git would read as an option is refused", async () => {
+    await policy("allow");
+    const id = await start({
+      repository: "acme/api",
+      ref: "--upload-pack=touch /tmp/pwned",
+    });
+    const [result] = await resultsOf(id, "sandbox_start");
+    expect(result).toMatchObject({
+      is_error: true,
+      error_type: "invalid_input",
+    });
+    expect(JSON.stringify(result)).toContain("starts with '-'");
+    expect(await latestJob(id)).toBeUndefined();
   });
 
   test("write mode on an approve bot still parks for a person", async () => {

@@ -101,6 +101,8 @@ export function githubInstallUrl(state: string): string {
 /** An installation as the App itself reads it from GitHub. */
 export interface AppInstallation {
   accountLogin: string;
+  /** GitHub's numeric id for the account, or `null` when it did not say. */
+  accountId: number | null;
   accountType: string;
   permissions: Record<string, string>;
   suspended: boolean;
@@ -142,7 +144,7 @@ export async function readAppInstallation(
     });
   }
   const body = (await response.json()) as {
-    account?: { login?: string; type?: string };
+    account?: { login?: string; id?: number | string; type?: string };
     permissions?: Record<string, unknown>;
     suspended_at?: string | null;
   };
@@ -152,6 +154,10 @@ export async function readAppInstallation(
   }
   return {
     accountLogin: String(body.account?.login ?? "").trim() || "unknown",
+    accountId:
+      body.account?.id !== undefined && /^\d+$/.test(String(body.account.id))
+        ? Number(body.account.id)
+        : null,
     accountType: String(body.account?.type ?? "").trim() || "Account",
     permissions,
     suspended: Boolean(body.suspended_at),
