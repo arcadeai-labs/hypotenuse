@@ -10,6 +10,7 @@ import {
 import { z } from "zod";
 import { ProjectMemberMiddleware } from "../../middleware/rbac";
 import { idInput } from "../../ops/InputOps";
+import { isTerminalJobStatus } from "../../ops/SandboxJobOps";
 import { LIVE_SANDBOX_STATUSES, serializeSandbox } from "../../ops/SandboxOps";
 import { sandboxJobs } from "../../schema/sandbox_jobs";
 import { sandboxes } from "../../schema/sandboxes";
@@ -26,7 +27,7 @@ import { sandboxes } from "../../schema/sandboxes";
 export class SandboxLedgerList implements Action {
   name = "sandbox-ledger:list";
   description =
-    "List the project's sandboxes from the ledger, newest first: provider, provider-side id, status, the job each ran, and the resources it was given (vCPUs, memory, timeout, runtime or image). live=true shows only those that may still be running. Requires membership in the project. Paginated.";
+    "List the project's sandboxes from the ledger, newest first: provider, provider-side id, status, the job each ran, and the resources it was given (vCPUs, memory, timeout, runtime or image), and whether an admin may destroy it now (destroyable: live, and its job has ended). live=true shows only those that may still be running. Requires membership in the project. Paginated.";
   middleware = [ProjectMemberMiddleware()];
   web = { route: "/project/:projectId/sandboxes", method: HTTP_METHOD.GET };
   inputs = paginationInputs({ defaultLimit: 25 }).extend({
@@ -73,6 +74,11 @@ export class SandboxLedgerList implements Action {
               status: r.jobStatus,
             }
           : null,
+        // Decided here, as `sandbox-ledger:destroy` decides it: a live
+        // sandbox whose job (if any) has ended.
+        destroyable:
+          LIVE_SANDBOX_STATUSES.includes(r.sandbox.status) &&
+          (!r.jobStatus || isTerminalJobStatus(r.jobStatus)),
       })),
       pagination: result.pagination,
     };

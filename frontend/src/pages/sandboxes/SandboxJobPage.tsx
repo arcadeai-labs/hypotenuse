@@ -49,6 +49,7 @@ import {
   type SandboxJobQuestion,
   usageWords,
 } from "../../utils/sandboxJobs";
+import { resourceWords } from "../../utils/sandboxProviders";
 
 /** How often a live job's page reads it again. */
 const POLL_MS = 5000;
@@ -332,6 +333,9 @@ export function SandboxJobPage() {
 
   const { questions, messages, canWrite, gitHandouts, pullRequests } =
     read.data;
+  // The newest sandbox the job ran in: what it was given, as the ledger has it.
+  const sandbox = read.data.sandboxes[0] ?? null;
+  const resources = sandbox ? resourceWords(sandbox.resources) : null;
   const repo = jobRepository(job.repository);
   const repository = jobRepositoryWords(repo);
   const writeDenied =
@@ -442,6 +446,17 @@ export function SandboxJobPage() {
               {job.interactive ? "Interactive" : "One task"}
             </Property>
             <Property label="Runs on">{job.provider ?? "—"}</Property>
+            {resources && (
+              <Property label="Sandbox">
+                <span
+                  className="tabular"
+                  data-testid="sandbox-job-resources"
+                  title={sandbox?.externalId ?? undefined}
+                >
+                  {resources}
+                </span>
+              </Property>
+            )}
             <Property label="Tokens">
               <span
                 className="tabular"

@@ -1,5 +1,13 @@
-import { type Action, type ActionParams, api, HTTP_METHOD } from "keryx";
+import {
+  type Action,
+  type ActionParams,
+  api,
+  config,
+  HTTP_METHOD,
+} from "keryx";
 import { z } from "zod";
+// Type-only, purely for the `declare module "keryx"` augmentation inside.
+import type {} from "../../config/sandbox";
 import { describeConnectionKinds } from "../../connections/registry";
 import { ProjectMemberMiddleware } from "../../middleware/rbac";
 import { idInput } from "../../ops/InputOps";
@@ -35,6 +43,9 @@ export class ProjectSettingsView implements Action {
     return {
       settings: serializeProjectSettings(settings),
       providers: describeSandboxProviders(),
+      // What a blank provider means, so a client can describe it even after
+      // the project chose its own.
+      defaultProvider: config.sandbox.defaultProvider,
       connectionKinds: describeConnectionKinds(),
     };
   }

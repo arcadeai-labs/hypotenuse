@@ -274,6 +274,7 @@ describe("choosing the provider", () => {
     }
 
     const view = await as("GET", `${base}/settings`, {}, stage.u.luigi);
+    expect(view.body.defaultProvider).toBe(config.sandbox.defaultProvider);
     expect(
       view.body.providers.map((p: { kind: string }) => p.kind).sort(),
     ).toEqual(["docker", "vercel"]);
@@ -694,6 +695,10 @@ describeDocker("a job on Vercel", () => {
         row.id,
       );
       expect(listed.body.pagination.page).toBe(1);
+      expect(
+        listed.body.sandboxes.find((s: { id: number }) => s.id === row.id)
+          .destroyable,
+      ).toBe(true);
       expect(
         (await as("DELETE", `${base}/sandbox/${row.id}`, {}, stage.u.luigi))
           .status,

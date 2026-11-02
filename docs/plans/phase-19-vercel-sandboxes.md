@@ -175,7 +175,7 @@ By hand on staging: switch a project to Vercel with allowlist mode, run the PR r
 | The ledger: `sandboxes.resources`, `sandbox-ledger:list` and `sandbox-ledger:destroy`; the orphan sweep one account at a time | `backend/actions/sandbox-ledger/*`, `backend/ops/{SandboxOps,SandboxReapOps}.ts` |
 | Proof: the conformance suite (`conformance.ts`), run by `docker.conformance.test.ts`, `vercel-fake.conformance.test.ts`, and `vercel.conformance.test.ts` (real account, nightly); `vercel.test.ts` (connections, settings, the egress table, a bot that requires an allowlist, the production guard, scrubbing, the ledger, a whole job on Vercel); the Vercel fake | `backend/__tests__/sandbox/*`, `backend/__tests__/fakes/vercel/server.ts`, `.github/workflows/nightly-vercel-sandbox.yml` |
 | Deployment: `SANDBOX_DEFAULT_PROVIDER=vercel` and `SANDBOX_MANAGED_TAG=hypotenuse-staging` in the shared group | `render.yaml`, `docs/DEPLOY.md` |
-| Frontend, CLI, docs | FRONTEND_CLI_PLACEHOLDER |
+| Frontend, CLI 2.14.0, docs | Settings → Sandboxes: the provider picker built from `providers` (one not allowed here disabled), each provider's options, the egress mode, the connection card (Test, replace, delete; never the token), and the ledger card with Destroy where the server says `destroyable`; the bot's **Require an egress allowlist** switch; the job page's sandbox resources (`frontend/src/components/{settings,sandboxes,bots}/*`, `frontend/src/utils/sandboxProviders.ts`). `hypotenuse connection …`, `sandbox ledger` / `sandbox destroy`, `project settings --sandbox-runtime --sandbox-vcpus --sandbox-egress`, `bot edit --require-egress-allowlist`. `sandboxes.md` (Vercel, egress, the sandboxes themselves), `cli.md`, and `docs/platform-coverage/vercel.md` |
 
 ### Where the build differs from the plan
 
@@ -202,6 +202,8 @@ By hand on staging: switch a project to Vercel with allowlist mode, run the PR r
   ledger does not know, and two deployments sharing a Vercel project would each see the other's sandboxes as orphans.
   Within one deployment the sweep also filters on the connection's project tag, since two projects may share a Vercel
   project.
+- **The server decides what a client draws**: `project:settings-view` answers `defaultProvider`, so a blank provider is
+  described even after the project chose its own, and each ledger row answers `destroyable`.
 - **A ledgered sandbox whose job is still live cannot be destroyed from the ledger**: cancelling the job is how it ends,
   with the conversation told.
 - **The GitHub CLI release is pinned in one place per path** — `GITHUB_CLI_VERSION` for the install script and `ARG

@@ -95,12 +95,23 @@ describe("usage and time in words", () => {
 });
 
 describe("the project's sandbox settings", () => {
-  const blank = { provider: "", image: "", concurrency: "", maxMinutes: "" };
+  const blank = {
+    provider: "",
+    image: "",
+    runtime: "",
+    vcpus: "",
+    egressMode: "",
+    concurrency: "",
+    maxMinutes: "",
+  };
 
   test("blank fields return to the deployment's defaults", () => {
     expect(parseSandboxSettings(blank)).toEqual({
       sandboxProvider: null,
       sandboxImage: null,
+      sandboxRuntime: null,
+      sandboxVcpus: null,
+      sandboxEgressMode: null,
       sandboxConcurrency: null,
       sandboxMaxDurationMs: null,
     });
@@ -109,6 +120,7 @@ describe("the project's sandbox settings", () => {
   test("filled fields are what project:settings-edit takes", () => {
     expect(
       parseSandboxSettings({
+        ...blank,
         provider: "docker",
         image: " ghcr.io/acme/agent:1.2 ",
         concurrency: "3",
@@ -117,6 +129,9 @@ describe("the project's sandbox settings", () => {
     ).toEqual({
       sandboxProvider: "docker",
       sandboxImage: "ghcr.io/acme/agent:1.2",
+      sandboxRuntime: null,
+      sandboxVcpus: null,
+      sandboxEgressMode: null,
       sandboxConcurrency: 3,
       sandboxMaxDurationMs: 45 * 60_000,
     });
@@ -146,6 +161,7 @@ describe("the project's sandbox settings", () => {
       sandboxMaxDurationMs: 20 * 60_000,
     });
     expect(draft).toEqual({
+      ...blank,
       provider: "docker",
       image: "node:22",
       concurrency: "4",
@@ -158,7 +174,74 @@ describe("the project's sandbox settings", () => {
         sandboxConcurrency: null,
         sandboxMaxDurationMs: null,
       }),
-    ).toEqual({ provider: "", image: "", concurrency: "", maxMinutes: "" });
+    ).toEqual(blank);
+  });
+
+  test("a provider's options are sent only to a provider that takes them", () => {
+    const vercel = {
+      capabilities: { domainEgressAllowlist: true },
+      options: {
+        image: false,
+        runtimes: { values: ["node24", "node22"], default: "node24" },
+        vcpus: { min: 1, max: 8 },
+      },
+    };
+    const docker = {
+      capabilities: { domainEgressAllowlist: false },
+      options: { image: true, runtimes: null, vcpus: null },
+    };
+    const draft = {
+      ...blank,
+      provider: "vercel",
+      image: "node:22",
+      runtime: "node22",
+      vcpus: "4",
+      egressMode: "allowlist",
+    };
+    expect(parseSandboxSettings(draft, vercel)).toMatchObject({
+      sandboxImage: null,
+      sandboxRuntime: "node22",
+      sandboxVcpus: 4,
+      sandboxEgressMode: "allowlist",
+    });
+    // Docker takes an image, not a runtime or a size, and cannot hold an
+    // allowlist: what an earlier provider left is cleared.
+    expect(
+      parseSandboxSettings({ ...draft, provider: "docker" }, docker),
+    ).toMatchObject({
+      sandboxImage: "node:22",
+      sandboxRuntime: null,
+      sandboxVcpus: null,
+      sandboxEgressMode: null,
+    });
+    for (const vcpus of ["0", "9", "2.5"]) {
+      expect(parseSandboxSettings({ ...draft, vcpus }, vercel)).toBeTypeOf(
+        "string",
+      );
+    }
+    expect(
+      parseSandboxSettings({ ...draft, runtime: "ruby3" }, vercel),
+    ).toBeTypeOf("string");
+    expect(parseSandboxSettings({ ...blank, egressMode: "closed" })).toBeTypeOf(
+      "string",
+    );
+  });
+
+  test("the saved config fills the provider's fields", () => {
+    expect(
+      sandboxDraftOf({
+        sandboxProvider: "vercel",
+        sandboxConfig: { runtime: "node22", vcpus: 2, egressMode: "allowlist" },
+        sandboxConcurrency: null,
+        sandboxMaxDurationMs: null,
+      }),
+    ).toEqual({
+      ...blank,
+      provider: "vercel",
+      runtime: "node22",
+      vcpus: "2",
+      egressMode: "allowlist",
+    });
   });
 
   test("is a project settings section", () => {

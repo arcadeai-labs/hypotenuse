@@ -221,7 +221,8 @@ the bot tells you why. Any writer of the bot may turn it on; turning it off take
 ## The sandboxes themselves
 
 Every sandbox Hypotenuse asks a provider for is written down before it is created — its provider, the job it ran,
-what it was given — and stamped when it is destroyed. The **Sandboxes** page lists the ones that may still be running.
+what it was given — and stamped when it is destroyed. **Settings → Sandboxes** lists the ones that may still be running (or, with
+**Show destroyed and failed sandboxes too**, every one).
 A job's sandbox ends with the job; one that is left over (a failed start, a deploy at the wrong moment) is collected
 by a sweep within the hour, and an admin can destroy it sooner from that list. A sandbox whose job is still running
 is the job's: cancel the job instead.
