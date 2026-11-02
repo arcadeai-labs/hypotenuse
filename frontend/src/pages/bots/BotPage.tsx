@@ -2,33 +2,23 @@ import type { BotView } from "@backend/actions/bot/bot-view";
 import type { ActionResponse } from "keryx";
 import { Brain, FileText, MessageCircle, MessagesSquare } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
-import { AccessSection } from "../../components/bots/AccessSection";
-import { ApprovalSettingsSection } from "../../components/bots/ApprovalSettingsSection";
-import { BudgetSection } from "../../components/bots/BudgetSection";
-import { CallbackSecretSection } from "../../components/bots/CallbackSecretSection";
-import { ChannelsSection } from "../../components/bots/ChannelsSection";
-import { CodeSection } from "../../components/bots/CodeSection";
+import { Link, Outlet, useNavigate, useParams } from "react-router-dom";
 import {
   type Bot,
   type BotStanding,
   useAccessTags,
   useModelAliases,
 } from "../../components/bots/data";
-import { GoalsSection } from "../../components/bots/GoalsSection";
-import { IdentitySection } from "../../components/bots/IdentitySection";
-import { ListeningSection } from "../../components/bots/ListeningSection";
-import { MemorySection } from "../../components/bots/MemorySection";
 import { MissingAliasesBanner } from "../../components/bots/MissingAliasesBanner";
-import { ModelSection } from "../../components/bots/ModelSection";
-import { PromptSettingsSection } from "../../components/bots/PromptSettingsSection";
-import { SandboxSection } from "../../components/bots/SandboxSection";
-import { SkillsSection } from "../../components/bots/SkillsSection";
-import { ToolsSection } from "../../components/bots/ToolsSection";
+import {
+  BOT_SECTIONS,
+  type BotSectionContext,
+} from "../../components/bots/sections";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { GatedButton } from "../../components/GatedButton";
 import { LoadingLabel } from "../../components/LoadingLabel";
 import { DetailLayout } from "../../components/layouts/DetailLayout";
+import { SectionNav } from "../../components/sections/SectionNav";
 import { useAuth } from "../../context/AuthContext";
 import { useMay } from "../../hooks/useMay";
 import {
@@ -51,14 +41,11 @@ type Loaded =
   | { state: "loaded"; bot: Bot; standing: BotStanding };
 
 /**
- * `/bots/:botId` — one bot: who it is, which models it uses, who may read
- * and change it, its budget, the size of its prompt, its goals, its skills,
- * how fast its memory fades, its MCP servers and what runs without asking,
- * who decides what waits, where it listens on platforms and how much it
- * takes there, each section saving on its own; then the parts of a bot this
- * page does not configure yet, disabled. The properties panel says the same
- * at a glance, and the header opens its chat and links to its prompt, its
- * conversations, and its memory.
+ * `/bots/:botId/*` — one bot: a sidebar of its settings, grouped and
+ * deep-linked (`BOT_SECTIONS`), each section a page of cards that save on
+ * their own; the properties panel saying the same at a glance; and a header
+ * that opens its chat and links to its prompt, its conversations, and its
+ * memory.
  *
  * Every control is gated twice, both by the server's word: `can()` on the
  * action, and the bot's own write list, which `bot:view` answers as
@@ -166,11 +153,15 @@ export function BotPage() {
     }
   }
 
-  const sectionProps = {
+  const sectionContext: BotSectionContext = {
     projectId: activeProjectId,
     bot,
-    denied: editDenied,
+    standing,
+    editDenied,
+    reason,
     onSaved,
+    aliases: aliases.data,
+    tags,
   };
 
   return (
@@ -332,44 +323,22 @@ export function BotPage() {
               {editDenied}
             </Alert>
           )}
-          <IdentitySection {...sectionProps} />
-          <ModelSection {...sectionProps} aliases={aliases.data} />
-          <AccessSection {...sectionProps} tags={tags} />
-          <BudgetSection {...sectionProps} />
-          <PromptSettingsSection {...sectionProps} />
-          <GoalsSection
-            projectId={activeProjectId}
-            bot={bot}
-            denied={botWriteDenied(reason("goal:create"), standing)}
-          />
-          <SkillsSection
-            projectId={activeProjectId}
-            bot={bot}
-            denied={botWriteDenied(reason("bot-skill:attach"), standing)}
-          />
-          <MemorySection {...sectionProps} />
-          <ToolsSection
-            projectId={activeProjectId}
-            bot={bot}
-            denied={botWriteDenied(reason("bot-mcp-server:set"), standing)}
-          />
-          <CodeSection {...sectionProps} />
-          <SandboxSection {...sectionProps} />
-          <ApprovalSettingsSection {...sectionProps} tags={tags} />
-          <ChannelsSection
-            projectId={activeProjectId}
-            bot={bot}
-            denied={botWriteDenied(reason("channel-binding:create"), standing)}
-            settingsDenied={reason("pylon:settings-edit")}
-          />
-          <ListeningSection {...sectionProps} />
-          <CallbackSecretSection
-            {...sectionProps}
-            denied={botWriteDenied(
-              reason("bot:rotate-callback-secret"),
-              standing,
-            )}
-          />
+          <div className="page-sections">
+            <aside className="page-sections-nav">
+              <SectionNav
+                testId="bot-section-nav"
+                items={BOT_SECTIONS.map((section) => ({
+                  slug: section.slug,
+                  label: section.label,
+                  group: section.group,
+                  to: `/bots/${bot.id}/${section.slug}`,
+                }))}
+              />
+            </aside>
+            <div className="page-sections-body">
+              <Outlet context={sectionContext} />
+            </div>
+          </div>
         </div>
       </DetailLayout>
       <ConfirmDialog

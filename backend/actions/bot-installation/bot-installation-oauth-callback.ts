@@ -170,8 +170,10 @@ export class BotInstallationOauthCallback extends AuditedAction {
       installed: !failure,
       ...(failure ? { error: failure.slice(0, 300) } : {}),
     };
+    // The Channels section of the bot's page, where the Slack and Linear
+    // cards read `installed` / `installError` and say how the install went.
     const target = new URL(
-      `${config.frontend.url.replace(/\/+$/, "")}/bots/${existing.botId}`,
+      `${config.frontend.url.replace(/\/+$/, "")}/bots/${existing.botId}/channels`,
     );
     target.searchParams.set("installation", String(row.id));
     if (failure) target.searchParams.set("installError", failure.slice(0, 300));

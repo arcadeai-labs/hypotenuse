@@ -223,7 +223,7 @@ test("a bot's memory half-lives are set on its page", async ({ page }) => {
     `/project/${admin.project.id}/bot`,
     { name: "Fading", persona: "You are Fading." },
   );
-  await page.goto(`/bots/${bot.id}`);
+  await page.goto(`/bots/${bot.id}/retention`);
   await expect(page.getByTestId("bot-memory-channel")).toHaveValue(
     "30",
     LANDED,

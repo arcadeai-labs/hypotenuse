@@ -59,8 +59,8 @@ Within each group, sections keep the order they were added in. The Prompt page n
 
 ## The budget
 
-Each bot has a **prompt budget** in tokens — 8,000 unless you change it under **Prompt** on its page, anywhere from
-1,000 to 200,000. A token is about four characters.
+Each bot has a **prompt budget** in tokens — 8,000 unless you change it under **Model & budget → Prompt** on its
+page, anywhere from 1,000 to 200,000. A token is about four characters.
 
 - When matched contextual sections would push the prompt over its budget, the last of them are left out until it
   fits, and the transcript says which were dropped.

@@ -246,7 +246,9 @@ describe("creating and installing the app", () => {
     const first = await fetch(`${stage.u.url}${back.pathname}${back.search}`, {
       redirect: "manual",
     });
-    expect(first.headers.get("location")).toContain("installed=slack");
+    const landing = new URL(first.headers.get("location") ?? "");
+    expect(landing.pathname).toMatch(/^\/bots\/\d+\/channels$/);
+    expect(landing.searchParams.get("installed")).toBe("slack");
     const again = await fetch(`${stage.u.url}${back.pathname}${back.search}`, {
       redirect: "manual",
     });

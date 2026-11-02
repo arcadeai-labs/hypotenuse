@@ -54,8 +54,8 @@ export interface SectionNavProps {
 }
 
 /**
- * A sidebar of sections, for any area split into deep-linked sections (today,
- * project settings).
+ * A sidebar of sections, for any area split into deep-linked sections (project
+ * settings, and a bot's page).
  *
  * `Nav.Link as={NavLink}` rather than a comparison in JSX, so `.active` comes from
  * the router and cannot disagree with the URL. Deliberately **not**

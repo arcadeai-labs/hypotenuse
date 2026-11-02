@@ -24,6 +24,7 @@ import { ApprovalPage } from "./pages/approvals/ApprovalPage";
 import { ApprovalsPage } from "./pages/approvals/ApprovalsPage";
 import { BotPage } from "./pages/bots/BotPage";
 import { BotPromptPage } from "./pages/bots/BotPromptPage";
+import { BotIndexRedirect, BotSectionPage } from "./pages/bots/BotSectionPage";
 import { BotsPage } from "./pages/bots/BotsPage";
 import { ChatIndexPage } from "./pages/bots/ChatIndexPage";
 import { ChatPage } from "./pages/bots/ChatPage";
@@ -125,7 +126,10 @@ export function App() {
                   <Route path="/chat" element={<ChatIndexPage />} />
                   <Route path="/bots" element={<BotsPage />} />
                   <Route path="/bots/new" element={<NewBotPage />} />
-                  <Route path="/bots/:botId" element={<BotPage />} />
+                  <Route path="/bots/:botId" element={<BotPage />}>
+                    <Route index element={<BotIndexRedirect />} />
+                    <Route path=":section" element={<BotSectionPage />} />
+                  </Route>
                   <Route
                     path="/bots/:botId/prompt"
                     element={<BotPromptPage />}

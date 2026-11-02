@@ -48,7 +48,7 @@ read-only tools still ask for approval unless a bot's settings say otherwise.
 
 ## Giving a server to a bot
 
-A server does nothing until a bot is given it, on the bot's page under **Tools** — see
+A server does nothing until a bot is given it, on the bot's page under **Tools & code** — see
 [Bots](/docs/bots#tools). Anyone who may change the bot can give it servers and decide which of their tools run
 without asking.
 

@@ -40,7 +40,8 @@ test("a member makes a bot, gives it an avatar and a persona; restricting who ma
   await page.getByTestId("new-bot-description").fill("Answers castle mail");
   await page.getByTestId("new-bot-persona").fill("You are Kit.");
   await page.getByTestId("new-bot-submit").click();
-  await expect(page).toHaveURL(/\/bots\/\d+$/, LANDED);
+  // A bot opens on its General section, one of several in its sidebar.
+  await expect(page).toHaveURL(/\/bots\/\d+\/general$/, LANDED);
   const botPath = new URL(page.url()).pathname;
   await expect(page.getByTestId("bot-title")).toHaveText("Kit");
   // A bot is always visibly a bot.
@@ -48,9 +49,12 @@ test("a member makes a bot, gives it an avatar and a persona; restricting who ma
     page.locator(".ui-bot-badge[data-bot='Kit']").first(),
   ).toBeVisible();
   // Sandbox jobs wait for a person's approval by default.
+  await page.getByTestId("section-tools").click();
+  await expect(page).toHaveURL(/\/bots\/\d+\/tools$/);
   await expect(page.getByTestId("bot-sandbox-policy")).toHaveValue("approve");
   // Code mode is configured here, and on by default.
   await expect(page.getByTestId("bot-code-enabled")).toBeChecked();
+  await page.getByTestId("section-general").click();
 
   // Upload an avatar: it goes up at once and is drawn from the API.
   await page.getByTestId("bot-avatar-file").setInputFiles({
@@ -158,7 +162,7 @@ test("a writer sets the steps per turn and creates a callback secret that is sho
     `/project/${admin.project.id}/bot`,
     { name: "Penny", persona: "You are Penny." },
   );
-  await page.goto(`/bots/${bot.id}`);
+  await page.goto(`/bots/${bot.id}/model`);
 
   // Steps per turn starts at the default and saves.
   const steps = page.getByTestId("bot-max-steps");
@@ -170,6 +174,7 @@ test("a writer sets the steps per turn and creates a callback secret that is sho
   await expect(page.getByTestId("bot-max-steps")).toHaveValue("12", LANDED);
 
   // The secret is created and shown once, with a copy button.
+  await page.getByTestId("section-callback").click();
   await expect(page.getByTestId("bot-callback-status")).toHaveText(
     "No secret yet",
   );
