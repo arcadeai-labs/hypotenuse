@@ -40,6 +40,7 @@ import { registerPromptCommands } from "./commands/prompt";
 import { registerPylonCommands } from "./commands/pylon";
 import { registerRepoCommands } from "./commands/repo";
 import { registerSandboxCommands } from "./commands/sandbox";
+import { registerScheduleCommands } from "./commands/schedule";
 import { registerSkillCommands } from "./commands/skill";
 import { registerSlackCommands } from "./commands/slack";
 import { registerTagCommands } from "./commands/tag";
@@ -94,6 +95,7 @@ export function buildProgram(): Command {
   registerMcpServerCommands(program);
   registerPromptCommands(program);
   registerGoalCommands(program);
+  registerScheduleCommands(program);
   registerSkillCommands(program);
   registerInstallationCommands(program);
   registerSlackCommands(program);

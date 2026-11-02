@@ -76,6 +76,7 @@ import {
   loadPromptInputs,
   type SectionRef,
 } from "./PromptOps";
+import { settleScheduledTurn } from "./ScheduleRunOps";
 import { expandInvocation } from "./SkillOps";
 import {
   emitApprovals,
@@ -1562,15 +1563,28 @@ async function applyTransition(
         .where(eq(conversations.id, conversation.id));
       return "continue";
     }
+    // A question to people ends a scheduled turn's part: it was posted.
+    if (kind === "answer") {
+      await settleScheduledTurn(tx, conversation.id, "posted");
+    }
     await park(tx, state, conversation, transition.waitingOn);
     return "released";
   }
 
   const outcome = transition.to === "ended" ? transition.outcome : undefined;
+  await settleScheduledTurn(
+    tx,
+    conversation.id,
+    outcome === "failed" ? "failed" : transition.outbound ? "posted" : "silent",
+    transition.outbound?.text,
+  );
   await appendEntries(tx, conversation.id, conversation.epoch, [
-    statusChange("working", transition.to, transition.outbound.kind, {
-      outcome,
-    }),
+    statusChange(
+      "working",
+      transition.to,
+      transition.outbound?.kind ?? "silent",
+      { outcome },
+    ),
   ]);
   if (pending) {
     await startNextTurn(tx, conversation, transition.to);
@@ -1728,6 +1742,7 @@ async function failTurn(
     }),
   ]);
   const entry = written[written.length - 1];
+  await settleScheduledTurn(tx, conversation.id, "failed", reason);
   await post(tx, state, conversation, entry.seq, {
     kind: "error",
     text: reason,

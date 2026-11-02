@@ -47,8 +47,8 @@
  *
  * The prompt, goal, and skill illustrations read what {@link seedPrompt}
  * writes over the API — two people's edits to Ada's *How I work*, a
- * contextual section, two sections every bot includes, three goals, and two
- * skills, one edited — plus a seeded conversation in which Ada adds to her
+ * contextual section, two sections every bot includes, three goals, two
+ * schedules, and two skills, one edited — plus a seeded conversation in which Ada adds to her
  * own *Things I have learned* with `prompt_edit`, so her history has an edit
  * marked as the bot's.
  *
@@ -160,6 +160,14 @@ const ILLUSTRATIONS: Illustration[] = [
     selector: "[data-testid=bot-bot-goals]",
     width: 1280,
     height: 2000,
+    signedIn: true,
+  },
+  {
+    name: "bot-schedules",
+    path: ({ botId }) => `/bots/${botId}/schedules`,
+    selector: "[data-testid=bot-bot-schedules]",
+    width: 1280,
+    height: 2200,
     signedIn: true,
   },
   {
@@ -1691,6 +1699,27 @@ const GOALS = [
   },
 ];
 
+/** Ada's schedules: one armed with a guard, and a weekly goal review left disabled. */
+const SCHEDULES = [
+  {
+    name: "Morning billing check",
+    cron: "0 9 * * 1-5",
+    timeZone: "Europe/London",
+    targetType: "none",
+    instruction:
+      "Look for billing questions that have waited more than a day, and say which.",
+    guard: "only if a billing question has waited more than a day",
+  },
+  {
+    name: "Weekly goal review",
+    kind: "goal-review",
+    cron: "0 17 * * 5",
+    timeZone: "Europe/London",
+    targetType: "none",
+    enabled: false,
+  },
+];
+
 /** The Support project's skills; each later body is a new version. */
 const SKILLS = [
   {
@@ -1727,7 +1756,7 @@ const SKILLS = [
  * show, each made only when missing: two versions of Ada's *How I work* by
  * a person (her *Things I have learned* is written by Ada herself, in a
  * seeded conversation), a contextual section of hers, two sections every bot
- * includes, her goals, and two skills — one edited, so it has two versions —
+ * includes, her goals and schedules, and two skills — one edited, so it has two versions —
  * attached to her, one pinned to its first version.
  * @param request - The browser context's request client.
  * @param projectId - The Support project.
@@ -1793,6 +1822,22 @@ async function seedPrompt(
       position: i,
     });
     if (created.error) throw new Error(`goal: ${created.error.message}`);
+  }
+
+  const { schedules } = await call<{ schedules: { name: string }[] }>(
+    request,
+    "GET",
+    `${base}/bot/${botId}/schedules?limit=100`,
+  );
+  for (const plan of SCHEDULES) {
+    if (schedules.some((s) => s.name === plan.name)) continue;
+    const created = await call(
+      request,
+      "PUT",
+      `${base}/bot/${botId}/schedule`,
+      plan,
+    );
+    if (created.error) throw new Error(`schedule: ${created.error.message}`);
   }
 
   const { skills } = await call<{

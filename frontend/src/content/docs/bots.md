@@ -30,6 +30,7 @@ it.
 | | **Prompt** | its prompt budget in tokens, how many sections it may add to its own prompt, and a link to its [prompt](/docs/prompts) |
 | | **Budget** | a monthly ceiling in US dollars, and the most model steps one turn may take |
 | **Goals** | **Goals** | what it works toward — see [Goals](/docs/goals) |
+| **Schedules** | **Schedules** | when it works without being asked, and what each slot did — see [Schedules](/docs/schedules) |
 | **Skills** | **Skills** | which of the project's [skills](/docs/skills) it may use, and which version of each |
 | **Memory** | **Memory** | how fast memories fade in its searches, and a link to the memory explorer |
 | **Tools & code** | **Tools** | which MCP servers it may use, which of their tools run without asking, and what its tools can do |
@@ -114,6 +115,9 @@ always load over it is refused. **Sections it may add** caps how many sections t
 ## Goals and skills
 
 **Goals** lists what the bot works toward; active goals are in its prompt. See [Goals](/docs/goals).
+
+**Schedules** wakes the bot on a cron schedule, with an instruction and its goals, to work without being asked. A
+bot may propose a schedule for itself, but only a person enables it. See [Schedules](/docs/schedules).
 
 **Skills** attaches procedures from the project's library. The bot follows each skill's latest version unless you
 pin one. See [Skills](/docs/skills).

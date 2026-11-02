@@ -24,6 +24,7 @@ import type { Tag } from "../schema/tags";
 import { canReadBot } from "./BotOps";
 import { abandonCodeRuns } from "./CodeRunOps";
 import type { DbHandle } from "./DbOps";
+import { settleScheduledTurn } from "./ScheduleRunOps";
 import { appendEntries, type EntryDraft } from "./TranscriptOps";
 
 /**
@@ -251,6 +252,7 @@ export type WakeReason =
   | "help"
   | "sandbox"
   | "github"
+  | "schedule"
   | "cancel"
   | "created";
 
@@ -388,6 +390,7 @@ export interface InboundResult {
  *   non-blocking question): it waits for the next turn. A person's message
  *   wakes a conversation waiting on a sandbox job — the bot may check on
  *   the job, steer it, or answer — while one waiting on help keeps it.
+ *   `wakeReason` names the wake on its `status_change` entry (`schedule`).
  * @returns What happened.
  */
 export async function receiveMessage(
@@ -403,6 +406,7 @@ export async function receiveMessage(
     metadata?: Record<string, unknown>;
     answers?: boolean;
     quiet?: boolean;
+    wakeReason?: WakeReason;
   },
 ): Promise<InboundResult> {
   const deliveryKey = message.deliveryKey ?? randomUUID();
@@ -462,7 +466,7 @@ export async function receiveMessage(
     conversation,
     conversation.state === "waiting" && waitingOn?.kind === "answer"
       ? "answer"
-      : "message",
+      : (message.wakeReason ?? "message"),
   );
   return { conversation: woken, inbox: inserted, duplicate: false, woke: true };
 }
@@ -535,6 +539,8 @@ export async function finalizeCancel(
   ]);
   // A paused program can no longer resume.
   await abandonCodeRuns(tx, conversation.id);
+  // A schedule that woke it is answered: the turn will not finish.
+  await settleScheduledTurn(tx, conversation.id, "cancelled");
   // The sandbox jobs it started stop too: each supervisor stops its CLI at
   // its next heartbeat, and the reaper ends a job nobody acknowledges.
   await tx

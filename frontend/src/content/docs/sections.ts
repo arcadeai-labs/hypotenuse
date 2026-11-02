@@ -24,6 +24,7 @@ import prompts from "./prompts.md?raw";
 import pylon from "./pylon.md?raw";
 import repositories from "./repositories.md?raw";
 import sandboxes from "./sandboxes.md?raw";
+import schedules from "./schedules.md?raw";
 import skills from "./skills.md?raw";
 import slack from "./slack.md?raw";
 import styleGuide from "./style-guide.md?raw";
@@ -61,6 +62,7 @@ export const DOCS_SECTIONS: DocsSection[] = [
   { slug: "chat", title: "Chat", markdown: chat },
   { slug: "prompts", title: "Prompts", markdown: prompts },
   { slug: "goals", title: "Goals", markdown: goals },
+  { slug: "schedules", title: "Schedules", markdown: schedules },
   { slug: "skills", title: "Skills", markdown: skills },
   { slug: "memory", title: "Memory", markdown: memory },
   { slug: "mcp-servers", title: "MCP servers", markdown: mcpServers },

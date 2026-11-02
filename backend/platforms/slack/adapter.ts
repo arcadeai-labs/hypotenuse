@@ -5,6 +5,7 @@ import { z } from "zod";
 // Type-only, purely for the `declare module "keryx"` augmentation inside.
 import type {} from "../../config/frontend";
 import type {} from "../../config/platforms";
+import { isPendingThreadKey } from "../../ops/ScheduleRunOps";
 import {
   buildSlackManifest,
   SLACK_BOT_SCOPES,
@@ -676,10 +677,27 @@ export const slackAdapter: PlatformAdapter = {
       channelExternalId?: string;
       conversationKey?: string | null;
     };
+    // A scheduled conversation's key is a placeholder until its first final
+    // message posts at the top of the channel and opens the thread; the
+    // conversation, read at send, holds the thread once it is open.
+    let threadTs =
+      t.conversationKey ?? ctx.conversation.externalConversationKey;
+    if (isPendingThreadKey(threadTs)) {
+      threadTs = isPendingThreadKey(ctx.conversation.externalConversationKey)
+        ? null
+        : ctx.conversation.externalConversationKey;
+    }
+    const opensThread =
+      threadTs === null &&
+      isPendingThreadKey(ctx.conversation.externalConversationKey);
     const target: SlackTarget = {
       channel: String(t.channelExternalId ?? ""),
-      threadTs: t.conversationKey ?? ctx.conversation.externalConversationKey,
+      threadTs,
     };
+    // Progress has nowhere to go before the thread exists.
+    if (opensThread && ["status", "stream", "plan"].includes(row.kind)) {
+      return { outcome: "sent" };
+    }
     try {
       let externalMessageId: string | null = null;
       switch (row.kind) {
@@ -711,7 +729,13 @@ export const slackAdapter: PlatformAdapter = {
         default:
           externalMessageId = await sendFinal(row, target, token, inst);
       }
-      return { outcome: "sent", externalMessageId };
+      return {
+        outcome: "sent",
+        externalMessageId,
+        ...(opensThread && externalMessageId
+          ? { openedThread: externalMessageId }
+          : {}),
+      };
     } catch (e) {
       if (e instanceof SlackApiError) {
         if (e.retryable) {

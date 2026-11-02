@@ -19,6 +19,7 @@ import { configProcess } from "./process";
 import { configRateLimit } from "./rateLimit";
 import { configRedis } from "./redis";
 import { configSandbox } from "./sandbox";
+import { configSchedules } from "./schedules";
 import { configSecrets } from "./secrets";
 import { configServerCli } from "./server/cli";
 import { configServerMcp } from "./server/mcp";
@@ -52,6 +53,7 @@ export default {
   platforms: configPlatforms,
   sandbox: configSandbox,
   github: configGithub,
+  schedules: configSchedules,
 };
 
 /**

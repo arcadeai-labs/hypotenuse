@@ -216,6 +216,15 @@ provider-conformance suite run by Docker and by Vercel against an in-process Ver
 nightly against a real account (`nightly-vercel-sandbox.yml`); the Sandboxes settings, ledger view, bot toggle, and job
 resources; `hypotenuse connection`, the ledger commands, and the new settings flags; and the Vercel section of
 `sandboxes.md`.
+**[Phase 20](./phase-20-schedules.md) is built**: `schedules` (cron in an IANA zone through croner, an instruction,
+an optional guard, a `channel`, `conversation`, or `none` target, `catchUp`, at most ten per bot and five minutes
+between slots) and `schedule_runs`, unique per `(scheduleId, slot)`; the `schedules:due` clock claiming with `SKIP
+LOCKED` and the per-run `schedule-run:fire`, which checks the target is still engaged, asks the guard once on the
+`fast` model, and wakes the target with a `schedule` inbox row; runs settled by the turn that reads them — `silent`
+(`complete({ silent: true })`, only in a scheduled turn), `posted`, `failed`, or `skipped`; a Slack channel slot
+opening its thread with its first top-level message; `goal-review` schedules; `schedule_list` and
+`schedule_propose` (disabled until a person enables it); `schedule:*` with `run-now` and `preview`; the bot's
+Schedules section; `hypotenuse schedule`; and `schedules.md`.
 
 ### Decisions so far
 
@@ -247,4 +256,5 @@ resources; `hypotenuse connection`, the ledger commands, and the new settings fl
 | Memory scopes | Channel memory is per channel, shared by every bot working there, and read or changed by whoever may read or change any of those bots; project memory is shared by the project. A bot never changes project memory: a person promotes into it (channel write + admin), audited |
 | Memory embeddings | The project's own `embedding` alias (1536 dimensions, probed when saved); without one, search is keyword-only. Vectors never block a turn |
 | Prompts | Assembled from versioned sections in a fixed order, without a model; contextual sections by deterministic keyword match within a token budget; a bot edits only sections a person marked editable, and its persona is its *Identity* section |
+| Schedules | Cron decides when (five fields in an IANA zone, at least 5 minutes apart, at most ten per bot), a guard on the `fast` model decides whether (once per slot), the bot decides whether to speak (a scheduled turn may end silent); one run per `(schedule, slot)`, never a burst; a bot proposes, a person arms |
 | Customer-facing text | On a support platform (Pylon) the default audience is the team: everything a bot writes is an internal note, a customer reply is one tool under a per-bot policy (`never` by default) only a project admin sets, and a customer is `untrusted` — never deciding an approval or answering the team |

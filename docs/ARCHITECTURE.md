@@ -27,7 +27,7 @@ flowchart TB
     TL["tools: memory_* · mcp_* · run_code · skills ·<br/>ask_question · escalate_to_human · sandbox_*"]
     EN[("conversation_entries<br/>(every message, intent, result)")]
     OB["outbox_messages → outbox:deliver-due"]
-    CL["clocks: agents:reap · agents:wake-due ·<br/>memory:decay · schedules · sandbox sweeps"]
+    CL["clocks: agents:reap · agents:wake-due ·<br/>memory:decay · schedules:due · sandbox sweeps"]
   end
 
   subgraph Shared["Project-shared"]
@@ -73,7 +73,7 @@ Organization ─── members (owners, members) · audit_logs (its own rows and
         │       goals · model and fast-model alias names · accessRead / accessWrite tags · helpNotifyTag · budgets
         ├── bot_installations    one per platform the bot is installed on
         ├── bot_skills · bot_mcp_servers (with tool allowlists)
-        ├── schedules
+        ├── schedules · schedule_runs   cron slots that wake it; one run per slot
         └── channel_bindings ──► Channel ─── memory (channel scope, faster decay)
                                  └── Conversation ─── conversation_inbox · conversation_entries ·
                                                       approvals · help_requests · sandbox_jobs · cost_records
@@ -224,6 +224,28 @@ MCP capabilities, the channel, fixed tool primers, and style rules — without c
   `$ARGUMENTS`, `$<name>`), access-listed like bots, attached per bot at the latest or a pinned version. The bot calls
   `skill_list` / `use_skill`; a person's message starting `/<name> args…` is expanded at delivery.
 
+## Schedules
+
+Built ([phase 20](./plans/phase-20-schedules.md)). A bot acts without being asked on a cron schedule
+(`schedules`: five fields in an IANA zone, an instruction, an optional guard, a target). **Cron decides when; a
+guard decides whether; the bot decides whether to speak.**
+
+- **One slot, one run.** `schedules:due` (every 30 s) claims schedules whose `nextRunAt` has passed with `FOR UPDATE
+  SKIP LOCKED`, writes a `schedule_runs` row unique per `(scheduleId, slot)`, and advances `nextRunAt`. Missed slots
+  never burst: `catchUp: latest` runs the newest, `none` runs a slot only while it is on time.
+- **The fire** (`schedule-run:fire`) takes a run by conditional update, never holding its row while it locks the
+  conversation, checks the target is still engaged (a conversation a person stopped, an unbound channel, an
+  uninstalled app skip), asks the guard — one `fast` call per slot — and wakes the target with an inbox row of
+  `source: "schedule"` keyed `schedule:<id>:<slotIso>`.
+- **Targets.** A `channel` target starts a conversation per slot whose key is a placeholder until its first final
+  message opens the platform's thread (a Slack top-level post whose `ts` becomes the key, via `SendResult.openedThread`);
+  `conversation` takes a turn in one; `none` lives on the bot's internal `web` channel `schedules`.
+- **Settled by the turn.** The turn that delivers the schedule's row settles the run in the transaction that ends it
+  (`ScheduleRunOps`): `complete({ silent: true })` — allowed only in a scheduled turn — is `silent`, an outbound
+  message is `posted`, a failure `failed`.
+- **People arm schedules.** A bot sees `schedule_list` and `schedule_propose`, which writes a disabled schedule; only
+  a person's `schedule:edit` enables it, audited.
+
 ## Tools and code mode
 
 - **MCP, progressively.** Built ([phase 10](./plans/phase-10-shared-mcp-servers.md)). A project connects
@@ -353,7 +375,7 @@ or superseded suite is not a failure) — never a conversation a person stopped.
 | Process | Runs |
 |---|---|
 | api | HTTP and WebSocket actions, MCP for people (OAuth 2.1), platform webhooks; migrations, once per deploy, in its pre-deploy (`scripts/migrate.ts`) |
-| worker | task queues, drained in order: `ingress`, `outbox` (`outbox:deliver`), `agents` (`agent:tick`, `conversation:compact`), `sandboxes` (`sandbox-job:start`), `orchestrator` (the clocks), `default` |
+| worker | task queues, drained in order: `ingress`, `outbox` (`outbox:deliver`), `agents` (`agent:tick`, `conversation:compact`, `schedule-run:fire`), `sandboxes` (`sandbox-job:start`), `orchestrator` (the clocks), `default` |
 
 Postgres is the source of truth. Redis holds sessions, rate limits, leases, the task queues, and pub/sub;
 WebSocket frames carry no content, and a dashboard re-reads over HTTP.

@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, lte, or, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, like, lte, or, sql } from "drizzle-orm";
 import { api, config } from "keryx";
 // Type-only, purely for the `declare module "keryx"` augmentation inside.
 import type {} from "../config/agents";
@@ -10,6 +10,7 @@ import { channels } from "../schema/channels";
 import { conversations } from "../schema/conversations";
 import { type OutboxMessage, outboxMessages } from "../schema/outbox_messages";
 import { acquireLease, releaseLease } from "./LockOps";
+import { PENDING_THREAD_PREFIX } from "./ScheduleRunOps";
 
 export {
   CALLBACK_SECRET_PREFIX,
@@ -316,6 +317,22 @@ async function settle(
           eq(outboxMessages.status, "sending"),
         ),
       );
+    // The send opened a scheduled conversation's thread: the thread is
+    // the conversation's key from now on, so a reply in it continues it.
+    if (final === "sent" && result.openedThread) {
+      await api.db.db
+        .update(conversations)
+        .set({ externalConversationKey: result.openedThread })
+        .where(
+          and(
+            eq(conversations.id, row.conversationId),
+            like(
+              conversations.externalConversationKey,
+              `${PENDING_THREAD_PREFIX}%`,
+            ),
+          ),
+        );
+    }
   } catch (e) {
     api.logger.error("could not record an outbox attempt", {
       outboxMessageId: row.id,

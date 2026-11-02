@@ -57,6 +57,8 @@ const BUILT_IN = [
   "use_skill",
   "run_code",
   "sandbox_start",
+  "schedule_list",
+  "schedule_propose",
   "mcp_list_tools",
 ];
 const MCP_TOOLS = ["mcp_exec", "mcp_info", "mcp_search", "read_large_result"];

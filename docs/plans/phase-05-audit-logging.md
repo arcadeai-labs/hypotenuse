@@ -162,6 +162,7 @@ that adds an unaudited writer adds a row here **and** to `AGENTS.md`, in the sam
 | Outbox delivery (`outbox:deliver`, `outbox:deliver-due`) | the machine half of a reply | `outbox_messages` | as above |
 | The sandbox machine half (`sandbox:events`, `sandbox:heartbeat`, `sandbox:complete`, the in-sandbox tools) ([phase 17](./phase-17-sandboxes.md)) | volume, with a better substitute | `sandbox_jobs`, `sandbox_job_events` | the bot's `sandbox_start`, traced to its conversation, traced to its binding |
 | `sandbox:git-credential` ([phase 18](./phase-18-git-and-pull-requests.md)) | the sandbox's git asking for a password, several times per clone | `sandbox_job_git_tokens`, one row per handout or refusal | the repository grant a project admin made, and the bot's `sandbox_start` |
+| `schedule-run:fire` (and its `schedules:due` clock) ([phase 20](./phase-20-schedules.md)) | the clock acting on a schedule a person armed | `schedule_runs`, one row per slot, and the inbox row it wakes the bot with | `schedule:create` / `schedule:edit` (enabling it), `schedule:run-now` |
 | Cost records written as a tick ends ([phase 22](./phase-22-telemetry-and-cost.md)) | an accounting ledger, not a decision | `cost_records` | — |
 
 The pattern every row follows: **the audited thing is the decision a person made.** That means connecting a
@@ -386,6 +387,11 @@ Edit a project name in the browser, then open Audit log: one row, actor you, bef
   `bot-installation:oauth-callback`), detaching one, and every repository grant written (`repository-grant:create` /
   `edit` / `delete` — a grant with `push` above all). `github:install-url` mints a ten-minute install state in Redis
   and writes no row, so it is a read; so is `bot:repositories`.
+- **Schedules added one unaudited writer**, `schedule-run:fire` (a per-run task that checks the target, asks the
+  guard, and writes the wake's inbox row, recorded on `schedule_runs`), plus the `schedules:due` clock. A bot's
+  `schedule_propose` is a tool (the `agent:tick` row) and writes a disabled schedule; the decisions are audited:
+  `schedule:create`, `schedule:edit` (enabling a proposal is how it is armed), `schedule:delete`, and
+  `schedule:run-now`.
 - **Rule 13: no CLI command wraps `audit:list` or `organization:audit-list` yet** — deferred, not out of scope, as
   with phase 04's actions: [phase 06](./phase-06-operator-cli.md) is the CLI's sign-in.
 

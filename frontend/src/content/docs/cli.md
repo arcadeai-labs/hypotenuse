@@ -88,6 +88,7 @@ invites), and `audit list`.
 | `hypotenuse prompt list [--bot]`, `prompt view <section>`, `prompt versions <section>`, `prompt preview --bot` | A bot's [prompt sections](/docs/prompts), or with no `--bot` the project's; one section's text; its history (a person, the bot itself, a revert); and the exact system prompt the bot would be sent, with which sections were in and out. See **Prompts, goals, and skills from the command line** below |
 | `hypotenuse prompt add --title`, `prompt edit <section>`, `prompt revert <section> --to`, `prompt remove <section> --yes` | Add a section, change its text or settings, put an earlier version back, or delete it. A bot's sections need write access to the bot; the project's need an admin |
 | `hypotenuse goal list --bot`, `goal view <goal>`, `goal add --bot --title`, `goal edit <goal>`, `goal remove <goal> --yes` | A bot's [goals](/docs/goals): what it works toward, at what priority, and how often it reviews them |
+| `hypotenuse schedule list --bot`, `schedule view <schedule>`, `schedule add --bot --name --cron`, `schedule edit <schedule>`, `schedule enable <schedule>`, `schedule disable <schedule>`, `schedule run <schedule>`, `schedule runs <schedule>`, `schedule remove <schedule> --yes` | A bot's [schedules](/docs/schedules): when it works without being asked, where, with what instruction and guard; arming a bot's proposal; running one now; and what each slot did |
 | `hypotenuse skill list [--bot]`, `skill view <skill>`, `skill versions <skill>`, `skill add <name>`, `skill edit <skill>`, `skill remove <skill> --yes` | The project's [skills](/docs/skills), or with `--bot` the ones a bot has |
 | `hypotenuse skill attach <skill> --bot [--pin]`, `skill detach <skill> --bot` | Let a bot use a skill — at its latest version, or pinned to one — or take it away |
 | `hypotenuse installation manifest --bot`, `installation connect --bot --delivery-url`, `installation test <id>`, `installation list --bot`, `installation view <id>`, `installation disconnect <id> --yes` | A bot's platform apps: get the events URL the platform delivers to, connect its credentials, check it works, and disconnect it. See **Platforms and channels from the command line** below |
@@ -117,7 +118,7 @@ invites), and `audit list`.
 milliseconds, or a span back from now (`7d`, `12h`, `30m`); `--action tag:edit`, `--actor-type user`, and
 `--target-type tag` narrow it further.
 
-Deleting an organization, a project, a bot, an MCP server, a prompt section, a goal, a skill, or a binding, and
+Deleting an organization, a project, a bot, an MCP server, a prompt section, a goal, a schedule, a skill, or a binding, and
 disconnecting an installation, asks for `--yes` before it runs.
 
 A model connection or an MCP server is named by its id or its name, a bot by its id or its slug, an alias by its
@@ -491,6 +492,7 @@ conversation each came from, and `revert` puts an earlier text back as a new ver
 
 ```bash
 hypotenuse goal add --bot ada --title "Answer every billing question the same day" --priority high --review-every 7d
+hypotenuse schedule add --bot ada --name "Weekly review" --kind goal-review --cron "0 17 * * 5" --tz Europe/London
 hypotenuse skill add release-notes --description "Write release notes" --arg 'since!' --arg audience=customers --body-file release-notes.md
 hypotenuse skill attach release-notes --bot ada
 ```

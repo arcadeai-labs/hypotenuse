@@ -82,6 +82,8 @@ describe("a turn", () => {
             "reply_and_wait",
             "run_code",
             "sandbox_start",
+            "schedule_list",
+            "schedule_propose",
             "search_history",
             "skill_list",
             "use_skill",

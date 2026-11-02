@@ -97,6 +97,14 @@ const EXPECTED_LEVELS: Record<string, RbacLevel> = {
   "goal:edit": "member",
   "goal:delete": "member",
   "goal:list": "member",
+  "schedule:create": "member",
+  "schedule:edit": "member",
+  "schedule:delete": "member",
+  "schedule:list": "member",
+  "schedule:view": "member",
+  "schedule:runs": "member",
+  "schedule:run-now": "member",
+  "schedule:preview": "member",
   "goal:view": "member",
   "skill:create": "member",
   "skill:edit": "member",
@@ -287,6 +295,9 @@ const EXPECTED_LEVELS: Record<string, RbacLevel> = {
   "sandbox-jobs:dispatch": "none",
   "sandbox-jobs:reap": "none",
   "sandbox:orphan-sweep": "none",
+  // The schedule clock and its per-run task: no caller.
+  "schedules:due": "none",
+  "schedule-run:fire": "none",
 };
 
 /**
@@ -322,6 +333,7 @@ const CLOCKS = [
   "sandbox-jobs:dispatch",
   "sandbox-jobs:reap",
   "sandbox:orphan-sweep",
+  "schedules:due",
 ];
 
 /** Every action published as an MCP tool for a person's client. */
@@ -426,6 +438,14 @@ const EXPECTED_MCP_TOOLS = [
   "goal:delete",
   "goal:list",
   "goal:view",
+  "schedule:create",
+  "schedule:edit",
+  "schedule:delete",
+  "schedule:list",
+  "schedule:view",
+  "schedule:runs",
+  "schedule:run-now",
+  "schedule:preview",
   "skill:create",
   "skill:edit",
   "skill:delete",
