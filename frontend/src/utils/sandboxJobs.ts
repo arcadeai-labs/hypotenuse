@@ -162,6 +162,12 @@ export function durationWords(ms: number): string {
 export interface SandboxSettingsDraft {
   provider: string;
   image: string;
+  /** The stock runtime, for a provider that boots runtimes. */
+  runtime: string;
+  /** vCPUs per sandbox, for a provider that sizes them. */
+  vcpus: string;
+  /** `open-world` or `allowlist`; blank is the default, open-world. */
+  egressMode: string;
   concurrency: string;
   maxMinutes: string;
 }
@@ -170,8 +176,26 @@ export interface SandboxSettingsDraft {
 export interface SandboxSettingsFields {
   sandboxProvider: string | null;
   sandboxImage: string | null;
+  sandboxRuntime: string | null;
+  sandboxVcpus: number | null;
+  sandboxEgressMode: "open-world" | "allowlist" | null;
   sandboxConcurrency: number | null;
   sandboxMaxDurationMs: number | null;
+}
+
+/**
+ * What the form needs to know of the provider it is describing: which
+ * options it takes and whether it can hold an egress allowlist. `null` when
+ * the provider is not known here (the deployment's default, after the project
+ * chose its own); then the fields are sent as they are.
+ */
+export interface SandboxProviderShape {
+  capabilities: { domainEgressAllowlist: boolean };
+  options: {
+    image: boolean;
+    runtimes: { values: string[]; default: string } | null;
+    vcpus: { min: number; max: number } | null;
+  };
 }
 
 /**
@@ -181,13 +205,22 @@ export interface SandboxSettingsFields {
  */
 export function sandboxDraftOf(settings: {
   sandboxProvider: string | null;
-  sandboxConfig: { image?: string } | null;
+  sandboxConfig: {
+    image?: string;
+    runtime?: string;
+    vcpus?: number;
+    egressMode?: string;
+  } | null;
   sandboxConcurrency: number | null;
   sandboxMaxDurationMs: number | null;
 }): SandboxSettingsDraft {
+  const config = settings.sandboxConfig ?? {};
   return {
     provider: settings.sandboxProvider ?? "",
-    image: settings.sandboxConfig?.image ?? "",
+    image: config.image ?? "",
+    runtime: config.runtime ?? "",
+    vcpus: config.vcpus === undefined ? "" : String(config.vcpus),
+    egressMode: config.egressMode ?? "",
     concurrency:
       settings.sandboxConcurrency === null
         ? ""
@@ -201,20 +234,50 @@ export function sandboxDraftOf(settings: {
 
 /**
  * Parse the project's sandbox fields. A blank field returns it to the
- * deployment's default. Whether a provider may run here, and whether a
- * duration is under the deployment's ceiling, is the server's to say.
+ * deployment's default. An option the chosen provider does not take is sent
+ * as `null`, clearing what an earlier provider left behind, and an egress
+ * allowlist on a provider that cannot hold one returns to open-world. Whether
+ * a provider may run here, and whether a duration is under the deployment's
+ * ceiling, is the server's to say.
  * @param draft - The fields.
+ * @param provider - The provider the fields describe, or `null` when not known.
  * @returns The settings, or a sentence saying what is wrong.
  */
 export function parseSandboxSettings(
   draft: SandboxSettingsDraft,
+  provider: SandboxProviderShape | null = null,
 ): SandboxSettingsFields | string {
   const whole = (text: string) =>
     /^\d+$/.test(text.trim()) ? Number(text.trim()) : null;
-  const image = draft.image.trim();
+  const takes = (option: "image" | "runtimes" | "vcpus") =>
+    provider === null || Boolean(provider.options[option]);
+  const image = takes("image") ? draft.image.trim() : "";
   if (image && !/^[\w./:@-]+$/.test(image)) {
     return "An image is a reference like ghcr.io/acme/agent:1.2, with no spaces.";
   }
+  const runtime = takes("runtimes") ? draft.runtime.trim() : "";
+  const runtimes = provider?.options.runtimes;
+  if (runtime && runtimes && !runtimes.values.includes(runtime)) {
+    return `The runtime is one of ${runtimes.values.join(", ")}.`;
+  }
+  let vcpus: number | null = null;
+  if (takes("vcpus") && draft.vcpus.trim()) {
+    vcpus = whole(draft.vcpus);
+    const range = provider?.options.vcpus ?? { min: 1, max: 64 };
+    if (vcpus === null || vcpus < range.min || vcpus > range.max) {
+      return `vCPUs is a whole number from ${range.min} to ${range.max}.`;
+    }
+  }
+  const mode = draft.egressMode.trim();
+  if (mode && mode !== "open-world" && mode !== "allowlist") {
+    return "Egress is open-world or allowlist.";
+  }
+  const egressMode =
+    mode === "allowlist" &&
+    provider !== null &&
+    !provider.capabilities.domainEgressAllowlist
+      ? null
+      : (mode as "open-world" | "allowlist") || null;
   let concurrency: number | null = null;
   if (draft.concurrency.trim()) {
     concurrency = whole(draft.concurrency);
@@ -233,6 +296,9 @@ export function parseSandboxSettings(
   return {
     sandboxProvider: draft.provider.trim() || null,
     sandboxImage: image || null,
+    sandboxRuntime: runtime || null,
+    sandboxVcpus: vcpus,
+    sandboxEgressMode: egressMode,
     sandboxConcurrency: concurrency,
     sandboxMaxDurationMs: maxMs,
   };

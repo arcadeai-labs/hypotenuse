@@ -6,7 +6,7 @@ import { api, config } from "keryx";
 import type {} from "../config/sandbox";
 import {
   assertSandboxProviderAllowed,
-  buildSandboxProvider,
+  canNarrowEgress,
 } from "../sandbox/registry";
 import type { Sandbox } from "../sandbox/types";
 import { type Bot, bots } from "../schema/bots";
@@ -459,6 +459,159 @@ export function sandboxEgressHosts(
 }
 
 /**
+ * The hosts a sandbox reaches while its runtime is installed, on top of the
+ * running set: the npm registry (bun and the coding CLI) and GitHub's release
+ * hosts (the GitHub CLI's tarball). Open only until egress narrows, before
+ * the agent starts.
+ */
+export const INSTALL_EGRESS_HOSTS = [
+  "registry.npmjs.org",
+  "github.com",
+  "objects.githubusercontent.com",
+  "release-assets.githubusercontent.com",
+] as const;
+
+/**
+ * A job's two allowlists: what it reaches while it is set up (`install`) and
+ * what it reaches while its agent runs (`run`).
+ * @param apiUrl - The URL the sandbox reaches this API at.
+ * @param hasRepository - Whether the job was started on a repository.
+ * @param github - GitHub's origins; `config.github` by default.
+ * @param github.webUrl - Where git clones from.
+ * @param github.apiUrl - Where `gh` calls the REST API.
+ * @returns Both sets of hostnames.
+ */
+export function buildEgressAllowlist(
+  apiUrl: string,
+  hasRepository: boolean,
+  github: { webUrl: string; apiUrl: string } = config.github,
+): { install: string[]; run: string[] } {
+  const run = sandboxEgressHosts(apiUrl, hasRepository, github);
+  const install = [...run];
+  for (const host of INSTALL_EGRESS_HOSTS) {
+    if (!install.includes(host)) install.push(host);
+  }
+  return { install, run };
+}
+
+/** What provisioning does with a job's egress. */
+export type EgressPlan =
+  /** The job cannot run here; `reason` is the sentence it fails with. */
+  | { kind: "refuse"; reason: string }
+  /** Leave the provider's default egress alone. */
+  | { kind: "leave" }
+  /**
+   * Create with `create` (or the provider's default, when `null`), and
+   * narrow to `run` after the runtime is installed, before the clone.
+   */
+  | {
+      kind: "narrow";
+      create: { mode: "deny-all"; allowDomains: string[] } | null;
+      run: { mode: "deny-all"; allowDomains: string[] };
+    };
+
+/**
+ * **Decide a job's egress.** An allowlist is *wanted* when the project's
+ * egress mode is `allowlist` or the bot requires one; a repository job is
+ * narrowed wherever the provider can, wanted or not, because repository
+ * content is untrusted input and must not meet open egress. Every
+ * combination:
+ *
+ * | Wanted | Provider can narrow | Repository | Plan |
+ * |---|---|---|---|
+ * | yes | no | either | refuse, with a sentence naming why |
+ * | yes | yes | either | create on the install list, narrow to the run list |
+ * | no | yes | yes | create with the provider's default, narrow to the run list |
+ * | no | yes | no | leave the provider's default |
+ * | no | no | yes | leave (a development provider; it cannot hold a list) |
+ * | no | no | no | leave |
+ * @param input - What decides it.
+ * @param input.canNarrow - Whether the provider holds a list on a running sandbox.
+ * @param input.providerLabel - The provider's name, for the refusal.
+ * @param input.egressMode - The project's egress mode.
+ * @param input.botRequires - Whether the bot requires an allowlist.
+ * @param input.botName - The bot's name, for the refusal.
+ * @param input.hasRepository - Whether the job was started on a repository.
+ * @param input.apiUrl - The URL the sandbox reaches this API at.
+ * @param input.github - GitHub's origins; `config.github` by default.
+ * @returns The plan.
+ */
+export function planEgress(input: {
+  canNarrow: boolean;
+  providerLabel: string;
+  egressMode: "open-world" | "allowlist";
+  botRequires: boolean;
+  botName: string;
+  hasRepository: boolean;
+  apiUrl: string;
+  github?: { webUrl: string; apiUrl: string };
+}): EgressPlan {
+  const wanted = input.egressMode === "allowlist" || input.botRequires;
+  if (wanted && !input.canNarrow) {
+    return {
+      kind: "refuse",
+      reason: input.botRequires
+        ? `${input.botName} may only run sandbox jobs behind an egress allowlist, and this project's sandbox provider (${input.providerLabel}) cannot enforce one. A project admin can choose a provider that can under Settings → Sandboxes.`
+        : `This project's sandbox egress mode is "allowlist", and its sandbox provider (${input.providerLabel}) cannot enforce one. A project admin can choose a provider that can, or open egress, under Settings → Sandboxes.`,
+    };
+  }
+  if (!input.canNarrow) return { kind: "leave" };
+  const lists = buildEgressAllowlist(
+    input.apiUrl,
+    input.hasRepository,
+    input.github,
+  );
+  const run = { mode: "deny-all" as const, allowDomains: lists.run };
+  if (wanted) {
+    return {
+      kind: "narrow",
+      create: { mode: "deny-all", allowDomains: lists.install },
+      run,
+    };
+  }
+  if (input.hasRepository) return { kind: "narrow", create: null, run };
+  return { kind: "leave" };
+}
+
+/** The GitHub CLI release a provider on stock runtimes installs; `Dockerfile.dev` bakes the same. */
+export const GITHUB_CLI_VERSION = "2.62.0";
+
+/**
+ * The script that installs our runtime into a sandbox that boots without it
+ * (a provider whose registry entry says `bakesRuntimeIntoImage: false`): bun,
+ * the coding CLI, and — for a repository job — the GitHub CLI at the path
+ * the managed `gh` wrapper calls. Each step is skipped when the tool is
+ * already there, so a sandbox that has them costs nothing.
+ * @param input - What to install.
+ * @param input.githubCli - Whether to install the GitHub CLI.
+ * @returns A `/bin/sh` script.
+ */
+export function runtimeInstallScript(input: { githubCli: boolean }): string {
+  const lines = [
+    "set -eu",
+    // `sudo` resets PATH; carry ours so npm finds node.
+    'asroot() { if [ "$(id -u)" = 0 ]; then "$@"; else sudo env "PATH=$PATH" "$@"; fi; }',
+    "command -v bun >/dev/null 2>&1 || asroot npm install -g --no-fund --no-audit bun@1",
+    "command -v claude >/dev/null 2>&1 || asroot npm install -g --no-fund --no-audit @anthropic-ai/claude-code",
+  ];
+  if (input.githubCli) {
+    lines.push(
+      `if [ ! -x ${GITHUB_CLI_REAL_PATH} ]; then`,
+      '  case "$(uname -m)" in aarch64|arm64) arch=arm64 ;; *) arch=amd64 ;; esac',
+      `  v=${GITHUB_CLI_VERSION}`,
+      "  tmp=$(mktemp -d)",
+      '  curl -fsSL "https://github.com/cli/cli/releases/download/v$v/gh_${v}_linux_$arch.tar.gz" -o "$tmp/gh.tar.gz"',
+      '  tar -xzf "$tmp/gh.tar.gz" -C "$tmp"',
+      `  asroot install -D -m 0755 "$tmp/gh_\${v}_linux_$arch/bin/gh" ${GITHUB_CLI_REAL_PATH}`,
+      '  rm -rf "$tmp"',
+      "fi",
+    );
+  }
+  lines.push("bun --version >/dev/null", "claude --version >/dev/null");
+  return lines.join("\n");
+}
+
+/**
  * The in-sandbox git files: the credential helper and the managed `gh`,
  * both executable, both naming the job token's variable rather than any
  * value, so nothing on disk is a credential.
@@ -785,17 +938,37 @@ export async function startSandboxJob(jobId: number): Promise<StartOutcome> {
     const conversation = await parentOf(api.db.db, job);
     if (!bot || !conversation)
       throw new Error("The job's bot or conversation is gone.");
-    const provider = job.provider ?? config.sandbox.defaultProvider;
-    assertSandboxProviderAllowed(provider);
+    // The provider is read when the job starts, not when it was created: a
+    // job queued before an admin switched providers starts on the new one.
+    const settings = effectiveSandboxSettings(
+      await getOrCreateSettings(api.db.db, job.projectId),
+    );
+    const provider = settings.provider;
+    const definition = assertSandboxProviderAllowed(provider);
+    if (provider !== job.provider) {
+      await api.db.db
+        .update(sandboxJobs)
+        .set({ provider })
+        .where(eq(sandboxJobs.id, jobId));
+    }
     const models = await jobModels(api.db.db, bot);
     if (!models) {
       throw new Error(
         `The coding agent speaks the Anthropic API, and ${bot.displayName}'s "${bot.modelAlias}" model is not on an Anthropic connection. A project admin can point it at one under Settings → Models.`,
       );
     }
-    const settings = effectiveSandboxSettings(
-      await getOrCreateSettings(api.db.db, job.projectId),
-    );
+    const apiUrl = resolveSandboxApiUrl(provider);
+    const repo = jobRepository(job);
+    const egress = planEgress({
+      canNarrow: canNarrowEgress(definition.capabilities),
+      providerLabel: definition.label,
+      egressMode: settings.egressMode,
+      botRequires: bot.requireEgressAllowlist,
+      botName: bot.displayName,
+      hasRepository: repo !== null,
+      apiUrl,
+    });
+    if (egress.kind === "refuse") throw new Error(egress.reason);
 
     // 1. The token: win the row first, then register it, so two starters
     //    can never clobber each other's credential.
@@ -821,9 +994,7 @@ export async function startSandboxJob(jobId: number): Promise<StartOutcome> {
     }
 
     // 2. The briefing, recorded on the job.
-    const apiUrl = resolveSandboxApiUrl(provider);
     const servers = await collectMcpServers(api.db.db, bot, apiUrl);
-    const repo = jobRepository(job);
     const webOrigin = githubWebOrigin().replace(/\/+$/, "");
     const repository = repo
       ? await briefingRepository(job, bot, repo, webOrigin)
@@ -844,7 +1015,12 @@ export async function startSandboxJob(jobId: number): Promise<StartOutcome> {
       provider,
       jobId,
       options: {
-        image: settings.image ?? undefined,
+        image: (settings.image ?? settings.runtime) || undefined,
+        ...(settings.vcpus ? { vcpus: settings.vcpus } : {}),
+        ...(settings.memoryMiB ? { memoryMiB: settings.memoryMiB } : {}),
+        ...(egress.kind === "narrow" && egress.create
+          ? { egress: egress.create }
+          : {}),
         timeoutMs: job.maxDurationMs + 5 * 60 * 1000,
         env: buildSandboxEnv({
           job,
@@ -856,7 +1032,22 @@ export async function startSandboxJob(jobId: number): Promise<StartOutcome> {
       },
     });
 
-    // 4. Its files.
+    // 4. A provider on stock runtimes: our runtime, installed while egress
+    //    is still open to the package registries.
+    if (!definition.bakesRuntimeIntoImage) {
+      const installed = await sandbox.exec("/bin/sh", [
+        "-c",
+        runtimeInstallScript({ githubCli: repo !== null }),
+      ]);
+      if (installed.exitCode !== 0) {
+        throw new Error(
+          `installing the sandbox runtime failed: ${redactJobTokens(`${installed.stderr}${installed.stdout}`.trim()).slice(-2000)}`,
+        );
+      }
+      if (!(await stillWanted())) return "cancelled";
+    }
+
+    // 5. Its files.
     await sandbox.writeFiles([
       { path: SANDBOX_PATHS.prompt, content: briefing },
       { path: SANDBOX_PATHS.mcpConfig, content: buildMcpConfig(servers) },
@@ -866,17 +1057,11 @@ export async function startSandboxJob(jobId: number): Promise<StartOutcome> {
     ]);
     if (!(await stillWanted())) return "cancelled";
 
-    // 5. Narrow a repository job's egress where the provider can hold a
-    //    sandbox to a list; any other job keeps the provider's default.
-    const egress = sandboxEgressPolicy(apiUrl, repo !== null);
-    if (
-      egress &&
-      buildSandboxProvider(provider).capabilities.domainEgressAllowlist
-    ) {
-      await sandbox.setEgress(egress);
-    }
+    // 6. Narrow egress to the running list, before any repository content
+    //    arrives and before the agent starts (`planEgress`'s table).
+    if (egress.kind === "narrow") await sandbox.setEgress(egress.run);
 
-    // 6. A repository job's prologue: git configured, the managed gh on
+    // 7. A repository job's prologue: git configured, the managed gh on
     //    PATH, the repository cloned.
     if (repo && repository) {
       await prepareRepository(sandbox, {
@@ -887,7 +1072,7 @@ export async function startSandboxJob(jobId: number): Promise<StartOutcome> {
       if (!(await stillWanted())) return "cancelled";
     }
 
-    // 7. The supervisor, and the job is running. The managed gh's directory
+    // 8. The supervisor, and the job is running. The managed gh's directory
     //    leads its PATH, which the coding CLI and every command inherit.
     let env: Record<string, string> | undefined;
     if (repo) {

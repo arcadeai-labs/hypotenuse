@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import { useProjectStanding } from "../../hooks/useProjectStanding";
 import { Form } from "../../ui";
 import {
   MIN_JOB_TOKEN_BUDGET,
@@ -31,11 +32,17 @@ function budgetText(budget: number | null): string {
   return budget === null ? "" : String(budget);
 }
 
+/** What a person who may edit the bot, but is not an admin, is told about the allowlist switch. */
+export const LIFT_ALLOWLIST_DENIED =
+  "Only project admins can let a bot run sandboxes without an egress allowlist.";
+
 /**
  * Sandboxes: whether the bot may hand code work to a coding agent in an
  * ephemeral sandbox (`sandbox_start`), whether each job waits for a person's
- * approval first, and the most model tokens one job may use before it is
- * stopped. Both save through `bot:edit`.
+ * approval first, the most model tokens one job may use before it is
+ * stopped, and whether every job must run behind a deny-by-default egress
+ * allowlist. All save through `bot:edit`; turning the allowlist off takes an
+ * admin, so for anyone else the switch is held once it is on.
  * @param props - See {@link BotSectionProps}.
  * @returns The section.
  */
@@ -48,18 +55,28 @@ export function SandboxSection({
   const { busy, error, notice, setError, setNotice, save } = useSectionSave();
   const [policy, setPolicy] = useState<string>(bot.sandboxPolicy);
   const [budget, setBudget] = useState(budgetText(bot.sandboxJobTokenBudget));
+  const [allowlist, setAllowlist] = useState(bot.requireEgressAllowlist);
+  const standing = useProjectStanding();
   const locked = denied !== undefined;
+  // Lifting a requirement the bot holds is an admin's; a standing not known
+  // yet is not a refusal, and the server decides either way.
+  const liftDenied =
+    bot.requireEgressAllowlist && standing !== null && !standing.isAdmin
+      ? LIFT_ALLOWLIST_DENIED
+      : undefined;
 
   useEffect(() => {
     setPolicy(bot.sandboxPolicy);
     setBudget(budgetText(bot.sandboxJobTokenBudget));
+    setAllowlist(bot.requireEgressAllowlist);
   }, [bot]);
 
   const parsed = parseJobTokenBudget(budget);
   const changed =
     policy !== bot.sandboxPolicy ||
     parsed === undefined ||
-    parsed !== bot.sandboxJobTokenBudget;
+    parsed !== bot.sandboxJobTokenBudget ||
+    allowlist !== bot.requireEgressAllowlist;
 
   /** Save the policy and the budget. */
   async function onSave() {
@@ -74,6 +91,7 @@ export function SandboxSection({
         await editBot(projectId, bot.id, {
           sandboxPolicy: policy as SandboxPolicy,
           sandboxJobTokenBudget: parsed,
+          requireEgressAllowlist: allowlist,
         }),
       );
     }, "Saved.");
@@ -151,6 +169,31 @@ export function SandboxSection({
           </Form.Text>
         </Form.Group>
       </div>
+      <Form.Check
+        type="switch"
+        id="bot-sandbox-allowlist"
+        label="Require an egress allowlist"
+        checked={allowlist}
+        disabled={
+          busy || locked || policy === "off" || liftDenied !== undefined
+        }
+        title={denied ?? liftDenied}
+        onChange={(e) => {
+          setAllowlist(e.target.checked);
+          setNotice(null);
+        }}
+        data-testid="bot-sandbox-allowlist"
+      />
+      <Form.Text
+        className="text-muted"
+        data-testid="bot-sandbox-allowlist-about"
+      >
+        Every job {bot.name} starts then runs behind a deny-by-default
+        allowlist: its sandbox reaches only this API and, for a repository job,
+        GitHub — package registries only while it installs its tools. On a
+        provider that cannot enforce one, its jobs are refused.
+        {liftDenied && <> {liftDenied}</>}
+      </Form.Text>
     </SectionCard>
   );
 }

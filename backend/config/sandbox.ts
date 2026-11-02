@@ -31,6 +31,18 @@ export const configSandbox = {
    * server's own URL, with a loopback host rewritten for `docker`.
    */
   apiUrl: await loadFromEnvIfSet("SANDBOX_API_URL", ""),
+  /**
+   * The value of the managed tag every hosted sandbox carries. A provider's
+   * `list()` answers only sandboxes with it, so two deployments sharing one
+   * provider account (staging and production) must set different values, or
+   * each one's orphan sweep would collect the other's sandboxes.
+   */
+  managedTag: await loadFromEnvIfSet("SANDBOX_MANAGED_TAG", "hypotenuse"),
+  /**
+   * Where the Vercel Sandbox API is. Empty means Vercel's own; the test suite
+   * points it at its in-process fake.
+   */
+  vercelApiUrl: await loadFromEnvIfSet("SANDBOX_VERCEL_API_URL", ""),
   /** Jobs in flight per project, unless the project sets its own. */
   defaultConcurrency: await loadFromEnvIfSet("SANDBOX_DEFAULT_CONCURRENCY", 3),
   /** Jobs in flight per bot. */

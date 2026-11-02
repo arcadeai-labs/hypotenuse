@@ -2,9 +2,12 @@ import { eq } from "drizzle-orm";
 import { config } from "keryx";
 // Type-only, purely for the `declare module "keryx"` augmentation inside.
 import type {} from "../config/sandbox";
+import { SANDBOX_PROVIDERS } from "../sandbox/registry";
+import type { SandboxProviderName } from "../sandbox/types";
 import {
   type ProjectSettings,
   projectSettings,
+  type SandboxEgressMode,
 } from "../schema/project_settings";
 import type { DbHandle } from "./DbOps";
 
@@ -60,7 +63,16 @@ export function serializeProjectSettings(settings: ProjectSettings) {
 /** What a project's sandbox jobs run under, its choices over the deployment's. */
 export interface EffectiveSandboxSettings {
   provider: string;
+  /** The image booted, for a provider that boots images. */
   image: string | null;
+  /** The stock runtime booted, for a provider that boots runtimes. */
+  runtime: string | null;
+  /** vCPUs per sandbox, for a provider that sizes them. */
+  vcpus: number | null;
+  /** Memory per sandbox in MiB, where the provider pairs it with vCPUs. */
+  memoryMiB: number | null;
+  /** How egress is held while the agent runs. */
+  egressMode: SandboxEgressMode;
   concurrency: number;
   maxDurationMs: number;
 }
@@ -74,9 +86,22 @@ export interface EffectiveSandboxSettings {
 export function effectiveSandboxSettings(
   settings: ProjectSettings,
 ): EffectiveSandboxSettings {
+  const provider = settings.sandboxProvider || config.sandbox.defaultProvider;
+  const options = SANDBOX_PROVIDERS[provider as SandboxProviderName]?.options;
+  const cfg = settings.sandboxConfig ?? {};
+  const vcpus = options?.vcpus ? (cfg.vcpus ?? options.vcpus.default) : null;
   return {
-    provider: settings.sandboxProvider || config.sandbox.defaultProvider,
-    image: settings.sandboxConfig?.image ?? null,
+    provider,
+    image: options && !options.image ? null : (cfg.image ?? null),
+    runtime: options?.runtimes
+      ? (cfg.runtime ?? options.runtimes.default)
+      : null,
+    vcpus,
+    memoryMiB:
+      vcpus !== null && options?.vcpus
+        ? vcpus * options.vcpus.mibPerVcpu
+        : null,
+    egressMode: cfg.egressMode ?? "open-world",
     concurrency:
       settings.sandboxConcurrency ?? config.sandbox.defaultConcurrency,
     maxDurationMs: Math.min(

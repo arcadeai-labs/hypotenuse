@@ -240,6 +240,16 @@ envVarGroups:
       - key: FRONTEND_URL
         value: "https://www.hypotenuse.cloud"
 
+      # Where sandbox jobs run until a project picks: Vercel Sandbox, on each
+      # project's own Vercel account (Settings → Sandboxes). `docker` is
+      # development-only and refused in production. The managed tag marks
+      # this deployment's sandboxes, so another deployment sharing a Vercel
+      # project (a local checkout, the nightly suite) never sweeps them.
+      - key: SANDBOX_DEFAULT_PROVIDER
+        value: "vercel"
+      - key: SANDBOX_MANAGED_TAG
+        value: "hypotenuse-staging"
+
       # Set ONCE on this group in the Render dashboard, never in this file —
       # Render ignores `sync: false` inside an envVarGroup, and ignores it on a
       # service during Blueprint updates. Keys a sync does not mention are

@@ -127,6 +127,13 @@
       "when": 1793570928812,
       "tag": "0017_sweet_monster_badoon",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1793602941855,
+      "tag": "0018_ambiguous_lord_hawal",
+      "breakpoints": true
     }
   ]
 }

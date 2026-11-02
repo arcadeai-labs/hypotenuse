@@ -47,12 +47,16 @@ bot starts work on the issue, remembered per customer account, with everything t
 thread — a customer sees only a reply its customer reply policy allows (`never` by default; `approve` drafts it for a
 teammate's `approve <id>`; `auto-on-low-risk` sends what the `fast` model rates low-risk) — tested against a Pylon
 fake. Bots **hand code work to sandboxes**: `sandbox_start` (approval-gated by default) writes a job the conversation
-owns and `sandbox_wait` parks on it; a dispatch clock provisions an ephemeral container (`docker`, development only)
-whose supervisor runs Claude Code and pushes its transcript, heartbeats, and completion over HTTP; the coding agent
+owns and `sandbox_wait` parks on it; a dispatch clock provisions an ephemeral sandbox — a Vercel Sandbox on the
+project's own Vercel account in production (a sealed `project_connections` row, probed before it is saved), a
+`docker` container in development — whose supervisor runs Claude Code and pushes its transcript, heartbeats, and completion over HTTP; the coding agent
 reports status, asks the conversation questions (the bot answers), or asks the team, and its result wakes the bot. The
 sandbox holds one credential, its job token: models through the model proxy, the bot's allowlisted MCP tools through
 the gateway, our own sandbox tools on `/mcp`; a reaper ends dead, stalled, stuck, overlong, unacknowledged, and idle
-jobs, and an orphan sweep collects what the `sandboxes` ledger does not account for. Bots **work in repositories**:
+jobs, and an orphan sweep collects what the `sandboxes` ledger does not account for. A project's egress mode
+(`open-world` or `allowlist`), or a bot that requires one, holds a sandbox to this API and its git hosts once its
+runtime is installed; every provider passes one conformance suite (Docker and the Vercel fake in CI, a real Vercel
+account nightly). Bots **work in repositories**:
 one GitHub App for the deployment, its installations attached per project by a person GitHub says administers their account, and
 repository grants (read or push, a branch prefix, which bots) a project admin makes; a sandbox's git and managed `gh`
 trade the job token for an installation token scoped to one repository on every command, revoked when the job ends;
@@ -309,7 +313,7 @@ bun dev                                          # backend :8080, frontend :3000
 | Models | Vercel AI SDK (`ai`) — the provider and model are chosen per bot; `embed()` for memory |
 | MCP | Keryx serves our MCP; `@modelcontextprotocol/sdk`'s client consumes the shared MCP servers |
 | Code mode | QuickJS compiled to WebAssembly, inside the worker, with a curated host API |
-| Sandboxes | ToolExec's `SandboxProvider` interface: Docker (development, CI), then Vercel (production) |
+| Sandboxes | ToolExec's `SandboxProvider` interface: Docker (development, CI) and Vercel Sandbox (`@vercel/sandbox`, production), one conformance suite |
 | Validation / lint | Zod v4; Biome |
 | Frontend | Vite + React 19 + React Router 7; v1's design system (LCH tokens, light + dark, Inter, Lucide) |
 | CLI | commander, as an operator client over HTTP; npm `@arcadeai/hypotenuse` + compiled binaries |

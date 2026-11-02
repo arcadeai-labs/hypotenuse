@@ -30,6 +30,7 @@ Hypotenuse, which attaches the real credential on its own side:
 | a tool outside the bot's allowlist | **refused**. A sandbox cannot wait for an [approval](/docs/approvals), so the agent is told to ask instead, or to say in its result that the call is needed |
 | memory | it can search what the bot remembers about this channel and the project, read-only |
 | a GitHub repository | git and `gh` get a token for that one repository, one command at a time — see [Working on a repository](#working-on-a-repository) |
+| the rest of the internet | depends on the project's egress mode — see [Egress](#egress-what-a-sandbox-may-reach-on-the-network) |
 | anything else in Hypotenuse | refused: a job token is not a person, and cannot read or change a project |
 
 The job token never reaches anything you can read: if the agent prints it, the job's transcript, status, and
@@ -157,14 +158,75 @@ sandbox never runs on.
 
 ## Where jobs run
 
-**Settings → Sandboxes** says where the project's jobs run — the provider, the image, how many at once, and the
-longest a job may run — and what is in effect now. Every member can read it; only admins change it. A blank field is
+**Settings → Sandboxes** says where the project's jobs run — the provider and its options, the egress mode, how many
+at once, and the longest a job may run — and what is in effect now. Every member can read it; only admins change it. A blank field is
 the deployment's default.
 
 ![Project settings: the sandbox provider, image, concurrency, and longest run](illustration:settings-sandboxes)
 
-The **Docker** provider runs jobs on the server's own Docker. It is for development only: a production deployment
-refuses it, so a project there runs its jobs on the deployment's hosted provider.
+| Provider | Where a job runs | For |
+|---|---|---|
+| **Vercel Sandbox** | a Vercel Sandbox microVM on the project's own Vercel account, billed to that team | production |
+| **Docker** | a container on the server's own Docker | development only: a production deployment refuses it |
+
+A job reads the provider when it starts, not when the bot asked for it: a job waiting its turn when an admin switches
+providers starts on the new one.
+
+## Vercel
+
+Jobs on Vercel run on **your** Vercel account. An admin connects it once, under **Settings → Sandboxes**:
+
+1. **A token.** In Vercel, **Account Settings → Tokens**, create a token scoped to the team the sandboxes should be
+   billed to. Hypotenuse stores it encrypted and never shows it again — only its last four characters.
+2. **The team id**, `team_…`, under the team's **Settings → General**.
+3. **The project id**, `prj_…`, under the Vercel project's **Settings → General**. Sandboxes belong to a Vercel
+   project; any project will do, and a dedicated empty one keeps them apart from your deployments.
+
+Hypotenuse checks the token, team, and project before it saves them (it lists the project's sandboxes; it creates
+nothing), so a wrong one is refused there and then. **Test** checks a saved connection again. Then choose **Vercel
+Sandbox** as the provider — that checks the connection once more.
+
+| Setting | What it does | Default |
+|---|---|---|
+| Runtime | the stock runtime each sandbox boots: `node24` or `node22` (the coding agent needs Node) | `node24` |
+| vCPUs | 1 to 8 per sandbox; each comes with 2 GiB of memory | 2 |
+| Egress | `open-world` or `allowlist` — see below | `open-world` |
+
+Vercel boots stock runtimes, so each job first installs what the coding agent needs — bun, the coding CLI, and, for a
+job on a repository, the GitHub CLI — which adds some seconds to its start. A job's page shows what its sandbox was
+given: its vCPUs, memory, time limit, and runtime.
+
+A connection cannot be removed while the project's jobs run on it, or while one of its sandboxes is still alive:
+without the account, nothing could destroy that sandbox.
+
+### Egress: what a sandbox may reach on the network
+
+| Mode | While the job is set up | While the agent works |
+|---|---|---|
+| `open-world` | anything | anything — except a job on a repository, which is held to this server and GitHub |
+| `allowlist` | this server, GitHub, and the npm registry (to install its tools) | **only** this server and, for a job on a repository, `github.com` and `api.github.com` |
+
+In `allowlist` mode everything else is blocked by Vercel, outside the sandbox: the agent cannot fetch a web page,
+install a package once it is working, or send anything anywhere but Hypotenuse — whose model proxy, MCP gateway, and
+memory are all it needs. The list narrows after the tools are installed and before the repository is cloned, so a
+repository's contents never meet open egress. Choose it when the work touches code or data that must not leave; leave
+`open-world` when the agent needs to install packages or read documentation as it works.
+
+Docker cannot enforce a list, so `allowlist` is refused there.
+
+A bot can **require** an allowlist (its **Sandboxes** section: **Require an egress allowlist**). Its jobs then always
+run behind one, whatever the project's mode — and on a provider that cannot enforce one, `sandbox_start` refuses, and
+the bot tells you why. Any writer of the bot may turn it on; turning it off takes an admin.
+
+## The sandboxes themselves
+
+Every sandbox Hypotenuse asks a provider for is written down before it is created — its provider, the job it ran,
+what it was given — and stamped when it is destroyed. **Settings → Sandboxes** lists the ones that may still be running (or, with
+**Show destroyed and failed sandboxes too**, every one).
+A job's sandbox ends with the job; one that is left over (a failed start, a deploy at the wrong moment) is collected
+by a sweep within the hour, and an admin can destroy it sooner from that list. A sandbox whose job is still running
+is the job's: cancel the job instead.
 
 From the [command line](/docs/cli), `hypotenuse sandbox list`, `sandbox view`, `sandbox events`, `sandbox cancel`,
-and `sandbox answer` follow jobs, and `hypotenuse project settings` reads and changes where they run.
+and `sandbox answer` follow jobs, `hypotenuse project settings` reads and changes where they run, and
+`hypotenuse connection` connects the account a hosted provider runs on.

@@ -131,7 +131,14 @@ export interface ExecResult {
   stderr: string;
 }
 
-/** A live sandbox. */
+/**
+ * A live sandbox.
+ *
+ * Every provider hands back a sandbox in the same shape: `/work` exists and
+ * is writable by the user commands run as, and `sudo` is honoured on
+ * {@link ExecOptions}. Provisioning writes its files under `/work` and needs
+ * nothing else from the image.
+ */
 export interface Sandbox {
   /** The provider-side sandbox id (a container id for docker). */
   readonly id: string;
@@ -221,10 +228,23 @@ export interface ProviderCapabilities {
 }
 
 /**
- * The name of a registered sandbox provider. A hosted provider for
- * production joins `docker` here and in `registry.ts`.
+ * The name of a registered sandbox provider: `docker` for development and CI,
+ * `vercel` for production. A new provider joins here and in `registry.ts`.
  */
-export type SandboxProviderName = "docker";
+export type SandboxProviderName = "docker" | "vercel";
+
+/**
+ * A project's account on a provider that needs one, decrypted for the call
+ * that uses it: the connection's non-secret fields and its secret. Built by
+ * `SandboxCredentialOps` from a `project_connections` row and handed to the
+ * registry's `build`; it never leaves the process.
+ */
+export interface ProviderConnection {
+  /** The connection's non-secret fields, as its definition names them. */
+  config: Record<string, string>;
+  /** The connection's secret, in plaintext. */
+  secret: string;
+}
 
 /**
  * Thrown by {@link SandboxProvider.connect} when the provider has never heard of

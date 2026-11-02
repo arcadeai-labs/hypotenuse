@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import {
   type ActionParams,
   config,
@@ -20,8 +20,21 @@ import {
   getOrCreateSettings,
   serializeProjectSettings,
 } from "../../ops/ProjectSettingsOps";
-import { assertSandboxProviderAllowed } from "../../sandbox/registry";
-import { projectSettings } from "../../schema/project_settings";
+import {
+  loadProjectConnection,
+  openConnection,
+  probeConnection,
+} from "../../ops/SandboxCredentialOps";
+import {
+  assertSandboxProviderAllowed,
+  canNarrowEgress,
+} from "../../sandbox/registry";
+import { bots } from "../../schema/bots";
+import {
+  projectSettings,
+  SANDBOX_EGRESS_MODES,
+  type SandboxConfig,
+} from "../../schema/project_settings";
 
 /**
  * `project:settings-edit` — change a project's settings: where its sandbox
@@ -33,7 +46,7 @@ import { projectSettings } from "../../schema/project_settings";
 export class ProjectSettingsEdit extends AuditedAction {
   name = "project:settings-edit";
   description =
-    "Change a project's sandbox settings: sandboxProvider (where code jobs run; docker is for development only), sandboxImage, sandboxConcurrency (jobs at once), and sandboxMaxDurationMs (which may only lower the deployment's ceiling). Only the fields sent change; null restores the default. Requires admin standing in the project.";
+    "Change a project's sandbox settings: sandboxProvider (where code jobs run: docker is for development only; vercel needs the project's vercel connection, probed here), sandboxImage (docker) or sandboxRuntime and sandboxVcpus (vercel), sandboxEgressMode (open-world or allowlist), sandboxConcurrency (jobs at once), and sandboxMaxDurationMs (which may only lower the deployment's ceiling). Only the fields sent change; null restores the default. Answers warnings for bots whose required egress allowlist the provider cannot hold. Requires admin standing in the project.";
   middleware = [AdminMiddleware()];
   web = { route: "/project/:projectId/settings", method: HTTP_METHOD.POST };
   inputs = z.object({
@@ -53,6 +66,32 @@ export class ProjectSettingsEdit extends AuditedAction {
       .nullable()
       .optional()
       .describe("The image a job's sandbox runs; null for the provider's own"),
+    sandboxRuntime: z
+      .string()
+      .trim()
+      .max(40)
+      .nullable()
+      .optional()
+      .describe(
+        "The stock runtime a job's sandbox boots, for a provider that boots runtimes (vercel: node24 or node22); null for the provider's default",
+      ),
+    sandboxVcpus: z
+      .number()
+      .int()
+      .min(1)
+      .max(64)
+      .nullable()
+      .optional()
+      .describe(
+        "vCPUs per sandbox, for a provider that sizes them (vercel: 1–8, 2 GiB each); null for the default",
+      ),
+    sandboxEgressMode: z
+      .enum(SANDBOX_EGRESS_MODES)
+      .nullable()
+      .optional()
+      .describe(
+        "open-world (the default: open egress, a repository job narrowed where the provider can) or allowlist (every job narrowed to this API and its git hosts before its agent starts; needs a provider that can enforce one)",
+      ),
     sandboxConcurrency: z
       .number()
       .int()
@@ -85,8 +124,93 @@ export class ProjectSettingsEdit extends AuditedAction {
   ) {
     const before = await getOrCreateSettings(tx, params.projectId);
     connection.metadata.auditBefore = serializeProjectSettings(before);
-    if (params.sandboxProvider) {
-      assertSandboxProviderAllowed(params.sandboxProvider);
+    const providerKind =
+      params.sandboxProvider === undefined
+        ? before.sandboxProvider || config.sandbox.defaultProvider
+        : params.sandboxProvider || config.sandbox.defaultProvider;
+    const definition = assertSandboxProviderAllowed(
+      providerKind,
+      "sandboxProvider",
+    );
+    // A provider on the project's own account needs that account, proven,
+    // before jobs are sent to it.
+    // Sent at all — a name, or null for a default that needs one — counts.
+    if (params.sandboxProvider !== undefined && definition.connectionKind) {
+      const row = await loadProjectConnection(
+        tx,
+        params.projectId,
+        definition.connectionKind,
+      );
+      if (!row) {
+        throw new TypedError({
+          message: `${definition.label} runs on the project's own account: add a ${definition.connectionKind} connection under Settings → Sandboxes first.`,
+          type: ErrorType.CONNECTION_ACTION_PARAM_VALIDATION,
+          key: "sandboxProvider",
+        });
+      }
+      const probe = await probeConnection(row.kind, openConnection(row));
+      if (probe.status !== "ok") {
+        throw new TypedError({
+          message: `The project's ${definition.connectionKind} connection does not work: ${probe.message}`,
+          type: ErrorType.CONNECTION_ACTION_PARAM_VALIDATION,
+          key: "sandboxProvider",
+        });
+      }
+    }
+    const options = definition.options;
+    if (params.sandboxImage && !options.image) {
+      throw new TypedError({
+        message: `${definition.label} boots stock runtimes, not images; set sandboxRuntime instead.`,
+        type: ErrorType.CONNECTION_ACTION_PARAM_VALIDATION,
+        key: "sandboxImage",
+      });
+    }
+    if (params.sandboxRuntime) {
+      if (!options.runtimes) {
+        throw new TypedError({
+          message: `${definition.label} boots images, not stock runtimes; set sandboxImage instead.`,
+          type: ErrorType.CONNECTION_ACTION_PARAM_VALIDATION,
+          key: "sandboxRuntime",
+        });
+      }
+      if (!options.runtimes.values.includes(params.sandboxRuntime)) {
+        throw new TypedError({
+          message: `sandboxRuntime must be one of: ${options.runtimes.values.join(", ")}.`,
+          type: ErrorType.CONNECTION_ACTION_PARAM_VALIDATION,
+          key: "sandboxRuntime",
+        });
+      }
+    }
+    if (params.sandboxVcpus) {
+      const range = options.vcpus;
+      if (
+        !range ||
+        params.sandboxVcpus < range.min ||
+        params.sandboxVcpus > range.max
+      ) {
+        throw new TypedError({
+          message: range
+            ? `sandboxVcpus must be between ${range.min} and ${range.max} for ${definition.label}.`
+            : `${definition.label} does not size its sandboxes; leave sandboxVcpus unset.`,
+          type: ErrorType.CONNECTION_ACTION_PARAM_VALIDATION,
+          key: "sandboxVcpus",
+        });
+      }
+    }
+    const egressMode =
+      params.sandboxEgressMode === undefined
+        ? (before.sandboxConfig?.egressMode ?? "open-world")
+        : (params.sandboxEgressMode ?? "open-world");
+    const canNarrow = canNarrowEgress(definition.capabilities);
+    if (egressMode === "allowlist" && !canNarrow) {
+      throw new TypedError({
+        message: `${definition.label} cannot enforce an egress allowlist; choose a provider that can, or the open-world egress mode.`,
+        type: ErrorType.CONNECTION_ACTION_PARAM_VALIDATION,
+        key:
+          params.sandboxEgressMode !== undefined
+            ? "sandboxEgressMode"
+            : "sandboxProvider",
+      });
     }
     if (
       params.sandboxMaxDurationMs &&
@@ -102,11 +226,23 @@ export class ProjectSettingsEdit extends AuditedAction {
     if (params.sandboxProvider !== undefined) {
       changes.sandboxProvider = params.sandboxProvider || null;
     }
-    if (params.sandboxImage !== undefined) {
-      changes.sandboxConfig = params.sandboxImage
-        ? { ...before.sandboxConfig, image: params.sandboxImage }
-        : {};
+    const sandboxConfig: SandboxConfig = { ...before.sandboxConfig };
+    let configChanged = false;
+    for (const [key, value] of [
+      ["image", params.sandboxImage],
+      ["runtime", params.sandboxRuntime],
+      ["vcpus", params.sandboxVcpus],
+      ["egressMode", params.sandboxEgressMode],
+    ] as const) {
+      if (value === undefined) continue;
+      configChanged = true;
+      if (value === null || value === "") {
+        delete sandboxConfig[key];
+      } else {
+        (sandboxConfig as Record<string, unknown>)[key] = value;
+      }
     }
+    if (configChanged) changes.sandboxConfig = sandboxConfig;
     if (params.sandboxConcurrency !== undefined) {
       changes.sandboxConcurrency = params.sandboxConcurrency;
     }
@@ -123,8 +259,27 @@ export class ProjectSettingsEdit extends AuditedAction {
         : [before];
     const settings = serializeProjectSettings(after);
     connection.metadata.auditAfter = settings;
+    // Bots that require an allowlist cannot start jobs on a provider that
+    // cannot hold one. Saved anyway — the admin may be mid-change — and said.
+    const warnings: string[] = [];
+    if (!canNarrow) {
+      const strict = await tx
+        .select({ displayName: bots.displayName })
+        .from(bots)
+        .where(
+          and(
+            eq(bots.projectId, params.projectId),
+            eq(bots.requireEgressAllowlist, true),
+          ),
+        );
+      for (const bot of strict) {
+        warnings.push(
+          `${bot.displayName} requires an egress allowlist, which ${definition.label} cannot enforce; its sandbox jobs will be refused.`,
+        );
+      }
+    }
     connection.metadata.auditTargetType = "project-settings";
     connection.metadata.auditTargetPath = String(params.projectId);
-    return { settings };
+    return { settings, warnings };
   }
 }

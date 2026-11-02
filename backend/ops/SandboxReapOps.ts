@@ -11,6 +11,7 @@ import {
   TERMINAL_SANDBOX_JOB_STATUSES,
 } from "../schema/sandbox_jobs";
 import { enqueueTick, lockConversation, wake } from "./ConversationOps";
+import { providersToSweep } from "./SandboxCredentialOps";
 import {
   expireDueQuestions,
   finalizeSandboxJob,
@@ -246,22 +247,42 @@ export async function sweepOrphans(): Promise<{
     ) {
       continue;
     }
+    let accounts: Awaited<ReturnType<typeof providersToSweep>> = [];
     try {
-      const instance = definition.build();
-      const known = await liveExternalIds(kind);
-      const cutoff = Date.now() - grace;
-      for (const listing of await instance.list()) {
-        if (known.has(listing.id)) continue;
-        if (listing.createdAt && listing.createdAt.getTime() > cutoff) continue;
-        const sandbox = await instance.connect(listing.id);
-        await sandbox.destroy();
-        provider++;
-      }
+      accounts = await providersToSweep(api.db.db, kind);
     } catch (e) {
-      api.logger.warn("could not sweep a sandbox provider", {
+      api.logger.warn("could not open a sandbox provider's accounts", {
         provider: kind,
         error: e instanceof Error ? e.message : String(e),
       });
+      continue;
+    }
+    const known = await liveExternalIds(kind);
+    const cutoff = Date.now() - grace;
+    // A provider on per-project accounts is swept one account at a time,
+    // and within it only the sandboxes tagged with that account's project:
+    // two projects may share one provider account.
+    for (const { projectId, provider: instance } of accounts) {
+      try {
+        const listings = await instance.list(
+          projectId === null ? undefined : { project: String(projectId) },
+        );
+        for (const listing of listings) {
+          if (known.has(listing.id)) continue;
+          if (listing.createdAt && listing.createdAt.getTime() > cutoff) {
+            continue;
+          }
+          const sandbox = await instance.connect(listing.id);
+          await sandbox.destroy();
+          provider++;
+        }
+      } catch (e) {
+        api.logger.warn("could not sweep a sandbox provider", {
+          provider: kind,
+          projectId,
+          error: e instanceof Error ? e.message : String(e),
+        });
+      }
     }
   }
   return { ledger, provider };

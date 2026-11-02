@@ -60,6 +60,7 @@ interface Bot {
   channelRateLimit?: number;
   sandboxPolicy?: string;
   sandboxJobTokenBudget?: number | null;
+  requireEgressAllowlist?: boolean;
   githubWakeEvents?: string[];
   createdAt: number;
   updatedAt: number;
@@ -120,6 +121,11 @@ export interface BotFlags {
   sandbox?: string;
   /** `bot edit` only: tokens one sandbox job may use, or `false` from `--no-sandbox-token-budget`. */
   sandboxTokenBudget?: string | false;
+  /**
+   * `bot edit` only: `true` from `--require-egress-allowlist`, `false` from
+   * `--no-require-egress-allowlist`.
+   */
+  requireEgressAllowlist?: boolean;
   /** `bot edit` only: which pull-request events wake it, comma-separated, or `none`. */
   githubWake?: string;
 }
@@ -416,6 +422,9 @@ export function botBody(flags: BotFlags): Record<string, unknown> {
   if (flags.githubWake !== undefined) {
     body.githubWakeEvents = parseGithubWake(flags.githubWake);
   }
+  if (flags.requireEgressAllowlist !== undefined) {
+    body.requireEgressAllowlist = flags.requireEgressAllowlist;
+  }
   if (flags.sandboxTokenBudget === false) body.sandboxJobTokenBudget = null;
   else if (flags.sandboxTokenBudget !== undefined) {
     body.sandboxJobTokenBudget = parseNumber(
@@ -491,7 +500,7 @@ function botDetail(bot: Bot, canWrite: boolean): string {
     `code          ${codeText(bot)}`,
     ...(bot.sandboxPolicy
       ? [
-          `sandbox jobs  ${bot.sandboxPolicy === "approve" ? "each waits for approval" : bot.sandboxPolicy}${bot.sandboxPolicy !== "off" && bot.sandboxJobTokenBudget ? `; at most ${bot.sandboxJobTokenBudget} tokens a job` : ""}`,
+          `sandbox jobs  ${bot.sandboxPolicy === "approve" ? "each waits for approval" : bot.sandboxPolicy}${bot.sandboxPolicy !== "off" && bot.sandboxJobTokenBudget ? `; at most ${bot.sandboxJobTokenBudget} tokens a job` : ""}${bot.requireEgressAllowlist ? "; only behind an egress allowlist" : ""}`,
         ]
       : []),
     ...(bot.githubWakeEvents
@@ -633,6 +642,14 @@ export function registerBotCommands(program: Command): void {
         "the most model tokens one sandbox job may use before it is stopped (at least 1000)",
       )
       .option("--no-sandbox-token-budget", "no token cap on a sandbox job")
+      .option(
+        "--require-egress-allowlist",
+        "refuse its sandbox jobs unless they run behind a deny-by-default egress allowlist",
+      )
+      .option(
+        "--no-require-egress-allowlist",
+        "let its sandbox jobs run with the project's egress mode (admin)",
+      )
       .option(
         "--github-wake <events>",
         `which events on a pull request its sandbox job opened wake its conversation: ${GITHUB_WAKE_EVENTS.join(", ")} (comma-separated), or none`,

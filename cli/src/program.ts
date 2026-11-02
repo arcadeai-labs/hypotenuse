@@ -18,6 +18,7 @@ import {
 } from "./commands/channel";
 import { registerCheckUpdateCommand } from "./commands/check-update";
 import { registerCodeRunCommands } from "./commands/code-run";
+import { registerConnectionCommands } from "./commands/connection";
 import { registerConversationCommands } from "./commands/conversation";
 import { registerGoalCommands } from "./commands/goal";
 import { registerHelpRequestCommands } from "./commands/help-request";
@@ -106,6 +107,7 @@ export function buildProgram(): Command {
   registerLargeResultCommands(program);
   registerCodeRunCommands(program);
   registerSandboxCommands(program);
+  registerConnectionCommands(program);
   registerRepoCommands(program);
   registerMemoryCommands(program);
   registerParticipantCommands(program);
