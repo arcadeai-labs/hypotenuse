@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { parseStepsPerTurn } from "../components/bots/BudgetSection";
 import {
   BOT_SECTIONS,
+  botIndexTarget,
   DEFAULT_BOT_SECTION,
   findBotSection,
 } from "../components/bots/sections";
@@ -71,6 +72,17 @@ describe("the bot page's sections", () => {
     for (const taken of ["prompt", "chat", "conversations", "memory", "new"]) {
       expect(findBotSection(taken)).toBeUndefined();
     }
+  });
+
+  test("the bare address keeps its query, and an install's result opens Channels", () => {
+    expect(botIndexTarget("")).toBe(DEFAULT_BOT_SECTION);
+    expect(botIndexTarget("?q=1")).toBe(`${DEFAULT_BOT_SECTION}?q=1`);
+    expect(botIndexTarget("?installation=3&installed=slack")).toBe(
+      "channels?installation=3&installed=slack",
+    );
+    expect(botIndexTarget("?installError=denied")).toBe(
+      "channels?installError=denied",
+    );
   });
 
   test("an unknown slug finds nothing", () => {

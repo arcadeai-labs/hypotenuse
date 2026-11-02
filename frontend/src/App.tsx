@@ -1,6 +1,5 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import { AppShell } from "./components/AppShell";
-import { DEFAULT_BOT_SECTION } from "./components/bots/sections";
 import { NotificationToasts } from "./components/NotificationToasts";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { DEFAULT_SETTINGS_SECTION } from "./components/settings/sections";
@@ -25,7 +24,7 @@ import { ApprovalPage } from "./pages/approvals/ApprovalPage";
 import { ApprovalsPage } from "./pages/approvals/ApprovalsPage";
 import { BotPage } from "./pages/bots/BotPage";
 import { BotPromptPage } from "./pages/bots/BotPromptPage";
-import { BotSectionPage } from "./pages/bots/BotSectionPage";
+import { BotIndexRedirect, BotSectionPage } from "./pages/bots/BotSectionPage";
 import { BotsPage } from "./pages/bots/BotsPage";
 import { ChatIndexPage } from "./pages/bots/ChatIndexPage";
 import { ChatPage } from "./pages/bots/ChatPage";
@@ -128,10 +127,7 @@ export function App() {
                   <Route path="/bots" element={<BotsPage />} />
                   <Route path="/bots/new" element={<NewBotPage />} />
                   <Route path="/bots/:botId" element={<BotPage />}>
-                    <Route
-                      index
-                      element={<Navigate to={DEFAULT_BOT_SECTION} replace />}
-                    />
+                    <Route index element={<BotIndexRedirect />} />
                     <Route path=":section" element={<BotSectionPage />} />
                   </Route>
                   <Route

@@ -1,5 +1,9 @@
-import { useParams } from "react-router-dom";
-import { findBotSection, useBotSection } from "../../components/bots/sections";
+import { Navigate, useLocation, useParams } from "react-router-dom";
+import {
+  botIndexTarget,
+  findBotSection,
+  useBotSection,
+} from "../../components/bots/sections";
 import { Alert } from "../../ui";
 
 /**
@@ -23,4 +27,14 @@ export function BotSectionPage() {
       {section.render(ctx)}
     </div>
   );
+}
+
+/**
+ * `/bots/:botId` — redirects to a section, keeping the query string, so a
+ * platform install's result still reaches the Channels cards that read it.
+ * @returns The redirect.
+ */
+export function BotIndexRedirect() {
+  const { search } = useLocation();
+  return <Navigate to={botIndexTarget(search)} replace />;
 }

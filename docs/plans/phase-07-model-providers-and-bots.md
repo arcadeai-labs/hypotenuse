@@ -375,7 +375,9 @@ bun run --cwd cli hypotenuse model alias list --json | jq '.modelAliases[].name'
   hands each section an outlet context; `frontend/src/components/bots/sections.tsx` (`BOT_SECTIONS`) is the one list
   of sections and the cards each renders, read by the sidebar and by the `:section` route alike. A slug must not be
   `prompt`, `chat`, `conversations`, or `memory` — those are sibling pages, and `/bots/:botId/memory` still redirects
-  to the memory explorer — so the Memory card's section is `retention`. Each card still saves on its own; the avatar
+  to the memory explorer — so the Memory card's section is `retention`. A platform's OAuth callback lands on `/bots/:botId/channels`, where the Slack and Linear cards read
+  `installed` / `installError`; the bare `/bots/:botId` redirect keeps its query string and sends one carrying an
+  install's result there too (`botIndexTarget`). Each card still saves on its own; the avatar
   uploads on its own `bot:edit` as soon as a file is picked.
 - **New bot asks for name, description, and persona**, then lands on the bot page.
 - **Gating** combines the action's `can()` refusal with `standing.canWrite`; a read-only bot page says why in a banner.

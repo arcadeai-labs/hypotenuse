@@ -201,6 +201,23 @@ export const BOT_SECTIONS: readonly BotSection[] = [
 export const DEFAULT_BOT_SECTION = "general";
 
 /**
+ * Where `/bots/:botId` goes, keeping its query string: the Channels section
+ * when it carries a platform install's result (`installed` / `installError`,
+ * which only the Channels cards read), and the default section otherwise.
+ * @param search - The location's query string, with or without its `?`.
+ * @returns The relative target, e.g. `channels?installed=slack`.
+ */
+export function botIndexTarget(search: string): string {
+  const params = new URLSearchParams(search);
+  const slug =
+    params.has("installed") || params.has("installError")
+      ? "channels"
+      : DEFAULT_BOT_SECTION;
+  const query = params.toString();
+  return query ? `${slug}?${query}` : slug;
+}
+
+/**
  * Find a bot section by its slug.
  * @param slug - The URL segment.
  * @returns The section, or `undefined` when there is none by that name.
