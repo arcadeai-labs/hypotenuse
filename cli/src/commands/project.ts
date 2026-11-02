@@ -425,7 +425,7 @@ export function registerProjectCommands(program: Command): void {
     .option("--no-sandbox-image", "the provider's own image")
     .option(
       "--sandbox-runtime <runtime>",
-      "the stock runtime a job's sandbox boots, for a provider that boots runtimes (vercel: node24, node22, python3.13)",
+      "the stock runtime a job's sandbox boots, for a provider that boots runtimes (vercel: node24 or node22)",
     )
     .option("--no-sandbox-runtime", "the provider's default runtime")
     .option(

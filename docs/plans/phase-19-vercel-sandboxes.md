@@ -167,7 +167,7 @@ By hand on staging: switch a project to Vercel with allowlist mode, run the PR r
 
 | Piece | Where |
 |---|---|
-| The provider on `@vercel/sandbox` 3.9.1: `node24` by default (`node22`, `python3.13`), 1–8 vCPUs at 2 GiB each, `persistent: false`, tags `managed` (the deployment's `SANDBOX_MANAGED_TAG`), `project`, `job`; `/work` made and handed to the sandbox's user at create; `connect` never resumes; `list` filters on the managed tag at Vercel and on every other label here; every error rewritten without the token | `backend/sandbox/providers/vercel.ts` |
+| The provider on `@vercel/sandbox` 3.9.1: `node24` by default (or `node22`; Vercel's `python3.13` has no Node for the coding agent), 1–8 vCPUs at 2 GiB each, `persistent: false`, tags `managed` (the deployment's `SANDBOX_MANAGED_TAG`), `project`, `job`; `/work` made and handed to the sandbox's user at create; `connect` never resumes; `list` filters on the managed tag at Vercel and on every other label here; every error rewritten without the token | `backend/sandbox/providers/vercel.ts` |
 | The registry entry (`bakesRuntimeIntoImage: false`, `connectionKind: "vercel"`, the options a project may set), `canNarrowEgress`, `describeSandboxProviders` | `backend/sandbox/registry.ts` |
 | Connections: `project_connections` (migration `0018`, one per kind per project, the token sealed, `lastFour` only), the kind registry and its probe (a list, never a create), `SandboxCredentialOps` (the one way to a provider instance: `providerForProject`; `providersToSweep`), and `connection:create` / `list` / `view` / `edit` / `test` / `delete` | `backend/connections/*`, `backend/ops/SandboxCredentialOps.ts`, `backend/actions/connection/*` |
 | Provisioning: the provider read when a job starts; `planEgress` (the table in its JSDoc); the runtime install for a provider on stock runtimes; create on the install list, narrow to the run list before the clone | `backend/ops/SandboxProvisionOps.ts` |
@@ -220,6 +220,18 @@ By hand on staging: switch a project to Vercel with allowlist mode, run the PR r
 - **Vercel filters a listing on one tag only** (`SingleTagFilter`); the rest is filtered here.
 - **Vercel extends a timeout *by* a duration**; ours is the total lifetime, so `extendTimeout` asks for the difference.
 - **A custom policy comes back in the older shape** (`mode: "custom"`, `allowedDomains`), whatever shape was sent.
+
+### What review found, and what changed
+
+- **`python3.13` was offered and could not run a job**: the runtime install puts bun and the coding CLI in with
+  `npm`, and the supervisor runs on bun. The Vercel runtimes are the Node ones only, `node24` and `node22`.
+- **One account that could not be opened stopped the whole sweep**: `providersToSweep` built every Vercel account in
+  one `map`, so a bad seal or a missing field threw and every other project's orphans were left running. Each
+  account is opened on its own; one that fails is logged and skipped.
+- **Restoring a default that needs an account skipped the probe**: `sandboxProvider: null` on a deployment whose
+  default is `vercel` saved without checking the connection. The probe runs whenever the provider is sent.
+- **Docker Hub rate-limits the test image's base** (as the git build found): `buildTestImage` keeps an image already
+  built here when the rebuild fails, rather than failing every container suite.
 
 ### Not run here
 

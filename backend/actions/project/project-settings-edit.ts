@@ -73,7 +73,7 @@ export class ProjectSettingsEdit extends AuditedAction {
       .nullable()
       .optional()
       .describe(
-        "The stock runtime a job's sandbox boots, for a provider that boots runtimes (vercel: node24, node22, python3.13); null for the provider's default",
+        "The stock runtime a job's sandbox boots, for a provider that boots runtimes (vercel: node24 or node22); null for the provider's default",
       ),
     sandboxVcpus: z
       .number()
@@ -134,7 +134,8 @@ export class ProjectSettingsEdit extends AuditedAction {
     );
     // A provider on the project's own account needs that account, proven,
     // before jobs are sent to it.
-    if (params.sandboxProvider && definition.connectionKind) {
+    // Sent at all — a name, or null for a default that needs one — counts.
+    if (params.sandboxProvider !== undefined && definition.connectionKind) {
       const row = await loadProjectConnection(
         tx,
         params.projectId,

@@ -60,8 +60,10 @@ export async function buildSandboxStage(
 }
 
 /**
- * Build the stub image, so a checkout with a daemon needs no extra step.
- * @throws {Error} When the build fails.
+ * Build the stub image, so a checkout with a daemon needs no extra step. A
+ * build that fails while the image is already here (Docker Hub refusing the
+ * base image's pull) keeps that image.
+ * @throws {Error} When the build fails and there is no image to fall back on.
  */
 export async function buildTestImage(): Promise<void> {
   const dir = `${import.meta.dir}/../../sandbox/images`;
@@ -70,9 +72,23 @@ export async function buildTestImage(): Promise<void> {
     { stdout: "pipe", stderr: "pipe" },
   );
   if ((await proc.exited) !== 0) {
-    throw new Error(
-      `could not build ${TEST_IMAGE}: ${await new Response(proc.stderr).text()}`,
-    );
+    const stderr = await new Response(proc.stderr).text();
+    // Docker Hub rate-limits the base image's pull (429); an image already
+    // built here is the same image, so a suite runs on it rather than fail.
+    const present = await Bun.spawn(
+      ["docker", "image", "inspect", TEST_IMAGE],
+      {
+        stdout: "ignore",
+        stderr: "ignore",
+      },
+    ).exited;
+    if (present === 0) {
+      console.warn(
+        `\n⚠  Could not rebuild ${TEST_IMAGE}; using the one already built here.\n`,
+      );
+      return;
+    }
+    throw new Error(`could not build ${TEST_IMAGE}: ${stderr}`);
   }
 }
 

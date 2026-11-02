@@ -188,7 +188,7 @@ Sandbox** as the provider — that checks the connection once more.
 
 | Setting | What it does | Default |
 |---|---|---|
-| Runtime | the stock runtime each sandbox boots: `node24`, `node22`, or `python3.13` | `node24` |
+| Runtime | the stock runtime each sandbox boots: `node24` or `node22` (the coding agent needs Node) | `node24` |
 | vCPUs | 1 to 8 per sandbox; each comes with 2 GiB of memory | 2 |
 | Egress | `open-world` or `allowlist` — see below | `open-world` |
 

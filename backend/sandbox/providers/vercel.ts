@@ -68,8 +68,12 @@ export const VERCEL_CAPABILITIES: ProviderCapabilities = {
   maxTimeoutMs: 24 * 60 * 60 * 1000,
 };
 
-/** The stock runtimes a project may boot. */
-export const VERCEL_RUNTIMES = ["node24", "node22", "python3.13"] as const;
+/**
+ * The stock runtimes a project may boot: the Node ones only. The runtime
+ * install puts bun and the coding CLI in with `npm`, and the supervisor runs
+ * on bun, so a runtime without Node (Vercel's `python3.13`) cannot run a job.
+ */
+export const VERCEL_RUNTIMES = ["node24", "node22"] as const;
 
 /** The runtime a project boots unless it names another. */
 export const VERCEL_DEFAULT_RUNTIME = "node24";

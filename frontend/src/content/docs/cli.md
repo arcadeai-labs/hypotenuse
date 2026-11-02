@@ -396,7 +396,7 @@ hypotenuse project settings --no-sandbox-image
   Sandbox on the project's own Vercel account), `--sandbox-image` the image a Docker job's sandbox runs,
   `--sandbox-concurrency` how many run at once (1–50), and `--sandbox-max-duration` the longest one may run (seconds,
   or `30m`, `2h`; only lower than the deployment's ceiling).
-- For Vercel, `--sandbox-runtime` picks the stock runtime a sandbox boots (`node24`, `node22`, or `python3.13`) and
+- For Vercel, `--sandbox-runtime` picks the stock runtime a sandbox boots (`node24` or `node22`) and
   `--sandbox-vcpus` its size (1–8 vCPUs, 2 GiB of memory each).
 - `--sandbox-egress open-world|allowlist` decides how a job's network is held. `open-world` (the default) leaves it
   open; `allowlist` narrows every job to this server and its git hosts before the coding agent starts, and needs a

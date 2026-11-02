@@ -8,6 +8,7 @@ import {
 } from "bun:test";
 import { and, eq } from "drizzle-orm";
 import { api, config } from "keryx";
+import { providersToSweep } from "../../ops/SandboxCredentialOps";
 import {
   buildEgressAllowlist,
   INSTALL_EGRESS_HOSTS,
@@ -265,6 +266,8 @@ describe("choosing the provider", () => {
     });
     for (const [fields, key] of [
       [{ sandboxRuntime: "node12" }, "sandboxRuntime"],
+      // No Node for the coding agent.
+      [{ sandboxRuntime: "python3.13" }, "sandboxRuntime"],
       [{ sandboxVcpus: 9 }, "sandboxVcpus"],
       [{ sandboxImage: "hypotenuse/sandbox:dev" }, "sandboxImage"],
     ] as const) {
@@ -303,6 +306,46 @@ describe("choosing the provider", () => {
     await as("POST", `${base}/bot/${stage.botId}`, {
       requireEgressAllowlist: false,
     });
+  });
+
+  test("restoring a default that needs an account probes it, too", async () => {
+    await ensureConnection();
+    const defaultProvider = config.sandbox.defaultProvider;
+    config.sandbox.defaultProvider = "vercel";
+    try {
+      fake.failNext(401, "token revoked");
+      const broken = await settings({ sandboxProvider: null });
+      expect(broken.status).toBe(406);
+      expect(JSON.stringify(broken.body)).toContain("does not work");
+      expect((await settings({ sandboxProvider: null })).status).toBe(200);
+    } finally {
+      config.sandbox.defaultProvider = defaultProvider;
+    }
+    await settings({ sandboxProvider: "docker" });
+  });
+
+  test("the orphan sweep skips an account it cannot open, and still sweeps the rest", async () => {
+    await ensureConnection();
+    const other = await as("PUT", "/project", {
+      organizationId: stage.u.organizationId,
+      name: `Broken ${Date.now()}`,
+    });
+    expect(other.status).toBe(200);
+    await api.db.db.insert(projectConnections).values({
+      projectId: other.body.project.id,
+      kind: "vercel",
+      name: "Vercel",
+      config: { teamId: fake.teamId, projectId: fake.projectId },
+      // A seal this key never made: it fails to open.
+      secret: {
+        iv: "AAAAAAAAAAAAAAAA",
+        authTag: "AAAAAAAAAAAAAAAAAAAAAA==",
+        ciphertext: "AAAA",
+      },
+      lastFour: "0000",
+    });
+    const accounts = await providersToSweep(api.db.db, "vercel");
+    expect(accounts.map((a) => a.projectId)).toEqual([stage.u.projectId]);
   });
 
   test("the production guard: docker refused, vercel accepted", async () => {

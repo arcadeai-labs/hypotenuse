@@ -1,5 +1,5 @@
 import { and, eq } from "drizzle-orm";
-import { ErrorType, TypedError } from "keryx";
+import { api, ErrorType, TypedError } from "keryx";
 import { z } from "zod";
 import {
   CONNECTION_DEFINITIONS,
@@ -202,10 +202,25 @@ export async function providersToSweep(
     .select()
     .from(projectConnections)
     .where(eq(projectConnections.kind, definition.connectionKind));
-  return rows.map((row) => ({
-    projectId: row.projectId,
-    provider: definition.build(openConnection(row)),
-  }));
+  // One account that cannot be opened (a corrupt seal, a missing field)
+  // must not leave every other project's orphans running: skip it, say so.
+  const out: { projectId: number | null; provider: SandboxProvider }[] = [];
+  for (const row of rows) {
+    try {
+      out.push({
+        projectId: row.projectId,
+        provider: definition.build(openConnection(row)),
+      });
+    } catch (e) {
+      api.logger.warn("could not open a sandbox provider account to sweep", {
+        provider: kind,
+        projectId: row.projectId,
+        connectionId: row.id,
+        error: e instanceof Error ? e.message : String(e),
+      });
+    }
+  }
+  return out;
 }
 
 /**
