@@ -16,14 +16,18 @@ import {
   effectiveSandboxSettings,
   getOrCreateSettings,
 } from "../ops/ProjectSettingsOps";
+import { loadProjectConnection } from "../ops/SandboxCredentialOps";
 import {
   createSandboxJob,
   dispatchPendingJobs,
   jobForIntent,
 } from "../ops/SandboxJobOps";
-import { jobModels } from "../ops/SandboxProvisionOps";
+import { jobModels, planEgress } from "../ops/SandboxProvisionOps";
 import { emitStatus } from "../ops/SurfaceOps";
-import { assertSandboxProviderAllowed } from "../sandbox/registry";
+import {
+  assertSandboxProviderAllowed,
+  canNarrowEgress,
+} from "../sandbox/registry";
 import { latestRequester } from "./sandbox-shared";
 import { type ToolContext, type ToolDefinition, ToolError } from "./types";
 
@@ -254,13 +258,46 @@ export const sandboxStart: ToolDefinition<
     const settings = effectiveSandboxSettings(
       await getOrCreateSettings(ctx.db, ctx.conversation.projectId),
     );
+    let definition: ReturnType<typeof assertSandboxProviderAllowed>;
     try {
-      assertSandboxProviderAllowed(settings.provider);
+      definition = assertSandboxProviderAllowed(settings.provider);
     } catch (e) {
       throw new ToolError(
         "sandbox_unavailable",
         e instanceof Error ? e.message : String(e),
         "Tell the person sandboxes are not set up here; a project admin picks a provider under Settings → Sandboxes.",
+      );
+    }
+    if (
+      definition.connectionKind &&
+      !(await loadProjectConnection(
+        ctx.db,
+        ctx.conversation.projectId,
+        definition.connectionKind,
+      ))
+    ) {
+      throw new ToolError(
+        "sandbox_unavailable",
+        `This project runs sandboxes on ${definition.label} and has not connected an account for it.`,
+        "Tell the person sandboxes are not set up here yet; a project admin connects the account under Settings → Sandboxes.",
+      );
+    }
+    // The same decision provisioning makes, made early so the bot hears it
+    // now rather than from a failed job.
+    const egress = planEgress({
+      canNarrow: canNarrowEgress(definition.capabilities),
+      providerLabel: definition.label,
+      egressMode: settings.egressMode,
+      botRequires: ctx.bot.requireEgressAllowlist,
+      botName: "You",
+      hasRepository: repository !== null && repository !== undefined,
+      apiUrl: "http://sandbox.invalid",
+    });
+    if (egress.kind === "refuse") {
+      throw new ToolError(
+        "sandbox_unavailable",
+        egress.reason,
+        "Tell the person this job cannot run here and why; do not retry until the project's sandbox settings change.",
       );
     }
     if (!(await jobModels(ctx.db, ctx.bot))) {

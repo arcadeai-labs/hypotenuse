@@ -1,6 +1,5 @@
 import { and, asc, eq, inArray, isNull, lt, or } from "drizzle-orm";
 import { api } from "keryx";
-import { buildSandboxProvider } from "../sandbox/registry";
 import type { CreateSandboxOptions, Sandbox } from "../sandbox/types";
 import { SandboxNotFoundError } from "../sandbox/types";
 import {
@@ -9,10 +8,12 @@ import {
 } from "../schema/sandbox_jobs";
 import {
   type SandboxRecord,
+  type SandboxResources,
   type SandboxStatus,
   sandboxes,
 } from "../schema/sandboxes";
 import type { DbHandle } from "./DbOps";
+import { providerForProject } from "./SandboxCredentialOps";
 
 /**
  * **The sandbox ledger.** Every sandbox is ledgered *before* the provider is
@@ -44,6 +45,7 @@ export async function recordSandboxCreating(
     provider: string;
     jobId?: number | null;
     labels?: Record<string, string>;
+    resources?: SandboxResources | null;
   },
 ): Promise<SandboxRecord> {
   const [row] = await db
@@ -53,6 +55,7 @@ export async function recordSandboxCreating(
       provider: input.provider,
       jobId: input.jobId ?? null,
       labels: input.labels ?? {},
+      resources: input.resources ?? null,
       status: "creating",
     })
     .returning();
@@ -132,8 +135,14 @@ export async function provisionSandbox(input: {
   provider: string;
   jobId: number | null;
   options: CreateSandboxOptions;
+  /** What the sandbox is asked for, recorded on its ledger row. */
+  resources?: SandboxResources | null;
 }): Promise<{ sandbox: Sandbox; record: SandboxRecord }> {
-  const provider = buildSandboxProvider(input.provider);
+  const provider = await providerForProject(
+    api.db.db,
+    input.projectId,
+    input.provider,
+  );
   const labels = {
     ...input.options.labels,
     project: String(input.projectId),
@@ -144,6 +153,12 @@ export async function provisionSandbox(input: {
     provider: input.provider,
     jobId: input.jobId,
     labels,
+    resources: input.resources ?? {
+      vcpus: input.options.vcpus ?? null,
+      memoryMiB: input.options.memoryMiB ?? null,
+      timeoutMs: input.options.timeoutMs,
+      image: input.options.image ?? null,
+    },
   });
   let created: Sandbox | undefined;
   try {
@@ -209,7 +224,11 @@ export async function destroySandbox(
   if (current.destroyedAt) return current;
   if (current.externalId) {
     try {
-      const provider = buildSandboxProvider(current.provider);
+      const provider = await providerForProject(
+        api.db.db,
+        current.projectId,
+        current.provider,
+      );
       const sandbox = await provider.connect(current.externalId);
       await sandbox.destroy();
     } catch (e) {
@@ -340,6 +359,8 @@ export function serializeSandbox(r: SandboxRecord) {
     provider: r.provider,
     externalId: r.externalId,
     status: r.status,
+    resources: r.resources ?? null,
+    labels: r.labels,
     error: r.error,
     createdAt: r.createdAt.getTime(),
     destroyedAt: r.destroyedAt?.getTime() ?? null,

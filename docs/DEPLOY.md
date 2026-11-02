@@ -61,7 +61,8 @@ env group, and ignores it on a service during Blueprint updates.
 | `DATABASE_AUTO_MIGRATE` | `false` | `false` | migrations run in the api's `preDeployCommand` |
 | `TASKS_ENABLED` / `TASK_PROCESSORS` | `false` / `0` | `true` / `4` | |
 | `VITE_API_URL` | — | — | the frontend's build arg, `https://api.hypotenuse.cloud` |
-| `SANDBOX_*` | — | — | unset: the default provider is `docker`, which production refuses, so a bot's `sandbox_start` answers that sandboxes are not set up here until a production provider exists. `SANDBOX_API_URL` names where a sandbox reaches the api when it is not `APPLICATION_URL` |
+| `SANDBOX_DEFAULT_PROVIDER`, `SANDBOX_MANAGED_TAG` | group | group | the shared group sets `vercel` and `hypotenuse-staging`: jobs run on Vercel Sandbox, on each project's own Vercel account (a project admin connects it under Settings → Sandboxes; until then a bot's `sandbox_start` answers that sandboxes are not set up). `docker` is refused in production. The managed tag marks this deployment's sandboxes; another deployment sharing a Vercel project needs its own value, or each one's orphan sweep would collect the other's |
+| `SANDBOX_API_URL` | — | — | unset: a sandbox reaches the api at `APPLICATION_URL`. In allowlist mode that host is the one a sandbox may reach |
 
 **Keys a sync does not mention survive it.** The staging services predate 2.0, and Render keeps every
 dashboard key `render.yaml` does not name, so v1's `LINEAR_*` and `OTEL_SERVICE_NAME` are still set (read by

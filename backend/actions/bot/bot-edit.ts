@@ -103,6 +103,12 @@ export class BotEdit extends AuditedAction {
     sandboxPolicy: sandboxPolicyInput.optional(),
     sandboxJobTokenBudget: sandboxJobTokenBudgetInput.optional(),
     githubWakeEvents: githubWakeEventsInput.optional(),
+    requireEgressAllowlist: z
+      .boolean()
+      .optional()
+      .describe(
+        "Whether every sandbox job the bot starts must run behind a deny-by-default egress allowlist; turning it off takes admin standing",
+      ),
   });
 
   /**
@@ -188,7 +194,8 @@ export class BotEdit extends AuditedAction {
     const lifting =
       (params.sandboxPolicy === "allow" && bot.sandboxPolicy !== "allow") ||
       (params.sandboxJobTokenBudget === null &&
-        bot.sandboxJobTokenBudget !== null);
+        bot.sandboxJobTokenBudget !== null) ||
+      (params.requireEgressAllowlist === false && bot.requireEgressAllowlist);
     if (
       lifting &&
       !isAdmin(callerTags) &&
@@ -196,7 +203,7 @@ export class BotEdit extends AuditedAction {
     ) {
       throw new TypedError({
         message:
-          "Letting a bot start sandbox jobs without approval, or without a token budget, takes admin standing in the project.",
+          "Letting a bot start sandbox jobs without approval, without a token budget, or without an egress allowlist it required, takes admin standing in the project.",
         type: ErrorType.CONNECTION_CHANNEL_AUTHORIZATION,
       });
     }
@@ -229,6 +236,7 @@ export class BotEdit extends AuditedAction {
       "sandboxPolicy",
       "sandboxJobTokenBudget",
       "githubWakeEvents",
+      "requireEgressAllowlist",
     ] as const) {
       if (params[key] !== undefined) {
         (changes as Record<string, unknown>)[key] = params[key];

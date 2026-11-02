@@ -71,15 +71,18 @@ jobs:
           DATABASE_AUTO_MIGRATE_TEST: "true"
           REDIS_URL_TEST: redis://localhost:6379/1
       # The sandbox suites start real containers (the runner has a Docker
-      # daemon); each cleans up after itself, and this proves it did.
+      # daemon) — the Docker provider's, and the Vercel fake's — each suite
+      # cleans up after itself, and this proves it did.
       - name: No sandbox containers left behind
         if: always()
         run: |
-          left=$(docker ps -aq --filter label=hypotenuse.managed=true)
-          if [ -n "$left" ]; then
-            docker ps -a --filter label=hypotenuse.managed=true
-            exit 1
-          fi
+          for label in hypotenuse.managed=true hypotenuse.vercel-fake=true; do
+            left=$(docker ps -aq --filter "label=$label")
+            if [ -n "$left" ]; then
+              docker ps -a --filter "label=$label"
+              exit 1
+            fi
+          done
 
   # The development sandbox image: it builds, and the userland it promises
   # answers as the user the coding agent runs as.

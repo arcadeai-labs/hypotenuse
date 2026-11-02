@@ -2,7 +2,7 @@
 
 > **Goal:** A production project runs its sandbox jobs on Vercel Sandbox, with the same behaviour it had on Docker in development. A project admin connects a Vercel account, picks it as the sandbox provider, and optionally turns on a deny-by-default egress allowlist. Bots keep starting jobs exactly as before.
 
-> **Status: planned, not built.** Builds on [sandboxes](./phase-17-sandboxes.md) (interface, registry, ledger, supervisor, job token) and [git and pull requests](./phase-18-git-and-pull-requests.md) (git hosts on the allowlist). It also delivers the provider-conformance suite that any later provider (Kubernetes, E2B, exe.dev, SSH) must pass.
+> **Status: built.** Builds on [sandboxes](./phase-17-sandboxes.md) (interface, registry, ledger, supervisor, job token) and [git and pull requests](./phase-18-git-and-pull-requests.md) (git hosts on the allowlist). It also delivers the provider-conformance suite that any later provider (Kubernetes, E2B, exe.dev, SSH) must pass.
 
 Docker is development-only by design. Its bridge network gives a container unrestricted egress, so it refuses a deny-all policy rather than pretend to enforce one. Production needs a hosted provider. ToolExec chose Vercel Sandbox as its first, for these properties:
 
@@ -149,11 +149,11 @@ By hand on staging: switch a project to Vercel with allowlist mode, run the PR r
 
 ## Definition of done
 
-- [ ] Vercel is a registered provider with a probed project connection
-- [ ] Open-world and allowlist egress both work; allowlists open during install and narrow before launch
-- [ ] Docker is refused in production at both guards
-- [ ] Every provider passes one conformance suite; Docker in CI, Vercel nightly
-- [ ] Settings, ledger view, and the Vercel section of `sandboxes.md` ship in the same PR
+- [x] Vercel is a registered provider with a probed project connection
+- [x] Open-world and allowlist egress both work; allowlists open during install and narrow before launch
+- [x] Docker is refused in production at both guards
+- [x] Every provider passes one conformance suite; Docker in CI, Vercel nightly
+- [x] Settings, ledger view, and the Vercel section of `sandboxes.md` ship in the same PR
 
 ## Open questions
 
@@ -163,4 +163,69 @@ By hand on staging: switch a project to Vercel with allowlist mode, run the PR r
 
 ## Learnings from the build
 
-Not built yet.
+### What is built
+
+| Piece | Where |
+|---|---|
+| The provider on `@vercel/sandbox` 3.9.1: `node24` by default (`node22`, `python3.13`), 1–8 vCPUs at 2 GiB each, `persistent: false`, tags `managed` (the deployment's `SANDBOX_MANAGED_TAG`), `project`, `job`; `/work` made and handed to the sandbox's user at create; `connect` never resumes; `list` filters on the managed tag at Vercel and on every other label here; every error rewritten without the token | `backend/sandbox/providers/vercel.ts` |
+| The registry entry (`bakesRuntimeIntoImage: false`, `connectionKind: "vercel"`, the options a project may set), `canNarrowEgress`, `describeSandboxProviders` | `backend/sandbox/registry.ts` |
+| Connections: `project_connections` (migration `0018`, one per kind per project, the token sealed, `lastFour` only), the kind registry and its probe (a list, never a create), `SandboxCredentialOps` (the one way to a provider instance: `providerForProject`; `providersToSweep`), and `connection:create` / `list` / `view` / `edit` / `test` / `delete` | `backend/connections/*`, `backend/ops/SandboxCredentialOps.ts`, `backend/actions/connection/*` |
+| Provisioning: the provider read when a job starts; `planEgress` (the table in its JSDoc); the runtime install for a provider on stock runtimes; create on the install list, narrow to the run list before the clone | `backend/ops/SandboxProvisionOps.ts` |
+| Settings: `sandboxRuntime`, `sandboxVcpus`, `sandboxEgressMode` on `project:settings-edit` (a provider on the project's account needs that account, probed; `warnings` for bots that require an allowlist), `providers` and `connectionKinds` on `project:settings-view`; `bots.requireEgressAllowlist` and its admin-only lift; `sandbox_start` refusing early when the account is missing or the allowlist cannot be held | `backend/actions/project/*`, `backend/actions/bot/bot-edit.ts`, `backend/tools/sandbox-start.ts` |
+| The ledger: `sandboxes.resources`, `sandbox-ledger:list` and `sandbox-ledger:destroy`; the orphan sweep one account at a time | `backend/actions/sandbox-ledger/*`, `backend/ops/{SandboxOps,SandboxReapOps}.ts` |
+| Proof: the conformance suite (`conformance.ts`), run by `docker.conformance.test.ts`, `vercel-fake.conformance.test.ts`, and `vercel.conformance.test.ts` (real account, nightly); `vercel.test.ts` (connections, settings, the egress table, a bot that requires an allowlist, the production guard, scrubbing, the ledger, a whole job on Vercel); the Vercel fake | `backend/__tests__/sandbox/*`, `backend/__tests__/fakes/vercel/server.ts`, `.github/workflows/nightly-vercel-sandbox.yml` |
+| Deployment: `SANDBOX_DEFAULT_PROVIDER=vercel` and `SANDBOX_MANAGED_TAG=hypotenuse-staging` in the shared group | `render.yaml`, `docs/DEPLOY.md` |
+| Frontend, CLI, docs | FRONTEND_CLI_PLACEHOLDER |
+
+### Where the build differs from the plan
+
+| The plan says | The build does, and why |
+|---|---|
+| `sandbox:list` and `sandbox:destroy` | **`sandbox-ledger:list` and `sandbox-ledger:destroy`**, under `/project/:projectId/…`. The `sandbox:` namespace is the job token's machine actions; a person's action there would read, to every policy list and every reader, like one a sandbox may call. The project is in the route because the membership middleware reads it |
+| `connection:test` unaudited | Audited, like `model-connection:test`: it writes the row's status, and rule 5's unaudited writers are a closed list |
+| `connection:create` takes the kind's fields flat | They arrive as `config: { teamId, projectId }`: a flat `projectId` would collide with the route's own. The kind's definition names the fields and their shapes, and the actions validate against it |
+| "Callers branch on `capabilities`" | Two more registry fields carry what capabilities do not: `bakesRuntimeIntoImage` (whether provisioning installs our runtime) and `connectionKind` (whether the provider runs on the project's account). Nothing outside the provider, its registry entry, and its connection definition names Vercel |
+| `sandbox.update({ networkPolicy })` | `sandbox.updateNetworkPolicy` — the session's own endpoint, which answers the policy now held; `setEgress` compares it with what was asked and throws on any difference, so a job believed narrowed is |
+| `allowlist`: "opened during install and narrowed before the CLI launches" | Narrowed before the **clone**, not just the launch: repository content is the untrusted input, and it arrives after the narrowing. A job on a repository is narrowed wherever the provider can, in either mode — the behaviour the git build already had |
+| A bot that requires an allowlist "refuses to start on a provider without `domainEgressAllowlist`" | It also needs `liveEgressUpdate` (`canNarrowEgress`): the install needs the registries the agent must not have. Refused at `sandbox_start`, and again at provisioning, since the provider may change in between |
+| Vercel's conformance run is nightly only | Also in CI, against the in-process fake: the real SDK over Vercel's wire protocol, each sandbox a real container. The fake records network policies instead of enforcing them; enforcement is the nightly run's |
+
+### Decisions the plan left open
+
+- **Who pays: the project.** A connection is the project's own Vercel team; a platform account billed through
+  Hypotenuse is not built.
+- **A connection is probed at three points**: when it is saved, when it is chosen as the provider, and on **Test**. A
+  probe lists the project's sandboxes carrying our managed tag; it never creates one, so it costs nothing.
+- **A connection cannot be removed while its provider is the project's, or while a sandbox on it is live** — without
+  the account, nothing could destroy that sandbox, and the ledger would hold it live forever.
+- **The managed tag is per deployment** (`SANDBOX_MANAGED_TAG`), because the orphan sweep destroys whatever of "ours" the
+  ledger does not know, and two deployments sharing a Vercel project would each see the other's sandboxes as orphans.
+  Within one deployment the sweep also filters on the connection's project tag, since two projects may share a Vercel
+  project.
+- **A ledgered sandbox whose job is still live cannot be destroyed from the ledger**: cancelling the job is how it ends,
+  with the conversation told.
+- **The GitHub CLI release is pinned in one place per path** — `GITHUB_CLI_VERSION` for the install script and `ARG
+  GH_VERSION` in `Dockerfile.dev` — and a test holds them equal.
+
+### Traps found while building
+
+- **`@vercel/sandbox` 3.x names sandboxes, not ids.** `Sandbox.get({ name })`, and every method on a sandbox resumes a
+  stopped session by default (`withResume`). `connect` passes `resume: false`, so finding a sandbox to destroy it never
+  starts it again.
+- **The SDK has no base-URL option, but takes a `fetch`.** Pointing it at the fake is a `fetch` that rewrites
+  `https://vercel.com/api`; `SANDBOX_VERCEL_API_URL` turns it on. Nothing else in the provider knows.
+- **The SDK retries a 5xx.** A test that wants one failure uses a 4xx, or the retry succeeds and the test reads `ok`.
+- **Vercel filters a listing on one tag only** (`SingleTagFilter`); the rest is filtered here.
+- **Vercel extends a timeout *by* a duration**; ours is the total lifetime, so `extendTimeout` asks for the difference.
+- **A custom policy comes back in the older shape** (`mode: "custom"`, `allowedDomains`), whatever shape was sent.
+
+### Not run here
+
+- **A real Vercel account.** `vercel.conformance.test.ts` is written and skipped without `VERCEL_TOKEN`; the allowlist's
+  enforcement (a sandbox reaches `example.org` and not `example.com`) and the runtime install on Vercel's own image are
+  proved only there. The by-hand staging check — a project switched to Vercel in allowlist mode running the pull
+  request round trip — waits for a Vercel token on staging.
+- **The reattach after a killed worker on Vercel** is proved by `attach` from a fresh provider instance, against the
+  fake; the plan's nightly kill-the-worker case is the supervisor's — it pushes to whichever web node answers and needs
+  no worker once launched (see [sandboxes](./phase-17-sandboxes.md#where-the-build-differs-from-the-plan)).
+- **Snapshots to cut the install time** were not measured: every job installs bun and the coding CLI first.

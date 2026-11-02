@@ -81,6 +81,9 @@ const READS = new Set([
   "conversation:live",
   "sandbox-job:list",
   "sandbox-job:view",
+  "sandbox-ledger:list",
+  "connection:list",
+  "connection:view",
   "sandbox-job:events",
   // Mints a ten-minute install state in Redis and answers the install URL; no row.
   "github:install-url",

@@ -87,6 +87,9 @@ export type BotSandboxPolicy = (typeof BOT_SANDBOX_POLICIES)[number];
  *   sandbox jobs opened wake the conversation that asked for it
  *   ({@link GITHUB_WAKE_EVENTS}); the rest are recorded and wait for its next
  *   turn. The default is a review requesting changes and a failed check.
+ * - `requireEgressAllowlist` — every sandbox job the bot starts must run
+ *   behind a deny-by-default egress allowlist; a project whose provider
+ *   cannot hold one refuses the job with a sentence the bot can relay.
  */
 /** What can happen on a pull request a bot's job opened, that may wake it. */
 export const GITHUB_WAKE_EVENTS = [
@@ -187,6 +190,9 @@ export const bots = pgTable(
       .$type<GithubWakeEvent[]>()
       .notNull()
       .default(["changes_requested", "check_failed"]),
+    requireEgressAllowlist: boolean("require_egress_allowlist")
+      .notNull()
+      .default(false),
     createdByUserId: integer("created_by_user_id").references(() => users.id, {
       onDelete: "set null",
     }),

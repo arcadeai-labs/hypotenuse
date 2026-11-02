@@ -205,6 +205,17 @@ the clone prologue, and the gh wrapper on PATH in login shells; pull requests re
 `webhooks:github` and the processing that wakes a conversation on review and CI events per the bot's
 `githubWakeEvents`; four server-side read tools; the Repositories page, bot and job sections, the `hypotenuse repo`
 commands, and `repositories.md`; and a GitHub fake serving App tokens, git smart HTTP, REST, and signed webhooks.
+**[Phase 19](./phase-19-vercel-sandboxes.md) is built**: the Vercel Sandbox provider on `@vercel/sandbox` (stock
+runtimes with ours installed at provisioning, tags with a per-deployment managed value, a policy read back after
+every egress change, every error scrubbed of the token); `project_connections` (sealed, one per kind, probed before
+saving) and `connection:*`; the provider read when a job starts; `project:settings-edit` with runtime, vCPUs, and an
+egress mode, refusing a provider that needs an account the project lacks and warning about bots that require an
+allowlist (`bots.requireEgressAllowlist`); `planEgress`'s table — install list at creation, narrowed before the clone;
+the ledger's `resources` and `sandbox-ledger:list` / `:destroy`; the orphan sweep one account at a time; the
+provider-conformance suite run by Docker and by Vercel against an in-process Vercel fake backed by containers, and
+nightly against a real account (`nightly-vercel-sandbox.yml`); the Sandboxes settings, ledger view, bot toggle, and job
+resources; `hypotenuse connection`, the ledger commands, and the new settings flags; and the Vercel section of
+`sandboxes.md`.
 
 ### Decisions so far
 
@@ -218,7 +229,7 @@ commands, and `repositories.md`; and a GitHub fake serving App tokens, git smart
 | Memory boundaries | Slack: a channel. Linear: a Linear project (the team when an issue has none). Pylon: a customer account. Plus one project-wide scope |
 | Memory store | Postgres with pgvector and full text, hybrid rank fusion as in membot; decay and promotion are new |
 | Who may talk to a bot | The platform's own permissions; no identity linking. Project RBAC governs configuration, transcripts, and memory |
-| Sandboxes | ToolExec's provider interface; Docker first (development, CI), Vercel next (production) |
+| Sandboxes | ToolExec's provider interface; Docker (development, CI) and Vercel Sandbox (production) on the project's own account; one conformance suite for every provider |
 | Code mode | Vercel's Run SDK (QuickJS compiled to WebAssembly in a worker thread); no network, filesystem, or timers; host API of memory and MCP through the same gate; on per bot, limits a bot may only lower; continuations sealed and signed per project |
 | Agent loop | Durable Keryx tasks; every message, intent, and result in Postgres; one tick at a time per conversation |
 | Organization owners | Admin standing in every project of the organization without joining it, flagged `viaOrganizationOwner` and in audit metadata; only owners create projects |

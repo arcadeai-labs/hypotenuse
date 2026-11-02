@@ -128,6 +128,7 @@ export function serializeBot(bot: Bot, persona: string) {
     channelRateLimit: bot.channelRateLimit,
     sandboxPolicy: bot.sandboxPolicy,
     sandboxJobTokenBudget: bot.sandboxJobTokenBudget,
+    requireEgressAllowlist: bot.requireEgressAllowlist,
     githubWakeEvents: bot.githubWakeEvents,
     createdByUserId: bot.createdByUserId,
     createdAt: bot.createdAt.getTime(),

@@ -65,6 +65,9 @@ Organization ─── members (owners, members) · audit_logs (its own rows and
     ├── skills                   shared skills, attached per bot
     ├── memory (project scope)   shared by every bot and channel, slow decay
     ├── github_installations · repository_grants
+    ├── project_connections      encrypted accounts a sandbox provider runs on (Vercel); one per kind
+    ├── project_settings         sandbox provider, runtime / image, vCPUs, egress mode, concurrency, longest run
+    ├── sandboxes                the ledger: every sandbox asked for, what it was given, when it was destroyed
     ├── prompt_sections (project scope)  included in every bot's prompt; only admins change them
     └── Bot ─── identity (display name, avatar, its own Slack app + Linear app) · prompt_sections (Identity, …) ·
         │       goals · model and fast-model alias names · accessRead / accessWrite tags · helpNotifyTag · budgets
@@ -296,9 +299,15 @@ Each platform has a coverage matrix in [`docs/platform-coverage/`](./platform-co
 
 ## Sandboxes
 
-Built, with Docker; a production provider follows. ToolExec's design: a `SandboxProvider` interface
-(`backend/sandbox/`, Docker for development and CI, refused in production), a `sandboxes` ledger written before the
-provider is called, and an orphan sweep. A bot's `sandbox_start` (approval-gated unless its `sandboxPolicy` is
+Built. ToolExec's design: a `SandboxProvider` interface (`backend/sandbox/`) with two providers — Docker for
+development and CI (refused in production) and Vercel Sandbox for production, on the project's own Vercel account (a
+sealed `project_connections` row; `SandboxCredentialOps.providerForProject` is the one way to a provider instance) —
+held to one conformance suite; a `sandboxes` ledger written before the provider is called, recording what each
+sandbox was given; and an orphan sweep, one provider account at a time. Callers branch on a provider's
+`capabilities`, never its name: a provider on stock runtimes gets ours installed first, and `planEgress` decides from
+the project's egress mode, the bot's `requireEgressAllowlist`, and whether the provider can narrow a running sandbox —
+created on the install list, narrowed to this API and the job's git hosts before the clone, or refused with a
+sentence. A bot's `sandbox_start` (approval-gated unless its `sandboxPolicy` is
 `allow`) writes a `sandbox_jobs` row its conversation owns, and `sandbox_wait` parks the conversation on it. A dispatch
 clock claims jobs within the project's and the bot's concurrency, and `sandbox-job:start` provisions: a job token (the
 sandbox's only credential), the briefing and task, an MCP config naming our `/mcp` (the six in-sandbox tools only) and

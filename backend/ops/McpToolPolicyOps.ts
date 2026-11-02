@@ -33,7 +33,7 @@
  * - **machine families, by prefix** — `webhooks:*` (signed platform ingress),
  *   `sandbox:*` (job-token actions), and `proxy:*` (the model and MCP gateway
  *   proxies). Asserting a prefix is safe only because no human action shares it
- *   (the human sandbox surface is `sandbox-job:*`);
+ *   (the human sandbox surface is `sandbox-job:*` and `sandbox-ledger:*`);
  * - **structural** — no `web.route`, a clock (`task.frequency > 0`), or an
  *   action flagged as login or sign-up.
  *
