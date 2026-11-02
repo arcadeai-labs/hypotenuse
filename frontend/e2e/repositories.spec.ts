@@ -70,7 +70,7 @@ test("a bot with no grant says so, and its pull-request wake events save", async
     `/project/${admin.project.id}/bot`,
     { name: "Robin", persona: "You are Robin." },
   );
-  await page.goto(`/bots/${bot.id}`);
+  await page.goto(`/bots/${bot.id}/repositories`);
 
   const section = page.getByTestId("bot-bot-repositories");
   await expect(section.getByTestId("bot-no-repositories")).toBeVisible(LANDED);
