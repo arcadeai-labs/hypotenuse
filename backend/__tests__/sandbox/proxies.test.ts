@@ -4,7 +4,7 @@ import { sandboxJobs } from "../../schema/sandbox_jobs";
 import { MODEL_KEY, startConversation } from "../agent/harness";
 import { type McpFixture, startMcpFixture } from "../fixtures/mcp-server";
 import { addServer, bindServer, type McpStage } from "../mcp/harness";
-import { HOOK_TIMEOUT, runAction } from "../setup";
+import { call, HOOK_TIMEOUT, runAction } from "../setup";
 import { buildSandboxStage, jobRow, mintJob, useOpenAiModels } from "./harness";
 
 /**
@@ -328,6 +328,36 @@ describe("the model proxy, for a bot on OpenAI models", () => {
       usage: { inputTokens: 900, outputTokens: 90, requests: 9 },
     });
     expect((await responses(spent.token, body)).status).toBe(402);
+    // A large budget is capped where every OpenAI model accepts it, or at
+    // the alias's own maxOutputTokens when it sets one.
+    const large = await job({ budgetTokens: 1_000_000 });
+    await (await responses(large.token, body)).text();
+    expect(
+      JSON.parse(stage.models.requests.at(-1)?.body ?? "{}").max_output_tokens,
+    ).toBe(16_384);
+    const aliases = await call<{
+      modelAliases: { id: number; name: string }[];
+    }>(
+      stage.u.url,
+      stage.u.peach,
+      "GET",
+      `/project/${stage.u.projectId}/model-aliases`,
+    );
+    const coder = aliases.body.modelAliases.find((a) => a.name === "coder");
+    const setCap = (options: Record<string, unknown>) =>
+      call(
+        stage.u.url,
+        stage.u.peach,
+        "POST",
+        `/project/${stage.u.projectId}/model-alias/${coder?.id}`,
+        { options },
+      );
+    expect((await setCap({ maxOutputTokens: 64_000 })).status).toBe(200);
+    await (await responses(large.token, body)).text();
+    expect(
+      JSON.parse(stage.models.requests.at(-1)?.body ?? "{}").max_output_tokens,
+    ).toBe(64_000);
+    expect((await setCap({})).status).toBe(200);
     // A job without a budget is forwarded as sent.
     const open = await job({ budgetTokens: null });
     await (await responses(open.token, body)).text();

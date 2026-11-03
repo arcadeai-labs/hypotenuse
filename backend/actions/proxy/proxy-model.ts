@@ -54,6 +54,14 @@ interface Dialect {
 /** The smallest output ceiling OpenAI accepts. */
 const MIN_OUTPUT_TOKENS = 16;
 
+/**
+ * The output ceiling the proxy sets on an uncapped request when the bot's
+ * alias names none: gpt-4o's limit, the lowest among OpenAI's current models,
+ * so no model refuses it. An admin lifts it with the alias's
+ * `maxOutputTokens`.
+ */
+const DEFAULT_OUTPUT_CEILING = 16_384;
+
 /** Claude Code speaks Anthropic Messages; Codex speaks OpenAI Responses. */
 const DIALECTS: Record<CodingProvider, Dialect> = {
   anthropic: {
@@ -230,6 +238,28 @@ export class ProxyModel implements Action {
         `This job may use ${allowed.map((m) => `"${m}"`).join(" or ")}, not "${requested}".`,
       );
     }
+    const alias =
+      requested === models.model ? bot.modelAlias : bot.fastModelAlias;
+    const [row] = await api.db.db
+      .select({
+        connection: modelConnections,
+        options: modelAliases.options,
+      })
+      .from(modelAliases)
+      .innerJoin(
+        modelConnections,
+        eq(modelConnections.id, modelAliases.connectionId),
+      )
+      .where(
+        and(
+          eq(modelAliases.projectId, job.projectId),
+          eq(modelAliases.name, alias),
+        ),
+      )
+      .limit(1);
+    if (!row) {
+      return refuse(502, "hypotenuse_refused", "The bot's model is gone.");
+    }
     if (overBudget(job)) {
       await requestJobCancel(job.id, "budget_exceeded");
       return refuse(
@@ -246,7 +276,10 @@ export class ProxyModel implements Action {
     if (job.budgetTokens !== null && maxTokens === 0 && dialect.capsOutput) {
       // A Responses request may leave its output uncapped (Codex does), which
       // would reserve nothing for its answer: cap it at what the budget has
-      // left, so the reservation below holds for it too.
+      // left, so the reservation below holds for it too — and never above
+      // what the model accepts, which OpenAI refuses with a 400: the alias's
+      // own `maxOutputTokens` when it sets one, else a ceiling every current
+      // OpenAI model accepts.
       const left =
         job.budgetTokens -
         job.usage.inputTokens -
@@ -259,9 +292,12 @@ export class ProxyModel implements Action {
           `This request could take this job past its budget of ${job.budgetTokens} tokens. Finish with what you have.`,
         );
       }
-      maxTokens = left;
+      maxTokens = Math.min(
+        left,
+        row.options?.maxOutputTokens ?? DEFAULT_OUTPUT_CEILING,
+      );
       forwarded = new TextEncoder().encode(
-        JSON.stringify({ ...parsed, [dialect.maxTokensField]: left }),
+        JSON.stringify({ ...parsed, [dialect.maxTokensField]: maxTokens }),
       );
     }
     if (
@@ -291,26 +327,6 @@ export class ProxyModel implements Action {
       );
     }
     const release = () => void api.redis.redis.decr(inflight).catch(() => 0);
-    const alias =
-      requested === models.model ? bot.modelAlias : bot.fastModelAlias;
-    const [row] = await api.db.db
-      .select({ connection: modelConnections })
-      .from(modelAliases)
-      .innerJoin(
-        modelConnections,
-        eq(modelConnections.id, modelAliases.connectionId),
-      )
-      .where(
-        and(
-          eq(modelAliases.projectId, job.projectId),
-          eq(modelAliases.name, alias),
-        ),
-      )
-      .limit(1);
-    if (!row) {
-      release();
-      return refuse(502, "hypotenuse_refused", "The bot's model is gone.");
-    }
     const base = (row.connection.baseUrl || dialect.defaultBase).replace(
       /\/+$/,
       "",
