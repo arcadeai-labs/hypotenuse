@@ -2,7 +2,7 @@
 
 > **Goal:** A bot can act without being asked. It posts a Monday summary of open Linear issues in a project's channel, checks every morning whether any Pylon customer has waited more than a day, and reviews its own goals at the end of each week. An admin attaches a cron schedule to a bot and a channel or conversation. At each time slot, the bot wakes exactly once with the schedule's instruction and its goals in context, and decides whether there is anything worth saying.
 
-> **Status: planned, not built.** Builds on the [durable agent loop](./phase-08-durable-agent-loop.md) (wake, ticks), [skills, prompts and goals](./phase-11-skills-prompts-and-goals.md) (goals as rows), and [the channel framework](./phase-13-channel-framework.md) (channels, the outbox).
+> **Status: built.** Builds on the [durable agent loop](./phase-08-durable-agent-loop.md) (wake, ticks), [skills, prompts and goals](./phase-11-skills-prompts-and-goals.md) (goals as rows), and [the channel framework](./phase-13-channel-framework.md) (channels, the outbox).
 
 Every conversation so far starts with a person. Goals ([skills, prompts and goals](./phase-11-skills-prompts-and-goals.md)) give a bot something to want, and a schedule gives it a time to act on them.
 
@@ -137,12 +137,12 @@ bun run lint
 
 ## Definition of done
 
-- [ ] Admins attach cron schedules (with time zone, instruction, optional guard) to a bot and a target
-- [ ] Each slot runs at most once; missed slots never burst
-- [ ] Guards cost one fast-model call per slot and can skip silently
-- [ ] Scheduled ticks may end silent; goal-review schedules update goals
-- [ ] Bots can propose but never enable schedules
-- [ ] Schedules tab, CLI, and `schedules.md` ship in the same PR
+- [x] Admins attach cron schedules (with time zone, instruction, optional guard) to a bot and a target
+- [x] Each slot runs at most once; missed slots never burst
+- [x] Guards cost one fast-model call per slot and can skip silently
+- [x] Scheduled ticks may end silent; goal-review schedules update goals
+- [x] Bots can propose but never enable schedules
+- [x] Schedules tab, CLI, and `schedules.md` ship in the same PR
 
 ## Open questions
 
@@ -151,4 +151,107 @@ bun run lint
 
 ## Learnings from the build
 
-Not built yet.
+What shipped, where it differs from the plan above, and why.
+
+### The open questions, decided
+
+- **Linear has no `channel` target, and neither has Pylon.** A Linear project has no surface for a conversation of
+  its own: a project update or a pinned issue's comment is not an agent session, and opening issues needs a scope
+  the app does not ask for. `schedule:create` refuses a Linear or Pylon channel with a sentence naming the way that
+  works — target one of the bot's conversations there (a session, an issue), or `none`. A `channel` target is one of
+  `SCHEDULE_CHANNEL_TYPES`: `slack`, `webhook`, and `web` (the dashboard). An `api` channel has no callback URL of
+  its own, so it is refused too.
+- **Limits: 10 schedules per bot (proposals included), 5 minutes between slots.** Both are config
+  (`SCHEDULES_MAX_PER_BOT`, `SCHEDULES_MIN_INTERVAL_MS`). The interval is checked over the next 200 slots, which
+  catches `0,1 9 * * *` as well as `* * * * *`. Seconds (six fields) are refused by croner's `5-part` mode.
+
+### Where the build differs from the plan
+
+- **A DST gap runs the slot once at the shifted time; it is not skipped.** croner 11 (pinned, `ScheduleOps` is its
+  only importer) moves a 02:30 slot on the spring-forward night to 03:00 local, and runs a 01:30 slot once on the
+  fall-back night. A daily schedule that silently lost a day a year was the worse surprise, so the plan's "DST gaps
+  skip a slot" became "a daily schedule runs every day". `schedules.test.ts` pins both nights in `America/New_York`.
+- **The fire is its own task, `schedule-run:fire`,** not work inside the clock: the guard is a model call, and a
+  clock must never wait on one. It is a per-run task on the `agents` queue (never a clock, no route, so never MCP),
+  and the second unaudited writer this phase adds — on the closed list in `AGENTS.md` and phase 05.
+- **The fire never holds the run's row lock while it locks the conversation.** The tick settles a run while holding
+  the conversation's lock (conversation, then run), so a fire that held the run and then asked for the conversation
+  could deadlock against it. A fire instead *takes* a run by a conditional update of `startedAt` (and `status`
+  `pending` → `guarding` when there is a guard), committed at once; the wake transaction locks the conversation and
+  then writes the run `WHERE startedAt = <its own>`. A second fire finds the run taken (`busy`) or done (`settled`); a
+  fire that died leaves `startedAt` behind, and the clock fires a run left `pending` or `guarding` past
+  `staleRunMs` again, taking it over.
+- **A run is settled by the turn that delivers its inbox row,** not by epoch: the row is written `queue` (a schedule
+  never interrupts a running turn) and `answers: false` (it never answers a question the conversation waits on), so
+  the turn that reads it may be a later one. `ScheduleRunOps.settleScheduledTurn` runs in the transaction that ends
+  the turn — `applyTransition` and `failTurn` in the tick, and `finalizeCancel` — and settles every `woken` run whose
+  row has `deliveredAt`. A cancel settles them all, read or not, as `failed`. A wait on a timer, an approval, help, or
+  a sandbox leaves the run `woken`; a question to people (`ask_question`) counts as `posted`.
+- **`complete({ silent: true })` is allowed only in a scheduled turn** (a `woken` run whose row is delivered), so a
+  person who asked is always answered: anywhere else it is a `not_scheduled` tool error. A silent ending is the one
+  `ended` transition with no outbound message, which is why `Transition`'s `outbound` became optional for `ended`;
+  its `status_change` reason is `silent`.
+- **A guard that cannot answer fails the run** (`The guard could not decide: …`) rather than waking the bot: a guard
+  is the person's condition, and acting when it could not be checked would ignore it.
+- **The guard's context** is the bot's active goals and the logical paths and descriptions of its target channel's
+  current memory documents — no search, no embedding, so it stays one cheap call.
+- **The Slack thread is opened by the outbox, platform-agnostically.** A `channel` slot's conversation is keyed
+  `schedule:<id>:<slotIso>` (`PENDING_THREAD_PREFIX`, in `ScheduleRunOps` so the Slack adapter can import it without
+  a cycle). The Slack adapter treats a placeholder as no thread: `status`, `stream`, and `plan` rows are settled
+  without a call (there is no thread to show them in), and the first final row posts at the top of the channel and
+  returns `SendResult.openedThread`. `OutboxOps.settle` rebinds the conversation's key to that `ts` only while the
+  key is still a placeholder, so a reply in the thread finds the conversation by the ordinary `(bot, channel,
+  thread)` lookup. The adapter reads the key from the conversation at send time, so rows written before the thread
+  opened still go into it. A webhook-platform receiver sees the placeholder as the conversation key and may reply
+  with it.
+- **`none` lives on a `web` channel of its own,** `bot:<id>:schedules`, so its memory and transcripts stay apart from
+  the dashboard chat's.
+- **Routes sit under the project,** as every other bot-owned row's do: `PUT /project/:projectId/bot/:botId/schedule`,
+  `GET …/bot/:botId/schedules`, and `/project/:projectId/schedule/:scheduleId` for view, edit, delete, `/runs`, and
+  `/run`. One more read was added for the editor: `schedule:preview` (`GET /project/:projectId/schedule-preview`)
+  answers a cron in words and its next five slots without saving, or the same refusal `schedule:create` would give.
+- **`schedule:run-now` works on a disabled schedule** — a proposal can be tried before it is armed — and its slot is
+  the moment it was asked, under the same unique index. Its guard and the disengagement checks still apply.
+- **Enabling a schedule recomputes `nextRunAt` from now,** so arming an old proposal never fires its past slots; so
+  does changing the cron or zone. An expression that has no next slot disables its schedule at the clock.
+- **A run's cost** is the guard's reported cost plus the `cost_records` of its conversation since the fire took it,
+  where the provider reports one (the Gateway does; nothing else prices yet — [phase 22](./phase-22-telemetry-and-cost.md)).
+- **The inbox source `schedule`** is new; the transcript shows the message as a user-role `message` entry with that
+  source, and `/name` skill expansion does not apply to it (it is not a person's).
+
+- **Rule 13: `hypotenuse schedule` wraps every `schedule:*` action but `schedule:preview`,** which is the dashboard
+  editor's live check; from the terminal, `schedule add` and `edit` give the same refusal and `schedule view` shows
+  the next five slots. The CLI is 2.15.0.
+
+### What a slot skips on
+
+Every combination `disengagedReason` decides, in order (the first that holds is the reason on the run):
+
+| Condition | Reason |
+|---|---|
+| the bot is disabled | `The bot is disabled.` |
+| a cron slot, and the schedule was disabled after it was claimed | `The schedule was disabled.` |
+| a conversation target that is gone | `The conversation is gone.` |
+| a conversation target a person stopped (`ended`, `cancelled`) | `A person stopped this conversation.` |
+| a Linear conversation target that has ended | `The Linear session has ended.` |
+| the channel archived | `The channel is archived.` |
+| a platform channel with no enabled binding for the bot | `The bot is no longer bound to this channel.` |
+| a platform channel whose installation is not `active` | `The bot's <type> app is not installed.` |
+| otherwise (`none`, `web`, `api` channels skip only the bot and schedule rows) | — the slot wakes the target |
+
+It is checked twice: before the guard (to save its call) and again under the conversation's lock, against the
+schedule re-read `FOR SHARE` — a person can disable it while the guard is answering, and the row read before the
+guard would still say enabled. A skip found there throws, so the wake's whole transaction rolls back — a `channel`
+or `none` slot's freshly created conversation included — and the skip is recorded after. `lastRunAt` is written only when a run is: a slot `catchUp: none` drops as late never
+ran.
+
+### Traps found while building
+
+- **Two test runs share `hypotenuse_test`.** Running one suite while `bun run test` runs truncates the other's
+  database mid-test (`You are not a member of this project`). Run one at a time, or give a worktree its own database
+  with `bun run workspace:setup`.
+- **Every expected tool list moved.** `schedule_list` and `schedule_propose` are offered to every bot, so the suites
+  that assert the exact tools offered gained both.
+- **A coverage row names exactly one module**; `coverage.test.ts` checks that path exists, so two paths in one cell
+  fail it.
+

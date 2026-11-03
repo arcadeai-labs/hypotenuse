@@ -61,6 +61,10 @@ const READS = new Set([
   "prompt:preview",
   "goal:list",
   "goal:view",
+  "schedule:list",
+  "schedule:view",
+  "schedule:runs",
+  "schedule:preview",
   "skill:list",
   "skill:view",
   "skill:versions",
@@ -171,6 +175,10 @@ const UNAUDITED_WRITERS = new Set([
   "sandbox-jobs:dispatch",
   "sandbox-jobs:reap",
   "sandbox:orphan-sweep",
+  // Schedules' machine work: the clock and the per-run fire, recorded on
+  // `schedule_runs` (and the inbox row a fire writes).
+  "schedules:due",
+  "schedule-run:fire",
 ]);
 
 /**

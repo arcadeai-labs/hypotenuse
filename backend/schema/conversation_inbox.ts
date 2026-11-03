@@ -23,6 +23,7 @@ export const INBOX_SOURCES = [
   "participant",
   "system",
   "event",
+  "schedule",
 ] as const;
 
 /** One of {@link INBOX_SOURCES}. */

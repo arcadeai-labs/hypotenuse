@@ -628,3 +628,171 @@
     margin-bottom: 0;
   }
 }
+
+// ---------------------------------------------------------------------------
+// A bot's schedules
+// ---------------------------------------------------------------------------
+
+.schedule-list,
+.schedule-runs {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-4);
+  padding: 0;
+  list-style: none;
+}
+
+.schedule {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+
+  // A disabled schedule reads quieter than the armed ones.
+  &[data-enabled="false"] {
+    background: var(--bg-sunken);
+
+    .schedule-name {
+      color: var(--text-secondary);
+    }
+  }
+
+  > .ui-alert {
+    margin: 0;
+  }
+}
+
+.schedule-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.schedule-name {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.schedule-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-left: auto;
+}
+
+// The bot's own proposal waits for a person: the pending status colour.
+.schedule-chip-proposed {
+  border-color: var(--status-pending);
+  color: var(--text-primary);
+}
+
+.schedule-when,
+.schedule-guard,
+.schedule-instruction {
+  margin: 0;
+}
+
+.schedule-instruction {
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+}
+
+.schedule-cron {
+  font-family: var(--font-mono);
+}
+
+.schedule-example {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font-size: inherit;
+
+  &:hover:not(:disabled) {
+    color: var(--accent-hover);
+    text-decoration: underline;
+  }
+}
+
+.schedule-preview {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  border-left: 2px solid var(--border-subtle);
+}
+
+.schedule-preview-when {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.schedule-editor,
+.schedule-new {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.schedule-new-title {
+  margin: 0;
+}
+
+.schedule-fields-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+
+  > .form-group,
+  > div {
+    flex: 1 1 14rem;
+  }
+}
+
+.schedule-runs {
+  margin: 0;
+}
+
+.schedule-run {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+
+  &[data-tone="active"] .schedule-run-dot {
+    background: var(--status-active);
+  }
+
+  &[data-tone="complete"] .schedule-run-dot {
+    background: var(--status-complete);
+  }
+
+  &[data-tone="idle"] .schedule-run-dot {
+    background: var(--status-idle);
+  }
+
+  &[data-tone="error"] .schedule-run-dot {
+    background: var(--status-error);
+  }
+}
+
+.schedule-run-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  align-self: center;
+}
+
+.schedule-run-slot {
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.schedule-run-link {
+  margin-left: auto;
+}

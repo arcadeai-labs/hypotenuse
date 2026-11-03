@@ -16,6 +16,7 @@ import { ModelSection } from "./ModelSection";
 import { PromptSettingsSection } from "./PromptSettingsSection";
 import { RepositoriesSection } from "./RepositoriesSection";
 import { SandboxSection } from "./SandboxSection";
+import { SchedulesSection } from "./SchedulesSection";
 import { SkillsSection } from "./SkillsSection";
 import { ToolsSection } from "./ToolsSection";
 
@@ -113,6 +114,18 @@ export const BOT_SECTIONS: readonly BotSection[] = [
         projectId={ctx.projectId}
         bot={ctx.bot}
         denied={botWriteDenied(ctx.reason("goal:create"), ctx.standing)}
+      />
+    ),
+  },
+  {
+    slug: "schedules",
+    label: "Schedules",
+    group: "Behavior",
+    render: (ctx) => (
+      <SchedulesSection
+        projectId={ctx.projectId}
+        bot={ctx.bot}
+        denied={botWriteDenied(ctx.reason("schedule:create"), ctx.standing)}
       />
     ),
   },

@@ -32,7 +32,8 @@ that thinks a goal should change says so in its reply.
 
 A goal with a review interval is **Review due** once that long has passed since it was last reviewed (or since it
 was made). The next turn the bot takes, its prompt asks it to review the goal, and its `goal_update` marks the
-review done. Reviews happen when the bot is working; a bot nobody talks to does not wake up to review its goals.
+review done. Reviews happen when the bot is working; to have a bot nobody talks to review its goals, give it a
+[goal review schedule](/docs/schedules#goal-review).
 
 ## Who may change goals
 

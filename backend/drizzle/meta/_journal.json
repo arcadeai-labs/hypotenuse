@@ -134,6 +134,13 @@
       "when": 1793602941855,
       "tag": "0018_ambiguous_lord_hawal",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1793655239724,
+      "tag": "0019_unusual_moira_mactaggert",
+      "breakpoints": true
     }
   ]
 }

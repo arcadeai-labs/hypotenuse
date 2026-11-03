@@ -39,6 +39,8 @@ import { sandboxMessage } from "./sandbox-message";
 import { sandboxStart } from "./sandbox-start";
 import { sandboxStatus } from "./sandbox-status";
 import { sandboxWait } from "./sandbox-wait";
+import { scheduleList } from "./schedule-list";
+import { schedulePropose } from "./schedule-propose";
 import { searchHistory } from "./search-history";
 import { skillList } from "./skill-list";
 import type { ToolContext, ToolDefinition } from "./types";
@@ -49,7 +51,7 @@ import { waitFor } from "./wait-for";
  * The tool registry: every tool a bot may be offered, by name. The built-in
  * tools, the memory tools, the MCP meta-tools, the prompt, goal, and skill
  * tools, code mode's `run_code`, and — in a Linear session only — the
- * `linear_*` tools, and — on a Pylon issue only — the `pylon_*` tools
+ * `linear_*` tools, the `schedule_*` tools, and — on a Pylon issue only — the `pylon_*` tools
  * register here, as do the `sandbox_*` tools (`sandbox_start` when the bot's
  * sandbox policy allows it; the rest once the conversation has a job) and
  * the `github_*` read tools (only when the bot has a repository granted).
@@ -141,6 +143,8 @@ for (const tool of [
   promptCreate,
   goalList,
   goalUpdate,
+  scheduleList,
+  schedulePropose,
   skillList,
   useSkill,
   runCode,

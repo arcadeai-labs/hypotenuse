@@ -84,6 +84,12 @@ export interface SendResult {
   error?: string | null;
   /** The platform asked us to wait this long (Retry-After). */
   retryAfterMs?: number;
+  /**
+   * The thread this send opened, for a conversation whose key was still a
+   * schedule's placeholder (`schedule:<id>:<slot>`): it becomes the
+   * conversation's key, so replies in the thread continue it.
+   */
+  openedThread?: string;
 }
 
 /** What a surface adapter does. */

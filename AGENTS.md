@@ -62,7 +62,12 @@ repository grants (read or push, a branch prefix, which bots) a project admin ma
 trade the job token for an installation token scoped to one repository on every command, revoked when the job ends;
 a job's pull request comes back to the conversation as a link (Slack, Linear's external URL, a Pylon note), and review
 and CI events on it, through `webhooks:github`, wake the bot as its `githubWakeEvents` say — tested against a GitHub
-fake serving App tokens, git smart HTTP, REST, and signed webhooks. The build order and every
+fake serving App tokens, git smart HTTP, REST, and signed webhooks. Bots **act on schedules**: a person attaches a
+cron schedule in a time zone to a bot, with an instruction, an optional guard the `fast` model checks once per slot,
+and a target — a channel (a new conversation each slot, its first Slack message opening the thread), one
+conversation, or nowhere; each slot runs once (`schedule_runs`, unique per slot) and never bursts after downtime, a
+scheduled turn may end silently, a schedule never re-engages what a person stopped, `goal-review` schedules have the
+bot review its goals, and a bot may only propose a schedule, disabled until a person enables it. The build order and every
 > plan are in
 > [`docs/plans/README.md`](./docs/plans/README.md); the system on one page is
 > [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md). Hypotenuse **v1** — local coding agents answering
@@ -126,9 +131,9 @@ These bind from the first line of code. A rule that names a thing not built yet 
    `mcp_servers` and `bots`); outbox delivery (`outbox:deliver`, recorded in `outbox_messages`); the sandbox's machine half (`sandbox:events`, `sandbox:heartbeat`, `sandbox:complete`, the in-sandbox tools
    `sandbox:report-status`, `sandbox:ask`, `sandbox:check-answer`, `sandbox:request-help`, `sandbox:submit-artifact`,
    and `sandbox:memory-search`, the proxies `proxy:model` and `proxy:mcp`, the git credential hop `sandbox:git-credential`, and provisioning, `sandbox-job:start`,
-   recorded in `sandbox_jobs`, `sandbox_job_events`, its questions, its git handouts (`sandbox_job_git_tokens`), and the `sandboxes` ledger); and `cost_records`. The audited thing is always **the decision a
+   recorded in `sandbox_jobs`, `sandbox_job_events`, its questions, its git handouts (`sandbox_job_git_tokens`), and the `sandboxes` ledger); a schedule's slot fired (`schedule-run:fire`, recorded in `schedule_runs`); and `cost_records`. The audited thing is always **the decision a
    person made** — editing a bot, its prompt, its goals, or a skill, binding it to a channel, approving a tool call,
-   answering a help request, granting a repository. A decision a platform participant makes in a channel (an approval clicked in Slack) is
+   answering a help request, granting a repository, arming a schedule. A decision a platform participant makes in a channel (an approval clicked in Slack) is
    audited too, as `actorType: "participant"`.
 6. **Credentials never leave the server.** No action returns a platform token, signing secret, model key, MCP
    server credential, or GitHub App key, and no serializer has a field one fits in. A sandbox holds exactly one

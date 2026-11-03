@@ -55,7 +55,8 @@ export type Transition =
   | {
       to: "ended";
       outcome: "completed" | "failed";
-      outbound: Outbound;
+      /** Absent for a silent ending: a scheduled turn with nothing to say. */
+      outbound?: Outbound;
     }
   | {
       to: "waiting";
