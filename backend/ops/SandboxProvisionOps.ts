@@ -58,8 +58,9 @@ import { provisionSandbox } from "./SandboxOps";
  * config (every server is ours: `hypotenuse` at `/mcp`, each of the bot's
  * shared servers through the gateway proxy, all authenticated by
  * `${HYPOTENUSE_JOB_TOKEN}`, a reference the CLI expands at run time, never
- * a value on disk), Claude Code's settings, the supervisor's files, the
- * environment, and — for a job started on a repository — git's credential
+ * a value on disk), the coding CLI's settings — Claude Code for a bot on an
+ * Anthropic model, Codex for one on an OpenAI model — the supervisor's
+ * files, the environment, and — for a job started on a repository — git's credential
  * helper, the managed `gh`, and the clone, none of which holds a GitHub token.
  */
 
@@ -74,6 +75,8 @@ export const SANDBOX_PATHS = {
   prompt: `${CONTROL_DIR}/prompt.md`,
   mcpConfig: `${CONTROL_DIR}/mcp.json`,
   settings: `${CONTROL_DIR}/settings.json`,
+  codexHome: `${CONTROL_DIR}/codex`,
+  codexConfig: `${CONTROL_DIR}/codex/config.toml`,
   runnerDir: `${CONTROL_DIR}/runner`,
   runner: `${CONTROL_DIR}/runner/runner.ts`,
   log: `${CONTROL_DIR}/supervisor.log`,
@@ -124,19 +127,38 @@ export function resolveSandboxApiUrl(provider: string): string {
   }
 }
 
-/** The model a job's coding CLI is told to use, and its small one. */
+/** The coding CLI a job runs, chosen by the provider of the bot's model. */
+export type CodingAgent = "claude_code" | "codex";
+
+/** The model providers a coding CLI speaks to, through the model proxy. */
+export type CodingProvider = "anthropic" | "openai";
+
+/** Which coding CLI speaks each provider's API. */
+export const CODING_AGENT_FOR: Record<CodingProvider, CodingAgent> = {
+  anthropic: "claude_code",
+  openai: "codex",
+};
+
+/** The model a job's coding CLI is told to use, its small one, and whose API they speak. */
 export interface JobModels {
+  /** The provider of the bot's main model; the model proxy forwards only its API. */
+  provider: CodingProvider;
+  /** The coding CLI that speaks that API: Claude Code for Anthropic, Codex for OpenAI. */
+  agent: CodingAgent;
   model: string;
+  /** The fast model, when it is on the same provider; `null` otherwise. */
   fastModel: string | null;
 }
 
 /**
- * The models a bot's coding agent speaks to: its `modelAlias` and
- * `fastModelAlias`, when each points at an Anthropic connection — the API the
- * coding CLI speaks, and the only one the model proxy forwards.
+ * The models a bot's coding agent speaks to: its `modelAlias`, on an
+ * Anthropic connection (Claude Code runs) or an OpenAI one (Codex runs), and
+ * its `fastModelAlias` when that is on the same provider — a CLI speaks one
+ * API, and the model proxy forwards only that one.
  * @param db - A database handle.
  * @param bot - The bot.
- * @returns The model ids, or `null` when the bot's main model is not Anthropic.
+ * @returns The provider and model ids, or `null` when the bot's main model is
+ *   on neither an Anthropic nor an OpenAI connection.
  */
 export async function jobModels(
   db: DbHandle,
@@ -161,11 +183,33 @@ export async function jobModels(
         ),
       )
       .limit(1);
-    return row?.provider === "anthropic" ? row.modelId : null;
+    if (!row || !Object.hasOwn(CODING_AGENT_FOR, row.provider)) return null;
+    return { modelId: row.modelId, provider: row.provider as CodingProvider };
   };
-  const model = await resolve(bot.modelAlias);
-  if (!model) return null;
-  return { model, fastModel: await resolve(bot.fastModelAlias) };
+  const main = await resolve(bot.modelAlias);
+  if (!main) return null;
+  const fast = await resolve(bot.fastModelAlias);
+  return {
+    provider: main.provider,
+    agent: CODING_AGENT_FOR[main.provider],
+    model: main.modelId,
+    fastModel: fast?.provider === main.provider ? fast.modelId : null,
+  };
+}
+
+/**
+ * The sentence a job fails with (and `sandbox_start` refuses with) when the
+ * bot's model is on a provider no coding CLI here speaks.
+ * @param botName - The bot's name, or `null` to address the bot itself.
+ * @param alias - The bot's `modelAlias`.
+ * @returns The sentence.
+ */
+export function unsupportedCodingModel(
+  botName: string | null,
+  alias: string,
+): string {
+  const whose = botName ? `${botName}'s` : "your";
+  return `A coding agent runs on an Anthropic model (Claude Code) or an OpenAI model (Codex), and ${whose} "${alias}" model is on neither kind of connection.`;
 }
 
 /** One MCP server entry in the sandbox's config. */
@@ -224,6 +268,103 @@ export function buildMcpConfig(servers: SandboxMcpServer[]): string {
  */
 export function buildClaudeSettings(): string {
   return `${JSON.stringify({ skipWebFetchPreflight: true, permissions: { defaultMode: "bypassPermissions" } }, null, 2)}\n`;
+}
+
+/**
+ * A TOML basic string: quoted, with backslashes, quotes, and control
+ * characters escaped.
+ * @param value - The text.
+ * @returns The literal.
+ */
+function tomlString(value: string): string {
+  return JSON.stringify(value);
+}
+
+/**
+ * A TOML table key: bare when it can be, quoted otherwise.
+ * @param key - The key.
+ * @returns The key as written.
+ */
+function tomlKey(key: string): string {
+  return /^[A-Za-z0-9_-]+$/.test(key) ? key : tomlString(key);
+}
+
+/** The id Codex's config gives the model proxy as its model provider. */
+export const CODEX_PROVIDER_ID = "hypotenuse";
+
+/**
+ * Codex's `$CODEX_HOME/config.toml`: the model proxy as its only model
+ * provider and every MCP server ours. The job token is named, never written:
+ * `env_key` and `bearer_token_env_var` tell Codex which variable to read, so
+ * the file on disk holds no secret. Approvals and Codex's own sandbox are off
+ * (the container is the sandbox, and nobody is there to approve); updates,
+ * analytics, and feedback are off.
+ * @param input - What it points at.
+ * @param input.apiUrl - The URL the sandbox reaches this API at.
+ * @param input.models - The job's models.
+ * @param input.servers - The MCP servers.
+ * @returns The file's contents.
+ */
+export function buildCodexConfig(input: {
+  apiUrl: string;
+  models: JobModels;
+  servers: SandboxMcpServer[];
+}): string {
+  const lines = [
+    `model = ${tomlString(input.models.model)}`,
+    `model_provider = ${tomlString(CODEX_PROVIDER_ID)}`,
+    `approval_policy = "never"`,
+    `sandbox_mode = "danger-full-access"`,
+    "check_for_update_on_startup = false",
+    "",
+    "[analytics]",
+    "enabled = false",
+    "",
+    "[feedback]",
+    "enabled = false",
+    "",
+    `[model_providers.${CODEX_PROVIDER_ID}]`,
+    `name = "Hypotenuse"`,
+    `base_url = ${tomlString(`${input.apiUrl}/api/proxy/model/openai/v1`)}`,
+    `env_key = ${tomlString(JOB_TOKEN_ENV)}`,
+    `wire_api = "responses"`,
+  ];
+  for (const s of input.servers) {
+    lines.push(
+      "",
+      `[mcp_servers.${tomlKey(s.name)}]`,
+      `url = ${tomlString(s.url)}`,
+      `bearer_token_env_var = ${tomlString(JOB_TOKEN_ENV)}`,
+      // A server that cannot start fails the run rather than leaving the
+      // agent silently without its tools.
+      "required = true",
+    );
+  }
+  return `${lines.join("\n")}\n`;
+}
+
+/**
+ * The files a job's coding CLI is configured with.
+ * @param input - What they point at.
+ * @param input.apiUrl - The URL the sandbox reaches this API at.
+ * @param input.models - The job's models, which choose the CLI.
+ * @param input.servers - The MCP servers.
+ * @returns The writes.
+ */
+export function agentConfigFiles(input: {
+  apiUrl: string;
+  models: JobModels;
+  servers: SandboxMcpServer[];
+}): { path: string; content: string }[] {
+  if (input.models.agent === "codex") {
+    return [
+      { path: SANDBOX_PATHS.codexConfig, content: buildCodexConfig(input) },
+    ];
+  }
+  return [
+    { path: SANDBOX_PATHS.mcpConfig, content: buildMcpConfig(input.servers) },
+    { path: SANDBOX_PATHS.settings, content: buildClaudeSettings() },
+  ];
 }
 
 /** What the briefing says about a job's repository. */
@@ -576,23 +717,37 @@ export function planEgress(input: {
 /** The GitHub CLI release a provider on stock runtimes installs; `Dockerfile.dev` bakes the same. */
 export const GITHUB_CLI_VERSION = "2.62.0";
 
+/** Each coding CLI's binary and the npm package that installs it. */
+export const CODING_AGENT_PACKAGES: Record<
+  CodingAgent,
+  { bin: string; npm: string }
+> = {
+  claude_code: { bin: "claude", npm: "@anthropic-ai/claude-code" },
+  codex: { bin: "codex", npm: "@openai/codex" },
+};
+
 /**
  * The script that installs our runtime into a sandbox that boots without it
  * (a provider whose registry entry says `bakesRuntimeIntoImage: false`): bun,
- * the coding CLI, and — for a repository job — the GitHub CLI at the path
- * the managed `gh` wrapper calls. Each step is skipped when the tool is
+ * the job's coding CLI, and — for a repository job — the GitHub CLI at the
+ * path the managed `gh` wrapper calls. Each step is skipped when the tool is
  * already there, so a sandbox that has them costs nothing.
  * @param input - What to install.
  * @param input.githubCli - Whether to install the GitHub CLI.
+ * @param input.agent - The coding CLI; Claude Code by default.
  * @returns A `/bin/sh` script.
  */
-export function runtimeInstallScript(input: { githubCli: boolean }): string {
+export function runtimeInstallScript(input: {
+  githubCli: boolean;
+  agent?: CodingAgent;
+}): string {
+  const cli = CODING_AGENT_PACKAGES[input.agent ?? "claude_code"];
   const lines = [
     "set -eu",
     // `sudo` resets PATH; carry ours so npm finds node.
     'asroot() { if [ "$(id -u)" = 0 ]; then "$@"; else sudo env "PATH=$PATH" "$@"; fi; }',
     "command -v bun >/dev/null 2>&1 || asroot npm install -g --no-fund --no-audit bun@1",
-    "command -v claude >/dev/null 2>&1 || asroot npm install -g --no-fund --no-audit @anthropic-ai/claude-code",
+    `command -v ${cli.bin} >/dev/null 2>&1 || asroot npm install -g --no-fund --no-audit ${cli.npm}`,
   ];
   if (input.githubCli) {
     lines.push(
@@ -607,7 +762,7 @@ export function runtimeInstallScript(input: { githubCli: boolean }): string {
       "fi",
     );
   }
-  lines.push("bun --version >/dev/null", "claude --version >/dev/null");
+  lines.push("bun --version >/dev/null", `${cli.bin} --version >/dev/null`);
   return lines.join("\n");
 }
 
@@ -807,6 +962,72 @@ export function claudeCommand(models: JobModels, resume = false): string[] {
 }
 
 /**
+ * Codex's command line, with the supervisor's placeholders. Every option goes
+ * before `resume`, the subcommand that continues a session; Codex's own
+ * sandbox and approvals are bypassed because the container is the sandbox.
+ * @param models - The models to use.
+ * @param resume - The resume form: `resume <session>` with a follow-up.
+ * @returns The argv.
+ */
+export function codexCommand(models: JobModels, resume = false): string[] {
+  return [
+    "codex",
+    "exec",
+    "--json",
+    "--skip-git-repo-check",
+    "--dangerously-bypass-approvals-and-sandbox",
+    "--model",
+    models.model,
+    ...(resume
+      ? ["resume", "__HYPOTENUSE_SESSION_ID__", "__HYPOTENUSE_FOLLOW_UP__"]
+      : ["__HYPOTENUSE_PROMPT__"]),
+  ];
+}
+
+/**
+ * The job's coding CLI's command line: Claude Code or Codex, as its models say.
+ * @param models - The models to use.
+ * @param resume - The resume form.
+ * @returns The argv.
+ */
+export function agentCommand(models: JobModels, resume = false): string[] {
+  return models.agent === "codex"
+    ? codexCommand(models, resume)
+    : claudeCommand(models, resume);
+}
+
+/**
+ * The variables that point a job's coding CLI at the model proxy and its
+ * config. Claude Code reads `ANTHROPIC_*`; Codex reads `CODEX_HOME`, whose
+ * config names the proxy and the variable holding the job token.
+ * @param input - Where the sandbox reaches us, its token, and its models.
+ * @param input.apiUrl - The URL the sandbox reaches this API at.
+ * @param input.token - The job token.
+ * @param input.models - The job's models.
+ * @returns The variables.
+ */
+function agentEnv(input: {
+  apiUrl: string;
+  token: string;
+  models: JobModels;
+}): Record<string, string> {
+  if (input.models.agent === "codex") {
+    return { CODEX_HOME: SANDBOX_PATHS.codexHome };
+  }
+  return {
+    ANTHROPIC_BASE_URL: `${input.apiUrl}/api/proxy/model/anthropic`,
+    // Sent as `Authorization: Bearer`, which is what the proxy reads.
+    ANTHROPIC_AUTH_TOKEN: input.token,
+    ANTHROPIC_MODEL: input.models.model,
+    ...(input.models.fastModel
+      ? { ANTHROPIC_SMALL_FAST_MODEL: input.models.fastModel }
+      : {}),
+    CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
+    DISABLE_AUTOUPDATER: "1",
+  };
+}
+
+/**
  * The sandbox's environment. The job token is the only credential in it:
  * the model proxy and the gateway proxy attach the real keys server-side, and
  * git's helper trades the job token for a GitHub token one command at a time.
@@ -830,19 +1051,10 @@ export function buildSandboxEnv(input: {
     HYPOTENUSE_LOG_FILE: SANDBOX_PATHS.log,
     HYPOTENUSE_HEARTBEAT_MS: String(config.sandbox.heartbeatMs),
     HYPOTENUSE_INTERACTIVE: input.job.interactive ? "true" : "false",
-    HYPOTENUSE_COMMAND: JSON.stringify(claudeCommand(input.models)),
-    HYPOTENUSE_RESUME_COMMAND: JSON.stringify(
-      claudeCommand(input.models, true),
-    ),
-    ANTHROPIC_BASE_URL: `${input.apiUrl}/api/proxy/model/anthropic`,
-    // Sent as `Authorization: Bearer`, which is what the proxy reads.
-    ANTHROPIC_AUTH_TOKEN: input.token,
-    ANTHROPIC_MODEL: input.models.model,
-    ...(input.models.fastModel
-      ? { ANTHROPIC_SMALL_FAST_MODEL: input.models.fastModel }
-      : {}),
-    CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
-    DISABLE_AUTOUPDATER: "1",
+    HYPOTENUSE_AGENT: input.models.agent,
+    HYPOTENUSE_COMMAND: JSON.stringify(agentCommand(input.models)),
+    HYPOTENUSE_RESUME_COMMAND: JSON.stringify(agentCommand(input.models, true)),
+    ...agentEnv(input),
   };
 }
 
@@ -954,7 +1166,7 @@ export async function startSandboxJob(jobId: number): Promise<StartOutcome> {
     const models = await jobModels(api.db.db, bot);
     if (!models) {
       throw new Error(
-        `The coding agent speaks the Anthropic API, and ${bot.displayName}'s "${bot.modelAlias}" model is not on an Anthropic connection. A project admin can point it at one under Settings → Models.`,
+        `${unsupportedCodingModel(bot.displayName, bot.modelAlias)} A project admin can point it at one under Settings → Models.`,
       );
     }
     const apiUrl = resolveSandboxApiUrl(provider);
@@ -1037,7 +1249,10 @@ export async function startSandboxJob(jobId: number): Promise<StartOutcome> {
     if (!definition.bakesRuntimeIntoImage) {
       const installed = await sandbox.exec("/bin/sh", [
         "-c",
-        runtimeInstallScript({ githubCli: repo !== null }),
+        runtimeInstallScript({
+          githubCli: repo !== null,
+          agent: models.agent,
+        }),
       ]);
       if (installed.exitCode !== 0) {
         throw new Error(
@@ -1050,8 +1265,7 @@ export async function startSandboxJob(jobId: number): Promise<StartOutcome> {
     // 5. Its files.
     await sandbox.writeFiles([
       { path: SANDBOX_PATHS.prompt, content: briefing },
-      { path: SANDBOX_PATHS.mcpConfig, content: buildMcpConfig(servers) },
-      { path: SANDBOX_PATHS.settings, content: buildClaudeSettings() },
+      ...agentConfigFiles({ apiUrl, models, servers }),
       ...runnerFiles(),
       ...(repo ? gitFiles(apiUrl, webOrigin) : []),
     ]);

@@ -25,7 +25,7 @@ Hypotenuse, which attaches the real credential on its own side:
 
 | The sandbox asks for | What happens |
 |---|---|
-| a model | the **model proxy** forwards the request to the bot's own Anthropic model connection, and only for the models the bot uses (its main and fast ones) |
+| a model | the **model proxy** forwards the request to the bot's own model connection, and only for the models the bot uses (its main and fast ones) — see [Which coding agent runs](#which-coding-agent-runs) |
 | an MCP tool | the **gateway** serves the bot's own [MCP servers](/docs/mcp-servers), and lists and runs only the tools the bot may call without asking |
 | a tool outside the bot's allowlist | **refused**. A sandbox cannot wait for an [approval](/docs/approvals), so the agent is told to ask instead, or to say in its result that the call is needed |
 | memory | it can search what the bot remembers about this channel and the project, read-only |
@@ -38,6 +38,21 @@ artifacts show `hyp_job_[redacted]` instead.
 
 What the agent writes reaches the bot marked as the coding agent's output, never as a person's words, and it never
 counts as an answer to a question the bot asked the people in the conversation.
+
+## Which coding agent runs
+
+The coding agent is chosen by the provider of the bot's main model (its `default` model, or whichever alias the bot
+uses):
+
+| The bot's model is on | The coding agent | It speaks |
+|---|---|---|
+| an **Anthropic** connection | Claude Code | Anthropic's Messages API |
+| an **OpenAI** connection | Codex | OpenAI's Responses API |
+| anything else (Vercel AI Gateway, OpenAI-compatible) | none: `sandbox_start` refuses, and says why | — |
+
+The bot's fast model is offered to the agent too when it is on the same provider. Either way the agent reaches its
+model only through the model proxy, with the job token, and never holds the connection's key. To have a bot's coding
+work done by an OpenAI model, connect OpenAI under [Models](/docs/models) and point the bot's model at it.
 
 ## Starting a job
 
@@ -150,7 +165,8 @@ conversation is told it was cancelled.
 | Model tokens one job may use | no cap | the bot's **Sandboxes** section: **Tokens per job** |
 | Model requests in flight at once, per job | 4 | the deployment |
 
-A model request that could take a job past its token budget — its input plus the `max_tokens` it asks for — is
+A model request that could take a job past its token budget — its input plus the `max_tokens` (or, for Codex,
+`max_output_tokens`) it asks for — is
 refused (HTTP 402) before it is sent, and a job already at its budget is refused and cancelled. A request the agent
 abandons part way is still counted. A job past its time limit
 ends as **timed out**. A job whose agent goes quiet, or whose supervisor stops answering, is ended for it, so a stuck

@@ -19,7 +19,12 @@
  */
 import { appendFileSync, readFileSync } from "node:fs";
 import { EventBatcher } from "./batcher";
-import { parseLine, type RunnerEvent, splitLines } from "./parser";
+import {
+  type AgentKind,
+  parseLine,
+  type RunnerEvent,
+  splitLines,
+} from "./parser";
 import { accumulateRunUsage } from "./usage";
 
 /** The exit code of a process stopped by SIGTERM. */
@@ -40,6 +45,8 @@ export const INTERACTIVE_TURN_HEARTBEAT_MS = 10_000;
 /** What the supervisor reads from its environment. */
 export interface SupervisorConfig {
   apiUrl: string;
+  /** Which CLI `command` runs, so its JSONL is read in its own vocabulary. */
+  agent: AgentKind;
   token: string;
   command: string[];
   resumeCommand: string[] | null;
@@ -69,6 +76,7 @@ export function readConfig(
   const cwd = env.HYPOTENUSE_CWD || "/work";
   return {
     apiUrl: required("HYPOTENUSE_API_URL").replace(/\/+$/, ""),
+    agent: agentKind(env.HYPOTENUSE_AGENT),
     token: required("HYPOTENUSE_JOB_TOKEN"),
     command: argv(required("HYPOTENUSE_COMMAND")) ?? [],
     resumeCommand: argv(env.HYPOTENUSE_RESUME_COMMAND),
@@ -78,6 +86,19 @@ export function readConfig(
     heartbeatMs: Number(env.HYPOTENUSE_HEARTBEAT_MS) || 30_000,
     logFile: env.HYPOTENUSE_LOG_FILE || `${cwd}/.hypotenuse/supervisor.log`,
   };
+}
+
+/**
+ * The CLI `HYPOTENUSE_AGENT` names; Claude Code when unset, as every sandbox
+ * started before Codex was supported is.
+ * @param raw - The variable.
+ * @returns The kind.
+ * @throws {Error} When it names a CLI the parser does not read.
+ */
+export function agentKind(raw: string | undefined): AgentKind {
+  if (!raw) return "claude_code";
+  if (raw === "claude_code" || raw === "codex" || raw === "cursor") return raw;
+  throw new Error(`HYPOTENUSE_AGENT names an unknown CLI: ${raw}`);
 }
 
 /**
@@ -294,7 +315,7 @@ export class Supervisor {
       const decoder = new TextDecoder();
       let rest = "";
       const handle = async (line: string) => {
-        const parsed = parseLine("claude_code", line);
+        const parsed = parseLine(this.config.agent, line);
         if (parsed.sessionId) this.sessionId = parsed.sessionId;
         if (parsed.failedMcpServers?.length) {
           failedMcp = parsed.failedMcpServers

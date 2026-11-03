@@ -1,11 +1,14 @@
 /**
- * The model proxy's pure helpers: reading the usage an Anthropic answer
- * reports while handing it back unchanged.
+ * The model proxy's pure helpers: reading the usage an Anthropic or OpenAI
+ * answer reports while handing it back unchanged.
  */
 
 /**
  * Pass a response body through, reading the token usage it reports: the
- * `usage` of a JSON body, or `message_start` / `message_delta` of a stream.
+ * `usage` of a JSON body, `message_start` / `message_delta` of an Anthropic
+ * stream, or `response.completed` of an OpenAI Responses stream (whose
+ * `input_tokens` already include cached ones; Anthropic's do not, so its
+ * cache fields are added).
  * Counts are the largest seen, never summed, since a stream repeats them.
  * `onDone` runs once: at the end, on an error, or when the reader hangs up.
  * @param body - The upstream body.
@@ -24,6 +27,8 @@ export function teeUsage(
     const u =
       (json as { usage?: Record<string, number> })?.usage ??
       (json as { message?: { usage?: Record<string, number> } })?.message
+        ?.usage ??
+      (json as { response?: { usage?: Record<string, number> } })?.response
         ?.usage;
     if (!u) return;
     const input =

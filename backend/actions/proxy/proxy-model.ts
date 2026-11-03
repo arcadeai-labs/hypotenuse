@@ -20,12 +20,81 @@ import {
   overBudget,
   requestJobCancel,
 } from "../../ops/SandboxJobOps";
-import { jobModels } from "../../ops/SandboxProvisionOps";
+import {
+  type CodingProvider,
+  jobModels,
+  unsupportedCodingModel,
+} from "../../ops/SandboxProvisionOps";
 import { modelAliases } from "../../schema/model_aliases";
 import { modelConnections } from "../../schema/model_connections";
 
-/** The upstream paths the proxy forwards; anything else is a 404. */
-const FORWARDED_PATHS = new Set(["/v1/messages", "/v1/messages/count_tokens"]);
+/**
+ * How the proxy speaks each provider a coding CLI uses: the paths it
+ * forwards (anything else is a 404), the path whose answer reports usage,
+ * the default upstream, the headers worth forwarding each way (the
+ * credential is ours to attach), how the key is attached, and the field a
+ * request names its output ceiling in.
+ */
+interface Dialect {
+  paths: Set<string>;
+  usagePath: string;
+  defaultBase: string;
+  requestHeaders: string[];
+  responseHeaders: string[];
+  sign: (headers: Headers, key: string) => void;
+  maxTokensField: string;
+  /**
+   * Whether a request may omit its output ceiling, so the proxy sets one at
+   * what the job's budget has left. Anthropic requires `max_tokens`; OpenAI's
+   * `max_output_tokens` is optional.
+   */
+  capsOutput: boolean;
+}
+
+/** The smallest output ceiling OpenAI accepts. */
+const MIN_OUTPUT_TOKENS = 16;
+
+/**
+ * The output ceiling the proxy sets on an uncapped request when the bot's
+ * alias names none: gpt-4o's limit, the lowest among OpenAI's current models,
+ * so no model refuses it. An admin lifts it with the alias's
+ * `maxOutputTokens`.
+ */
+const DEFAULT_OUTPUT_CEILING = 16_384;
+
+/** Claude Code speaks Anthropic Messages; Codex speaks OpenAI Responses. */
+const DIALECTS: Record<CodingProvider, Dialect> = {
+  anthropic: {
+    paths: new Set(["/v1/messages", "/v1/messages/count_tokens"]),
+    usagePath: "/v1/messages",
+    defaultBase: "https://api.anthropic.com/v1",
+    requestHeaders: [
+      "content-type",
+      "accept",
+      "anthropic-version",
+      "anthropic-beta",
+    ],
+    responseHeaders: [
+      "content-type",
+      "request-id",
+      "retry-after",
+      "x-should-retry",
+    ],
+    sign: (headers, key) => headers.set("x-api-key", key),
+    maxTokensField: "max_tokens",
+    capsOutput: false,
+  },
+  openai: {
+    paths: new Set(["/v1/responses"]),
+    usagePath: "/v1/responses",
+    defaultBase: "https://api.openai.com/v1",
+    requestHeaders: ["content-type", "accept", "openai-beta"],
+    responseHeaders: ["content-type", "x-request-id", "retry-after"],
+    sign: (headers, key) => headers.set("authorization", `Bearer ${key}`),
+    maxTokensField: "max_output_tokens",
+    capsOutput: true,
+  },
+};
 
 /** Model requests one job may have in flight at once. */
 const MAX_INFLIGHT = 4;
@@ -33,45 +102,46 @@ const MAX_INFLIGHT = 4;
 /** The largest model request forwarded. */
 const MAX_REQUEST_BYTES = 32 * 1024 * 1024;
 
-/** Request headers worth forwarding; the credential is ours to attach. */
-const FORWARDED_REQUEST_HEADERS = [
-  "content-type",
-  "accept",
-  "anthropic-version",
-  "anthropic-beta",
-];
-
-/** Response headers worth handing back to the CLI. */
-const FORWARDED_RESPONSE_HEADERS = [
-  "content-type",
-  "request-id",
-  "retry-after",
-  "x-should-retry",
-];
-
-/** The Anthropic API's own error envelope, which a CLI parses and shows. */
-function refusal(status: number, type: string, message: string): Response {
-  return new Response(
-    JSON.stringify({ type: "error", error: { type, message } }),
-    {
-      status,
-      headers: {
-        "content-type": "application/json",
-        "x-content-type-options": "nosniff",
-      },
+/**
+ * A refusal in the provider's own error envelope, which its CLI parses and
+ * shows: Anthropic's `{ type: "error", error }`, OpenAI's `{ error }`.
+ * @param provider - Whose envelope.
+ * @param status - The HTTP status.
+ * @param type - The error type.
+ * @param message - The sentence.
+ * @returns The response.
+ */
+function refusal(
+  provider: CodingProvider,
+  status: number,
+  type: string,
+  message: string,
+): Response {
+  const body =
+    provider === "openai"
+      ? { error: { type, code: type, message, param: null } }
+      : { type: "error", error: { type, message } };
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: {
+      "content-type": "application/json",
+      "x-content-type-options": "nosniff",
     },
-  );
+  });
 }
 
 /**
  * `proxy:model` — a coding CLI's model request, signed here. The sandbox
- * holds only its job token (`ANTHROPIC_AUTH_TOKEN`, sent as a bearer); this
- * attaches the key of the bot's model connection, forwards the body
- * untouched, and streams the answer back. Four gates, cheapest first:
+ * holds only its job token (Claude Code's `ANTHROPIC_AUTH_TOKEN`, Codex's
+ * provider `env_key`, both sent as a bearer); this attaches the key of the
+ * bot's model connection, forwards the body untouched, and streams the
+ * answer back. Four gates, cheapest first:
  *
- * 1. **The path** — only `/v1/messages` (and `count_tokens`): not an open relay.
- * 2. **The model** — the bot's own `modelAlias` or `fastModelAlias`, on an
- *    Anthropic connection. A job cannot ask for a model its bot does not use.
+ * 1. **The path** — the provider of the bot's main model, and only its
+ *    completion path: Anthropic's `/v1/messages` (and `count_tokens`), or
+ *    OpenAI's `/v1/responses`. Not an open relay.
+ * 2. **The model** — the bot's own `modelAlias` or `fastModelAlias`, on that
+ *    provider. A job cannot ask for a model its bot does not use.
  * 3. **The budget** — over the job's token budget is HTTP 402
  *    (`budget_exceeded`) and the job is cancelled; checked again when each
  *    answer's usage lands.
@@ -111,13 +181,22 @@ export class ProxyModel implements Action {
     const match = /^\/proxy\/model\/([a-z-]+)(\/.*)$/.exec(
       requestPath(request),
     );
-    if (!match || match[1] !== "anthropic" || !FORWARDED_PATHS.has(match[2])) {
-      return refusal(404, "not_found_error", "This endpoint is not proxied.");
+    const provider: CodingProvider =
+      match?.[1] === "openai" ? "openai" : "anthropic";
+    const dialect = DIALECTS[provider];
+    const refuse = (status: number, type: string, message: string) =>
+      refusal(provider, status, type, message);
+    if (
+      !match ||
+      !Object.hasOwn(DIALECTS, match[1]) ||
+      !dialect.paths.has(match[2])
+    ) {
+      return refuse(404, "not_found_error", "This endpoint is not proxied.");
     }
     const upstreamPath = match[2];
     const body = await readCappedBody(request, MAX_REQUEST_BYTES);
     if (body.oversized) {
-      return refusal(
+      return refuse(
         413,
         "request_too_large",
         "The model request is too large.",
@@ -125,75 +204,47 @@ export class ProxyModel implements Action {
     }
     let requested: string | null = null;
     let maxTokens = 0;
+    let parsed: Record<string, unknown>;
     try {
-      const parsed = JSON.parse(new TextDecoder().decode(body.bytes)) as {
-        model?: unknown;
-        max_tokens?: unknown;
-      };
+      parsed = JSON.parse(new TextDecoder().decode(body.bytes)) as Record<
+        string,
+        unknown
+      >;
       requested = String(parsed.model ?? "");
-      maxTokens = Math.max(0, Number(parsed.max_tokens) || 0);
+      maxTokens = Math.max(0, Number(parsed[dialect.maxTokensField]) || 0);
     } catch {
-      return refusal(400, "invalid_request_error", "The body is not JSON.");
+      return refuse(400, "invalid_request_error", "The body is not JSON.");
     }
     const models = await jobModels(api.db.db, bot);
     if (!models) {
-      return refusal(
+      return refuse(
         502,
         "hypotenuse_refused",
-        `${bot.displayName}'s "${bot.modelAlias}" model is not on an Anthropic connection, so a coding agent cannot use it.`,
+        `${unsupportedCodingModel(bot.displayName, bot.modelAlias)} A coding agent cannot use it.`,
+      );
+    }
+    if (models.provider !== provider) {
+      return refuse(
+        404,
+        "not_found_error",
+        `${bot.displayName}'s models are on ${models.provider === "openai" ? "OpenAI" : "Anthropic"}; this job's model requests go to /proxy/model/${models.provider}.`,
       );
     }
     const allowed = [models.model, models.fastModel].filter(Boolean);
     if (!requested || !allowed.includes(requested)) {
-      return refusal(
+      return refuse(
         400,
         "invalid_request_error",
         `This job may use ${allowed.map((m) => `"${m}"`).join(" or ")}, not "${requested}".`,
       );
     }
-    if (overBudget(job)) {
-      await requestJobCancel(job.id, "budget_exceeded");
-      return refusal(
-        402,
-        "budget_exceeded",
-        `This job used its budget of ${job.budgetTokens} tokens and is being stopped.`,
-      );
-    }
-    // What this request could cost at most — its input, at four characters a
-    // token, and every output token it may ask for — must fit what is left,
-    // so parallel requests cannot all start under the line and land far
-    // past it.
-    if (
-      job.budgetTokens !== null &&
-      job.usage.inputTokens +
-        job.usage.outputTokens +
-        Math.ceil(body.byteLength / 4) +
-        maxTokens >
-        job.budgetTokens
-    ) {
-      return refusal(
-        402,
-        "budget_exceeded",
-        `This request could take this job past its budget of ${job.budgetTokens} tokens. Ask for fewer max_tokens, or finish with what you have.`,
-      );
-    }
-    // A few requests in flight per job at once, counted in Redis.
-    const inflight = `sandbox:model-inflight:${job.id}`;
-    const count = await api.redis.redis.incr(inflight);
-    await api.redis.redis.pexpire(inflight, 10 * 60 * 1000);
-    if (count > MAX_INFLIGHT) {
-      await api.redis.redis.decr(inflight);
-      return refusal(
-        429,
-        "rate_limit_error",
-        `At most ${MAX_INFLIGHT} model requests may run at once for one job.`,
-      );
-    }
-    const release = () => void api.redis.redis.decr(inflight).catch(() => 0);
     const alias =
       requested === models.model ? bot.modelAlias : bot.fastModelAlias;
     const [row] = await api.db.db
-      .select({ connection: modelConnections })
+      .select({
+        connection: modelConnections,
+        options: modelAliases.options,
+      })
       .from(modelAliases)
       .innerJoin(
         modelConnections,
@@ -207,41 +258,108 @@ export class ProxyModel implements Action {
       )
       .limit(1);
     if (!row) {
-      release();
-      return refusal(502, "hypotenuse_refused", "The bot's model is gone.");
+      return refuse(502, "hypotenuse_refused", "The bot's model is gone.");
     }
-    const base = (
-      row.connection.baseUrl || "https://api.anthropic.com/v1"
-    ).replace(/\/+$/, "");
+    if (overBudget(job)) {
+      await requestJobCancel(job.id, "budget_exceeded");
+      return refuse(
+        402,
+        "budget_exceeded",
+        `This job used its budget of ${job.budgetTokens} tokens and is being stopped.`,
+      );
+    }
+    // What this request could cost at most — its input, at four characters a
+    // token, and every output token it may ask for — must fit what is left,
+    // so parallel requests cannot all start under the line and land far
+    // past it.
+    let forwarded: Uint8Array = body.bytes;
+    if (job.budgetTokens !== null && maxTokens === 0 && dialect.capsOutput) {
+      // A Responses request may leave its output uncapped (Codex does), which
+      // would reserve nothing for its answer: cap it at what the budget has
+      // left, so the reservation below holds for it too — and never above
+      // what the model accepts, which OpenAI refuses with a 400: the alias's
+      // own `maxOutputTokens` when it sets one, else a ceiling every current
+      // OpenAI model accepts.
+      const left =
+        job.budgetTokens -
+        job.usage.inputTokens -
+        job.usage.outputTokens -
+        Math.ceil(body.byteLength / 4);
+      if (left < MIN_OUTPUT_TOKENS) {
+        return refuse(
+          402,
+          "budget_exceeded",
+          `This request could take this job past its budget of ${job.budgetTokens} tokens. Finish with what you have.`,
+        );
+      }
+      maxTokens = Math.min(
+        left,
+        row.options?.maxOutputTokens ?? DEFAULT_OUTPUT_CEILING,
+      );
+      forwarded = new TextEncoder().encode(
+        JSON.stringify({ ...parsed, [dialect.maxTokensField]: maxTokens }),
+      );
+    }
+    if (
+      job.budgetTokens !== null &&
+      job.usage.inputTokens +
+        job.usage.outputTokens +
+        Math.ceil(body.byteLength / 4) +
+        maxTokens >
+        job.budgetTokens
+    ) {
+      return refuse(
+        402,
+        "budget_exceeded",
+        `This request could take this job past its budget of ${job.budgetTokens} tokens. Ask for fewer max_tokens, or finish with what you have.`,
+      );
+    }
+    // A few requests in flight per job at once, counted in Redis.
+    const inflight = `sandbox:model-inflight:${job.id}`;
+    const count = await api.redis.redis.incr(inflight);
+    await api.redis.redis.pexpire(inflight, 10 * 60 * 1000);
+    if (count > MAX_INFLIGHT) {
+      await api.redis.redis.decr(inflight);
+      return refuse(
+        429,
+        "rate_limit_error",
+        `At most ${MAX_INFLIGHT} model requests may run at once for one job.`,
+      );
+    }
+    const release = () => void api.redis.redis.decr(inflight).catch(() => 0);
+    const base = (row.connection.baseUrl || dialect.defaultBase).replace(
+      /\/+$/,
+      "",
+    );
     const url = `${base}${upstreamPath.replace(/^\/v1/, "")}${new URL(request.url).search}`;
     const headers = new Headers();
-    for (const name of FORWARDED_REQUEST_HEADERS) {
+    for (const name of dialect.requestHeaders) {
       const value = request.headers.get(name);
       if (value) headers.set(name, value);
     }
-    headers.set("x-api-key", decryptSecret(row.connection.secret));
+    dialect.sign(headers, decryptSecret(row.connection.secret));
     let upstream: Response;
     try {
       upstream = await guardedFetch(url, {
         method: "POST",
         headers,
-        body: body.bytes,
+        body: forwarded,
       });
     } catch (e) {
       release();
-      return refusal(
+      return refuse(
         502,
         "api_error",
         `The model provider could not be reached: ${e instanceof Error ? e.message : String(e)}`,
       );
     }
     const out = new Headers();
-    for (const name of FORWARDED_RESPONSE_HEADERS) {
+    for (const name of dialect.responseHeaders) {
       const value = upstream.headers.get(name);
       if (value) out.set(name, value);
     }
     const stream =
-      upstream.body && upstreamPath === "/v1/messages"
+      upstream.body && upstreamPath === dialect.usagePath
         ? teeUsage(upstream.body, (usage) => {
             release();
             void addJobUsage(job.id, usage)

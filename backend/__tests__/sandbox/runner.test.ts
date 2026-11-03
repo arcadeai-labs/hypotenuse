@@ -3,6 +3,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  agentKind,
   fillCommand,
   PROMPT_PLACEHOLDER,
   readConfig,
@@ -84,6 +85,14 @@ describe("configuration", () => {
     );
   });
 
+  test("reads which CLI runs: Claude Code when unset, Codex when named, and refuses an unknown one", () => {
+    expect(configFor("true").agent).toBe("claude_code");
+    expect(configFor("true", { HYPOTENUSE_AGENT: "codex" }).agent).toBe(
+      "codex",
+    );
+    expect(() => agentKind("aider")).toThrow("unknown CLI");
+  });
+
   test("fills placeholders anywhere in an argument", () => {
     expect(
       fillCommand(["claude", "-p", "__P__", "--x=__P__!"], { __P__: "hi" }),
@@ -125,6 +134,87 @@ describe("a run", () => {
       closingText: "All done.",
       cliSessionId: "s-1",
       usage: { input_tokens: 3, output_tokens: 4 },
+    });
+  });
+
+  test("a Codex run is read in Codex's vocabulary: its thread is the session, its last agent message the closing text, its turn's usage the usage", async () => {
+    const lines = [
+      { type: "thread.started", thread_id: "thread-1" },
+      { type: "turn.started" },
+      {
+        type: "item.started",
+        item: {
+          id: "item_0",
+          type: "command_execution",
+          command: "bun test",
+          status: "in_progress",
+        },
+      },
+      {
+        type: "item.completed",
+        item: {
+          id: "item_0",
+          type: "command_execution",
+          command: "bun test",
+          aggregated_output: "12 pass",
+          exit_code: 0,
+          status: "completed",
+        },
+      },
+      {
+        type: "item.completed",
+        item: { id: "item_1", type: "agent_message", text: "Tests pass." },
+      },
+      {
+        type: "turn.completed",
+        usage: { input_tokens: 30, cached_input_tokens: 10, output_tokens: 7 },
+      },
+    ];
+    const script = lines.map((l) => `echo '${JSON.stringify(l)}'`).join("; ");
+    const { fetcher, posted } = fakeServer();
+    const code = await new Supervisor(
+      configFor(script, { HYPOTENUSE_AGENT: "codex" }),
+      fetcher,
+    ).run();
+    expect(code).toBe(0);
+    const events = posted
+      .filter((p) => p.path === "/sandbox/events")
+      .flatMap((p) => p.body.events as { type: string; toolName?: string }[]);
+    expect(events.map((e) => e.type)).toEqual([
+      "init",
+      "init",
+      "tool_use",
+      "tool_result",
+      "assistant",
+      "result",
+    ]);
+    expect(events[2].toolName).toBe("bun test");
+    const complete = posted.find((p) => p.path === "/sandbox/complete");
+    expect(complete?.body).toMatchObject({
+      exitCode: 0,
+      outcome: "succeeded",
+      closingText: "Tests pass.",
+      cliSessionId: "thread-1",
+      usage: { input_tokens: 30, cached_input_tokens: 10, output_tokens: 7 },
+    });
+  });
+
+  test("a Codex turn that failed is failed, with Codex's error", async () => {
+    const lines = [
+      { type: "thread.started", thread_id: "thread-2" },
+      { type: "turn.failed", error: { message: "the model is unavailable" } },
+    ];
+    const script = `${lines.map((l) => `echo '${JSON.stringify(l)}'`).join("; ")}; exit 1`;
+    const { fetcher, posted } = fakeServer();
+    await new Supervisor(
+      configFor(script, { HYPOTENUSE_AGENT: "codex" }),
+      fetcher,
+    ).run();
+    const complete = posted.find((p) => p.path === "/sandbox/complete");
+    expect(complete?.body).toMatchObject({
+      outcome: "failed",
+      error: "the model is unavailable",
+      cliSessionId: "thread-2",
     });
   });
 

@@ -545,6 +545,14 @@ describe("the egress decision", () => {
     );
   });
 
+  test("the runtime install brings the job's coding CLI: Codex for a bot on OpenAI models", () => {
+    const codex = runtimeInstallScript({ githubCli: false, agent: "codex" });
+    expect(codex).toContain("command -v codex");
+    expect(codex).toContain("@openai/codex");
+    expect(codex).toContain("codex --version");
+    expect(codex).not.toContain("claude");
+  });
+
   test("the GitHub CLI version matches the one Dockerfile.dev bakes", async () => {
     const dockerfile = await Bun.file(
       `${import.meta.dir}/../../sandbox/images/Dockerfile.dev`,

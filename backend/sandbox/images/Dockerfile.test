@@ -2,8 +2,8 @@
 #
 #   cd backend && bun run sandbox:build-test-image
 #
-# `Dockerfile.dev` minus the real coding CLI, plus `stub-claude.sh` standing
-# in for `claude`. Everything else is real: the container, the supervisor,
+# `Dockerfile.dev` minus the real coding CLIs, plus `stub-claude.sh` and
+# `stub-codex.sh` standing in for `claude` and `codex` (both `stub-agent.ts`). Everything else is real: the container, the supervisor,
 # the HTTP ingest, our MCP server, the proxies. The stub plays a scenario
 # written into its task and calls our MCP tools for real, so the suite
 # asserts the orchestration with no model, no key, and no network beyond us.
@@ -16,9 +16,10 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/*
 
 COPY stub-claude.sh /usr/local/bin/claude
-COPY stub-claude.ts /usr/local/lib/hypotenuse/stub-claude.ts
-RUN chmod 0755 /usr/local/bin/claude \
-  && chmod 0644 /usr/local/lib/hypotenuse/stub-claude.ts
+COPY stub-codex.sh /usr/local/bin/codex
+COPY stub-agent.ts /usr/local/lib/hypotenuse/stub-agent.ts
+RUN chmod 0755 /usr/local/bin/claude /usr/local/bin/codex \
+  && chmod 0644 /usr/local/lib/hypotenuse/stub-agent.ts
 
 # The same non-root account as the development image.
 RUN groupmod -n agent bun \

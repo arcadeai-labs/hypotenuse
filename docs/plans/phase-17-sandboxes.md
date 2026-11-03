@@ -305,12 +305,12 @@ By hand: ask a bot in a Slack test channel to "run the tests in a scratch sandbo
 | Piece | Where |
 |---|---|
 | The provider interface, registry (`docker` only, refused in production at `project:settings-edit` and when a job starts), and the Docker provider (label `hypotenuse.managed`, polling exec, the deadline file, `chown` after `docker cp`, an optional `SANDBOX_DOCKER_NETWORK`) | `backend/sandbox/{types,registry}.ts`, `backend/sandbox/providers/{docker,execPolling}.ts` |
-| The images: `Dockerfile.dev` (non-root `agent`, Claude Code baked in, `VERSION` 1.0.0, `verify-image.sh`, CI's **Sandbox Image** job) and `Dockerfile.test` with the scripted CLI, `stub-claude.ts`, which plays `STUB {…}` directives from its task and calls our MCP tools and proxies for real | `backend/sandbox/images/*` |
+| The images: `Dockerfile.dev` (non-root `agent`, Claude Code and Codex baked in, `VERSION` 1.2.0, `verify-image.sh`, CI's **Sandbox Image** job) and `Dockerfile.test` with the scripted CLI, `stub-agent.ts` (as `claude` and as `codex`, through `stub-claude.sh` / `stub-codex.sh`), which plays `STUB {…}` directives from its task in either CLI's contract and calls our MCP tools and proxies for real | `backend/sandbox/images/*` |
 | Schema (migration `0016`): `sandboxes` (the ledger), `sandbox_jobs`, `sandbox_job_events`, `sandbox_job_messages`, `sandbox_job_questions`; `project_settings.sandbox*`; `bots.sandboxPolicy` and `sandboxJobTokenBudget`; `help_requests.entryId` nullable and `sandboxQuestionId` | `backend/schema/*` |
 | The ledger, the job lifecycle (token, claim, the one `finalizeSandboxJob`, messages, questions, usage), the relay to the parent conversation, provisioning, and the reaper and orphan sweep | `backend/ops/Sandbox{,Job,Relay,Provision,Reap}Ops.ts`, `backend/sandbox/briefing.md` |
 | The supervisor, ported lean: `parser.ts`, `batcher.ts`, `usage.ts` verbatim; `runner.ts` rewritten without session checkpointing | `backend/sandbox/runner/*` |
 | The job token (`JobTokenMiddleware`, a per-job rate limit) and the split between machine and human principals, over HTTP and `/mcp` | `backend/middleware/jobToken.ts`, `backend/initializers/sandboxSplit.ts`, `SANDBOX_ONLY_ACTION_NAMES` in `backend/ops/McpToolPolicyOps.ts` |
-| The proxies: `proxy:model` (Anthropic messages only, the bot's two models, token budget → 402 and a cancel) and `proxy:mcp` (the gateway) | `backend/actions/proxy/*`, `backend/ops/ModelProxyOps.ts` |
+| The proxies: `proxy:model` (the provider of the bot's main model and only its completion path — Anthropic `/v1/messages` or OpenAI `/v1/responses` — the bot's two models, token budget → 402 and a cancel) and `proxy:mcp` (the gateway) | `backend/actions/proxy/*`, `backend/ops/ModelProxyOps.ts` |
 | Actions: the supervisor's `sandbox:events` / `heartbeat` / `complete`; the in-sandbox tools `sandbox:report-status`, `ask`, `check-answer`, `request-help`, `submit-artifact`, `memory-search`; `sandbox-job:list` / `view` / `events` / `cancel` / `answer`; `project:settings-edit`; task-only `sandbox-job:start`; clocks `sandbox-jobs:dispatch`, `sandbox-jobs:reap`, `sandbox:orphan-sweep` (on a new `sandboxes` queue) | `backend/actions/{sandbox,sandbox-job,project}/*` |
 | Bot tools: `sandbox_start` (gated by the bot's policy), `sandbox_wait` (terminal), `sandbox_status`, `sandbox_message`, `sandbox_cancel` | `backend/tools/sandbox-*.ts` |
 | Proof | `backend/__tests__/sandbox/{lifecycle,scope,questions,reaper,proxies,tools,runner}.test.ts` (lifecycle in real containers, skipped where no Docker daemon answers), `backend/__tests__/cli/sandbox-commands.test.ts` |
@@ -328,7 +328,7 @@ By hand: ask a bot in a Slack test channel to "run the tests in a scratch sandbo
 | A per-job USD budget, `costUsd` | A **token** budget (`bots.sandboxJobTokenBudget` copied to `sandbox_jobs.budgetTokens`): the proxy is the one place that sees usage, and nothing prices it yet; telemetry and cost turns this into money. Usage is summed by the proxy into `usage`, and the CLI's own report is kept apart in `cliUsage` |
 | The gateway proxy forwards to the shared server | It is a small stateless MCP server of its own in front of the bot's servers: `tools/list` from the cached catalog shows only what the bot may call **without asking**, and a call outside the allowlist is refused with a sentence pointing at `sandbox-ask` — a sandbox cannot park for an approval. Calls go through the same client pool as `mcp_exec`, so OAuth refresh and the SSRF guard come along |
 | Endpoints at `${apiUrl}/proxy/...` and human routes like `/sandbox-job/:id` | Actions live under `/api`: `/api/sandbox/*`, `/api/sandbox/job/*`, `/api/proxy/model/anthropic/*`, `/api/proxy/mcp/:serverId`; the person-facing routes carry the project (`/project/:projectId/sandbox-job/:jobId`) because membership middleware reads it |
-| The model proxy follows the bot's model connection | Only an Anthropic connection: the coding CLI speaks the Anthropic API. The body's `model` must be the bot's `modelAlias` or `fastModelAlias` model id (passed as `--model` and `ANTHROPIC_SMALL_FAST_MODEL`); anything else is a 400, and a bot whose `default` is not on Anthropic is refused at `sandbox_start` |
+| The model proxy follows the bot's model connection | Only an **Anthropic** or an **OpenAI** connection, because each has a coding CLI that speaks its API: Claude Code (Messages, `/api/proxy/model/anthropic`) and Codex (Responses, `/api/proxy/model/openai`), chosen by `jobModels` from the provider of the bot's `modelAlias`. The body's `model` must be the bot's `modelAlias` or `fastModelAlias` model id (the fast one only when it is on the same provider); anything else is a 400, the other provider's route is a 404, and a bot whose model is on neither is refused at `sandbox_start` (see [OpenAI models: Codex](#openai-models-codex)) |
 | `SANDBOX_ONLY_ACTION_NAMES` is the in-sandbox tools | It is every action a job token may call — the supervisor's three, the six tools, and the two proxies — and nothing else. The six tools are published as MCP tools despite the `sandbox:` prefix (`SANDBOX_MCP_TOOL_ACTION_NAMES`) and removed from every person's session |
 | Open question: default approval for `sandbox_start` | `approve` by default (`off`, `approve`, `allow` per bot); the bot is offered `sandbox_start` unless its policy is `off` |
 | Open question: concurrency defaults | 3 jobs in flight per project (`project_settings.sandboxConcurrency`), 1 per bot (`SANDBOX_PER_BOT_CONCURRENCY`) |
@@ -364,6 +364,30 @@ By hand: ask a bot in a Slack test channel to "run the tests in a scratch sandbo
 - **Parallel-safe tool calls settle in any order**: a test reading a step's results matches them by content.
 - **Claude Code's `--mcp-config` expands `${VAR}` in headers**, so the config file on disk names
   `${HYPOTENUSE_JOB_TOKEN}` and holds no credential; the stub CLI expands it the same way.
+
+### OpenAI models: Codex
+
+Added after the build, so a bot on an OpenAI model can run sandbox jobs. Running Claude Code against an OpenAI model
+through an Anthropic-to-OpenAI translator in the proxy was rejected: it would put a protocol translator in the
+credential path and give a weaker agent than the CLI built for those models. Instead the job runs Codex:
+
+| Piece | How |
+|---|---|
+| Choosing the CLI | `jobModels` returns the provider and `agent` (`claude_code` / `codex`); `HYPOTENUSE_AGENT` tells the supervisor which vocabulary to parse (`parseLine`, whose Codex half was ported with the supervisor and is now used) |
+| Codex's config | `$CODEX_HOME/config.toml` (`/work/.hypotenuse/codex`), written by `buildCodexConfig`: the model proxy as the only `model_providers` entry (`wire_api = "responses"`, `env_key = "HYPOTENUSE_JOB_TOKEN"`), every MCP server with `bearer_token_env_var` and `required = true`, approvals and Codex's own sandbox off (the container is the sandbox), update checks, analytics, and feedback off. Like Claude Code's MCP config, it names the token's variable and holds no credential |
+| The command | `codex exec --json --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox --model <m> <prompt>`; a follow-up is `codex exec <same options> resume <thread_id> <prompt>`, every option before `resume` |
+| The proxy | A dialect per provider in `proxy-model.ts`: OpenAI forwards only `POST /v1/responses`, signs with `Authorization: Bearer`, refuses in OpenAI's `{ error }` envelope, and reserves `max_output_tokens` against the budget — a request that omits it (Codex's do) on a job with a budget has it set to what the budget has left — no higher than the alias's `maxOutputTokens`, or 16,384 (a ceiling every current OpenAI model accepts) when the alias sets none — so the reservation still bounds the answer; `teeUsage` reads `response.completed`'s `response.usage` (OpenAI's `input_tokens` already include cached ones) |
+| The transcript | Codex's thread id is the CLI session; its last completed `agent_message` is the closing text (`turn.completed` carries none); an `mcp_tool_call`'s `result` is its tool result's text |
+| Runtimes | `Dockerfile.dev` bakes both CLIs; `runtimeInstallScript({ agent })` installs the one the job needs on a stock runtime |
+| Proof | `__tests__/sandbox/lifecycle.test.ts` ("a job for a bot on OpenAI models runs Codex", and the Codex half of "the only credential…") runs the stub as `codex` in a container; `proxies.test.ts` ("for a bot on OpenAI models"); `runner.test.ts` (a Codex run, a failed Codex turn) |
+
+- **Codex's MCP failures surface differently.** Claude Code reports a broken server in `system/init` and exits 0;
+  Codex has no such line, so `required = true` makes a server that cannot start fail the run instead.
+- **The OpenAI route forwards the body as sent**, like the Anthropic one: a Responses request may name OpenAI's
+  hosted tools (web search, code interpreter) or `previous_response_id`, and runs them on the project's key, bounded
+  by the job's budget. The same follow-up as Anthropic's server tools applies.
+- **Vercel AI Gateway and OpenAI-compatible connections still cannot run jobs.** Codex supports only `wire_api =
+  "responses"`, which an arbitrary OpenAI-compatible server does not promise to serve.
 
 ### What review found, and what changed
 
@@ -416,6 +440,9 @@ Left as follow-ups, both judged below the bar for this change:
 
 ### Not run here
 
+- **A real Codex.** The config keys and command line follow Codex's published config reference and CLI reference
+  (`codex exec`, `codex exec resume`); the suites run the stub as `codex`, and the real CLI was not installed or run
+  here.
 - **A real Claude Code against a real model.** Every suite uses the stub CLI and the scripted model server; the real
   CLI's flags were checked against the built image (`claude --help`, 2.1.316), not exercised with a key.
 - **`bun run sandbox:build-image` as committed**: this environment's egress proxy re-signs TLS, so `npm install` in the

@@ -9,7 +9,7 @@
  * | Prefix | Speaks | Routes |
  * |---|---|---|
  * | `/anthropic/v1` | Anthropic Messages | `GET /models`, `POST /messages` |
- * | `/openai/v1` | OpenAI | `GET /models`, `POST /responses`, `POST /chat/completions`, `POST /embeddings` |
+ * | `/openai/v1` | OpenAI | `GET /models`, `POST /responses` (streamed when asked), `POST /chat/completions`, `POST /embeddings` |
  * | `/compatible/v1` | an OpenAI-compatible server | `GET /models`, `POST /chat/completions`, `POST /embeddings` |
  * | `/gateway/v4/ai` | Vercel AI Gateway | `GET /config`; and `GET /v1/credits` at the root, as the gateway serves it |
  * | `/leaky/v1` | a broken server that echoes the request's credentials into a 500 | anything |
@@ -881,24 +881,24 @@ export function startModelServer(options: { apiKey: string }): ModelServer {
           return embeddings(body);
         }
         if (req.method === "POST" && path === "/v1/responses") {
-          const { model } = JSON.parse(body) as { model: string };
-          return Response.json({
+          const { model, stream } = JSON.parse(body) as {
+            model: string;
+            stream?: boolean;
+          };
+          const message = {
+            type: "message",
+            id: "msg_scripted",
+            status: "completed",
+            role: "assistant",
+            content: [{ type: "output_text", text: scripted, annotations: [] }],
+          };
+          const response = {
             id: "resp_scripted",
             object: "response",
             created_at: now(),
             status: "completed",
             model,
-            output: [
-              {
-                type: "message",
-                id: "msg_scripted",
-                status: "completed",
-                role: "assistant",
-                content: [
-                  { type: "output_text", text: scripted, annotations: [] },
-                ],
-              },
-            ],
+            output: [message],
             incomplete_details: null,
             usage: {
               input_tokens: 10,
@@ -907,7 +907,48 @@ export function startModelServer(options: { apiKey: string }): ModelServer {
               output_tokens_details: { reasoning_tokens: 0 },
               total_tokens: 15,
             },
-          });
+          };
+          if (!stream) return Response.json(response);
+          // Streamed as OpenAI streams a Responses answer: typed SSE events,
+          // the usage only on `response.completed`.
+          const events: Record<string, unknown>[] = [
+            {
+              type: "response.created",
+              response: {
+                ...response,
+                status: "in_progress",
+                output: [],
+                usage: null,
+              },
+            },
+            {
+              type: "response.output_item.added",
+              output_index: 0,
+              item: { ...message, status: "in_progress", content: [] },
+            },
+            {
+              type: "response.output_text.delta",
+              item_id: message.id,
+              output_index: 0,
+              content_index: 0,
+              delta: scripted,
+            },
+            {
+              type: "response.output_item.done",
+              output_index: 0,
+              item: message,
+            },
+            { type: "response.completed", response },
+          ];
+          return new Response(
+            events
+              .map(
+                (e, i) =>
+                  `event: ${e.type}\ndata: ${JSON.stringify({ ...e, sequence_number: i })}\n\n`,
+              )
+              .join(""),
+            { headers: { "content-type": "text/event-stream" } },
+          );
         }
       }
 

@@ -1,9 +1,16 @@
 /**
- * A stand-in for the `claude` CLI, baked into `hypotenuse/sandbox:test` — the
- * scripted coding agent the sandbox suites run. It speaks the real CLI's
- * contract: the prompt in `-p`, `--resume <session>` for a follow-up,
- * `--mcp-config` naming MCP servers whose `${VAR}` headers it expands from
- * its environment, and `--output-format stream-json` lines on stdout.
+ * A stand-in for the coding CLIs, baked into `hypotenuse/sandbox:test` — the
+ * scripted coding agent the sandbox suites run. Its first argument says which
+ * CLI it plays (`stub-claude.sh` passes `claude`, `stub-codex.sh` `codex`),
+ * and it speaks that CLI's contract:
+ *
+ * | | `claude` | `codex` |
+ * |---|---|---|
+ * | the task | `-p <prompt>` | `exec … <prompt>` |
+ * | a follow-up | `--resume <session>` | `exec … resume <session> <prompt>` |
+ * | MCP servers | `--mcp-config`, `${VAR}` headers expanded from the environment | `$CODEX_HOME/config.toml`'s `[mcp_servers.*]`, `bearer_token_env_var` read from the environment |
+ * | models | `ANTHROPIC_BASE_URL` + `ANTHROPIC_AUTH_TOKEN`, Messages | the config's model provider (`base_url`, `env_key`), Responses, streamed |
+ * | stdout | `--output-format stream-json` lines | `exec --json` lines |
  *
  * It plays a scenario written into its prompt, one directive per line:
  *
@@ -22,8 +29,7 @@
  *
  * Everything it reaches, it reaches the way the real CLI would: our MCP
  * server and the gateway proxy over Streamable HTTP with the job token as a
- * bearer, and models through `ANTHROPIC_BASE_URL` with
- * `ANTHROPIC_AUTH_TOKEN`. A directive's failure is printed as an error result
+ * bearer, and models through the model proxy. A directive's failure is printed as an error result
  * and exits 2. `sh` runs a shell command in the CLI's working directory, the
  * way the real CLI's Bash tool does (as `sh -lc`, a login shell), says its
  * output, and fails the run on a non-zero exit unless `"allowFail": true`.
@@ -36,20 +42,45 @@ interface Directive {
   [key: string]: unknown;
 }
 
-const argv = process.argv.slice(2);
+const [dialect, ...argv] = process.argv.slice(2);
+if (dialect !== "claude" && dialect !== "codex") {
+  console.error(`stub-agent: unknown dialect ${dialect}`);
+  process.exit(64);
+}
+const codex = dialect === "codex";
 let prompt = "";
 let resume: string | null = null;
 let mcpConfigPath: string | null = null;
-for (let i = 0; i < argv.length; i++) {
-  if (argv[i] === "-p") prompt = argv[++i] ?? "";
-  else if (argv[i] === "--resume") resume = argv[++i] ?? null;
-  else if (argv[i] === "--mcp-config") mcpConfigPath = argv[++i] ?? null;
+let model: string | null = null;
+if (codex) {
+  // `codex exec [options] <prompt>` or `codex exec [options] resume <id> <prompt>`.
+  const positional: string[] = [];
+  for (let i = argv[0] === "exec" ? 1 : 0; i < argv.length; i++) {
+    if (argv[i] === "--model" || argv[i] === "-m") model = argv[++i] ?? null;
+    else if (!argv[i].startsWith("-")) positional.push(argv[i]);
+  }
+  if (positional[0] === "resume") {
+    resume = positional[1] ?? null;
+    prompt = positional[2] ?? "";
+  } else {
+    prompt = positional[0] ?? "";
+  }
+} else {
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === "-p") prompt = argv[++i] ?? "";
+    else if (argv[i] === "--resume") resume = argv[++i] ?? null;
+    else if (argv[i] === "--mcp-config") mcpConfigPath = argv[++i] ?? null;
+    else if (argv[i] === "--model") model = argv[++i] ?? null;
+  }
 }
 
 const SESSION = resume ?? `stub-session-${process.pid}`;
 
+/** Items Codex numbers as it goes. */
+let itemId = 0;
+
 /**
- * Print one stream-json line.
+ * Print one JSONL line.
  * @param line - The object.
  */
 function emit(line: Record<string, unknown>): void {
@@ -61,15 +92,52 @@ function emit(line: Record<string, unknown>): void {
  * @param text - The text.
  */
 function say(text: string): void {
+  if (codex) {
+    emit({
+      type: "item.completed",
+      item: { id: `item_${itemId++}`, type: "agent_message", text },
+    });
+    return;
+  }
   emit({ type: "assistant", message: { content: [{ type: "text", text }] } });
 }
 
-/** The MCP servers the config names, with `${VAR}` expanded. */
+/** The MCP servers the config names, with their bearer read from the environment. */
 const servers: Record<
   string,
   { url: string; headers: Record<string, string> }
 > = {};
-if (mcpConfigPath) {
+/** Codex's model provider, from its config. */
+let codexProvider: { baseUrl: string; envKey: string } | null = null;
+if (codex) {
+  const home = process.env.CODEX_HOME ?? `${process.env.HOME}/.codex`;
+  const config = Bun.TOML.parse(
+    readFileSync(`${home}/config.toml`, "utf8"),
+  ) as {
+    model?: string;
+    model_provider?: string;
+    model_providers?: Record<string, { base_url: string; env_key: string }>;
+    mcp_servers?: Record<
+      string,
+      { url: string; bearer_token_env_var?: string }
+    >;
+  };
+  model ??= config.model ?? null;
+  const provider =
+    config.model_providers?.[String(config.model_provider ?? "")];
+  if (provider) {
+    codexProvider = { baseUrl: provider.base_url, envKey: provider.env_key };
+  }
+  for (const [name, s] of Object.entries(config.mcp_servers ?? {})) {
+    const token = s.bearer_token_env_var
+      ? process.env[s.bearer_token_env_var]
+      : undefined;
+    servers[name] = {
+      url: s.url,
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    };
+  }
+} else if (mcpConfigPath) {
   const raw = readFileSync(mcpConfigPath, "utf8").replace(
     /\$\{(\w+)\}/g,
     (_, name: string) => process.env[name] ?? "",
@@ -161,7 +229,7 @@ async function callTool(
     await rpc(server, "initialize", {
       protocolVersion: "2025-06-18",
       capabilities: {},
-      clientInfo: { name: "stub-claude", version: "1.0.0" },
+      clientInfo: { name: `stub-${dialect}`, version: "1.0.0" },
     });
     if (!sessions.has(server)) sessions.set(server, null);
     await rpc(server, "notifications/initialized", {}, true);
@@ -179,20 +247,35 @@ async function callTool(
   } catch {
     json = null;
   }
-  emit({
-    type: "assistant",
-    message: {
-      content: [
-        { type: "tool_use", name: `mcp__${server}__${tool}`, input: args },
-      ],
-    },
-  });
-  emit({
-    type: "user",
-    message: {
-      content: [{ type: "tool_result", content: text.slice(0, 2000) }],
-    },
-  });
+  if (codex) {
+    const id = `item_${itemId++}`;
+    const item = { id, type: "mcp_tool_call", server, tool, arguments: args };
+    emit({ type: "item.started", item: { ...item, status: "in_progress" } });
+    emit({
+      type: "item.completed",
+      item: {
+        ...item,
+        result: { content: [{ type: "text", text: text.slice(0, 2000) }] },
+        error: null,
+        status: result.isError === true ? "failed" : "completed",
+      },
+    });
+  } else {
+    emit({
+      type: "assistant",
+      message: {
+        content: [
+          { type: "tool_use", name: `mcp__${server}__${tool}`, input: args },
+        ],
+      },
+    });
+    emit({
+      type: "user",
+      message: {
+        content: [{ type: "tool_result", content: text.slice(0, 2000) }],
+      },
+    });
+  }
   return { isError: result.isError === true, text, json };
 }
 
@@ -218,6 +301,77 @@ async function waitForAnswer(
   return null;
 }
 
+/**
+ * Ask the model through the model proxy, the way the CLI would.
+ * @param d - The directive: an optional `model` and `prompt`.
+ * @returns The status and the body as text.
+ */
+async function askModel(
+  d: Directive,
+): Promise<{ status: number; body: string }> {
+  const text = String(d.prompt ?? "Hello");
+  const res = codex
+    ? await fetch(`${codexProvider?.baseUrl}/responses`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${process.env[codexProvider?.envKey ?? ""]}`,
+          "content-type": "application/json",
+          accept: "text/event-stream",
+        },
+        body: JSON.stringify({
+          model: d.model ?? model,
+          input: [
+            {
+              type: "message",
+              role: "user",
+              content: [{ type: "input_text", text }],
+            },
+          ],
+          stream: true,
+          store: false,
+        }),
+      })
+    : await fetch(`${process.env.ANTHROPIC_BASE_URL}/v1/messages`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${process.env.ANTHROPIC_AUTH_TOKEN}`,
+          "content-type": "application/json",
+          "anthropic-version": "2023-06-01",
+        },
+        body: JSON.stringify({
+          model: d.model ?? process.env.ANTHROPIC_MODEL,
+          max_tokens: 64,
+          messages: [{ role: "user", content: text }],
+        }),
+      });
+  return { status: res.status, body: await res.text() };
+}
+
+/**
+ * Print the run's terminal line: Claude Code's `result`, or Codex's
+ * `turn.completed` / `turn.failed`.
+ * @param ok - Whether the run succeeded.
+ * @param text - The closing text, or the error.
+ */
+function finish(ok: boolean, text: string): void {
+  if (codex) {
+    if (ok) {
+      emit({ type: "turn.completed", usage: codexUsage });
+    } else {
+      emit({ type: "turn.failed", error: { message: text } });
+    }
+    return;
+  }
+  emit({
+    type: "result",
+    subtype: ok ? "success" : "error_during_execution",
+    is_error: !ok,
+    result: text,
+    session_id: SESSION,
+    usage,
+  });
+}
+
 process.on("SIGTERM", () => process.exit(143));
 
 const directives: Directive[] = prompt
@@ -226,15 +380,20 @@ const directives: Directive[] = prompt
   .filter((l) => l.startsWith("STUB "))
   .map((l) => JSON.parse(l.slice(5)) as Directive);
 
-emit({
-  type: "system",
-  subtype: "init",
-  session_id: SESSION,
-  mcp_servers: Object.keys(servers).map((name) => ({
-    name,
-    status: "connected",
-  })),
-});
+if (codex) {
+  emit({ type: "thread.started", thread_id: SESSION });
+  emit({ type: "turn.started" });
+} else {
+  emit({
+    type: "system",
+    subtype: "init",
+    session_id: SESSION,
+    mcp_servers: Object.keys(servers).map((name) => ({
+      name,
+      status: "connected",
+    })),
+  });
+}
 say(resume ? `Following up: ${prompt.split("\n")[0]}` : "Reading the task.");
 
 let answer = "";
@@ -242,6 +401,11 @@ let closing = resume
   ? `follow-up done: ${prompt.split("\n")[0]}`
   : "stub run complete";
 const usage = { input_tokens: 12, output_tokens: 34 };
+const codexUsage = {
+  input_tokens: 12,
+  cached_input_tokens: 0,
+  output_tokens: 34,
+};
 try {
   for (const d of directives) {
     switch (d.op) {
@@ -306,29 +470,22 @@ try {
         break;
       }
       case "model": {
-        const res = await fetch(
-          `${process.env.ANTHROPIC_BASE_URL}/v1/messages`,
-          {
-            method: "POST",
-            headers: {
-              authorization: `Bearer ${process.env.ANTHROPIC_AUTH_TOKEN}`,
-              "content-type": "application/json",
-              "anthropic-version": "2023-06-01",
-            },
-            body: JSON.stringify({
-              model: d.model ?? process.env.ANTHROPIC_MODEL,
-              max_tokens: 64,
-              messages: [
-                { role: "user", content: String(d.prompt ?? "Hello") },
-              ],
-            }),
-          },
-        );
-        const body = await res.text();
-        say(`Model answered ${res.status}: ${body.slice(0, 500)}`);
+        const res = await askModel(d);
+        say(`Model answered ${res.status}: ${res.body.slice(0, 500)}`);
         break;
       }
       case "sh": {
+        const shItem = {
+          id: `item_${itemId++}`,
+          type: "command_execution",
+          command: String(d.command),
+        };
+        if (codex) {
+          emit({
+            type: "item.started",
+            item: { ...shItem, status: "in_progress" },
+          });
+        }
         const proc = Bun.spawn(["sh", "-lc", String(d.command)], {
           stdout: "pipe",
           stderr: "pipe",
@@ -339,6 +496,17 @@ try {
           new Response(proc.stderr).text(),
           proc.exited,
         ]);
+        if (codex) {
+          emit({
+            type: "item.completed",
+            item: {
+              ...shItem,
+              aggregated_output: `${out}${err}`.slice(0, 4000),
+              exit_code: code,
+              status: code === 0 ? "completed" : "failed",
+            },
+          });
+        }
         say(`$ ${d.command} (exit ${code})\n${out}${err}`.slice(0, 4000));
         if (code !== 0 && d.allowFail !== true) {
           throw new Error(`${d.command} exited ${code}: ${err.slice(0, 500)}`);
@@ -351,14 +519,7 @@ try {
       case "hang":
         for (;;) await Bun.sleep(5_000);
       case "fail":
-        emit({
-          type: "result",
-          subtype: "error_during_execution",
-          is_error: true,
-          result: String(d.message ?? "the stub was asked to fail"),
-          session_id: SESSION,
-          usage,
-        });
+        finish(false, String(d.message ?? "the stub was asked to fail"));
         process.exit(2);
         break;
       case "result":
@@ -369,24 +530,10 @@ try {
     }
   }
 } catch (e) {
-  emit({
-    type: "result",
-    subtype: "error_during_execution",
-    is_error: true,
-    result: e instanceof Error ? e.message : String(e),
-    session_id: SESSION,
-    usage,
-  });
+  finish(false, e instanceof Error ? e.message : String(e));
   process.exit(2);
 }
 
 say(closing);
-emit({
-  type: "result",
-  subtype: "success",
-  is_error: false,
-  result: closing,
-  session_id: SESSION,
-  usage,
-});
+finish(true, closing);
 process.exit(0);
