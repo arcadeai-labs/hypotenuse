@@ -225,6 +225,16 @@ LOCKED` and the per-run `schedule-run:fire`, which checks the target is still en
 opening its thread with its first top-level message; `goal-review` schedules; `schedule_list` and
 `schedule_propose` (disabled until a person enables it); `schedule:*` with `run-now` and `preview`; the bot's
 Schedules section; `hypotenuse schedule`; and `schedules.md`.
+**[Phase 21](./phase-21-dashboard.md) is built**: mission control — `project:overview` (each readable bot's
+conversations by state and waiting kind, ended today, today's model spend, inbox items, and channel memories; the
+inbox totals; the recently changed feed) behind **Home**; `inbox:list`, one SQL union of pending approvals, help
+requests, and sandbox questions to a conversation, behind **Inbox**; `conversation:list` filtered by waiting kind,
+channel, participant, and activity window, with each row's `platformUrl`; `conversation:entries` paging backwards
+from the tail; `conversation:outbox`; `conversation:retry` for a failed turn (bot write access, audited); the
+per-bot `project:<id>:bot:<id>:dashboard` channel and `DashboardEffectsOps` publishing content-free stale frames
+after commit; the conversation page's Retry, platform link, older-entries paging, and outbox panel; the bot's
+Activity section; palette jumps to any bot, conversation, or channel; `hypotenuse project overview`, `inbox list`,
+`conversation outbox`, and `conversation retry`; and `dashboard.md`.
 
 ### Decisions so far
 

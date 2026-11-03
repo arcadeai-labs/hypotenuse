@@ -15,6 +15,7 @@ import {
   type CommandContext,
   chatCommands,
   commandDeniedReason,
+  jumpCommands,
 } from "../commands/registry";
 import { useAuth } from "../context/AuthContext";
 import { useNotifications } from "../context/NotificationContext";
@@ -168,6 +169,51 @@ function useChatBots(
   return bots;
 }
 
+/** What the palette's jumps are built from. */
+interface JumpItems {
+  conversations: {
+    id: number;
+    title: string | null;
+    bot: { name: string };
+    channel: { name: string };
+  }[];
+  channels: { id: number; name: string; type: string }[];
+}
+
+/**
+ * The active project's recent conversations and its channels, for the
+ * palette's jumps: read when the palette opens, through the same gated lists
+ * the pages use.
+ * @param projectId - The project, or null while there is nothing to read.
+ * @returns The items, empty while unknown.
+ */
+function useJumpItems(projectId: number | null): JumpItems {
+  const [items, setItems] = useState<JumpItems>({
+    conversations: [],
+    channels: [],
+  });
+  useEffect(() => {
+    if (projectId === null) return;
+    let cancelled = false;
+    Promise.all([
+      apiFetch<{ conversations: JumpItems["conversations"] }>(
+        `/project/${projectId}/conversations?limit=25`,
+      ).catch(() => ({ conversations: [] })),
+      apiFetch<{ channels: JumpItems["channels"] }>(
+        `/project/${projectId}/channels?limit=100`,
+      ).catch(() => ({ channels: [] })),
+    ]).then(([c, ch]) => {
+      if (!cancelled) {
+        setItems({ conversations: c.conversations, channels: ch.channels });
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId]);
+  return items;
+}
+
 /**
  * The product's frame: sidebar, main column, command palette, shortcut sheet,
  * and the one global key listener. The switchers and account menu read the
@@ -284,10 +330,18 @@ export function AppShell() {
   const chatBots = useChatBots(
     auth.user && paletteOpen ? auth.activeProjectId : null,
   );
-  // The palette also offers a chat with each bot; the keymap never does.
+  const jumpItems = useJumpItems(
+    auth.user && paletteOpen ? auth.activeProjectId : null,
+  );
+  // The palette also offers a chat with each bot, and a jump to any bot,
+  // conversation, or channel; the keymap never does.
   const paletteCommands = useMemo(
-    () => [...commands, ...chatCommands(chatBots)],
-    [commands, chatBots],
+    () => [
+      ...commands,
+      ...chatCommands(chatBots),
+      ...jumpCommands({ bots: chatBots, ...jumpItems }),
+    ],
+    [commands, chatBots, jumpItems],
   );
   const deniedReason = useCallback(
     (command: Command) => commandDeniedReason(command, ctx),

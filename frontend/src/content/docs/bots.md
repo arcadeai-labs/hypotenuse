@@ -17,13 +17,16 @@ project has set both of those, the Bots page says no bot can run yet — an admi
 
 A bot's settings are split into sections, listed in a sidebar on the left of its page and grouped under **Bot**,
 **Behavior**, **Tools**, and **Platforms**. Each section has its own address — `/bots/<id>/channels`, for one — so a
-link can open the page at the right place; the page itself opens on **General**. On a narrow screen the sidebar folds
+link can open the page at the right place; the page itself opens on **General**. **Activity**, at the top, shows
+what the bot is doing now: its conversations by state, what needs a person, how many channel memories it has where it
+works, and today's spend. Each number links to the list behind it. On a narrow screen the sidebar folds
 behind a button naming the section you are on. Each card in a section saves on its own. The panel on the right sums
 the bot up wherever you are: whether it is enabled, its model, who may read and change it, and whether you may change
 it.
 
 | Section | Cards | What they hold |
 |---|---|---|
+| **Activity** | **Activity** | its conversations by state, what waits on a person, its channel memories, and today's spend — live, and read-only |
 | **General** | **Identity** | its name, the display name platforms show, its slug, a one-line description, whether it is enabled, its avatar, and its persona |
 | | **Access** | who may read it, who may change it, and whom it asks for help |
 | **Model & budget** | **Model** | which of the project's model names it uses: its main model and its fast one |

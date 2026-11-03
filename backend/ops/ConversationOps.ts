@@ -23,6 +23,7 @@ import { sandboxJobs } from "../schema/sandbox_jobs";
 import type { Tag } from "../schema/tags";
 import { canReadBot } from "./BotOps";
 import { abandonCodeRuns } from "./CodeRunOps";
+import { publishConversationStale } from "./DashboardEffectsOps";
 import type { DbHandle } from "./DbOps";
 import { settleScheduledTurn } from "./ScheduleRunOps";
 import { appendEntries, type EntryDraft } from "./TranscriptOps";
@@ -61,8 +62,9 @@ export const CONVERSATION_CHANNEL_PATTERN =
 export const CONVERSATION_FRAME = { event: "conversation" } as const;
 
 /**
- * Publish a content-free ping saying a conversation changed. Never throws: a
- * frame is an accelerant, and the page re-reads entries over HTTP.
+ * Publish a content-free ping saying a conversation changed, on its own
+ * channel and on its bot's dashboard channel (`DashboardEffectsOps`). Never
+ * throws: a frame is an accelerant, and the page re-reads over HTTP.
  * @param projectId - The project.
  * @param conversationId - The conversation.
  */
@@ -82,6 +84,7 @@ export async function pingConversation(
       error: e instanceof Error ? e.message : String(e),
     });
   }
+  await publishConversationStale(projectId, conversationId);
 }
 
 /**
@@ -254,7 +257,8 @@ export type WakeReason =
   | "github"
   | "schedule"
   | "cancel"
-  | "created";
+  | "created"
+  | "retry";
 
 /**
  * **The wake operation**: the only code that moves a conversation into

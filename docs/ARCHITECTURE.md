@@ -379,4 +379,9 @@ or superseded suite is not a failure) — never a conversation a person stopped.
 | worker | task queues, drained in order: `ingress`, `outbox` (`outbox:deliver`), `agents` (`agent:tick`, `conversation:compact`, `schedule-run:fire`), `sandboxes` (`sandbox-job:start`), `orchestrator` (the clocks), `default` |
 
 Postgres is the source of truth. Redis holds sessions, rate limits, leases, the task queues, and pub/sub;
-WebSocket frames carry no content, and a dashboard re-reads over HTTP.
+WebSocket frames carry no content, and a dashboard re-reads over HTTP. Three channels exist, each authorized when a
+socket subscribes: `project:<id>:notifications` (member standing), `project:<id>:conversation:<id>` (the
+conversation's bot is readable; `{ event: "conversation" }`), and `project:<id>:bot:<id>:dashboard` (the bot is
+readable; `{ event: "dashboard", stale }`, where `stale` is `conversations`, `inbox`, or `sandboxes`). The bot is in
+the dashboard channel's name because Keryx authorizes only at subscribe time: a project-wide frame would tell a member
+when a bot they cannot read moved ([phase 21](./plans/phase-21-dashboard.md)).

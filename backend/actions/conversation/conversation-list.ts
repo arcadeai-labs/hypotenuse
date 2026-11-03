@@ -1,4 +1,4 @@
-import { and, count, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, count, desc, eq, gte, inArray, lt, sql } from "drizzle-orm";
 import {
   type Action,
   type ActionParams,
@@ -16,7 +16,9 @@ import {
 import type { SessionImpl } from "../../middleware/session";
 import { readableIds } from "../../ops/AccessOps";
 import { BOT_ACCESS_LIST } from "../../ops/BotOps";
+import { conversationUrl } from "../../ops/ConversationLinkOps";
 import { serializeConversation } from "../../ops/ConversationOps";
+import { WAITING_KINDS } from "../../ops/DashboardOps";
 import { idInput } from "../../ops/InputOps";
 import { bots } from "../../schema/bots";
 import { channels } from "../../schema/channels";
@@ -30,7 +32,7 @@ import { CONVERSATION_STATES, conversations } from "../../schema/conversations";
 export class ConversationList implements Action {
   name = "conversation:list";
   description =
-    "List a project's conversations, most recently active first, with each one's bot, channel, state (working, hibernating, waiting, ended), and outcome. Only conversations with bots you may read are listed. Filter by botId, state, channelType, or mine (conversations you started). Requires membership. Paginated.";
+    "List a project's conversations, most recently active first, with each one's bot, channel, state (working, hibernating, waiting, ended), and outcome. Only conversations with bots you may read are listed. Filter by botId, state, waitingKind (answer, approval, help, sandbox, timer), channelType (the platform), channelId, participantId (a platform participant who wrote in it), activeSince / activeBefore (epoch ms), or mine (conversations you started). Each carries platformUrl, a link to the thread, session, or issue on its platform when it has one. Requires membership. Paginated.";
   middleware = [ProjectMemberMiddleware()];
   web = { route: "/project/:projectId/conversations", method: HTTP_METHOD.GET };
   inputs = paginationInputs({ defaultLimit: 25 }).extend({
@@ -49,6 +51,28 @@ export class ConversationList implements Action {
         "Only conversations in channels of this type, e.g. web (the dashboard chat), api, webhook",
       ),
     mine: z.stringbool().optional().describe("Only conversations you started"),
+    channelId: idInput("Only conversations in this channel").optional(),
+    waitingKind: z
+      .enum(WAITING_KINDS)
+      .optional()
+      .describe(
+        "Only waiting conversations waiting on this: answer, approval, help, sandbox, or timer",
+      ),
+    participantId: idInput(
+      "Only conversations this platform participant wrote in",
+    ).optional(),
+    activeSince: z.coerce
+      .number()
+      .int()
+      .min(0)
+      .optional()
+      .describe("Only conversations active at or after this time (epoch ms)"),
+    activeBefore: z.coerce
+      .number()
+      .int()
+      .min(0)
+      .optional()
+      .describe("Only conversations last active before this time (epoch ms)"),
   });
 
   /**
@@ -75,6 +99,24 @@ export class ConversationList implements Action {
       params.channelType
         ? sql`exists (select 1 from channels c where c.id = ${conversations.channelId} and c.type = ${params.channelType})`
         : undefined,
+      params.channelId
+        ? eq(conversations.channelId, params.channelId)
+        : undefined,
+      params.waitingKind
+        ? and(
+            eq(conversations.state, "waiting"),
+            sql`${conversations.waitingOn}->>'kind' = ${params.waitingKind}`,
+          )
+        : undefined,
+      params.participantId
+        ? sql`exists (select 1 from conversation_entries e where e.conversation_id = ${conversations.id} and e.participant_id = ${params.participantId})`
+        : undefined,
+      params.activeSince !== undefined
+        ? gte(conversations.lastActivityAt, new Date(params.activeSince))
+        : undefined,
+      params.activeBefore !== undefined
+        ? lt(conversations.lastActivityAt, new Date(params.activeBefore))
+        : undefined,
       params.mine
         ? eq(
             conversations.createdByUserId,
@@ -88,8 +130,7 @@ export class ConversationList implements Action {
           conversation: conversations,
           botName: bots.name,
           botSlug: bots.slug,
-          channelName: channels.name,
-          channelType: channels.type,
+          channel: channels,
         })
         .from(conversations)
         .innerJoin(bots, eq(bots.id, conversations.botId))
@@ -101,19 +142,26 @@ export class ConversationList implements Action {
       params,
     );
     return {
-      conversations: result.data.map((row) => ({
-        ...serializeConversation(row.conversation),
-        bot: {
-          id: row.conversation.botId,
-          name: row.botName,
-          slug: row.botSlug,
-        },
-        channel: {
-          id: row.conversation.channelId,
-          name: row.channelName,
-          type: row.channelType,
-        },
-      })),
+      conversations: await Promise.all(
+        result.data.map(async (row) => ({
+          ...serializeConversation(row.conversation),
+          bot: {
+            id: row.conversation.botId,
+            name: row.botName,
+            slug: row.botSlug,
+          },
+          channel: {
+            id: row.conversation.channelId,
+            name: row.channel.name,
+            type: row.channel.type,
+          },
+          platformUrl: await conversationUrl(
+            api.db.db,
+            row.conversation,
+            row.channel,
+          ),
+        })),
+      ),
       pagination: result.pagination,
     };
   }

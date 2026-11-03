@@ -44,6 +44,7 @@ import {
   lockConversation,
   pingConversation,
 } from "./ConversationOps";
+import { publishJobStale } from "./DashboardEffectsOps";
 import type { DbHandle, TxHandle } from "./DbOps";
 import { redactGitHubTokens, revokeJobGitTokens } from "./GitCredentialOps";
 import { enqueueDelivery } from "./OutboxOps";
@@ -442,6 +443,7 @@ export async function dispatchPendingJobs(
   for (const id of projects) {
     for (const job of await claimPendingJobs(id)) {
       claimed.push(job.id);
+      await publishJobStale(job.id);
       await api.actions.enqueue(
         "sandbox-job:start",
         { jobId: job.id },
@@ -549,15 +551,17 @@ export async function finalizeSandboxJob(
 }
 
 /**
- * What every relay owes after its transaction commits: the tick it woke, the
+ * What every relay owes after its transaction commits: the sandboxes list's
+ * frame (whether or not a relay ran — the job changed), the tick it woke, the
  * outbox rows it wrote, and the transcript page's ping.
  * @param job - The job.
  * @param relay - What the relay did, if it ran.
  */
 export async function afterRelay(
-  job: Pick<SandboxJob, "projectId" | "parentConversationId">,
+  job: Pick<SandboxJob, "id" | "projectId" | "parentConversationId">,
   relay: RelayResult | null,
 ): Promise<void> {
+  await publishJobStale(job.id);
   if (!relay) return;
   if (relay.woke) await enqueueTick(relay.woke);
   if (relay.outboxWritten) await enqueueDelivery([job.parentConversationId]);
@@ -840,7 +844,19 @@ export async function expireDueQuestions(): Promise<number> {
         lt(sandboxJobQuestions.expiresAt, sql`now()`),
       ),
     )
-    .returning({ id: sandboxJobQuestions.id });
+    .returning({ jobId: sandboxJobQuestions.jobId });
+  // The expired questions left the inbox: ping each job's conversation.
+  const jobIds = [...new Set(rows.map((r) => r.jobId))];
+  if (jobIds.length > 0) {
+    const jobs = await api.db.db
+      .select({
+        projectId: sandboxJobs.projectId,
+        conversationId: sandboxJobs.parentConversationId,
+      })
+      .from(sandboxJobs)
+      .where(inArray(sandboxJobs.id, jobIds));
+    for (const j of jobs) await pingConversation(j.projectId, j.conversationId);
+  }
   return rows.length;
 }
 

@@ -278,6 +278,22 @@ function projectTable(
   );
 }
 
+/** `project:overview`'s answer, as far as the table reads it. */
+interface Overview {
+  bots: {
+    slug: string;
+    counts: {
+      working: number;
+      hibernating: number;
+      waitingTotal: number;
+      endedToday: number;
+    };
+    needsPerson: number;
+    spendToday: { usd: number; unpricedRecords: number };
+  }[];
+  inbox: { approval: number; help: number; "sandbox-question": number };
+}
+
 /**
  * Register `project list|view|use|create|edit|settings|delete`.
  * @param program - The root program.
@@ -334,6 +350,50 @@ export function registerProjectCommands(program: Command): void {
             `tags          ${result.callerTags.map((t) => t.name).join(", ") || "-"}`,
             `created       ${when(result.project.createdAt)}`,
           ].join("\n"),
+        );
+      });
+    });
+
+  project
+    .command("overview")
+    .description(
+      "What the project's bots are doing now: conversations by state, today's spend, and what waits on a person",
+    )
+    .argument("[project]", "id or slug (default: the selected project)")
+    .action(async function (this: Command, selector?: string) {
+      await runCommand(this, async (ctx) => {
+        const projectId = await targetProject(ctx, selector);
+        const result = await ctx
+          .signedInClient()
+          .request<{ overview: Overview }>(
+            "GET",
+            `/project/${projectId}/overview`,
+          );
+        const o = result.overview;
+        emit(
+          ctx,
+          result,
+          () =>
+            `${table(
+              o.bots.map((b) => ({
+                bot: b.slug,
+                working: b.counts.working,
+                waiting: b.counts.waitingTotal,
+                resting: b.counts.hibernating,
+                ended: b.counts.endedToday,
+                inbox: b.needsPerson,
+                spend: `$${b.spendToday.usd.toFixed(2)}${b.spendToday.unpricedRecords ? "+" : ""}`,
+              })),
+              [
+                { key: "bot" },
+                { key: "working" },
+                { key: "waiting" },
+                { key: "resting", header: "HIBERNATING" },
+                { key: "ended", header: "ENDED TODAY" },
+                { key: "inbox", header: "NEEDS A PERSON" },
+                { key: "spend", header: "SPEND TODAY" },
+              ],
+            )}\ninbox: ${o.inbox.approval} approvals, ${o.inbox.help} help requests, ${o.inbox["sandbox-question"]} sandbox questions`,
         );
       });
     });

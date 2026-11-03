@@ -7,12 +7,17 @@ import {
   SANDBOX_JOB_STATES,
   SANDBOX_JOB_STATUS,
 } from "../../../design/states";
+import { stateDetail } from "../components/dashboard/model";
 import { DetailLayout } from "../components/layouts/DetailLayout";
 import { BotSummary } from "../components/surfaces/BotSummary";
 import { ConversationList } from "../components/surfaces/ConversationList";
 import { DecayMeter } from "../components/surfaces/DecayMeter";
 import { MemoryExplorer } from "../components/surfaces/MemoryExplorer";
 import { Transcript } from "../components/surfaces/Transcript";
+import {
+  conversationStateLabel,
+  conversationStatus,
+} from "../components/transcript/model";
 import {
   Alert,
   Avatar,
@@ -23,6 +28,8 @@ import {
   Form,
   GLYPH_COMPONENTS,
   Kbd,
+  ListGroup,
+  ListRow,
   Mark,
   PlatformChip,
   PropertiesPanel,
@@ -37,6 +44,7 @@ import {
   FIXTURE_CONVERSATIONS,
   FIXTURE_MEMORY,
   FIXTURE_TRANSCRIPT,
+  fixtureDashboardStates,
 } from "./styleGuideFixtures";
 
 const TONES = [...UI_VARIANT_TONES];
@@ -181,6 +189,36 @@ function StyleGuideContent() {
 
       <Section title="Conversations">
         <ConversationList conversations={FIXTURE_CONVERSATIONS} />
+      </Section>
+
+      <Section title="Dashboard states">
+        <ListGroup title="Every state, with its detail line">
+          {fixtureDashboardStates().map((fixture) => {
+            // The glyph table names a help wait as a person needed (an answer).
+            const c = fixture as Parameters<typeof conversationStatus>[0] &
+              typeof fixture;
+            return (
+              <ListRow
+                key={c.id}
+                data-testid={`sg-dashboard-state-${c.id}`}
+                glyph={
+                  <StatusGlyph
+                    {...conversationStatus(c)}
+                    label={conversationStateLabel(c)}
+                  />
+                }
+                identifier={conversationStateLabel(c)}
+                title={
+                  <span className="dashboard-recent-title">
+                    <span>Conversation #{c.id}</span>
+                    <span className="dashboard-detail">{stateDetail(c)}</span>
+                  </span>
+                }
+                trailing={<BotBadge name="Kit" />}
+              />
+            );
+          })}
+        </ListGroup>
       </Section>
 
       <Section title="Transcript">

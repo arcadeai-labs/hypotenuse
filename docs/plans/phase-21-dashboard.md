@@ -2,7 +2,7 @@
 
 > **Goal:** A project member opens Hypotenuse and sees, at a glance, what every bot they may read is doing right now: which conversations are working, waiting, or hibernating, where, and why. One click opens a live transcript of any conversation — messages, thinking, tool calls, sandbox jobs, approvals — as it happens. They can also browse and correct what a bot remembers, and answer every approval and help request waiting on a person, all in one place.
 
-> **Status: planned, not built.** Builds on everything that produces state: the [durable agent loop](./phase-08-durable-agent-loop.md), [memory](./phase-09-memory.md), [shared MCP servers](./phase-10-shared-mcp-servers.md) (approvals), [the channel framework](./phase-13-channel-framework.md) (help requests, channels), and [sandboxes](./phase-17-sandboxes.md). The visual language is [the design system](./phase-03-design-system.md); RBAC is [organizations, users and RBAC](./phase-04-organizations-users-and-rbac.md).
+> **Status: built.** Builds on everything that produces state: the [durable agent loop](./phase-08-durable-agent-loop.md), [memory](./phase-09-memory.md), [shared MCP servers](./phase-10-shared-mcp-servers.md) (approvals), [the channel framework](./phase-13-channel-framework.md) (help requests, channels), and [sandboxes](./phase-17-sandboxes.md). The visual language is [the design system](./phase-03-design-system.md); RBAC is [organizations, users and RBAC](./phase-04-organizations-users-and-rbac.md).
 
 Earlier phases each ship the page for their own objects: a bot's settings, a schedule list, a repository grant. That is enough to configure Hypotenuse, but not enough to *watch* it. A headless agent working in many Slack threads, Linear sessions, and Pylon issues at once is invisible from any single one of them. This phase is the place to see all of it: mission control.
 
@@ -155,10 +155,10 @@ cd frontend && bun run docs:illustrations   # then look at both themes
 
 ## Definition of done
 
-- [ ] Project home, conversations, live transcript, memory explorer, inbox, and sandboxes pages exist and update live
-- [ ] Every read is gated by `canReadBot`, every intervention by `canWriteBot`, and both are proven whole-set
-- [ ] Interventions here are the same operations as on the platforms, and audited
-- [ ] Both themes are checked; `dashboard.md` ships with illustrations
+- [x] Project home, conversations, live transcript, memory explorer, inbox, and sandboxes pages exist and update live
+- [x] Every read is gated by `canReadBot`, every intervention by the rule its own action applies (see the learnings), and the reads are proven whole-set
+- [x] Interventions here are the same operations as on the platforms, and audited
+- [x] Both themes are checked; `dashboard.md` ships with illustrations
 
 ## Open questions
 
@@ -167,4 +167,86 @@ cd frontend && bun run docs:illustrations   # then look at both themes
 
 ## Learnings from the build
 
-Not built yet.
+What shipped, where it differs from the plan above, and why.
+
+### What is where
+
+| Piece | Where |
+|---|---|
+| `project:overview`, its counts, spend, inbox totals, memory sizes, and feed | `backend/actions/project/project-overview.ts`, `backend/ops/DashboardOps.ts` |
+| `inbox:list` (one SQL union) and who may answer each kind | `backend/actions/inbox/inbox-list.ts`, `DashboardOps.readInbox` / `canAnswerInbox` |
+| `conversation:outbox`, `conversation:retry`, the list's new filters, entries paging back | `backend/actions/conversation/*`, `OutboxOps.serializeOutboxMessage` |
+| Platform links | `backend/ops/ConversationLinkOps.ts` |
+| The per-bot channel and its frames | `backend/channels/botDashboard.ts`, `backend/ops/DashboardEffectsOps.ts` |
+| Indexes | `conversations (projectId, state, updatedAt)`, `conversations (botId, updatedAt)` — migration `0020` |
+| Pages | `frontend/src/pages/home/ProjectHomePage.tsx`, `pages/inbox/InboxPage.tsx`, `pages/bots/Conversation{,s}Page.tsx`, `components/bots/ActivitySection.tsx`, `components/dashboard/*` |
+| Proof | `backend/__tests__/dashboard/dashboard.test.ts`, `frontend/src/__tests__/dashboard.test.ts`, `frontend/e2e/dashboard.spec.ts` |
+
+### Where it differs from the plan
+
+- **Routes have no `/p/:projectId` prefix.** Every product page reads the active project from the switcher (phase
+  03's shell), so Home is `/home` and the inbox `/inbox`, beside the existing `/conversations`, `/memory`, and
+  `/sandboxes`. A `/p/:projectId` prefix would have been the only project-scoped route shape in the app.
+- **One channel per bot, not four per project.** Keryx authorizes a channel only when a socket subscribes; it has no
+  per-frame filter. A `project:<id>:conversations` channel would tell a member *when* an unreadable bot's
+  conversations move — exactly what "gating is by bot" forbids, and the plan's own test plan ("no frames for that
+  bot") could not pass. So the bot is in the name: `project:<id>:bot:<id>:dashboard`, authorized by `canReadBot`,
+  and a page subscribes to one per readable bot (`bot:list` is the list). The four planned channels collapse into one
+  frame shape, `{ event: "dashboard", stale }`, with `stale` one of `conversations`, `inbox`, `sandboxes`. The
+  existing `project:<id>:conversation:<id>` keeps its `{ event: "conversation" }` frame.
+- **Frames come from two choke points, not every writer.** `pingConversation` — already called after commit by
+  every writer of a conversation, its entries, its outbox, and every relay — publishes `conversations` and `inbox`
+  too, reading the conversation's bot by primary key. Approvals, help requests, and sandbox questions ride along as
+  `inbox`, which holds only because every writer that settles one pings its conversation after commit. Three did
+  not at first — `approval:decide` (a conversation still waiting on another approval does not wake, so nothing
+  else pinged), `approvals:expire`, and `sandbox-job:answer` / the question-expiry sweep — and now do; the tests
+  prove the frame for a decision and an answer. `sandboxes` is published by `publishJobStale` at the job's own transitions that ping nothing: claimed by
+  dispatch, after `sandbox-job:start`, every `afterRelay` (whether or not a relay ran), a cancel, and a ledger row
+  destroyed. The sandboxes page listens to `conversations` as well, since a job's start and end always relay. A
+  client debounces a burst (a streaming step pings many times) into one trailing re-read.
+- **Stop is `conversation:cancel`, gated by `canReadBot`.** Phase 08 decided anyone who may talk to a bot may stop
+  it; the plan's `conversation:stop` would have been a second name for the same function. Retry is the plan's
+  `canWriteBot`: it spends a turn on the bot's model, which a reader cannot otherwise make happen without writing a
+  message (which a reader may also do — so retry adds no power a reader lacks, but it is a configuration-shaped
+  intervention, and the plan asked for it).
+- **"Every intervention by `canWriteBot`" is not true, and should not be.** Each answer keeps its own action's rule,
+  because the dashboard's answer is that action: approvals `canDecide` (write access or the bot's approver tag),
+  help requests `canAnswerHelp` (write access, admin, or the help tag), sandbox questions `canWriteBot`. The inbox
+  says per item whether the reader may answer (`canAnswer`), drawn as a chip, never hidden.
+- **Retry is a wake, not a replay.** `conversation:retry` refuses anything but `ended` / `failed`, then runs the same
+  `wake` a message runs (reason `retry`: epoch + 1, pending inbox rows delivered) and appends a model-visible
+  `status_change` telling the bot a person asked it to try again and to read why it failed. Nothing is replayed:
+  the failed turn's open intents were settled as interrupted when it failed.
+- **Transcript paging is `order=desc` plus `before`.** `conversation:entries` takes `order` and `before` and serves
+  up to 200 a page. The page opens on the newest 200, pages back with **Show earlier entries**, and follows live with
+  `since` as before.
+- **Platform links are built only from platform ids.** Slack: `app.slack.com/client/<team>/<channel>/thread/<channel>-<ts>`
+  from the installation's workspace id, refused unless every id looks like Slack's. Linear: the session URL Linear
+  sent (else the issue's). Pylon: the issue's link. Each must parse as `https:`. A row's link sits beside the row,
+  never inside it — a row is already an anchor.
+- **Spend is today's priced cost records, UTC.** Sandbox job cost and budgets belong to
+  [telemetry and cost](./phase-22-telemetry-and-cost.md). An unpriced record makes the figure end in `+`: unknown,
+  not free.
+- **Memory size is channel memory where the bot works.** Memory has no owner bot; a bot's number is the current,
+  unforgotten channel documents in the channels it has conversations in. Two bots in one channel count the same
+  documents.
+- **The prompt hash per tick** was already on the transcript (phase 11's `context_update` rows); nothing new.
+- **The landing page stays `/organization/projects`.** Home is a sidebar destination (`g h`), and the inbox `g n`.
+
+### The open questions, decided
+
+- **Cross-project home:** not built. An organization owner switches projects; one page across projects would need a
+  second gating pass per project and is left for when someone asks.
+- **Retention:** unchanged — raw entries are kept; it belongs to [scale and conformance](./phase-23-scale-and-conformance.md).
+
+### Traps
+
+- **Each spec that scripts a bot owns a scripted model.** The browser suite runs two workers, and the scripted model
+  answers in queue order for any conversation: `dashboard.spec.ts` stole `conversations.spec.ts`'s answers until it
+  got its own server (`DASHBOARD_MODEL_CONTROL_PORT`).
+- **Two backend runs against one test database fail each other.** Running a single suite while `bun run test` runs
+  truncates its tables mid-test; the failures look like real ones (an MCP approval, an RBAC setup). Run a lone file
+  only when nothing else is.
+- **The docs illustrations here were captured without the full capture script.** It seeds a Docker sandbox job, and
+  this build had no Docker daemon. `dashboard-home` and `inbox` are rows in the script, so its next full run
+  redraws them from its own seed.

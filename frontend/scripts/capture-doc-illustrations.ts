@@ -248,6 +248,20 @@ const ILLUSTRATIONS: Illustration[] = [
     signedIn: true,
   },
   {
+    name: "dashboard-home",
+    path: "/home",
+    width: 1280,
+    height: 900,
+    signedIn: true,
+  },
+  {
+    name: "inbox",
+    path: "/inbox",
+    width: 1280,
+    height: 440,
+    signedIn: true,
+  },
+  {
     name: "approvals",
     path: "/approvals",
     width: 1280,

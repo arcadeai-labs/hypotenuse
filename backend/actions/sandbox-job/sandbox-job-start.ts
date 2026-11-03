@@ -1,5 +1,6 @@
 import { type Action, type ActionParams } from "keryx";
 import { z } from "zod";
+import { publishJobStale } from "../../ops/DashboardEffectsOps";
 import { idInput } from "../../ops/InputOps";
 import { startSandboxJob } from "../../ops/SandboxProvisionOps";
 
@@ -23,6 +24,9 @@ export class SandboxJobStart implements Action {
    * @returns What happened.
    */
   async run(params: ActionParams<SandboxJobStart>) {
-    return { outcome: await startSandboxJob(params.jobId) };
+    const outcome = await startSandboxJob(params.jobId);
+    // Provisioning moved the job (running, failed, or cancelled).
+    await publishJobStale(params.jobId);
+    return { outcome };
   }
 }

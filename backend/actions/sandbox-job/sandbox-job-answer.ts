@@ -8,7 +8,8 @@ import {
 } from "../../classes/AuditedAction";
 import { ProjectMemberMiddleware } from "../../middleware/rbac";
 import { assertCanWriteBot } from "../../ops/BotOps";
-import { summarizeText } from "../../ops/ConversationOps";
+import { pingConversation, summarizeText } from "../../ops/ConversationOps";
+import { publishJobStale } from "../../ops/DashboardEffectsOps";
 import { idInput } from "../../ops/InputOps";
 import {
   answerJobQuestion,
@@ -104,6 +105,28 @@ export class SandboxJobAnswer extends AuditedAction {
     };
     connection.metadata.auditTargetType = "sandbox-question";
     connection.metadata.auditTargetPath = `${bot.slug}/${job.id}/${before.id}`;
+    connection.metadata.afterCommitData = {
+      conversationId: job.parentConversationId,
+    };
     return { question: serializeJobQuestion(answered) };
+  }
+
+  /**
+   * The question left the inbox: ping the conversation the job belongs to,
+   * and the job's own list.
+   * @param _result - The response.
+   * @param params - The inputs.
+   * @param connection - Carries the job's conversation.
+   */
+  async afterCommit(
+    _result: unknown,
+    params: ActionParams<SandboxJobAnswer>,
+    connection: AuditedConnection,
+  ) {
+    const conversationId = connection.metadata.afterCommitData?.conversationId;
+    if (typeof conversationId === "number") {
+      await pingConversation(params.projectId, conversationId);
+    }
+    await publishJobStale(params.jobId);
   }
 }
