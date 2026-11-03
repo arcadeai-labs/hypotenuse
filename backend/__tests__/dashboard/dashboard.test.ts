@@ -412,6 +412,78 @@ describe("frames", () => {
   });
 });
 
+describe("frames from a person's answer", () => {
+  test("deciding an approval and answering a sandbox question each tell the bot's readers the inbox moved", async () => {
+    const p = stage.u.projectId;
+    const channel = botDashboardChannel(p, stage.botId);
+    const { socket, messages } = await openSocket(stage.u.peach.sessionId);
+    try {
+      expect((await subscribe(socket, messages, channel)).ok).toBe(true);
+      /**
+       * Wait for an inbox frame after the log's current length.
+       * @param from - How many frames were there before.
+       */
+      const inboxFrameAfter = async (from: number) => {
+        const deadline = Date.now() + 5_000;
+        while (Date.now() < deadline) {
+          const fresh = frames(messages, channel).slice(from);
+          if (fresh.some((f) => (f as { stale: string }).stale === "inbox")) {
+            return true;
+          }
+          await Bun.sleep(25);
+        }
+        return false;
+      };
+      const [approval] = await api.db.db
+        .select()
+        .from(approvals)
+        .where(
+          and(
+            eq(approvals.botId, stage.botId),
+            eq(approvals.status, "pending"),
+          ),
+        );
+      let before = frames(messages, channel).length;
+      const decided = await call(
+        stage.u.url,
+        stage.u.peach,
+        "POST",
+        `/project/${p}/approval/${approval.id}`,
+        { decision: "deny" },
+      );
+      expect(decided.status).toBe(200);
+      expect(await inboxFrameAfter(before)).toBe(true);
+
+      const [question] = await api.db.db
+        .select({
+          id: sandboxJobQuestions.id,
+          jobId: sandboxJobQuestions.jobId,
+        })
+        .from(sandboxJobQuestions)
+        .innerJoin(sandboxJobs, eq(sandboxJobs.id, sandboxJobQuestions.jobId))
+        .where(
+          and(
+            eq(sandboxJobs.botId, stage.botId),
+            eq(sandboxJobQuestions.kind, "conversation"),
+            eq(sandboxJobQuestions.status, "pending"),
+          ),
+        );
+      before = frames(messages, channel).length;
+      const answered = await call(
+        stage.u.url,
+        stage.u.peach,
+        "POST",
+        `/project/${p}/sandbox-job/${question.jobId}/question/${question.id}`,
+        { answer: "main" },
+      );
+      expect(answered.status).toBe(200);
+      expect(await inboxFrameAfter(before)).toBe(true);
+    } finally {
+      socket.close();
+    }
+  });
+});
+
 describe("conversation:retry", () => {
   test("a failed turn is retried by a bot writer, audited, and told to the model", async () => {
     const p = stage.u.projectId;

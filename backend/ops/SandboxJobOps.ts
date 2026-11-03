@@ -844,7 +844,19 @@ export async function expireDueQuestions(): Promise<number> {
         lt(sandboxJobQuestions.expiresAt, sql`now()`),
       ),
     )
-    .returning({ id: sandboxJobQuestions.id });
+    .returning({ jobId: sandboxJobQuestions.jobId });
+  // The expired questions left the inbox: ping each job's conversation.
+  const jobIds = [...new Set(rows.map((r) => r.jobId))];
+  if (jobIds.length > 0) {
+    const jobs = await api.db.db
+      .select({
+        projectId: sandboxJobs.projectId,
+        conversationId: sandboxJobs.parentConversationId,
+      })
+      .from(sandboxJobs)
+      .where(inArray(sandboxJobs.id, jobIds));
+    for (const j of jobs) await pingConversation(j.projectId, j.conversationId);
+  }
   return rows.length;
 }
 

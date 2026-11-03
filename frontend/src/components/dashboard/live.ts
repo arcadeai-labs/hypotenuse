@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   useLiveReconnect,
   useLiveSocket,
 } from "../../context/LiveSocketContext";
-import { useRead } from "../bots/data";
+import { apiFetch } from "../../utils/client";
 import { botDashboardChannel, type DashboardStale, staleOf } from "./model";
 
 /** How long a burst of frames is gathered into one re-read. */
@@ -69,12 +69,32 @@ export function useDashboardFrames(
 /**
  * The ids of the bots the reader may read in a project — `bot:list` filters
  * by `canReadBot` — which are the dashboard channels a list page follows.
+ * Every page of the list is read, so a project with more bots than one page
+ * holds still follows them all.
  * @param projectId - The project, or `null`.
  * @returns The ids (empty until read).
  */
 export function useReadableBotIds(projectId: number | null): number[] {
-  const bots = useRead<{ bots: { id: number }[] }>(
-    projectId === null ? null : `/project/${projectId}/bots?limit=100`,
-  );
-  return useMemo(() => bots.data?.bots.map((b) => b.id) ?? [], [bots.data]);
+  const [ids, setIds] = useState<number[]>([]);
+  useEffect(() => {
+    setIds([]);
+    if (projectId === null) return;
+    let cancelled = false;
+    (async () => {
+      const all: number[] = [];
+      for (let page = 1; ; page++) {
+        const res = await apiFetch<{
+          bots: { id: number }[];
+          pagination: { pages: number };
+        }>(`/project/${projectId}/bots?limit=100&page=${page}`);
+        all.push(...res.bots.map((b) => b.id));
+        if (page >= res.pagination.pages) break;
+      }
+      if (!cancelled) setIds(all);
+    })().catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId]);
+  return ids;
 }

@@ -26,7 +26,7 @@ import { sandboxJobs } from "../schema/sandbox_jobs";
  * | `stale` | Re-read | Published by |
  * |---|---|---|
  * | `conversations` | `conversation:list`, `project:overview` | every `pingConversation` (a tick's step, a message, a cancel, a wake, an answer, a relay) |
- * | `inbox` | `inbox:list`, `project:overview` | every `pingConversation` too: an approval, a help request, or a sandbox question is raised and settled only by writers that also ping its conversation |
+ * | `inbox` | `inbox:list`, `project:overview` | every `pingConversation` too: raising an item pings its conversation (a tick, a relay), and every way one settles pings it after commit — `approval:decide`, `approvals:expire`, `help:answer` / `help:cancel` / the help expiry, `sandbox-job:answer`, the sandbox-question expiry, and an in-channel interaction |
  * | `sandboxes` | `sandbox-job:list`, `sandbox-ledger:list` | a job claimed, provisioned, reporting, cancelled, or ended, and every sandbox relay; a ledger row destroyed |
  */
 

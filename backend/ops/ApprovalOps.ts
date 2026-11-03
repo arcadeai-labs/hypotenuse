@@ -24,7 +24,12 @@ import { users } from "../schema/users";
 import { type ToolErrorEnvelope, toolErrorEnvelope } from "../tools/types";
 import { satisfiesAccess } from "./AccessOps";
 import { canWriteBot } from "./BotOps";
-import { enqueueTick, lockConversation, wake } from "./ConversationOps";
+import {
+  enqueueTick,
+  lockConversation,
+  pingConversation,
+  wake,
+} from "./ConversationOps";
 import type { DbHandle, TxHandle } from "./DbOps";
 import { enqueueNotification, resolveRecipients } from "./NotificationOps";
 import { scrubToolOutput } from "./TranscriptOps";
@@ -436,14 +441,20 @@ async function expireRows(tx: TxHandle, ids: number[]): Promise<void> {
  */
 export async function expireDueApprovals(limit = 200): Promise<number> {
   const due = await api.db.db
-    .select({ id: approvals.id, conversationId: approvals.conversationId })
+    .select({
+      id: approvals.id,
+      conversationId: approvals.conversationId,
+      projectId: approvals.projectId,
+    })
     .from(approvals)
     .where(
       and(eq(approvals.status, "pending"), lt(approvals.expiresAt, sql`now()`)),
     )
     .limit(limit);
   const byConversation = new Map<number, number[]>();
+  const projectOf = new Map<number, number>();
   for (const row of due) {
+    projectOf.set(row.conversationId, row.projectId);
     byConversation.set(row.conversationId, [
       ...(byConversation.get(row.conversationId) ?? []),
       row.id,
@@ -474,6 +485,13 @@ export async function expireDueApprovals(limit = 200): Promise<number> {
       return wakeIfDecided(tx, locked.conversation);
     });
     if (woke) await enqueueTick(woke);
+    // Whether or not it woke, its approvals left the inbox.
+    if (projectOf.has(conversationId)) {
+      await pingConversation(
+        projectOf.get(conversationId) ?? 0,
+        conversationId,
+      );
+    }
   }
   return expired;
 }

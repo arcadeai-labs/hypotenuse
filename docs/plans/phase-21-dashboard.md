@@ -196,9 +196,11 @@ What shipped, where it differs from the plan above, and why.
   existing `project:<id>:conversation:<id>` keeps its `{ event: "conversation" }` frame.
 - **Frames come from two choke points, not every writer.** `pingConversation` — already called after commit by
   every writer of a conversation, its entries, its outbox, and every relay — publishes `conversations` and `inbox`
-  too, reading the conversation's bot by primary key. Approvals, help requests, and sandbox questions are raised
-  and settled only by writers that also ping their conversation, so `inbox` rides along; the tests prove the frame
-  for each. `sandboxes` is published by `publishJobStale` at the job's own transitions that ping nothing: claimed by
+  too, reading the conversation's bot by primary key. Approvals, help requests, and sandbox questions ride along as
+  `inbox`, which holds only because every writer that settles one pings its conversation after commit. Three did
+  not at first — `approval:decide` (a conversation still waiting on another approval does not wake, so nothing
+  else pinged), `approvals:expire`, and `sandbox-job:answer` / the question-expiry sweep — and now do; the tests
+  prove the frame for a decision and an answer. `sandboxes` is published by `publishJobStale` at the job's own transitions that ping nothing: claimed by
   dispatch, after `sandbox-job:start`, every `afterRelay` (whether or not a relay ran), a cancel, and a ledger row
   destroyed. The sandboxes page listens to `conversations` as well, since a job's start and end always relay. A
   client debounces a burst (a streaming step pings many times) into one trailing re-read.
