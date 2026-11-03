@@ -121,7 +121,7 @@ test("Home and the inbox follow a bot live, and a failed turn is retried from it
   );
   const recent = page.getByTestId(`home-recent-${conversation.id}`);
   await expect(recent).toHaveAttribute("data-state", "ended", LANDED);
-  await expect(recent).toContainText("Failed");
+  await expect(recent).toContainText("failed — retry it");
 
   // An escalation lands in Needs a person, and in the inbox.
   await script([
