@@ -524,6 +524,9 @@ describe("the guard", () => {
     const [run] = await runsOf(id);
     expect(run.status).toBe("skipped");
     expect(run.reason).toBe("The schedule was disabled.");
+    expect(run.guard).toEqual({ act: true, reason: "Needed." });
+    // The slot's conversation was rolled back with the wake.
+    expect(await api.db.db.select().from(conversations)).toHaveLength(0);
     expect(
       await api.db.db
         .select()

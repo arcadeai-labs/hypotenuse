@@ -1095,19 +1095,9 @@ export async function fireRun(runId: number): Promise<FireOutcome> {
         locked.bot,
         taken.trigger,
       );
-      if (late) {
-        outcome = "skipped";
-        await tx
-          .update(scheduleRuns)
-          .set({ status: "skipped", reason: late, finishedAt: new Date() })
-          .where(
-            and(
-              eq(scheduleRuns.id, runId),
-              eq(scheduleRuns.startedAt, startedAt),
-            ),
-          );
-        return;
-      }
+      // Roll back the conversation this transaction may have created: a
+      // skipped slot leaves no empty thread behind.
+      if (late) throw new LateSkip(late);
       const slotIso = taken.slot.toISOString();
       const received = await receiveMessage(tx, locked.conversation, {
         text: await scheduleMessage(tx, bot, schedule, taken.slot),
@@ -1147,6 +1137,10 @@ export async function fireRun(runId: number): Promise<FireOutcome> {
     });
   } catch (e) {
     if (e instanceof RunTakenOver) return "busy";
+    if (e instanceof LateSkip) {
+      await finishRun(runId, startedAt, "skipped", e.message, guard, guardCost);
+      return "skipped";
+    }
     await finishRun(
       runId,
       startedAt,
@@ -1165,6 +1159,9 @@ export async function fireRun(runId: number): Promise<FireOutcome> {
 
 /** A second fire holds the run; this one's writes are rolled back. */
 class RunTakenOver extends Error {}
+
+/** The target disengaged during the fire; the wake's writes are rolled back. */
+class LateSkip extends Error {}
 
 /**
  * The conversation a slot works in: the target conversation, or a new one

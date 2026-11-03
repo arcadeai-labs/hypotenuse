@@ -241,7 +241,8 @@ Every combination `disengagedReason` decides, in order (the first that holds is 
 
 It is checked twice: before the guard (to save its call) and again under the conversation's lock, against the
 schedule re-read `FOR SHARE` — a person can disable it while the guard is answering, and the row read before the
-guard would still say enabled. `lastRunAt` is written only when a run is: a slot `catchUp: none` drops as late never
+guard would still say enabled. A skip found there throws, so the wake's whole transaction rolls back — a `channel`
+or `none` slot's freshly created conversation included — and the skip is recorded after. `lastRunAt` is written only when a run is: a slot `catchUp: none` drops as late never
 ran.
 
 ### Traps found while building
