@@ -1,0 +1,280 @@
+// Mission control: the project home, the inbox's rows, the detail line under
+// a conversation's state, the platform link beside a row, and a transcript's
+// outbox. docs/DESIGN.md is the spec. Tokens only, checked in both themes.
+
+.dashboard-home {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: 0 var(--space-5) var(--space-5);
+}
+
+.dashboard-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: var(--space-3);
+}
+
+.dashboard-stat {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  background: var(--bg-panel);
+}
+
+.dashboard-stat-value {
+  color: var(--text-primary);
+  font-size: var(--text-lg);
+  font-weight: 600;
+  line-height: var(--leading-snug);
+}
+
+.dashboard-stat-label {
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+}
+
+.dashboard-bots {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: var(--space-3);
+}
+
+.dashboard-bot {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  background: var(--bg-panel);
+}
+
+.dashboard-bot-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.dashboard-bot-name {
+  color: var(--text-primary);
+  text-decoration: none;
+
+  &:hover {
+    text-decoration: underline;
+  }
+}
+
+.dashboard-bot-spend {
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+}
+
+.dashboard-bot-counts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-2);
+  margin: 0;
+
+  > div {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+
+  dt {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    color: var(--text-secondary);
+    font-size: var(--text-xs);
+    font-weight: 500;
+  }
+
+  dd {
+    margin: 0;
+    color: var(--text-primary);
+    font-size: var(--text-md);
+    font-weight: 600;
+  }
+}
+
+.dashboard-bot-waiting {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.dashboard-bot-waiting-kind {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  text-decoration: none;
+
+  &:hover {
+    color: var(--text-primary);
+  }
+}
+
+.dashboard-bot-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: var(--text-xs);
+
+  a {
+    color: var(--accent);
+  }
+}
+
+.dashboard-bot-ended {
+  margin-left: auto;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+}
+
+.dashboard-columns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4);
+  align-items: start;
+
+  @media (max-width: 1023.98px) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.dashboard-more {
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-xs);
+}
+
+// A row's title with the state's detail line after it, on one line.
+.dashboard-recent-title {
+  display: inline-flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: var(--space-2);
+
+  > span:first-child {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.dashboard-detail {
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+// A list row with a link to its platform beside it, never inside it.
+.conversation-row-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+
+  > .ui-list-row {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+}
+
+.conversation-platform-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  margin-right: var(--space-2);
+  border-radius: var(--radius-sm);
+  color: var(--text-tertiary);
+
+  &:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--focus-ring);
+    outline-offset: 1px;
+  }
+}
+
+.conversation-platform-filter {
+  height: 24px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-pill);
+  background: var(--bg-panel);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--text-xs);
+}
+
+.dashboard-older {
+  align-self: center;
+  margin: var(--space-2) 0;
+}
+
+.dashboard-outbox {
+  margin: var(--space-3) 0;
+
+  > summary {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    color: var(--text-secondary);
+    font-size: var(--text-xs);
+    font-weight: 500;
+    cursor: pointer;
+  }
+}
+
+.dashboard-outbox-rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  list-style: none;
+
+  > li {
+    display: grid;
+    grid-template-columns: 80px minmax(0, 1fr) auto auto;
+    gap: var(--space-3);
+    align-items: baseline;
+    font-size: var(--text-xs);
+  }
+}
+
+.dashboard-outbox-kind {
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+}
+
+.dashboard-outbox-text {
+  overflow: hidden;
+  color: var(--text-primary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dashboard-outbox-problem {
+  color: var(--status-waiting);
+  font-weight: 500;
+}
+
+.dashboard-activity {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: var(--space-3);
+}

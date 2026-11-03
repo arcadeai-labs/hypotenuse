@@ -1,3 +1,4 @@
+import type { DashboardConversation } from "../components/dashboard/model";
 import type {
   BotProfile,
   ConversationSummary,
@@ -263,3 +264,49 @@ export const FIXTURE_MEMORY: MemoryScope[] = [
     documents: [],
   },
 ];
+
+/**
+ * One conversation in every state the dashboard draws, each with the detail
+ * line its state table gives it — the style guide's Dashboard section.
+ * Times are relative to when the page renders.
+ * @param now - The current time.
+ * @returns The fixtures, in the state table's order.
+ */
+export function fixtureDashboardStates(
+  now = Date.now(),
+): DashboardConversation[] {
+  const base = { epoch: 4, lastActivityAt: now - 4 * 60_000, outcome: null };
+  return [
+    { ...base, id: 1, state: "working", waitingOn: null },
+    { ...base, id: 2, state: "waiting", waitingOn: { kind: "answer" } },
+    {
+      ...base,
+      id: 3,
+      state: "waiting",
+      waitingOn: { kind: "approval", approvalIds: [41] },
+    },
+    { ...base, id: 4, state: "waiting", waitingOn: { kind: "help" } },
+    {
+      ...base,
+      id: 5,
+      state: "waiting",
+      waitingOn: { kind: "sandbox", sandboxJobId: 12 },
+    },
+    {
+      ...base,
+      id: 6,
+      state: "waiting",
+      waitingOn: { kind: "timer", at: now + 3_600_000 },
+    },
+    {
+      ...base,
+      id: 7,
+      state: "hibernating",
+      waitingOn: null,
+      lastActivityAt: now - 2 * 3_600_000,
+    },
+    { ...base, id: 8, state: "ended", waitingOn: null, outcome: "completed" },
+    { ...base, id: 9, state: "ended", waitingOn: null, outcome: "failed" },
+    { ...base, id: 10, state: "ended", waitingOn: null, outcome: "cancelled" },
+  ];
+}

@@ -10,6 +10,7 @@ import cli from "./cli.md?raw";
 import codeMode from "./code-mode.md?raw";
 import connectingAPlatform from "./connecting-a-platform.md?raw";
 import conversations from "./conversations.md?raw";
+import dashboard from "./dashboard.md?raw";
 import escalation from "./escalation.md?raw";
 import gettingStarted from "./getting-started.md?raw";
 import goals from "./goals.md?raw";
@@ -58,6 +59,7 @@ export const DOCS_SECTIONS: DocsSection[] = [
   { slug: "tags", title: "Tags", markdown: tags },
   { slug: "models", title: "Models", markdown: models },
   { slug: "bots", title: "Bots", markdown: bots },
+  { slug: "dashboard", title: "The dashboard", markdown: dashboard },
   { slug: "conversations", title: "Conversations", markdown: conversations },
   { slug: "chat", title: "Chat", markdown: chat },
   { slug: "prompts", title: "Prompts", markdown: prompts },

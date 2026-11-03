@@ -4,6 +4,7 @@ import {
   Brain,
   FolderGit2,
   House,
+  Inbox,
   LifeBuoy,
   type LucideIcon,
   MessageCircle,
@@ -17,6 +18,7 @@ import {
 export interface Destination {
   id:
     | "home"
+    | "inbox"
     | "conversations"
     | "chat"
     | "approvals"
@@ -51,7 +53,15 @@ export const DESTINATIONS: readonly Destination[] = [
     label: "Home",
     Icon: House,
     shortcut: "g h",
-    available: false,
+    available: true,
+  },
+  {
+    id: "inbox",
+    to: "/inbox",
+    label: "Inbox",
+    Icon: Inbox,
+    shortcut: "g n",
+    available: true,
   },
   {
     id: "conversations",

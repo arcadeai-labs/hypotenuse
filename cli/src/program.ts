@@ -22,6 +22,7 @@ import { registerConnectionCommands } from "./commands/connection";
 import { registerConversationCommands } from "./commands/conversation";
 import { registerGoalCommands } from "./commands/goal";
 import { registerHelpRequestCommands } from "./commands/help-request";
+import { registerInboxCommands } from "./commands/inbox";
 import { registerInstallationCommands } from "./commands/installation";
 import { registerInviteCommands } from "./commands/invite";
 import { registerLargeResultCommands } from "./commands/large-result";
@@ -106,6 +107,7 @@ export function buildProgram(): Command {
   registerConversationCommands(program);
   registerApprovalCommands(program);
   registerHelpRequestCommands(program);
+  registerInboxCommands(program);
   registerLargeResultCommands(program);
   registerCodeRunCommands(program);
   registerSandboxCommands(program);

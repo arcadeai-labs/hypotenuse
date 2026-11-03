@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { useOutletContext } from "react-router-dom";
 import { botWriteDenied } from "../../utils/bots";
 import { AccessSection } from "./AccessSection";
+import { ActivitySection } from "./ActivitySection";
 import { ApprovalSettingsSection } from "./ApprovalSettingsSection";
 import { BudgetSection } from "./BudgetSection";
 import { CallbackSecretSection } from "./CallbackSecretSection";
@@ -82,6 +83,14 @@ function editProps(ctx: BotSectionContext) {
  * the sidebar stays short and each page fits on a screen.
  */
 export const BOT_SECTIONS: readonly BotSection[] = [
+  {
+    slug: "activity",
+    label: "Activity",
+    group: "Bot",
+    render: (ctx) => (
+      <ActivitySection projectId={ctx.projectId} bot={ctx.bot} />
+    ),
+  },
   {
     slug: "general",
     label: "General",
