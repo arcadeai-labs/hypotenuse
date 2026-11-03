@@ -43,7 +43,16 @@ interface Dialect {
   responseHeaders: string[];
   sign: (headers: Headers, key: string) => void;
   maxTokensField: string;
+  /**
+   * Whether a request may omit its output ceiling, so the proxy sets one at
+   * what the job's budget has left. Anthropic requires `max_tokens`; OpenAI's
+   * `max_output_tokens` is optional.
+   */
+  capsOutput: boolean;
 }
+
+/** The smallest output ceiling OpenAI accepts. */
+const MIN_OUTPUT_TOKENS = 16;
 
 /** Claude Code speaks Anthropic Messages; Codex speaks OpenAI Responses. */
 const DIALECTS: Record<CodingProvider, Dialect> = {
@@ -65,6 +74,7 @@ const DIALECTS: Record<CodingProvider, Dialect> = {
     ],
     sign: (headers, key) => headers.set("x-api-key", key),
     maxTokensField: "max_tokens",
+    capsOutput: false,
   },
   openai: {
     paths: new Set(["/v1/responses"]),
@@ -74,6 +84,7 @@ const DIALECTS: Record<CodingProvider, Dialect> = {
     responseHeaders: ["content-type", "x-request-id", "retry-after"],
     sign: (headers, key) => headers.set("authorization", `Bearer ${key}`),
     maxTokensField: "max_output_tokens",
+    capsOutput: true,
   },
 };
 
@@ -185,8 +196,9 @@ export class ProxyModel implements Action {
     }
     let requested: string | null = null;
     let maxTokens = 0;
+    let parsed: Record<string, unknown>;
     try {
-      const parsed = JSON.parse(new TextDecoder().decode(body.bytes)) as Record<
+      parsed = JSON.parse(new TextDecoder().decode(body.bytes)) as Record<
         string,
         unknown
       >;
@@ -230,6 +242,28 @@ export class ProxyModel implements Action {
     // token, and every output token it may ask for — must fit what is left,
     // so parallel requests cannot all start under the line and land far
     // past it.
+    let forwarded: Uint8Array = body.bytes;
+    if (job.budgetTokens !== null && maxTokens === 0 && dialect.capsOutput) {
+      // A Responses request may leave its output uncapped (Codex does), which
+      // would reserve nothing for its answer: cap it at what the budget has
+      // left, so the reservation below holds for it too.
+      const left =
+        job.budgetTokens -
+        job.usage.inputTokens -
+        job.usage.outputTokens -
+        Math.ceil(body.byteLength / 4);
+      if (left < MIN_OUTPUT_TOKENS) {
+        return refuse(
+          402,
+          "budget_exceeded",
+          `This request could take this job past its budget of ${job.budgetTokens} tokens. Finish with what you have.`,
+        );
+      }
+      maxTokens = left;
+      forwarded = new TextEncoder().encode(
+        JSON.stringify({ ...parsed, [dialect.maxTokensField]: left }),
+      );
+    }
     if (
       job.budgetTokens !== null &&
       job.usage.inputTokens +
@@ -293,7 +327,7 @@ export class ProxyModel implements Action {
       upstream = await guardedFetch(url, {
         method: "POST",
         headers,
-        body: body.bytes,
+        body: forwarded,
       });
     } catch (e) {
       release();

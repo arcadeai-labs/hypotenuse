@@ -309,6 +309,33 @@ describe("the model proxy, for a bot on OpenAI models", () => {
     );
   });
 
+  test("a Responses request with no output cap, on a job with a budget, is capped at what the budget has left", async () => {
+    const { token } = await job({
+      budgetTokens: 1_000,
+      usage: { inputTokens: 300, outputTokens: 100, requests: 2 },
+    });
+    const body = { model: "scripted-large", input: "Hi", stream: true };
+    const res = await responses(token, body);
+    expect(res.status).toBe(200);
+    await res.text();
+    const sent = JSON.parse(stage.models.requests.at(-1)?.body ?? "{}");
+    const input = Math.ceil(JSON.stringify(body).length / 4);
+    expect(sent.max_output_tokens).toBe(1_000 - 400 - input);
+    expect(sent.input).toBe("Hi");
+    // With too little left for any answer, it is refused before it is sent.
+    const spent = await job({
+      budgetTokens: 1_000,
+      usage: { inputTokens: 900, outputTokens: 90, requests: 9 },
+    });
+    expect((await responses(spent.token, body)).status).toBe(402);
+    // A job without a budget is forwarded as sent.
+    const open = await job({ budgetTokens: null });
+    await (await responses(open.token, body)).text();
+    expect(
+      JSON.parse(stage.models.requests.at(-1)?.body ?? "{}").max_output_tokens,
+    ).toBeUndefined();
+  });
+
   test("a Responses request that could pass the budget is refused up front, counting max_output_tokens", async () => {
     const small = await job({ budgetTokens: 100 });
     const refused = await responses(small.token, {
