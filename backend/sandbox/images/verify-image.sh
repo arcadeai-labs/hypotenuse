@@ -8,7 +8,7 @@
 set -euo pipefail
 
 IMAGE="${1:-hypotenuse/sandbox:dev}"
-REQUIRED_TOOLS="bun git curl jq node npm python3 gcc claude sudo"
+REQUIRED_TOOLS="bun git curl jq node npm python3 gcc claude codex sudo"
 
 docker run --rm --entrypoint /bin/sh -e REQUIRED_TOOLS="$REQUIRED_TOOLS" "$IMAGE" -c '
 set -u
@@ -40,5 +40,6 @@ if command -v gh >/dev/null 2>&1; then
   status=1
 fi
 claude --version
+codex --version
 exit $status
 '

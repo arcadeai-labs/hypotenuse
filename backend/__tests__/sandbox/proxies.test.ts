@@ -5,7 +5,7 @@ import { MODEL_KEY, startConversation } from "../agent/harness";
 import { type McpFixture, startMcpFixture } from "../fixtures/mcp-server";
 import { addServer, bindServer, type McpStage } from "../mcp/harness";
 import { HOOK_TIMEOUT, runAction } from "../setup";
-import { buildSandboxStage, jobRow, mintJob } from "./harness";
+import { buildSandboxStage, jobRow, mintJob, useOpenAiModels } from "./harness";
 
 /**
  * **The proxies**: what a sandbox holds is its job token, and these attach
@@ -208,6 +208,118 @@ describe("the model proxy", () => {
     });
     expect(res.status).toBe(429);
     await api.redis.redis.del(`sandbox:model-inflight:${j.id}`);
+  });
+});
+
+describe("the model proxy, for a bot on OpenAI models", () => {
+  let restore: () => Promise<void>;
+  beforeAll(async () => {
+    restore = await useOpenAiModels(stage);
+  });
+  afterAll(async () => {
+    await restore();
+  });
+
+  /**
+   * A Responses request as Codex sends it.
+   * @param token - The bearer.
+   * @param body - The body.
+   * @param path - The path after the provider.
+   * @param provider - The provider segment.
+   * @returns The response.
+   */
+  function responses(
+    token: string,
+    body: Record<string, unknown>,
+    path = "/v1/responses",
+    provider = "openai",
+  ) {
+    return fetch(`${stage.u.url}/api/proxy/model/${provider}${path}`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${token}`,
+        "content-type": "application/json",
+        accept: "text/event-stream",
+      },
+      body: JSON.stringify(body),
+    });
+  }
+
+  test("forwards a streamed Responses request signed with the OpenAI connection's key, and records the usage from response.completed", async () => {
+    const { job: j, token } = await job();
+    stage.models.script("Hello from OpenAI.");
+    const res = await responses(token, {
+      model: "scripted-large",
+      input: [{ role: "user", content: "Hi" }],
+      stream: true,
+      store: false,
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("text/event-stream");
+    const text = await res.text();
+    expect(text).toContain("response.completed");
+    expect(text).toContain("Hello from OpenAI.");
+    const seen = stage.models.requests.at(-1);
+    expect(seen?.path).toBe("/openai/v1/responses");
+    expect(seen?.headers.authorization).toBe(`Bearer ${MODEL_KEY}`);
+    expect(JSON.stringify(seen?.headers)).not.toContain(token);
+    await Bun.sleep(100);
+    expect((await jobRow(j.id)).usage).toEqual({
+      inputTokens: 10,
+      outputTokens: 5,
+      requests: 1,
+    });
+  });
+
+  test("the fast model on the same provider is allowed; another model, another path, and the Anthropic route are refused in OpenAI's error shape", async () => {
+    const { token } = await job();
+    const fast = await responses(token, {
+      model: "scripted-small",
+      input: "Hi",
+    });
+    expect(fast.status).toBe(200);
+    const other = await responses(token, {
+      model: "gpt-the-expensive-one",
+      input: "Hi",
+    });
+    expect(other.status).toBe(400);
+    const otherBody = (await other.json()) as {
+      error: { type: string; message: string };
+    };
+    expect(otherBody.error.type).toBe("invalid_request_error");
+    expect(otherBody.error.message).toContain("scripted-large");
+    expect(
+      (
+        await responses(
+          token,
+          { model: "scripted-large" },
+          "/v1/chat/completions",
+        )
+      ).status,
+    ).toBe(404);
+    // The bot is on OpenAI now: the Anthropic route is not its route.
+    const anthropic = await model(token, {
+      model: "scripted-large",
+      max_tokens: 8,
+      messages: [{ role: "user", content: "Hi" }],
+    });
+    expect(anthropic.status).toBe(404);
+    expect(JSON.stringify(await anthropic.json())).toContain(
+      "/proxy/model/openai",
+    );
+  });
+
+  test("a Responses request that could pass the budget is refused up front, counting max_output_tokens", async () => {
+    const small = await job({ budgetTokens: 100 });
+    const refused = await responses(small.token, {
+      model: "scripted-large",
+      input: "Hi",
+      max_output_tokens: 500,
+    });
+    expect(refused.status).toBe(402);
+    expect(
+      ((await refused.json()) as { error: { type: string } }).error.type,
+    ).toBe("budget_exceeded");
   });
 });
 

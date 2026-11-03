@@ -333,8 +333,9 @@ sentence. A bot's `sandbox_start` (approval-gated unless its `sandboxPolicy` is
 `allow`) writes a `sandbox_jobs` row its conversation owns, and `sandbox_wait` parks the conversation on it. A dispatch
 clock claims jobs within the project's and the bot's concurrency, and `sandbox-job:start` provisions: a job token (the
 sandbox's only credential), the briefing and task, an MCP config naming our `/mcp` (the six in-sandbox tools only) and
-the bot's shared servers through the gateway proxy (`proxy:mcp`, its allowlisted tools only), Claude Code pointed at the
-model proxy (`proxy:model`, the bot's Anthropic models, a token budget), and the supervisor. The supervisor pushes over
+the bot's shared servers through the gateway proxy (`proxy:mcp`, its allowlisted tools only), the coding CLI pointed at
+the model proxy (`proxy:model`, the bot's models, a token budget) — Claude Code for a bot on an Anthropic model, Codex
+for one on an OpenAI model — and the supervisor. The supervisor pushes over
 HTTP (`sandbox:events`, `sandbox:heartbeat`, `sandbox:complete`); the heartbeat's answer is the only way the server
 steers it (cancel, follow-up, steer). Status, questions, and help land in the conversation that started the job —
 status on its surface, questions as messages the bot answers with `sandbox_message`, help in the Help inbox — and

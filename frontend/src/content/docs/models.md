@@ -27,6 +27,8 @@ Add one with a name you will recognise (`Anthropic (production)`), the provider,
   it holds.
 - To change a key, use **Rotate key** and paste the new one. The old one is replaced, not kept.
 - Hypotenuse calls a provider only from its own servers. A key never reaches a browser, a bot's tools, or a sandbox.
+- A bot's [sandbox jobs](/docs/sandboxes#which-coding-agent-runs) run Claude Code when its model is on an Anthropic
+  connection and Codex when it is on an OpenAI one; other providers cannot run sandbox jobs.
 - A base URL must be a public `https` address; Hypotenuse refuses one that points into a private network.
 
 ### Testing a key

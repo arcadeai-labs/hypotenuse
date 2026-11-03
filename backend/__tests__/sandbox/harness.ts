@@ -10,7 +10,12 @@ import { type Conversation, conversations } from "../../schema/conversations";
 import { outboxMessages } from "../../schema/outbox_messages";
 import { type SandboxJob, sandboxJobs } from "../../schema/sandbox_jobs";
 import { sandboxes } from "../../schema/sandboxes";
-import { type AgentStage, buildAgentStage, drainQueue } from "../agent/harness";
+import {
+  type AgentStage,
+  buildAgentStage,
+  drainQueue,
+  MODEL_KEY,
+} from "../agent/harness";
 import { call } from "../setup";
 
 /**
@@ -293,4 +298,68 @@ export async function asJob<T = Record<string, unknown>>(
     ...(isGet ? {} : { body: JSON.stringify({ ...body, token }) }),
   });
   return { status: res.status, body: (await res.json()) as T };
+}
+
+/**
+ * Point the stage's bot at OpenAI models — so its jobs run Codex — on a
+ * second connection to the scripted server's OpenAI endpoint: `coder`
+ * (`scripted-large`) and `coder-fast` (`scripted-small`). Created once per
+ * stage; the returned function points the bot back at its Anthropic models.
+ * @param stage - The stage.
+ * @returns A function restoring the bot's models.
+ */
+export async function useOpenAiModels(
+  stage: AgentStage,
+): Promise<() => Promise<void>> {
+  const aliases = await call<{ modelAliases: { name: string }[] }>(
+    stage.u.url,
+    stage.u.peach,
+    "GET",
+    `/project/${stage.u.projectId}/model-aliases`,
+  );
+  if (aliases.status !== 200) throw new Error(JSON.stringify(aliases.body));
+  if (!aliases.body.modelAliases.some((a) => a.name === "coder")) {
+    const created = await call<{ modelConnection: { id: number } }>(
+      stage.u.url,
+      stage.u.peach,
+      "PUT",
+      `/project/${stage.u.projectId}/model-connection`,
+      {
+        name: "Scripted OpenAI",
+        provider: "openai",
+        baseUrl: stage.models.baseUrl("openai"),
+        apiKey: MODEL_KEY,
+      },
+    );
+    if (created.status !== 200) throw new Error(JSON.stringify(created.body));
+    for (const [name, modelId] of [
+      ["coder", "scripted-large"],
+      ["coder-fast", "scripted-small"],
+    ]) {
+      const alias = await call(
+        stage.u.url,
+        stage.u.peach,
+        "PUT",
+        `/project/${stage.u.projectId}/model-alias`,
+        {
+          name,
+          connectionId: created.body.modelConnection.id,
+          modelId,
+        },
+      );
+      if (alias.status !== 200) throw new Error(JSON.stringify(alias.body));
+    }
+  }
+  const point = async (modelAlias: string, fastModelAlias: string) => {
+    const bot = await call(
+      stage.u.url,
+      stage.u.peach,
+      "POST",
+      `/project/${stage.u.projectId}/bot/${stage.botId}`,
+      { modelAlias, fastModelAlias },
+    );
+    if (bot.status !== 200) throw new Error(JSON.stringify(bot.body));
+  };
+  await point("coder", "coder-fast");
+  return () => point("default", "fast");
 }

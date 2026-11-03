@@ -188,8 +188,8 @@ their events, messages, and questions; `sandbox_start` (gated by each bot's `san
 `sandbox_wait`, `sandbox_status`, `sandbox_message`, `sandbox_cancel`; dispatch within project and bot concurrency and
 provisioning with a job token as the only credential; the supervisor and its protocol (`sandbox:events`, `heartbeat`,
 `complete`); the in-sandbox tools on `/mcp` (status, ask and check, request help, artifacts, memory search) behind a
-principal split over HTTP and MCP; the model proxy (Anthropic, the bot's models, a token budget) and the MCP gateway
-(the bot's allowlist); relays of status, questions, help, and endings to the conversation; the reaper's six sweeps;
+principal split over HTTP and MCP; the model proxy (Anthropic for Claude Code, OpenAI for Codex, the bot's models, a
+token budget) and the MCP gateway (the bot's allowlist); relays of status, questions, help, and endings to the conversation; the reaper's six sweeps;
 `sandbox-job:*` and `project:settings-edit`; the development and test images; the Sandboxes settings, job pages, and
 transcript block; `hypotenuse sandbox` and `project settings`; and `sandboxes.md`.
 No other phase is built; every later plan's **Learnings from the

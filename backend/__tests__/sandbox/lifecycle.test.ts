@@ -32,6 +32,7 @@ import {
   liveLedger,
   runStarts,
   surfaceTexts,
+  useOpenAiModels,
 } from "./harness";
 
 /**
@@ -96,11 +97,13 @@ function scenario(...directives: Record<string, unknown>[]): string {
  * Start a conversation whose first step starts a job, and bring the job up.
  * @param task - The job's task.
  * @param extra - More `sandbox_start` inputs.
+ * @param beforeStart - Run after the job is written, before it is provisioned.
  * @returns The conversation and job ids.
  */
 async function startJob(
   task: string,
   extra: Record<string, unknown> = {},
+  beforeStart?: () => Promise<void>,
 ): Promise<{ conversationId: number; jobId: number }> {
   stage.models.play([
     {
@@ -136,6 +139,7 @@ async function startJob(
       );
     throw new Error(`${e.message}\n${tail.join("\n")}`);
   });
+  await beforeStart?.();
   expect(await runStarts()).toEqual(["sandbox-job:start"]);
   return { conversationId, jobId: job.id };
 }
@@ -355,6 +359,106 @@ describeDocker("a job, end to end", () => {
   );
 });
 
+describeDocker("a job for a bot on OpenAI models runs Codex", () => {
+  test(
+    "Codex is configured to reach models and MCP through us with the job token by name, its JSONL becomes the job's transcript, and its result wakes the parent",
+    async () => {
+      stage.models.script("The diff looks fine.");
+      // The conversation's own loop runs on the scripted Anthropic model;
+      // the bot moves to OpenAI models after `sandbox_start` writes the job
+      // and before it is provisioned, which is when its models are read.
+      // Set inside the callback, so held in an object TypeScript cannot narrow.
+      const openAi: { restore?: () => Promise<void> } = {};
+      const { conversationId, jobId } = await startJob(
+        scenario(
+          { op: "sh", command: 'cat "$CODEX_HOME/config.toml"' },
+          { op: "status", state: "reviewing", message: "Reading the diff" },
+          { op: "model", prompt: "Review the diff" },
+          { op: "artifact", name: "result", content: "No issues found" },
+          { op: "result", text: "Reviewed the diff with Codex." },
+        ),
+        {},
+        async () => {
+          openAi.restore = await useOpenAiModels(stage);
+        },
+      );
+      try {
+        const job = await ended(jobId);
+        expect(job.status).toBe("succeeded");
+        expect(job.closingText).toBe("Reviewed the diff with Codex.");
+        expect(job.cliSessionId).toStartWith("stub-session-");
+        expect(job.artifacts.result.content).toBe("No issues found");
+        expect(job.reportedStatus).toBe("reviewing");
+        expect(job.usage.requests).toBe(1);
+        expect(job.usage.inputTokens).toBe(10);
+
+        // The model proxy signed Codex's Responses request with the OpenAI
+        // connection's key; the sandbox only ever sent its job token.
+        const proxied = stage.models.requests.filter(
+          (r) =>
+            r.path === "/openai/v1/responses" &&
+            r.body.includes("Review the diff"),
+        );
+        expect(proxied).toHaveLength(1);
+        expect(proxied[0].headers.authorization).toBe(`Bearer ${MODEL_KEY}`);
+        expect(JSON.parse(proxied[0].body).model).toBe("scripted-large");
+
+        // The job's transcript is Codex's, normalized.
+        const events = await api.db.db
+          .select()
+          .from(sandboxJobEvents)
+          .where(eq(sandboxJobEvents.jobId, jobId));
+        expect(
+          events.some(
+            (e) =>
+              e.kind === "init" &&
+              (e.payload as { type?: string }).type === "thread.started",
+          ),
+        ).toBe(true);
+        expect(
+          events.some(
+            (e) =>
+              e.kind === "tool_use" && e.toolName === "sandbox-report-status",
+          ),
+        ).toBe(true);
+        // Codex's config names the proxy and the job token's variable, and
+        // holds no credential.
+        const config = events.find(
+          (e) =>
+            e.kind === "tool_result" &&
+            String(e.text).includes("[model_providers.hypotenuse]"),
+        );
+        expect(config?.text).toContain('env_key = "HYPOTENUSE_JOB_TOKEN"');
+        expect(config?.text).toContain("/api/proxy/model/openai/v1");
+        expect(config?.text).toContain("[mcp_servers.hypotenuse]");
+        expect(config?.text).not.toContain(MODEL_KEY);
+        expect(config?.text).not.toMatch(/hyp_job_/);
+      } finally {
+        await openAi.restore?.();
+      }
+
+      stage.models.play([
+        {
+          toolCalls: [
+            {
+              name: "reply_and_wait",
+              input: { text: "Codex found no issues." },
+            },
+          ],
+          expect: { lastMessageIncludes: "No issues found" },
+        },
+      ]);
+      await eventually(
+        "the parent to wake with the result",
+        async () => (await conversation(conversationId)).state === "working",
+      );
+      await settle(conversationId);
+      expect(stage.models.expectationFailures).toEqual([]);
+    },
+    JOB_TIMEOUT * 2,
+  );
+});
+
 describeDocker("the only credential in a sandbox is its job token", () => {
   test(
     "its environment and /work hold the token and no key; its MCP config holds only a reference",
@@ -413,6 +517,73 @@ describeDocker("the only credential in a sandbox is its job token", () => {
       expect(parent.state).toBe("working");
       // Settle the tick its waking owes, so no later test's scripted step is
       // answered by this conversation.
+      stage.models.play([
+        {
+          toolCalls: [
+            { name: "reply_and_wait", input: { text: "Stopped it." } },
+          ],
+          expect: { lastMessageIncludes: "was cancelled" },
+        },
+      ]);
+      await settle(job.parentConversationId);
+      await eventually(
+        "the ledger to close",
+        async () => (await liveLedger(jobId)).length === 0,
+      );
+    },
+    JOB_TIMEOUT,
+  );
+
+  test(
+    "a Codex job's environment holds the token once and no Anthropic variables; Codex's config names it and holds no credential",
+    async () => {
+      // Set inside the callback, so held in an object TypeScript cannot narrow.
+      const openAi: { restore?: () => Promise<void> } = {};
+      const { jobId } = await startJob(
+        scenario({ op: "hang" }),
+        {},
+        async () => {
+          openAi.restore = await useOpenAiModels(stage);
+        },
+      );
+      try {
+        const id = await containerOf(jobId);
+        const env = (await dockerExec(id, "env")).split("\n").filter(Boolean);
+        const tokenVars = env.filter((l) => l.includes("=hyp_job_"));
+        expect(tokenVars.map((l) => l.split("=")[0])).toEqual([
+          "HYPOTENUSE_JOB_TOKEN",
+        ]);
+        const token = tokenVars[0].slice(tokenVars[0].indexOf("=") + 1);
+        expect(env.filter((l) => l.startsWith("ANTHROPIC_"))).toEqual([]);
+        expect(env).toContain("HYPOTENUSE_AGENT=codex");
+        expect(env).toContain("CODEX_HOME=/work/.hypotenuse/codex");
+        expect(
+          await dockerExec(id, `grep -rl '${MODEL_KEY}' /work || true`),
+        ).toBe("");
+        expect(await dockerExec(id, `grep -rl '${token}' /work || true`)).toBe(
+          "",
+        );
+        const toml = await dockerExec(
+          id,
+          "cat /work/.hypotenuse/codex/config.toml",
+        );
+        expect(toml).toContain('bearer_token_env_var = "HYPOTENUSE_JOB_TOKEN"');
+        // Claude Code's files are not written for a Codex job.
+        expect(
+          await dockerExec(id, "ls /work/.hypotenuse/mcp.json 2>&1 || true"),
+        ).toContain("No such file");
+      } finally {
+        await openAi.restore?.();
+      }
+      const res = await call(
+        stage.u.url,
+        stage.u.peach,
+        "POST",
+        `/project/${stage.u.projectId}/sandbox-job/${jobId}/cancel`,
+      );
+      expect(res.status).toBe(200);
+      const job = await ended(jobId);
+      expect(job.status).toBe("cancelled");
       stage.models.play([
         {
           toolCalls: [

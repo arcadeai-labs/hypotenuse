@@ -22,7 +22,11 @@ import {
   dispatchPendingJobs,
   jobForIntent,
 } from "../ops/SandboxJobOps";
-import { jobModels, planEgress } from "../ops/SandboxProvisionOps";
+import {
+  jobModels,
+  planEgress,
+  unsupportedCodingModel,
+} from "../ops/SandboxProvisionOps";
 import { emitStatus } from "../ops/SurfaceOps";
 import {
   assertSandboxProviderAllowed,
@@ -303,8 +307,8 @@ export const sandboxStart: ToolDefinition<
     if (!(await jobModels(ctx.db, ctx.bot))) {
       throw new ToolError(
         "sandbox_unavailable",
-        `The coding agent speaks the Anthropic API, and your "${ctx.bot.modelAlias}" model is not on an Anthropic connection.`,
-        "Tell the person; a project admin can point the model at an Anthropic connection under Settings → Models.",
+        unsupportedCodingModel(null, ctx.bot.modelAlias),
+        "Tell the person; a project admin can point the model at an Anthropic or OpenAI connection under Settings → Models.",
       );
     }
     const requester = await latestRequester(ctx);

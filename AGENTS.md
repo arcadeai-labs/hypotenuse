@@ -49,7 +49,7 @@ teammate's `approve <id>`; `auto-on-low-risk` sends what the `fast` model rates 
 fake. Bots **hand code work to sandboxes**: `sandbox_start` (approval-gated by default) writes a job the conversation
 owns and `sandbox_wait` parks on it; a dispatch clock provisions an ephemeral sandbox — a Vercel Sandbox on the
 project's own Vercel account in production (a sealed `project_connections` row, probed before it is saved), a
-`docker` container in development — whose supervisor runs Claude Code and pushes its transcript, heartbeats, and completion over HTTP; the coding agent
+`docker` container in development — whose supervisor runs Claude Code (or Codex, for a bot on an OpenAI model) and pushes its transcript, heartbeats, and completion over HTTP; the coding agent
 reports status, asks the conversation questions (the bot answers), or asks the team, and its result wakes the bot. The
 sandbox holds one credential, its job token: models through the model proxy, the bot's allowlisted MCP tools through
 the gateway, our own sandbox tools on `/mcp`; a reaper ends dead, stalled, stuck, overlong, unacknowledged, and idle

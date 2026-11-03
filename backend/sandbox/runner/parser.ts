@@ -307,14 +307,14 @@ export function parseCodexLine(line: unknown): ParseResult {
     );
 
     if (itemType === "assistant_message" || itemType === "agent_message") {
+      const text = asText(prop(item, "text"));
       return {
-        events: [
-          {
-            type: "assistant",
-            text: asText(prop(item, "text")),
-            payload: line,
-          },
-        ],
+        events: [{ type: "assistant", text, payload: line }],
+        // Codex's turn ends with `turn.completed`, which carries no text, so
+        // the last finished agent message is the run's closing text.
+        ...(type === "item.completed" && text !== undefined
+          ? { finalText: text }
+          : {}),
       };
     }
     if (itemType === "reasoning") {
@@ -340,10 +340,15 @@ export function parseCodexLine(line: unknown): ParseResult {
                 prop(item, "command") ??
                 (itemType === "command_execution" ? "shell" : "mcp"),
             ),
+            // A command's output, or an MCP call's `result` (or `error`)
+            // once it has one; the command or the arguments before.
             text: asText(
               prop(item, "aggregated_output") ??
                 prop(item, "output") ??
-                prop(item, "command"),
+                prop(item, "result") ??
+                prop(item, "error") ??
+                prop(item, "command") ??
+                prop(item, "arguments"),
             ),
             payload: line,
           },
