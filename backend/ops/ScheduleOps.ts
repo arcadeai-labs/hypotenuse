@@ -863,6 +863,8 @@ export async function claimDue(now: Date = new Date()): Promise<number[]> {
         next = null;
       }
       if (slot && slot < s.nextRunAt) slot = null;
+      // Set only when a run is written: a slot dropped as late never ran.
+      let ranAt: Date | null = null;
       const late = slot ? now.getTime() - slot.getTime() : 0;
       if (
         slot &&
@@ -879,7 +881,10 @@ export async function claimDue(now: Date = new Date()): Promise<number[]> {
           })
           .onConflictDoNothing()
           .returning({ id: scheduleRuns.id });
-        if (run) runIds.push(run.id);
+        if (run) {
+          runIds.push(run.id);
+          ranAt = slot;
+        }
       }
       await tx
         .update(schedules)
@@ -887,7 +892,7 @@ export async function claimDue(now: Date = new Date()): Promise<number[]> {
           next
             ? {
                 nextRunAt: next,
-                ...(slot ? { lastRunAt: slot } : {}),
+                ...(ranAt ? { lastRunAt: ranAt } : {}),
               }
             : // An expression that never runs again stops here.
               { enabled: false },
@@ -1074,10 +1079,19 @@ export async function fireRun(runId: number): Promise<FireOutcome> {
       const conversationId = await targetConversation(tx, schedule, bot, taken);
       const locked = await lockConversation(tx, conversationId);
       if (!locked) throw new Error("The conversation is gone.");
-      // The real guard: re-check under the conversation's lock.
+      // The real guard: re-check under the conversation's lock, against the
+      // schedule as it is now — a person may have disabled it while the
+      // guard ran. `FOR SHARE` after the conversation keeps the lock order,
+      // and makes a disable that is mid-commit land first.
+      const [current] = await tx
+        .select()
+        .from(schedules)
+        .where(eq(schedules.id, schedule.id))
+        .for("share");
+      if (!current) throw new Error("The schedule is gone.");
       const late = await disengagedReason(
         tx,
-        schedule,
+        current,
         locked.bot,
         taken.trigger,
       );

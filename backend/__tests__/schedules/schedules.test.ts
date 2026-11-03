@@ -326,6 +326,12 @@ describe("one slot, one run", () => {
       "2026-05-07T09:00:00.000Z",
     ]);
     expect(await runsOf(none.body.schedule.id)).toHaveLength(0);
+    const [dropped] = await api.db.db
+      .select()
+      .from(schedules)
+      .where(eq(schedules.id, none.body.schedule.id));
+    // A slot dropped as late never ran.
+    expect(dropped.lastRunAt).toBeNull();
     for (const s of [latest, none]) {
       const [row] = await api.db.db
         .select()
@@ -490,6 +496,40 @@ describe("the guard", () => {
       );
     expect(JSON.stringify(message[0].content)).toContain("Keep the moat clean");
     expect((message[0].content as { source: string }).source).toBe("schedule");
+  });
+
+  test("a schedule disabled while its guard answers does not wake the bot", async () => {
+    const { id } = await dueSchedule({ guard: "only if needed" });
+    stage.models.play([
+      {
+        toolCalls: [{ name: "json", input: { act: true, reason: "Needed." } }],
+        hang: true,
+      },
+    ]);
+    const [claimed] = await claimDue();
+    const firing = fireRun(claimed);
+    for (let i = 0; i < 200 && stage.models.completions.length === 0; i++) {
+      await Bun.sleep(10);
+    }
+    const disabled = await call(
+      stage.u.url,
+      stage.u.peach,
+      "POST",
+      `/project/${stage.u.projectId}/schedule/${id}`,
+      { enabled: false },
+    );
+    expect(disabled.status).toBe(200);
+    stage.models.release();
+    expect(await firing).toBe("skipped");
+    const [run] = await runsOf(id);
+    expect(run.status).toBe("skipped");
+    expect(run.reason).toBe("The schedule was disabled.");
+    expect(
+      await api.db.db
+        .select()
+        .from(conversationInbox)
+        .where(eq(conversationInbox.source, "schedule")),
+    ).toHaveLength(0);
   });
 
   test("a guard that cannot answer fails the run, and nothing wakes", async () => {
@@ -686,10 +726,13 @@ describe("a bot proposes; a person arms", () => {
     expect(enabled.status).toBe(200);
     expect(enabled.body.schedule.enabled).toBe(true);
     expect(enabled.body.schedule.nextRunAt).toBeGreaterThan(Date.now());
-    const [audit] = await api.db.db
-      .select()
-      .from(auditLogs)
-      .where(eq(auditLogs.action, "schedule:edit"));
+    const audit = (
+      await api.db.db
+        .select()
+        .from(auditLogs)
+        .where(eq(auditLogs.action, "schedule:edit"))
+    ).find((a) => a.targetPath?.endsWith(`/${proposed.id}`));
+    if (!audit) throw new Error("no audit row for the enable");
     expect((audit.before as { enabled: boolean }).enabled).toBe(false);
     expect((audit.after as { enabled: boolean }).enabled).toBe(true);
     // Armed, its slots fire.

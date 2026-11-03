@@ -239,7 +239,10 @@ Every combination `disengagedReason` decides, in order (the first that holds is 
 | a platform channel whose installation is not `active` | `The bot's <type> app is not installed.` |
 | otherwise (`none`, `web`, `api` channels skip only the bot and schedule rows) | — the slot wakes the target |
 
-It is checked twice: before the guard (to save its call) and again under the conversation's lock.
+It is checked twice: before the guard (to save its call) and again under the conversation's lock, against the
+schedule re-read `FOR SHARE` — a person can disable it while the guard is answering, and the row read before the
+guard would still say enabled. `lastRunAt` is written only when a run is: a slot `catchUp: none` drops as late never
+ran.
 
 ### Traps found while building
 
