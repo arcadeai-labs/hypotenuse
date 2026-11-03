@@ -154,6 +154,14 @@ export const conversations = pgTable(
       t.projectId,
       t.lastActivityAt,
     ),
+    // The dashboard's counts and feed: a project's conversations by state,
+    // and one bot's, each newest change first.
+    index("conversations_project_state_updated_idx").on(
+      t.projectId,
+      t.state,
+      t.updatedAt,
+    ),
+    index("conversations_bot_updated_idx").on(t.botId, t.updatedAt),
     index("conversations_working_idx")
       .on(t.state, t.wakeRequestedAt)
       .where(sql`${t.state} in ('working', 'waiting')`),

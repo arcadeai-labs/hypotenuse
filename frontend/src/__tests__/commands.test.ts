@@ -99,7 +99,7 @@ describe("bot and model commands", () => {
     expect(visited).toEqual(["/bots/new", "/settings/models", "/bots"]);
   });
 
-  test("Go to Bots, Conversations, Memory, and Sandboxes are offered now that their pages exist", () => {
+  test("Go to Home, Inbox, Bots, Conversations, Memory, and Sandboxes are offered now that their pages exist", () => {
     const ids = availableCommands(COMMANDS, contextRefusing({})).map(
       (c) => c.id,
     );
@@ -107,6 +107,7 @@ describe("bot and model commands", () => {
     expect(ids).toContain("go-conversations");
     expect(ids).toContain("go-memory");
     expect(ids).toContain("go-sandboxes");
-    expect(ids).not.toContain("go-home");
+    expect(ids).toContain("go-home");
+    expect(ids).toContain("go-inbox");
   });
 });

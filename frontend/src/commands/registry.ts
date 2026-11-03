@@ -31,7 +31,7 @@ export interface Command {
   id: string;
   title: string;
   /** Palette group heading. */
-  group: "Navigation" | "Project" | "Theme" | "View";
+  group: "Navigation" | "Project" | "Jump to" | "Theme" | "View";
   keywords?: string[];
   /** A key sequence as the keymap reads it: `"g s"`, `"?"`, `"["`, `"mod+k"`. */
   shortcut?: string;
@@ -210,6 +210,59 @@ export function chatCommands(
     requires: ["conversation:create"],
     run: (c) => c.navigate(`/bots/${bot.id}/chat`),
   }));
+}
+
+/**
+ * The palette's jumps: one per bot, recent conversation, and channel the
+ * person may read (each list is read through the action that gates it), so
+ * typing a name goes straight there.
+ * @param items - The bots, conversations, and channels.
+ * @returns The commands, bots first.
+ */
+export function jumpCommands(items: {
+  bots: readonly { id: number; name: string; slug: string }[];
+  conversations: readonly {
+    id: number;
+    title: string | null;
+    bot: { name: string };
+    channel: { name: string };
+  }[];
+  channels: readonly { id: number; name: string; type: string }[];
+}): Command[] {
+  return [
+    ...items.bots.map(
+      (bot): Command => ({
+        id: `jump-bot-${bot.id}`,
+        title: `Bot: ${bot.name}`,
+        group: "Jump to",
+        keywords: ["bot", bot.slug],
+        run: (c) => c.navigate(`/bots/${bot.id}`),
+      }),
+    ),
+    ...items.conversations.map(
+      (conv): Command => ({
+        id: `jump-conversation-${conv.id}`,
+        title: `Conversation: ${conv.title ?? `#${conv.id}`}`,
+        group: "Jump to",
+        keywords: [
+          "conversation",
+          String(conv.id),
+          conv.bot.name,
+          conv.channel.name,
+        ],
+        run: (c) => c.navigate(`/conversations/${conv.id}`),
+      }),
+    ),
+    ...items.channels.map(
+      (ch): Command => ({
+        id: `jump-channel-${ch.id}`,
+        title: `Channel: ${ch.name}`,
+        group: "Jump to",
+        keywords: ["channel", ch.type],
+        run: (c) => c.navigate(`/conversations?channelId=${ch.id}`),
+      }),
+    ),
+  ];
 }
 
 /**

@@ -1,0 +1,2 @@
+CREATE INDEX "conversations_project_state_updated_idx" ON "conversations" USING btree ("project_id","state","updated_at");--> statement-breakpoint
+CREATE INDEX "conversations_bot_updated_idx" ON "conversations" USING btree ("bot_id","updated_at");

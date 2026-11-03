@@ -1,4 +1,4 @@
-import { and, asc, count, eq, gt } from "drizzle-orm";
+import { and, asc, count, desc, eq, gt, lt } from "drizzle-orm";
 import {
   type Action,
   type ActionParams,
@@ -32,13 +32,14 @@ import { conversationEntries } from "../../schema/conversation_entries";
 export class ConversationEntries implements Action {
   name = "conversation:entries";
   description =
-    "Read a conversation's transcript in order: messages (role user or assistant), thinking, tool_call_intent and tool_result pairs, status_change, and compaction summaries. Pass since (a seq) to read only newer entries; the conversation's state is returned alongside, so a poller knows when the bot is done (state is not working). Requires membership and read access to the bot. Paginated.";
+    "Read a conversation's transcript in order: messages (role user or assistant), thinking, tool_call_intent and tool_result pairs, status_change, and compaction summaries. Pass since (a seq) to read only newer entries, or order=desc with before (a seq) to page backwards from the newest; the conversation's state is returned alongside, so a poller knows when the bot is done (state is not working). Requires membership and read access to the bot. Paginated.";
   middleware = [ProjectMemberMiddleware()];
   web = {
     route: "/project/:projectId/conversation/:conversationId/entries",
     method: HTTP_METHOD.GET,
   };
-  inputs = paginationInputs({ defaultLimit: 25 }).extend({
+  // A transcript page loads its last 200 entries at once.
+  inputs = paginationInputs({ defaultLimit: 25, maxLimit: 200 }).extend({
     projectId: idInput("The project"),
     conversationId: idInput("The conversation"),
     since: z.coerce
@@ -47,6 +48,18 @@ export class ConversationEntries implements Action {
       .min(0)
       .optional()
       .describe("Only entries with a seq greater than this"),
+    before: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .optional()
+      .describe("Only entries with a seq less than this (paging backwards)"),
+    order: z
+      .enum(["asc", "desc"])
+      .default("asc")
+      .describe(
+        "asc (oldest first, the default) or desc (newest first: pass desc to read a transcript's tail, then before to page back)",
+      ),
   });
 
   /**
@@ -71,13 +84,20 @@ export class ConversationEntries implements Action {
       params.since !== undefined
         ? gt(conversationEntries.seq, params.since)
         : undefined,
+      params.before !== undefined
+        ? lt(conversationEntries.seq, params.before)
+        : undefined,
     );
     const result = await paginate(
       api.db.db
         .select()
         .from(conversationEntries)
         .where(where)
-        .orderBy(asc(conversationEntries.seq))
+        .orderBy(
+          params.order === "desc"
+            ? desc(conversationEntries.seq)
+            : asc(conversationEntries.seq),
+        )
         .$dynamic(),
       api.db.db
         .select({ count: count() })

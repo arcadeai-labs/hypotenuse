@@ -629,12 +629,18 @@ export const CONVERSATIONS_PAGE_SIZE = 25;
 
 /**
  * The query string for one page of the list.
- * @param filters - The bot (when the list is one bot's) and the state.
+ * @param filters - The bot, the state, what a waiting one waits on, and the platform.
  * @param page - The 1-indexed page.
- * @returns `?page=…&limit=…`, with `botId` and `state` when set.
+ * @returns `?page=…&limit=…`, with `botId`, `state` (or `waitingKind`), and `channelType` when set.
  */
 export function conversationsQuery(
-  filters: { botId?: number; state?: string },
+  filters: {
+    botId?: number;
+    state?: string;
+    waitingKind?: string;
+    channelType?: string;
+    channelId?: number;
+  },
   page: number,
 ): string {
   const params = new URLSearchParams({
@@ -642,7 +648,11 @@ export function conversationsQuery(
     limit: String(CONVERSATIONS_PAGE_SIZE),
   });
   if (filters.botId) params.set("botId", String(filters.botId));
-  if (filters.state) params.set("state", filters.state);
+  // A waiting kind implies the waiting state; the server holds both.
+  if (filters.waitingKind) params.set("waitingKind", filters.waitingKind);
+  else if (filters.state) params.set("state", filters.state);
+  if (filters.channelType) params.set("channelType", filters.channelType);
+  if (filters.channelId) params.set("channelId", String(filters.channelId));
   return `?${params}`;
 }
 

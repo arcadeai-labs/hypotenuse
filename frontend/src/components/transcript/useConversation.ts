@@ -12,8 +12,11 @@ import {
   mergeEntries,
 } from "./model";
 
-/** The largest page `conversation:entries` serves. */
+/** The page the live re-read follows with. */
 const ENTRY_PAGE = 100;
+
+/** How many of the newest entries the page opens with, and pages back by. */
+export const TAIL_PAGE = 200;
 
 /** What {@link useConversation} hands the page. */
 export interface ConversationState {
@@ -33,6 +36,10 @@ export interface ConversationState {
   loaded: boolean;
   /** Read again now: the view, and entries after the last seq held. */
   refresh: () => Promise<void>;
+  /** Whether entries older than the oldest held remain on the server. */
+  hasOlder: boolean;
+  /** Read the next {@link TAIL_PAGE} entries before the oldest held. */
+  loadOlder: () => Promise<void>;
 }
 
 /** The answer `conversation:entries` gives. */
@@ -64,6 +71,8 @@ export function useConversation(
   const [error, setError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
   const held = useRef<Entry[]>([]);
+  const olderLeft = useRef(false);
+  const [hasOlder, setHasOlder] = useState(false);
   const busy = useRef(false);
   const again = useRef(false);
   // Which conversation the refs describe; an answer for another is dropped.
@@ -88,6 +97,17 @@ export function useConversation(
         const next = await apiFetch<ConversationViewResponse>(base);
         let since = lastSeqOf(held.current);
         let incoming: Entry[] = [];
+        if (held.current.length === 0) {
+          // The first read is the tail: the newest TAIL_PAGE entries, newest
+          // first, so a long transcript opens at its end. Older ones are
+          // paged in by `loadOlder`.
+          const tail = await apiFetch<EntriesPage>(
+            `${base}/entries?order=desc&limit=${TAIL_PAGE}`,
+          );
+          incoming = [...tail.entries].reverse();
+          olderLeft.current = tail.pagination.pages > 1;
+          since = lastSeqOf(incoming);
+        }
         for (;;) {
           const page = await apiFetch<EntriesPage>(
             `${base}/entries?since=${since}&limit=${ENTRY_PAGE}`,
@@ -103,6 +123,7 @@ export function useConversation(
         if (target.current !== key) return;
         held.current = mergeEntries(held.current, incoming);
         setEntries(held.current);
+        setHasOlder(olderLeft.current);
         setLive(surface);
         setView(next);
         setError(null);
@@ -117,9 +138,25 @@ export function useConversation(
     }
   }, [key, projectId, conversationId]);
 
+  const loadOlder = useCallback(async () => {
+    if (key === null || held.current.length === 0) return;
+    const base = `/project/${projectId}/conversation/${conversationId}`;
+    const before = held.current[0].seq;
+    const page = await apiFetch<EntriesPage>(
+      `${base}/entries?order=desc&limit=${TAIL_PAGE}&before=${before}`,
+    );
+    if (target.current !== key) return;
+    olderLeft.current = page.pagination.pages > 1;
+    held.current = mergeEntries(held.current, [...page.entries].reverse());
+    setEntries(held.current);
+    setHasOlder(olderLeft.current);
+  }, [key, projectId, conversationId]);
+
   useEffect(() => {
     target.current = key;
     held.current = [];
+    olderLeft.current = false;
+    setHasOlder(false);
     busy.current = false;
     again.current = false;
     setEntries([]);
@@ -140,5 +177,14 @@ export function useConversation(
     read();
   });
 
-  return { view, entries, live, error, loaded, refresh: read };
+  return {
+    view,
+    entries,
+    live,
+    error,
+    loaded,
+    refresh: read,
+    hasOlder,
+    loadOlder,
+  };
 }

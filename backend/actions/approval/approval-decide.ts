@@ -22,7 +22,7 @@ import {
 import { allowingPattern } from "../../ops/ApprovalPatternOps";
 import { serializeBotMcpServer } from "../../ops/BotMcpServerOps";
 import { canReadBot } from "../../ops/BotOps";
-import { enqueueTick } from "../../ops/ConversationOps";
+import { enqueueTick, pingConversation } from "../../ops/ConversationOps";
 import { idInput } from "../../ops/InputOps";
 import { approvals } from "../../schema/approvals";
 import { botMcpServers } from "../../schema/bot_mcp_servers";
@@ -168,19 +168,24 @@ export class ApprovalDecide extends AuditedAction {
       alwaysAllow: Boolean(params.alwaysAllow),
       via,
     };
-    connection.metadata.afterCommitData = { woke: result.woke };
+    connection.metadata.afterCommitData = {
+      woke: result.woke,
+      conversationId: row.approval.conversationId,
+    };
     return { approval: { ...approval, botName: row.bot.displayName } };
   }
 
   /**
-   * A woken conversation owes a tick.
+   * A woken conversation owes a tick; whether or not it woke (other
+   * approvals may still be pending), its transcript and the dashboard's
+   * inbox went stale.
    * @param _result - The response.
-   * @param _params - The inputs.
-   * @param connection - The woken conversation, if any.
+   * @param params - The inputs.
+   * @param connection - The woken conversation, if any, and the approval's.
    */
   async afterCommit(
     _result: unknown,
-    _params: ActionParams<ApprovalDecide>,
+    params: ActionParams<ApprovalDecide>,
     connection: AuditedConnection,
   ) {
     const woke = connection.metadata.afterCommitData?.woke as
@@ -188,5 +193,9 @@ export class ApprovalDecide extends AuditedAction {
       | null
       | undefined;
     if (woke) await enqueueTick(woke);
+    const conversationId = connection.metadata.afterCommitData?.conversationId;
+    if (typeof conversationId === "number") {
+      await pingConversation(params.projectId, conversationId);
+    }
   }
 }

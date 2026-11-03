@@ -9,6 +9,7 @@ import {
 import { ProjectMemberMiddleware } from "../../middleware/rbac";
 import { assertCanWriteBot } from "../../ops/BotOps";
 import { lockConversation } from "../../ops/ConversationOps";
+import { publishJobStale } from "../../ops/DashboardEffectsOps";
 import { idInput } from "../../ops/InputOps";
 import {
   finalizeSandboxJob,
@@ -103,5 +104,6 @@ export class SandboxJobCancel extends AuditedAction {
         reason: "person",
       });
     }
+    await publishJobStale(params.jobId);
   }
 }

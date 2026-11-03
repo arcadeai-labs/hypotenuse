@@ -34,6 +34,18 @@ import {
   visibleWidth,
 } from "../output/theme";
 
+/** One outbox row, as `conversation:outbox` answers it. */
+export interface OutboxRow {
+  id: number;
+  seq: number;
+  kind: string;
+  status: string;
+  attempts: number;
+  error: string | null;
+  createdAt: number;
+  sentAt: number | null;
+}
+
 /** How a conversation ended, as the server names it. */
 export type ServerOutcome = "completed" | "failed" | "cancelled";
 
@@ -77,7 +89,8 @@ interface ConversationViewResult {
   conversation: Conversation;
   bot: { id: number; name: string; slug: string; displayName: string };
   channel: Channel;
-  standing: { canMessage: boolean; canCancel: boolean };
+  platformUrl: string | null;
+  standing: { canMessage: boolean; canCancel: boolean; canRetry?: boolean };
 }
 
 /** One transcript entry as `conversation:entries` answers it. */
@@ -493,7 +506,7 @@ function emitThen(
 }
 
 /**
- * Register `conversation create|message|list|view|cancel|follow`.
+ * Register `conversation create|message|list|view|cancel|outbox|retry|follow`.
  * @param program - The root program.
  */
 export function registerConversationCommands(program: Command): void {
@@ -664,10 +677,23 @@ export function registerConversationCommands(program: Command): void {
       .option(
         "--state <state>",
         "only those working, hibernating, waiting, or ended",
+      )
+      .option(
+        "--waiting <kind>",
+        "only those waiting on answer, approval, help, sandbox, or timer",
+      )
+      .option(
+        "--platform <type>",
+        "only those on this platform: slack, linear, pylon, web, api, webhook",
       ),
   ).action(async function (this: Command) {
     await runCommand(this, async (ctx) => {
-      const flags = this.opts() as { bot?: string; state?: string };
+      const flags = this.opts() as {
+        bot?: string;
+        state?: string;
+        waiting?: string;
+        platform?: string;
+      };
       const client = ctx.signedInClient();
       const projectId = await ctx.projectId();
       const botId = flags.bot
@@ -676,7 +702,13 @@ export function registerConversationCommands(program: Command): void {
       const result = await client.request<
         Paginated<"conversations", ListedConversation>
       >("GET", `/project/${projectId}/conversations`, {
-        query: { ...pageQuery(this), botId, state: flags.state },
+        query: {
+          ...pageQuery(this),
+          botId,
+          state: flags.state,
+          waitingKind: flags.waiting,
+          channelType: flags.platform,
+        },
       });
       emit(
         ctx,
@@ -725,6 +757,7 @@ export function registerConversationCommands(program: Command): void {
             `status        ${statusText(c)}${c.cancelRequested ? " — cancelling" : ""}`,
             `bot           ${result.bot.name} (${result.bot.slug}, id ${result.bot.id})`,
             `channel       ${result.channel.name} (${result.channel.type})`,
+            `on platform   ${result.platformUrl ?? "-"}`,
             `turns         ${c.epoch}`,
             `entries       ${c.lastSeq}`,
             `callback      ${c.hasCallback ? "yes" : "-"}`,
@@ -754,6 +787,82 @@ export function registerConversationCommands(program: Command): void {
           noop: `Conversation ${id} had already ended: ${statusText(result.conversation)}`,
         };
         emit(ctx, result, () => words[result.result]);
+      });
+    });
+
+  withPaging(
+    conversation
+      .command("outbox")
+      .description(
+        "List what a conversation sent to its platform, newest first, with each row's delivery status",
+      )
+      .argument("<conversation>", "the conversation's id")
+      .option(
+        "--status <status>",
+        "only rows pending, sending, sent, failed, undeliverable, or superseded",
+      ),
+  ).action(async function (this: Command, rawId: string) {
+    await runCommand(this, async (ctx) => {
+      const id = conversationId(rawId);
+      const flags = this.opts() as { status?: string };
+      const projectId = await ctx.projectId();
+      const result = await ctx
+        .signedInClient()
+        .request<Paginated<"outbox", OutboxRow>>(
+          "GET",
+          `/project/${projectId}/conversation/${id}/outbox`,
+          { query: { ...pageQuery(this), status: flags.status } },
+        );
+      emit(
+        ctx,
+        result,
+        () =>
+          table(
+            result.outbox.map((r) => ({
+              id: r.id,
+              seq: r.seq,
+              kind: r.kind,
+              status: r.status,
+              attempts: r.attempts,
+              error: r.error ?? "",
+              created: when(r.createdAt),
+            })),
+            [
+              { key: "id" },
+              { key: "seq" },
+              { key: "kind" },
+              { key: "status" },
+              { key: "attempts" },
+              { key: "error", maxWidth: 40 },
+              { key: "created" },
+            ],
+          ) + pageFooter(result.pagination),
+      );
+    });
+  });
+
+  conversation
+    .command("retry")
+    .description(
+      "Retry a conversation whose turn failed: the bot starts a new turn, told a person asked it to try again",
+    )
+    .argument("<conversation>", "the conversation's id")
+    .action(async function (this: Command, rawId: string) {
+      await runCommand(this, async (ctx) => {
+        const id = conversationId(rawId);
+        const projectId = await ctx.projectId();
+        const result = await ctx
+          .signedInClient()
+          .request<{ conversation: Conversation }>(
+            "POST",
+            `/project/${projectId}/conversation/${id}/retry`,
+          );
+        emit(
+          ctx,
+          result,
+          () =>
+            `Retrying conversation ${id}: ${statusText(result.conversation)}`,
+        );
       });
     });
 

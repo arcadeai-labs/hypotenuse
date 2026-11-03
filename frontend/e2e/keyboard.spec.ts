@@ -27,18 +27,19 @@ test("⌘K opens the palette, filters, and runs a navigation command", async ({
   await expect(page).toHaveURL(/\/docs\/style-guide$/);
 });
 
-test("a destination that is not built yet is neither offered nor reachable by its keys", async ({
+test("g h goes home, which asks a signed-out visitor to sign in first, and the palette offers Home", async ({
   page,
 }) => {
   await openStatus(page);
-  await page.keyboard.press("g");
-  await page.keyboard.press("h");
-  await expect(page).toHaveURL(/\/status$/);
   await page.keyboard.press(`${mod}+k`);
   await page.getByTestId("command-palette-input").fill("Home");
   await expect(
     page.getByTestId("command-palette").getByText("Go to Home"),
-  ).toHaveCount(0);
+  ).toHaveCount(1);
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("g");
+  await page.keyboard.press("h");
+  await expect(page).toHaveURL(/\/sign-in\?next=%2Fhome$/);
 });
 
 test("a half-typed g survives a re-render", async ({ page }) => {

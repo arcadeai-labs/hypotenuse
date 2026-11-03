@@ -7,6 +7,7 @@ import {
   type TxHandle,
 } from "../../classes/AuditedAction";
 import { AdminMiddleware } from "../../middleware/rbac";
+import { publishJobStale } from "../../ops/DashboardEffectsOps";
 import { idInput } from "../../ops/InputOps";
 import { providerForProject } from "../../ops/SandboxCredentialOps";
 import { isTerminalJobStatus } from "../../ops/SandboxJobOps";
@@ -111,6 +112,22 @@ export class SandboxLedgerDestroy extends AuditedAction {
       .returning();
     const serialized = serializeSandbox(closed);
     connection.metadata.auditAfter = serialized;
+    connection.metadata.afterCommitData = { jobId: closed.jobId };
     return { sandbox: serialized };
+  }
+
+  /**
+   * Tell the sandboxes list its ledger changed.
+   * @param _result - The response.
+   * @param _params - The inputs.
+   * @param connection - Carries the destroyed sandbox's job, if any.
+   */
+  async afterCommit(
+    _result: unknown,
+    _params: ActionParams<SandboxLedgerDestroy>,
+    connection: AuditedConnection,
+  ) {
+    const jobId = connection.metadata.afterCommitData?.jobId;
+    if (typeof jobId === "number") await publishJobStale(jobId);
   }
 }

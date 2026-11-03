@@ -22,7 +22,7 @@ test("the sidebar collapses to icons with [ and with its toggle, and stays colla
   );
 });
 
-test("the sidebar lists 2.0's destinations in order, each disabled until its page exists", async ({
+test("the sidebar lists 2.0's destinations in order, every one a link to its page", async ({
   page,
 }) => {
   await page.goto("/status");
@@ -32,6 +32,7 @@ test("the sidebar lists 2.0's destinations in order, each disabled until its pag
     .evaluateAll((items) => items.map((i) => i.getAttribute("data-testid")));
   expect(ids).toEqual([
     "nav-home",
+    "nav-inbox",
     "nav-conversations",
     "nav-chat",
     "nav-approvals",
@@ -44,11 +45,8 @@ test("the sidebar lists 2.0's destinations in order, each disabled until its pag
     "nav-settings",
     "nav-docs",
   ]);
-  const home = page.getByTestId("nav-home");
-  await expect(home).toHaveAttribute("aria-disabled", "true");
-  await expect(home).toHaveAttribute("title", "Not available yet");
-  await home.click();
-  await expect(page).toHaveURL(/\/status$/);
+  await expect(page.getByTestId("nav-home")).toHaveAttribute("href", "/home");
+  await expect(page.getByTestId("nav-inbox")).toHaveAttribute("href", "/inbox");
   await expect(page.getByTestId("nav-sandboxes")).toHaveAttribute(
     "href",
     "/sandboxes",

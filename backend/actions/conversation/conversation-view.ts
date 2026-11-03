@@ -13,6 +13,8 @@ import {
 } from "../../middleware/rbac";
 import type { SessionImpl } from "../../middleware/session";
 import { canDecide } from "../../ops/ApprovalOps";
+import { canWriteBot } from "../../ops/BotOps";
+import { conversationUrl } from "../../ops/ConversationLinkOps";
 import {
   loadReadableConversation,
   serializeChannel,
@@ -70,6 +72,7 @@ export class ConversationView implements Action {
         displayName: bot.displayName,
       },
       channel: serializeChannel(channel),
+      platformUrl: await conversationUrl(api.db.db, conversation, channel),
       // Anyone who may talk to the bot may also stop it, and answer it.
       standing: {
         canMessage: true,
@@ -78,6 +81,11 @@ export class ConversationView implements Action {
           conversation.state === "waiting" &&
           conversation.waitingOn?.kind === "answer",
         canDecideApprovals: canDecide(bot, callerTags),
+        // Retrying spends a new turn on the bot's model: a bot writer's call.
+        canRetry:
+          conversation.state === "ended" &&
+          conversation.outcome === "failed" &&
+          canWriteBot(bot, callerTags),
       },
     };
   }

@@ -2,9 +2,20 @@ import type { BotView } from "@backend/actions/bot/bot-view";
 import type { ConversationCreate } from "@backend/actions/conversation/conversation-create";
 import type { ConversationList } from "@backend/actions/conversation/conversation-list";
 import type { ActionResponse } from "keryx";
+import { ExternalLink } from "lucide-react";
 import { useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import {
+  Link,
+  useNavigate,
+  useParams,
+  useSearchParams,
+} from "react-router-dom";
 import { useRead } from "../../components/bots/data";
+import {
+  useDashboardFrames,
+  useReadableBotIds,
+} from "../../components/dashboard/live";
+import { stateDetail } from "../../components/dashboard/model";
 import { ListLayout } from "../../components/layouts/ListLayout";
 import { SkeletonBlocks } from "../../components/SkeletonBlocks";
 import { relativeTime } from "../../components/shell/NotificationBell";
@@ -39,11 +50,35 @@ const STATE_FILTERS = [
   { value: "ended", label: "Ended" },
 ] as const;
 
+/** What a waiting conversation can wait on, as filter chips. */
+const WAITING_FILTERS = [
+  { value: "", label: "Any wait" },
+  { value: "answer", label: "Answer" },
+  { value: "approval", label: "Approval" },
+  { value: "help", label: "The team" },
+  { value: "sandbox", label: "Sandbox" },
+  { value: "timer", label: "Timer" },
+] as const;
+
+/** The platforms, as filter chips. */
+const PLATFORM_FILTERS = [
+  { value: "", label: "Every platform" },
+  { value: "slack", label: "Slack" },
+  { value: "linear", label: "Linear" },
+  { value: "pylon", label: "Pylon" },
+  { value: "web", label: "Chat" },
+  { value: "api", label: "API" },
+  { value: "webhook", label: "Webhook" },
+] as const;
+
 /**
  * `/conversations` and `/bots/:botId/conversations` — the project's
  * conversations, or one bot's, most recently active first: each row's state
  * glyph, where it lives, its title, how it ended, and when it last moved.
- * Chips filter by state, and the list pages.
+ * Chips filter by state, by what a waiting one waits on, and by platform
+ * (the home page links here with `?botId=&waitingKind=`), and the list pages.
+ * A row on Slack, Linear, or Pylon links to it there. The list follows its
+ * bots' dashboard channels and re-reads when one says conversations changed.
  *
  * A bot's list also starts a conversation with it over the API channel:
  * `conversation:create` takes the first message, and the page opens the new
@@ -52,20 +87,42 @@ const STATE_FILTERS = [
  */
 export function ConversationsPage() {
   const { botId: botParam } = useParams();
-  const botId = botParam ? Number(botParam) : undefined;
+  const [search] = useSearchParams();
+  const botId = botParam
+    ? Number(botParam)
+    : search.get("botId")
+      ? Number(search.get("botId"))
+      : undefined;
   const { activeProjectId, activeOrganizationId } = useAuth();
   const { reason } = useMay();
   const navigate = useNavigate();
-  const [state, setState] = useState("");
+  const [state, setState] = useState(
+    search.get("waitingKind") ? "waiting" : (search.get("state") ?? ""),
+  );
+  const [waitingKind, setWaitingKind] = useState(
+    search.get("waitingKind") ?? "",
+  );
+  const [platform, setPlatform] = useState(search.get("platform") ?? "");
+  const channelId = search.get("channelId")
+    ? Number(search.get("channelId"))
+    : undefined;
   const [chosen, setChosen] = useState({ key: "", page: 1 });
-  const filterKey = `${botId ?? ""}:${state}`;
+  const kind = state === "waiting" ? waitingKind : "";
+  const filterKey = `${botId ?? ""}:${state}:${kind}:${platform}:${channelId ?? ""}`;
   // The page belongs to the filters it was chosen under, so new filters read page 1.
   const page = chosen.key === filterKey ? chosen.page : 1;
 
   const list = useRead<ActionResponse<ConversationList>>(
     activeProjectId === null
       ? null
-      : `/project/${activeProjectId}/conversations${conversationsQuery({ botId, state }, page)}`,
+      : `/project/${activeProjectId}/conversations${conversationsQuery({ botId, state, waitingKind: kind, channelType: platform, channelId }, page)}`,
+  );
+  const readable = useReadableBotIds(activeProjectId);
+  useDashboardFrames(
+    activeProjectId,
+    botId ? readable.filter((id) => id === botId) : readable,
+    ["conversations"],
+    list.reload,
   );
   const bot = useRead<ActionResponse<BotView>>(
     activeProjectId !== null && botId
@@ -134,6 +191,32 @@ export function ConversationsPage() {
               {f.label}
             </button>
           ))}
+          {state === "waiting" &&
+            WAITING_FILTERS.map((f) => (
+              <button
+                key={`w-${f.value}`}
+                type="button"
+                className="conversation-filter"
+                aria-pressed={waitingKind === f.value}
+                onClick={() => setWaitingKind(f.value)}
+                data-testid={`conversation-waiting-${f.value || "any"}`}
+              >
+                {f.label}
+              </button>
+            ))}
+          <select
+            className="conversation-platform-filter"
+            aria-label="Platform"
+            value={platform}
+            onChange={(e) => setPlatform(e.target.value)}
+            data-testid="conversation-platform"
+          >
+            {PLATFORM_FILTERS.map((f) => (
+              <option key={f.value} value={f.value}>
+                {f.label}
+              </option>
+            ))}
+          </select>
         </div>
       }
     >
@@ -188,11 +271,13 @@ export function ConversationsPage() {
             )}
             {list.data?.conversations.length === 0 && (
               <div className="shell-empty" data-testid="no-conversations">
-                {state
-                  ? "No conversations in this state."
-                  : botId
-                    ? `No conversations with ${botName ?? "this bot"} yet. Write to it above to start one.`
-                    : "No conversations you can see yet. Open a bot and write to it to start one."}
+                {platform || kind || channelId
+                  ? "No conversations match these filters."
+                  : state
+                    ? "No conversations in this state."
+                    : botId
+                      ? `No conversations with ${botName ?? "this bot"} yet. Write to it above to start one.`
+                      : "No conversations you can see yet. Open a bot and write to it to start one."}
               </div>
             )}
             {list.data && list.data.conversations.length > 0 && (
@@ -202,38 +287,59 @@ export function ConversationsPage() {
                 data-testid="conversation-list"
               >
                 {list.data.conversations.map((c) => (
-                  <ListRow
-                    key={c.id}
-                    as={Link}
-                    to={`/conversations/${c.id}`}
-                    data-testid={`conversation-row-${c.id}`}
-                    data-state={c.state}
-                    glyph={
-                      <StatusGlyph
-                        {...conversationStatus(c)}
-                        label={conversationStateLabel(c)}
-                      />
-                    }
-                    identifier={c.channel.name}
-                    title={conversationTitle(c)}
-                    trailing={
-                      <>
-                        {c.state === "ended" && (
-                          <Chip data-testid={`conversation-outcome-${c.id}`}>
-                            {conversationStateLabel(c)}
-                          </Chip>
-                        )}
-                        {!botId && <BotBadge name={c.bot.name} />}
-                        <PlatformChip platform={platformOf(c.channel.type)} />
-                        <span
-                          className="conversation-activity tabular"
-                          title={new Date(c.lastActivityAt).toLocaleString()}
-                        >
-                          {relativeTime(c.lastActivityAt)}
+                  <div key={c.id} className="conversation-row-wrap">
+                    <ListRow
+                      as={Link}
+                      to={`/conversations/${c.id}`}
+                      data-testid={`conversation-row-${c.id}`}
+                      data-state={c.state}
+                      glyph={
+                        <StatusGlyph
+                          {...conversationStatus(c)}
+                          label={conversationStateLabel(c)}
+                        />
+                      }
+                      identifier={c.channel.name}
+                      title={
+                        <span className="dashboard-recent-title">
+                          <span>{conversationTitle(c)}</span>
+                          <span className="dashboard-detail">
+                            {stateDetail(c)}
+                          </span>
                         </span>
-                      </>
-                    }
-                  />
+                      }
+                      trailing={
+                        <>
+                          {c.state === "ended" && (
+                            <Chip data-testid={`conversation-outcome-${c.id}`}>
+                              {conversationStateLabel(c)}
+                            </Chip>
+                          )}
+                          {!botId && <BotBadge name={c.bot.name} />}
+                          <PlatformChip platform={platformOf(c.channel.type)} />
+                          <span
+                            className="conversation-activity tabular"
+                            title={new Date(c.lastActivityAt).toLocaleString()}
+                          >
+                            {relativeTime(c.lastActivityAt)}
+                          </span>
+                        </>
+                      }
+                    />
+                    {c.platformUrl && (
+                      <a
+                        href={c.platformUrl}
+                        target="_blank"
+                        rel="noreferrer noopener"
+                        className="conversation-platform-link"
+                        aria-label={`Open conversation ${c.id} on ${c.channel.type}`}
+                        title={`Open on ${c.channel.type}`}
+                        data-testid={`conversation-platform-link-${c.id}`}
+                      >
+                        <ExternalLink size={14} aria-hidden="true" />
+                      </a>
+                    )}
+                  </div>
                 ))}
               </ListGroup>
             )}

@@ -341,3 +341,48 @@ async function settle(
   }
   return final;
 }
+
+/**
+ * Shape an outbox row for the dashboard and `conversation:outbox`. The
+ * target names where it goes — never a credential (none is stored on the
+ * row) — and an API callback's URL loses its query string and fragment, the
+ * places a caller might have put a secret of its own. Timestamps are epoch ms.
+ * @param row - The row.
+ * @returns The serialized row.
+ */
+export function serializeOutboxMessage(row: OutboxMessage) {
+  const target =
+    row.target.type === "api-callback"
+      ? { type: "api-callback" as const, url: withoutQuery(row.target.url) }
+      : row.target;
+  return {
+    id: row.id,
+    conversationId: row.conversationId,
+    seq: row.seq,
+    kind: row.kind,
+    payload: row.payload,
+    target,
+    priority: row.priority,
+    status: row.status,
+    attempts: row.attempts,
+    externalMessageId: row.externalMessageId,
+    error: row.error,
+    nextAttemptAt: row.nextAttemptAt?.getTime() ?? null,
+    createdAt: row.createdAt.getTime(),
+    sentAt: row.sentAt?.getTime() ?? null,
+  };
+}
+
+/**
+ * A URL's origin and path only.
+ * @param url - The URL.
+ * @returns It without query or fragment; empty if it is not a URL.
+ */
+function withoutQuery(url: string): string {
+  try {
+    const u = new URL(url);
+    return `${u.origin}${u.pathname}`;
+  } catch {
+    return "";
+  }
+}

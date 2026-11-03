@@ -8,7 +8,9 @@ back. A bot holds nothing in memory between steps, so a conversation survives de
 
 Anyone who may [read a bot](/docs/bots#who-may-read-and-change-it) may see its conversations, write in them, and
 cancel them. **Conversations** in the sidebar lists the project's, newest activity first, and a bot's page lists its
-own; opening one shows its transcript, live.
+own; opening one shows its transcript, live. The list filters by state, by what a waiting conversation waits on, and
+by platform, and a conversation on Slack, Linear, or Pylon links to it there. [The dashboard](/docs/dashboard) shows
+every bot's conversations at once.
 
 ![Conversations: each with its state, bot, channel, and last activity](illustration:conversations)
 
@@ -67,3 +69,17 @@ message stays in the transcript as you wrote it.
 **Cancel** ends a conversation at once. A bot in the middle of a step stops within about a second; a call it was
 running is marked interrupted. Cancelling an ended conversation does nothing, and writing to a cancelled one starts a
 new turn.
+
+## Retrying a failed turn
+
+A conversation whose turn **failed** has a **Retry** button. The bot starts a new turn and is told that a person asked
+it to try again, so it reads why it failed before repeating itself. Nothing that already ran is run again: a call it
+was in the middle of when the turn failed stays marked interrupted. Retrying spends a turn on the bot's model, so it
+takes [write access to the bot](/docs/bots#who-may-read-and-change-it), and it is recorded in the
+[audit log](/docs/audit).
+
+## What it sent to the platform
+
+**Sent to the platform**, under the transcript, lists every message, status, plan, question, and approval card the
+conversation sent out, newest first, with whether each one was delivered. See
+[the dashboard](/docs/dashboard#conversations) for what each status means.

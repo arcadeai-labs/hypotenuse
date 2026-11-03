@@ -6,6 +6,7 @@ import { useRead } from "../../components/bots/data";
 import { ChatPanel } from "../../components/chat/ChatPanel";
 import { conversationViewOf } from "../../components/chat/model";
 import { usePeople } from "../../components/chat/usePeople";
+import { OutboxPanel } from "../../components/dashboard/OutboxPanel";
 import { GatedButton } from "../../components/GatedButton";
 import { LoadingLabel } from "../../components/LoadingLabel";
 import { DetailLayout } from "../../components/layouts/DetailLayout";
@@ -42,8 +43,10 @@ const ENDED = "This conversation has ended. Writing to it starts a new turn.";
 
 /**
  * `/conversations/:conversationId` — one conversation: its transcript, live,
- * with a box to write into it and a way to stop it; its state, bot, and
- * channel beside it.
+ * with a box to write into it, a way to stop it, and — when its turn failed —
+ * to retry it; its state, bot, channel, and a link to it on its platform
+ * beside it; and what it sent to the platform, with each delivery's status.
+ * A long transcript opens at its newest entries and pages back on request.
  *
  * The transcript follows the conversation's content-free channel and
  * re-reads entries after the newest it holds. Cancel is gated twice, both by
@@ -56,15 +59,17 @@ export function ConversationPage() {
   const { activeProjectId } = useAuth();
   const { reason } = useMay();
   const id = Number(conversationId);
-  const { view, entries, live, error, loaded, refresh } = useConversation(
-    activeProjectId,
-    Number.isSafeInteger(id) && id > 0 ? id : null,
-  );
+  const { view, entries, live, error, loaded, refresh, hasOlder, loadOlder } =
+    useConversation(
+      activeProjectId,
+      Number.isSafeInteger(id) && id > 0 ? id : null,
+    );
   const [search, setSearch] = useSearchParams();
   const seqsParam = search.get("seqs");
   const highlight = useMemo(() => parseSeqs(seqsParam), [seqsParam]);
   const scrolledTo = useRef<string | null>(null);
   const [cancelling, setCancelling] = useState(false);
+  const [retrying, setRetrying] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
   const bot = useRead<ActionResponse<BotView>>(
@@ -231,6 +236,22 @@ export function ConversationPage() {
     }
   }
 
+  /** Start the failed turn again; the transcript shows it working. */
+  async function onRetry() {
+    setRetrying(true);
+    setActionError(null);
+    try {
+      await apiFetch(`${base}/retry`, { method: "POST" });
+      await refresh();
+    } catch (err) {
+      setActionError(
+        err instanceof Error ? err.message : "Could not retry it.",
+      );
+    } finally {
+      setRetrying(false);
+    }
+  }
+
   /**
    * Write into the conversation.
    * @param text - The message.
@@ -264,16 +285,36 @@ export function ConversationPage() {
           </span>
         }
         actions={
-          <GatedButton
-            size="sm"
-            variant="outline-danger"
-            deniedReason={cancelDenied}
-            disabled={cancelling || conversation.cancelRequested}
-            onClick={onCancel}
-            data-testid="cancel-conversation"
-          >
-            {conversation.cancelRequested ? "Stopping…" : "Cancel"}
-          </GatedButton>
+          <>
+            {conversation.state === "ended" &&
+              conversation.outcome === "failed" && (
+                <GatedButton
+                  size="sm"
+                  variant="outline-primary"
+                  deniedReason={
+                    reason("conversation:retry") ??
+                    (view.standing.canRetry
+                      ? undefined
+                      : `Retrying spends a new turn on ${view.bot.name}'s model, so it takes write access to the bot.`)
+                  }
+                  disabled={retrying}
+                  onClick={onRetry}
+                  data-testid="retry-conversation"
+                >
+                  {retrying ? "Retrying…" : "Retry"}
+                </GatedButton>
+              )}
+            <GatedButton
+              size="sm"
+              variant="outline-danger"
+              deniedReason={cancelDenied}
+              disabled={cancelling || conversation.cancelRequested}
+              onClick={onCancel}
+              data-testid="cancel-conversation"
+            >
+              {conversation.cancelRequested ? "Stopping…" : "Cancel"}
+            </GatedButton>
+          </>
         }
         properties={
           <PropertiesPanel data-testid="conversation-properties">
@@ -313,6 +354,18 @@ export function ConversationPage() {
                 <span>{view.channel.name}</span>
               </span>
             </Property>
+            {view.platformUrl && (
+              <Property label="On the platform">
+                <a
+                  href={view.platformUrl}
+                  target="_blank"
+                  rel="noreferrer noopener"
+                  data-testid="conversation-platform-url"
+                >
+                  Open on {view.channel.type}
+                </a>
+              </Property>
+            )}
             <Property label="Last activity">
               <span
                 className="tabular"
@@ -390,6 +443,24 @@ export function ConversationPage() {
             />
           ) : (
             <>
+              {hasOlder && (
+                <button
+                  type="button"
+                  className="conversation-filter dashboard-older"
+                  onClick={() => {
+                    loadOlder().catch((err) =>
+                      setActionError(
+                        err instanceof Error
+                          ? err.message
+                          : "Could not read more.",
+                      ),
+                    );
+                  }}
+                  data-testid="transcript-older"
+                >
+                  Show earlier entries
+                </button>
+              )}
               <TranscriptView
                 items={items}
                 speakers={{
@@ -413,6 +484,11 @@ export function ConversationPage() {
                     approvalIds={conversation.waitingOn.approvalIds}
                   />
                 )}
+              <OutboxPanel
+                projectId={activeProjectId}
+                conversationId={conversation.id}
+                version={conversation.lastSeq}
+              />
               <Composer
                 onSend={onSend}
                 label="Send"

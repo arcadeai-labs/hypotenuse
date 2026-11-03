@@ -76,6 +76,12 @@ export const CHAT_MODEL_CONTROL_PORT = BACKEND_PORT + 1005;
 export const CHAT_MODEL_CONTROL_URL = `http://127.0.0.1:${CHAT_MODEL_CONTROL_PORT}`;
 
 /**
+ * A fourth scripted model, for `dashboard.spec.ts` alone, for the same reason.
+ */
+export const DASHBOARD_MODEL_CONTROL_PORT = BACKEND_PORT + 1006;
+export const DASHBOARD_MODEL_CONTROL_URL = `http://127.0.0.1:${DASHBOARD_MODEL_CONTROL_PORT}`;
+
+/**
  * Point a Postgres URL at another database on the same server, keeping its
  * credentials and host.
  * @param url - A `postgres://` URL.
@@ -141,6 +147,7 @@ export const BACKEND_ENV: Record<string, string> = {
   MCP_SERVER_CONTROL_PORT: String(MCP_CONTROL_PORT),
   MCP_MODEL_CONTROL_PORT: String(MCP_MODEL_CONTROL_PORT),
   CHAT_MODEL_CONTROL_PORT: String(CHAT_MODEL_CONTROL_PORT),
+  DASHBOARD_MODEL_CONTROL_PORT: String(DASHBOARD_MODEL_CONTROL_PORT),
   // A bot's capabilities are a plain list of its servers, not a summary its
   // `fast` model writes: that would take an answer a spec queued on the
   // shared scripted model for its conversation.

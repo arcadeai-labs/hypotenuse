@@ -67,7 +67,12 @@ cron schedule in a time zone to a bot, with an instruction, an optional guard th
 and a target — a channel (a new conversation each slot, its first Slack message opening the thread), one
 conversation, or nowhere; each slot runs once (`schedule_runs`, unique per slot) and never bursts after downtime, a
 scheduled turn may end silently, a schedule never re-engages what a person stopped, `goal-review` schedules have the
-bot review its goals, and a bot may only propose a schedule, disabled until a person enables it. The build order and every
+bot review its goals, and a bot may only propose a schedule, disabled until a person enables it. The dashboard is
+**mission control**: Home counts every readable bot's conversations by state and what they wait on, today's spend, and
+what needs a person; one Inbox holds every pending approval, help request, and sandbox question; a conversation links
+to its platform, pages back through a long transcript, shows what it sent and whether it arrived, and a failed turn
+can be retried; and every list follows a per-bot channel whose content-free frames say only which read went stale.
+The build order and every
 > plan are in
 > [`docs/plans/README.md`](./docs/plans/README.md); the system on one page is
 > [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md). Hypotenuse **v1** — local coding agents answering

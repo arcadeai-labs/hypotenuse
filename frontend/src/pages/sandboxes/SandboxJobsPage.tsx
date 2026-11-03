@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { type BotRow, useRead } from "../../components/bots/data";
+import { useDashboardFrames } from "../../components/dashboard/live";
 import { listQuery } from "../../components/help/model";
 import { ListLayout } from "../../components/layouts/ListLayout";
 import { SkeletonBlocks } from "../../components/SkeletonBlocks";
@@ -53,6 +54,18 @@ export function SandboxJobsPage() {
       : `/project/${activeProjectId}/bots?limit=100`,
   );
   const pages = list.data?.pagination.pages ?? 0;
+  const botIds = useMemo(
+    () => bots.data?.bots.map((b) => b.id) ?? [],
+    [bots.data],
+  );
+  // A job's own frames, and its conversation's: a job starts and ends with
+  // a relay into the conversation that owns it.
+  useDashboardFrames(
+    activeProjectId,
+    botId ? botIds.filter((id) => String(id) === botId) : botIds,
+    ["sandboxes", "conversations"],
+    list.reload,
+  );
 
   return (
     <ListLayout

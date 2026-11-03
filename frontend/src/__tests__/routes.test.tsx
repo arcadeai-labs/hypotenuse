@@ -53,16 +53,16 @@ describe("routes", () => {
     expect(html).toContain("Asking the server");
   });
 
-  test("every destination is in the sidebar; one not built yet is disabled and says so without a phase", () => {
+  test("every destination is in the sidebar and built: none is drawn disabled, and none names a phase", () => {
     const html = renderAt("/status");
-    for (const id of ["home"]) {
+    for (const id of ["home", "inbox"]) {
       const item = html.match(
         new RegExp(`<[a-z]+[^>]*data-testid="nav-${id}"[^>]*>`),
       )?.[0];
       expect(item, id).toBeDefined();
-      expect(item).toContain('aria-disabled="true"');
-      expect(item).toContain('title="Not available yet"');
+      expect(item).not.toContain('aria-disabled="true"');
     }
+    expect(html).not.toContain('title="Not available yet"');
     expect(html).not.toMatch(/phase/i);
   });
 

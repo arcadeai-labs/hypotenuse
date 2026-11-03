@@ -38,7 +38,9 @@ import { DocsPage } from "./pages/docs/DocsPage";
 import { EventsPage } from "./pages/EventsPage";
 import { HelpInboxPage } from "./pages/help/HelpInboxPage";
 import { HelpRequestPage } from "./pages/help/HelpRequestPage";
+import { ProjectHomePage } from "./pages/home/ProjectHomePage";
 import { InvitesPage } from "./pages/InvitesPage";
+import { InboxPage } from "./pages/inbox/InboxPage";
 import { HomePage } from "./pages/marketing/HomePage";
 import { LegacyBotMemoryRedirect } from "./pages/memory/LegacyBotMemoryRedirect";
 import { MemoryDocumentPage } from "./pages/memory/MemoryDocumentPage";
@@ -109,6 +111,8 @@ export function App() {
                   <Route path="/account" element={<AccountPage />} />
                   <Route path="/invites" element={<InvitesPage />} />
                   <Route path="/audit" element={<AuditLogPage />} />
+                  <Route path="/home" element={<ProjectHomePage />} />
+                  <Route path="/inbox" element={<InboxPage />} />
                   <Route path="/approvals" element={<ApprovalsPage />} />
                   <Route
                     path="/approvals/:approvalId"
